@@ -221,7 +221,25 @@ user_permissions
 - **UI gates** — hide/disable modules, features, and buttons the user can't use.
 - **RLS policies in Postgres** — the real security boundary (including `created_by` checks for submit-only). Never trust the client alone.
 
-Permission checks resolve as: *authenticated user → HR record → per-module/per-feature grant → access level (+ ownership for submit-only)*.
+Permission checks resolve as: *authenticated user → staff record → per-module/per-feature grant (per venue) → access level (+ ownership for submit-only)*.
+
+### Home venue vs. access scope (confirmed)
+
+Two separate things — don't conflate them:
+
+- **Home venue** — where a person *belongs*: their HR home, where their staff record + employment/payroll live. **Exactly one.**
+- **Access scope** — where a person can *work in the app*: granted via `user_permissions`, and can span **one venue, several, or all**. Independent of home venue.
+
+So an employee registered at Orilla can be granted access to Orilla **and** a second venue; their HR record stays only at Orilla. A grant with `venue_id = null` (or the Global venue) means **group-wide** access to that module/feature across all venues.
+
+### Two kinds of user (both are staff records)
+
+Strict linkage still holds — **every login maps to exactly one staff record** — but a staff record is one of:
+
+- **Venue staff** — home = a real venue (e.g. Orilla). Part of that venue's HR roster/process.
+- **Group staff** — home = **Global** (corporate/ownership/multi-venue people, e.g. the superadmin). *Not* bound to any single venue's HR process; exists at the group level. These are the "additional people" who administer across venues.
+
+This keeps HR clean (a venue's roster is only its venue staff) while letting group-level people and cross-venue employees exist without hacks.
 
 ---
 
@@ -231,7 +249,8 @@ Permission checks resolve as: *authenticated user → HR record → per-module/p
 - **Schema:** every operational record carries `venue_id` from day one, so adding a venue = adding data (no migration).
 - **Data import:** built to expand — new venues can be onboarded/imported without schema changes.
 - **Later:** consolidated cross-venue reports & dashboards layer on top of the same tables (group by / roll up across `venue_id`).
-- **Permissions:** a user's access can optionally be scoped to specific venue(s) via the `venue_id` on the permission grant.
+- **Home venue:** each staff record has one `home_venue_id` (a real venue, or **Global** for group staff — see §5).
+- **Permissions:** a user's access is scoped per grant via `venue_id` — one venue, several (multiple grants), or all (`null`/Global = group-wide). Access is independent of home venue.
 
 ---
 
