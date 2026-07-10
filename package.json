@@ -1,6 +1,7 @@
 {
   "name": "ss-ops-hub",
   "private": true,
+  "packageManager": "pnpm@10.28.0",
   "scripts": {
     "dev": "pnpm --filter @ss-ops-hub/web dev",
     "build": "pnpm --filter @ss-ops-hub/web build",
@@ -10,6 +11,7 @@
     "db:migrate": "node scripts/apply-pending-migrations.mjs"
   },
   "devDependencies": {
+    "next": "16.2.10",
     "pg": "^8.22.0",
     "typescript": "^5.7.3"
   }
