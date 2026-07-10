@@ -1,14 +1,14 @@
-import { AppHeader } from "@/components/layout/app-header";
-import { AppSidebar } from "@/components/layout/app-sidebar";
-import {
-  VenueProvider,
-  venueThemeStyle,
-} from "@/components/providers/venue-provider";
+import { AppShellLayout } from "@/components/layout/app-shell-layout";
+import type { ShellUser } from "@/components/layout/user-profile-menu";
+import { VenueProvider } from "@/components/providers/venue-provider";
+import { venueThemeStyle } from "@/lib/venue/theme";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { Venue } from "@/lib/types/database";
 
 type AppShellProps = {
   venue: Venue;
+  venues: Venue[];
+  user: ShellUser;
   showSettings?: boolean;
   notifications: NotificationRow[];
   unreadCount: number;
@@ -17,6 +17,8 @@ type AppShellProps = {
 
 export function AppShell({
   venue,
+  venues,
+  user,
   showSettings = false,
   notifications,
   unreadCount,
@@ -25,18 +27,19 @@ export function AppShell({
   return (
     <VenueProvider initialVenue={venue}>
       <div
-        className="flex min-h-screen flex-col bg-[var(--venue-secondary,#F0F3DD)]/30 md:flex-row"
+        className="h-dvh overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]/30"
         style={venueThemeStyle(venue)}
       >
-        <AppSidebar venue={venue} showSettings={showSettings} />
-        <div className="flex min-h-screen flex-1 flex-col">
-          <AppHeader
-            venue={venue}
-            notifications={notifications}
-            unreadCount={unreadCount}
-          />
-          <main className="flex-1 p-4 md:p-8">{children}</main>
-        </div>
+        <AppShellLayout
+          venue={venue}
+          venues={venues}
+          user={user}
+          showSettings={showSettings}
+          notifications={notifications}
+          unreadCount={unreadCount}
+        >
+          {children}
+        </AppShellLayout>
       </div>
     </VenueProvider>
   );

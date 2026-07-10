@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { VenueGrid } from "@/components/venue/venue-grid";
-import { canAccessGlobal } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function SelectVenuePage() {
@@ -18,16 +17,18 @@ export default async function SelectVenuePage() {
     supabase.from("user_permissions").select("*").eq("user_id", user.id),
   ]);
 
-  const showGlobal = canAccessGlobal(permissions ?? []);
-  const sorted = [
-    ...(venues ?? []).filter((v) => !v.is_global),
-    ...(showGlobal ? (venues ?? []).filter((v) => v.is_global) : []),
-  ];
+  const sorted = (venues ?? []).filter((v) => !v.is_global);
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center bg-[#E9E3D6] px-4 py-16">
+    <div className="relative h-dvh overflow-hidden bg-[#E9E3D6]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_55%)]" />
-      <VenueGrid venues={sorted} />
+      <div className="relative grid h-full grid-rows-[3fr_auto_1fr]">
+        <div aria-hidden />
+        <div className="flex min-h-0 items-center justify-center overflow-hidden px-4">
+          <VenueGrid venues={sorted} />
+        </div>
+        <div aria-hidden />
+      </div>
     </div>
   );
 }

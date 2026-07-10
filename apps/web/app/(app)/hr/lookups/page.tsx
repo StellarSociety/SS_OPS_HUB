@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { HrSubNav } from "@/components/hr/hr-sub-nav";
 import { LookupsAdmin } from "@/components/hr/lookups-admin";
 import { canAdminLookups } from "@/lib/hr/permissions";
 import {
@@ -62,7 +61,6 @@ export default async function HrLookupsPage() {
           Departments, positions, statuses, and nationalities for {venue.name}.
         </p>
       </div>
-      <HrSubNav />
       <LookupsAdmin
         departments={departments}
         positions={positions}

@@ -43,7 +43,7 @@ export default function ResetPasswordPage() {
           {state.error ? (
             <p className="text-sm text-red-300">{state.error}</p>
           ) : null}
-          <Button type="submit" className="w-full bg-[#808A3E]" disabled={pending}>
+          <Button type="submit" className="w-full bg-[#818a40]" disabled={pending}>
             Update password
           </Button>
         </form>

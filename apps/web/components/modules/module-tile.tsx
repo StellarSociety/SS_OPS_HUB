@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import type { LucideIcon } from "lucide-react";
+import { ModuleIcon } from "@/components/modules/module-icon";
+import type { ModuleIconKey } from "@/lib/module-icons";
 import { cn } from "@/lib/utils";
 import type { ModuleStatus } from "@/lib/modules-registry";
 
 type ModuleTileProps = {
   label: string;
-  description: string;
-  icon: LucideIcon;
+  iconKey: ModuleIconKey;
   status: ModuleStatus;
   href?: string;
   clickable: boolean;
@@ -17,61 +17,44 @@ type ModuleTileProps = {
 
 export function ModuleTile({
   label,
-  description,
-  icon: Icon,
+  iconKey,
   status,
   href,
   clickable,
 }: ModuleTileProps) {
   const isLive = status === "live" && clickable && href;
-  const chip =
-    status === "live" && clickable
-      ? { text: "Live", className: "bg-emerald-100 text-emerald-800" }
-      : { text: "Coming soon", className: "bg-black/8 text-black/50" };
 
   const inner = (
     <motion.div
-      whileHover={isLive ? { y: -4, scale: 1.02 } : undefined}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      whileHover={{ scale: 1.07, y: -4 }}
+      whileTap={isLive ? { scale: 0.94 } : { scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 460, damping: 22 }}
       className={cn(
-        "flex h-full flex-col gap-4 rounded-xl border border-black/10 bg-white p-5 shadow-sm",
-        isLive
-          ? "cursor-pointer hover:border-[var(--venue-primary)]/40 hover:shadow-md"
-          : "cursor-default opacity-90",
+        "group flex flex-col items-center gap-1.5 px-0.5 py-1 text-center",
+        isLive ? "cursor-pointer" : "cursor-default",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <span
-          className={cn(
-            "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
-            isLive
-              ? "bg-[var(--venue-primary)]/15 text-[#3D421F]"
-              : "bg-black/5 text-black/40",
-          )}
-        >
-          <Icon className="h-6 w-6" />
-        </span>
-        <span
-          className={cn(
-            "rounded-full px-2.5 py-0.5 text-xs font-medium",
-            chip.className,
-          )}
-        >
-          {chip.text}
-        </span>
-      </div>
-      <div>
-        <h2 className="font-serif text-xl text-[#3D421F]">{label}</h2>
-        <p className="mt-1.5 text-sm leading-relaxed text-black/55">
-          {description}
-        </p>
-      </div>
+      <motion.div
+        className="flex items-center justify-center"
+        whileHover={{ scale: 1.05 }}
+        transition={{ type: "spring", stiffness: 500, damping: 18 }}
+      >
+        <ModuleIcon iconKey={iconKey} />
+      </motion.div>
+      <p
+        className={cn(
+          "line-clamp-2 w-full max-w-[5.75rem] text-[11px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]",
+          "font-[system-ui,-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif]",
+        )}
+      >
+        {label}
+      </p>
     </motion.div>
   );
 
   if (isLive && href) {
     return (
-      <Link href={href} className="block h-full">
+      <Link href={href} className="block">
         {inner}
       </Link>
     );

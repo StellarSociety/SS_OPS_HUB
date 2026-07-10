@@ -68,6 +68,35 @@ where u.email = 'admin@orillarestaurant.com'
   and v.slug = 'orilla'
 on conflict (user_id, venue_id, module_key, feature_key) do nothing;
 
+-- 5b. Grant Sales & Revenue module access (group-wide + Orilla venue).
+insert into public.user_permissions (user_id, venue_id, module_key, feature_key, access_level)
+select u.id, null, 'sales', f.feature_key, 'admin'
+from auth.users u
+cross join (
+  values
+    ('venue_daily'),
+    ('waiter_daily'),
+    ('cash_drawer'),
+    ('cash_up')
+) as f(feature_key)
+where u.email = 'admin@orillarestaurant.com'
+on conflict (user_id, venue_id, module_key, feature_key) do nothing;
+
+insert into public.user_permissions (user_id, venue_id, module_key, feature_key, access_level)
+select u.id, v.id, 'sales', f.feature_key, 'admin'
+from auth.users u
+cross join public.venues v
+cross join (
+  values
+    ('venue_daily'),
+    ('waiter_daily'),
+    ('cash_drawer'),
+    ('cash_up')
+) as f(feature_key)
+where u.email = 'admin@orillarestaurant.com'
+  and v.slug = 'orilla'
+on conflict (user_id, venue_id, module_key, feature_key) do nothing;
+
 -- 6. Verify.
 select u.email, p.status, p.staff_id, s.emp_no, up.module_key, up.feature_key, up.access_level
 from auth.users u

@@ -43,11 +43,3 @@ export function useVenue() {
   }
   return context;
 }
-
-export function venueThemeStyle(venue: Venue | null): React.CSSProperties {
-  if (!venue) return {};
-  return {
-    ["--venue-primary" as string]: venue.primary_color,
-    ["--venue-secondary" as string]: venue.secondary_color,
-  };
-}

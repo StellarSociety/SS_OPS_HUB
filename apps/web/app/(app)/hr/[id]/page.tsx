@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { HrSubNav } from "@/components/hr/hr-sub-nav";
 import { StaffDetailView } from "@/components/hr/staff-detail";
 import {
   canAccessStaff,
@@ -88,8 +87,6 @@ export default async function StaffDetailPage({
         </div>
         <StatusBadge status={staff.employment_status?.name} />
       </div>
-
-      <HrSubNav />
 
       <StaffDetailView
         staff={staff}

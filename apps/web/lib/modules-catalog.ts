@@ -35,8 +35,8 @@ export const moduleCatalog: ModuleDef[] = [
     ],
   },
   {
-    key: "checklists",
-    label: "Operational Checklists",
+    key: "operational_lists",
+    label: "Operational Lists & Forms",
     description: "Shift reports, opening & closing duties.",
     features: [
       { key: "shift_report", label: "Shift report" },
@@ -45,33 +45,32 @@ export const moduleCatalog: ModuleDef[] = [
     ],
   },
   {
+    key: "team_projects",
+    label: "Team Projects & Tasks",
+    description: "Projects, tasks, and team coordination.",
+    features: [{ key: "projects", label: "Projects & tasks" }],
+  },
+  {
+    key: "maintenance",
+    label: "Maintenance",
+    description: "Equipment, facilities, and maintenance requests.",
+    features: [{ key: "maintenance", label: "Maintenance" }],
+  },
+  {
+    key: "sentiment",
+    label: "Sentiment",
+    description: "Guest and team sentiment tracking.",
+    features: [{ key: "sentiment", label: "Sentiment" }],
+  },
+  {
     key: "sales",
     label: "Sales & Revenue",
     description: "Daily sales records & closing reports.",
     features: [
-      { key: "venue_daily", label: "Venue daily sales" },
-      { key: "waiter_daily", label: "Waiter daily sales" },
-      { key: "closing_report", label: "Closing report" },
-    ],
-  },
-  {
-    key: "hr",
-    label: "Human Resources",
-    description: "Staff, departments, documents, expiries.",
-    features: [
-      { key: "staff", label: "Staff directory" },
-      { key: "lookups", label: "Lookups" },
-      { key: "salary", label: "Salary & sensitive data" },
-    ],
-  },
-  {
-    key: "venue_ops",
-    label: "Venue Ops",
-    description: "Legal docs, contractors, maintenance.",
-    features: [
-      { key: "legal_docs", label: "Legal documents" },
-      { key: "contractors", label: "Contractors" },
-      { key: "maintenance", label: "Maintenance" },
+      { key: "venue_daily", label: "Daily Sales" },
+      { key: "waiter_daily", label: "Waiter Sales" },
+      { key: "cash_drawer", label: "Discounts" },
+      { key: "cash_up", label: "Daily Snap" },
     ],
   },
   {
@@ -85,12 +84,41 @@ export const moduleCatalog: ModuleDef[] = [
     ],
   },
   {
-    key: "management",
-    label: "Management",
-    description: "Approvals, accounts, P&L, projects.",
+    key: "accounting",
+    label: "Accounting",
+    description: "Accounts, ledgers, and financial records.",
+    features: [{ key: "accounts", label: "Accounts" }],
+  },
+  {
+    key: "hr",
+    label: "Human Resources",
+    description: "Staff, departments, documents, expiries.",
     features: [
-      { key: "approvals", label: "Approvals" },
+      { key: "staff", label: "Staff directory" },
+      { key: "lookups", label: "Lookups" },
+      { key: "salary", label: "Salary & sensitive data" },
     ],
+  },
+  {
+    key: "learning",
+    label: "Learning & Development",
+    description: "Training, courses, and staff development.",
+    features: [{ key: "training", label: "Training" }],
+  },
+  {
+    key: "venue_governance",
+    label: "Venue Governance",
+    description: "Legal docs, contractors, and venue compliance.",
+    features: [
+      { key: "legal_docs", label: "Legal documents" },
+      { key: "contractors", label: "Contractors" },
+    ],
+  },
+  {
+    key: "approvals",
+    label: "Approvals",
+    description: "Workflow approvals and sign-offs.",
+    features: [{ key: "approvals", label: "Approvals" }],
   },
 ];
 

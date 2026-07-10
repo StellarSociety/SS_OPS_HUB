@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_EXPIRY_LEAD_DAYS } from "@/lib/hr/types";
 import { getExpiryItems } from "@/lib/hr/store";
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
-import type { DashboardWidgetProps } from "@/lib/modules-registry";
+import type { DashboardWidgetProps } from "@/lib/dashboard-widgets";
 
 export async function HrExpiryDashboardWidget({
   venueId,

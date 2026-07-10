@@ -1,13 +1,9 @@
+import type { ModuleIconKey } from "@/lib/module-icons";
 import {
-  Briefcase,
-  Calculator,
-  ClipboardList,
-  TrendingUp,
-  Users,
-  Wrench,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+  moduleCategories,
+  type ModuleCategory,
+  type ModuleCategoryKey,
+} from "@/lib/module-categories";
 import type { AccessLevel } from "@/lib/role-permissions";
 import {
   getFeaturesForModule,
@@ -35,11 +31,19 @@ export {
 
 export type ModuleStatus = "live" | "coming_soon";
 
+export type { ModuleCategoryKey, ModuleCategory } from "@/lib/module-categories";
+export {
+  moduleCategories,
+  moduleCategoryMeta,
+  isModuleCategoryKey,
+  getModuleCategoryMeta,
+} from "@/lib/module-categories";
+
 export type ModuleOverviewItem = {
   key: string;
   label: string;
-  description: string;
-  icon: LucideIcon;
+  iconKey: ModuleIconKey;
+  category: ModuleCategoryKey;
   href?: string;
   status: ModuleStatus;
 };
@@ -48,109 +52,121 @@ export type ModuleNavItem = {
   key: string;
   label: string;
   href: string;
-  icon?: LucideIcon;
+  iconKey?: ModuleIconKey;
   description?: string;
   allowedRoles?: AccessLevel[];
 };
 
-export type DashboardWidgetDef = {
-  key: string;
-  moduleKey: string;
-  title: string;
-  scope: "venue" | "global" | "both";
-  requiredFeature: { moduleKey: string; featureKey: string; minLevel?: AccessLevel };
-  load: () => Promise<React.ComponentType<DashboardWidgetProps>>;
-};
-
-export type DashboardWidgetProps = {
-  venueId: string;
-  isGlobalVenue: boolean;
-  leadDays?: number;
-};
-
-/** All hub modules for the overview grid (§2A). */
+/** All hub modules for the Operational Apps overview. */
 export const moduleOverviewRegistry: ModuleOverviewItem[] = [
   {
-    key: "checklists",
-    label: "Operational Checklists",
-    description: "Shift reports, opening & closing duties.",
-    icon: ClipboardList,
+    key: "operational_lists",
+    label: "Operational Lists & Forms",
+    iconKey: "clipboard-list",
+    category: "operational",
+    status: "coming_soon",
+  },
+  {
+    key: "team_projects",
+    label: "Team Projects & Tasks",
+    iconKey: "folder-kanban",
+    category: "operational",
+    status: "coming_soon",
+  },
+  {
+    key: "maintenance",
+    label: "Maintenance",
+    iconKey: "wrench",
+    category: "operational",
+    status: "coming_soon",
+  },
+  {
+    key: "sentiment",
+    label: "Sentiment",
+    iconKey: "smile",
+    category: "operational",
     status: "coming_soon",
   },
   {
     key: "sales",
     label: "Sales & Revenue",
-    description: "Daily sales records & closing reports.",
-    icon: TrendingUp,
+    iconKey: "trending-up",
+    category: "revenue",
+    href: "/sales",
+    status: "live",
+  },
+  {
+    key: "gp_cos",
+    label: "GP & COS",
+    iconKey: "calculator",
+    category: "revenue",
+    status: "coming_soon",
+  },
+  {
+    key: "accounting",
+    label: "Accounting",
+    iconKey: "landmark",
+    category: "revenue",
     status: "coming_soon",
   },
   {
     key: "hr",
     label: "Human Resources",
-    description: "Staff, departments, documents, expiries.",
-    icon: Users,
+    iconKey: "users",
+    category: "people",
     href: "/hr",
     status: "live",
   },
   {
-    key: "venue_ops",
-    label: "Venue Ops",
-    description: "Legal docs, contractors, maintenance.",
-    icon: Wrench,
+    key: "learning",
+    label: "Learning & Development",
+    iconKey: "graduation-cap",
+    category: "people",
     status: "coming_soon",
   },
   {
-    key: "gp_cos",
-    label: "GP & COS",
-    description: "Invoices, food & beverage cost.",
-    icon: Calculator,
+    key: "venue_governance",
+    label: "Venue Governance",
+    iconKey: "building-2",
+    category: "management",
     status: "coming_soon",
   },
   {
-    key: "management",
-    label: "Management",
-    description: "Approvals, accounts, P&L, projects.",
-    icon: Briefcase,
+    key: "approvals",
+    label: "Approvals",
+    iconKey: "check-circle-2",
+    category: "management",
     status: "coming_soon",
   },
 ];
 
-/** Live modules for sidebar / deep links. */
+/** Live modules for deep links. */
 export const modulesRegistry: ModuleNavItem[] = moduleOverviewRegistry
   .filter((m) => m.status === "live" && m.href)
   .map((m) => ({
     key: m.key,
     label: m.label,
     href: m.href!,
-    icon: m.icon,
-    description: m.description,
+    iconKey: m.iconKey,
     allowedRoles: ["view", "edit", "admin", "submit"],
   }));
-
-const dashboardWidgets: DashboardWidgetDef[] = [
-  {
-    key: "hr-expiry",
-    moduleKey: "hr",
-    title: "HR expiries",
-    scope: "both",
-    requiredFeature: { moduleKey: "hr", featureKey: "staff", minLevel: "view" },
-    load: async () => {
-      const mod = await import("@/components/hr/hr-expiry-dashboard-widget");
-      return mod.HrExpiryDashboardWidget;
-    },
-  },
-];
 
 export function getModuleOverviewItems(): ModuleOverviewItem[] {
   return moduleOverviewRegistry;
 }
 
-export function getModuleNavItems(): ModuleNavItem[] {
-  return modulesRegistry;
+export function getModuleOverviewByCategory(): {
+  category: ModuleCategory;
+  modules: ModuleOverviewItem[];
+}[] {
+  return moduleCategories.map((category) => ({
+    category,
+    modules: moduleOverviewRegistry.filter((m) => m.category === category.key),
+  }));
 }
 
-export function getDashboardWidgets(): DashboardWidgetDef[] {
-  return dashboardWidgets;
+export function getModuleNavItems(): ModuleNavItem[] {
+  return modulesRegistry;
 }
 
 export { notificationSettingsMeta };
@@ -161,4 +177,8 @@ export function getModuleByKey(key: string) {
 
 export function getOverviewModuleByKey(key: string) {
   return moduleOverviewRegistry.find((m) => m.key === key);
+}
+
+export function getModulesByCategory(category: ModuleCategoryKey): ModuleOverviewItem[] {
+  return moduleOverviewRegistry.filter((m) => m.category === category);
 }

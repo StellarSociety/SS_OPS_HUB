@@ -99,7 +99,7 @@ export function VenueModulesPanel({
                   aria-checked={enabled}
                   onClick={() => handleToggle(mod.key, !enabled)}
                   className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-                    enabled ? "bg-[var(--venue-primary,#808A3E)]" : "bg-black/20"
+                    enabled ? "bg-[var(--venue-primary,#818a40)]" : "bg-black/20"
                   }`}
                 >
                   <span

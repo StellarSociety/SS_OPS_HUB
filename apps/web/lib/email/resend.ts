@@ -46,7 +46,7 @@ export function buildInviteEmailHtml(params: {
       <p>Hi ${fullName},</p>
       <p>You have been invited to SS Ops Hub. Click below to set your password and sign in.</p>
       <p style="margin: 28px 0;">
-        <a href="${inviteLink}" style="background: #808A3E; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+        <a href="${inviteLink}" style="background: #818a40; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
           Accept invitation
         </a>
       </p>

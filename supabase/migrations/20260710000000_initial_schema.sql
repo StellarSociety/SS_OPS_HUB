@@ -143,7 +143,7 @@ VALUES
     false,
     '#808A3E',
     '#F0F3DD',
-    '/venues/orilla-badge.svg'
+    '/venues/orilla-icon.png'
   ),
   (
     'global',

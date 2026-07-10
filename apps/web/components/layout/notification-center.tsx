@@ -22,7 +22,7 @@ type NotificationCenterProps = {
 function severityDot(severity: NotificationRow["severity"]) {
   if (severity === "critical") return "bg-red-500";
   if (severity === "warning") return "bg-amber-500";
-  return "bg-[#808A3E]";
+  return "bg-[#818a40]";
 }
 
 function notificationHref(n: NotificationRow): string | null {

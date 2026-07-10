@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { HrSubNav } from "@/components/hr/hr-sub-nav";
 import { ImportStaffForm } from "@/components/hr/import-staff";
 import { canEditStaff } from "@/lib/hr/permissions";
 import { createClient } from "@/lib/supabase/server";
@@ -57,7 +56,6 @@ export default async function HrImportPage() {
           One-off import from the client HR workbook for {venue.name}.
         </p>
       </div>
-      <HrSubNav />
       <ImportStaffForm />
     </div>
   );

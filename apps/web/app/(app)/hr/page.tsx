@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { HrSubNav } from "@/components/hr/hr-sub-nav";
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
 import { StaffDirectory } from "@/components/hr/staff-directory";
 import { canAccessStaff } from "@/lib/hr/permissions";
@@ -73,8 +72,6 @@ export default async function HrPage() {
             : `${venue.name} venue staff roster`}
         </p>
       </div>
-
-      <HrSubNav />
 
       <ExpiryWidgets
         items={expiryItems}

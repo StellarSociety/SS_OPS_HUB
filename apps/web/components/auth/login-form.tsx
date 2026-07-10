@@ -1,20 +1,64 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { signIn } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+const REMEMBER_CREDENTIALS_KEY = "ss-ops-remember-credentials";
+
 type LoginFormProps = {
   notice?: string | null;
 };
 
+type SavedCredentials = {
+  email: string;
+  password: string;
+};
+
+function loadSavedCredentials(): SavedCredentials | null {
+  try {
+    const raw = localStorage.getItem(REMEMBER_CREDENTIALS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedCredentials;
+    if (typeof parsed.email !== "string" || typeof parsed.password !== "string") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function LoginForm({ notice }: LoginFormProps) {
   const [state, formAction, pending] = useActionState(signIn, { error: "" });
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberCredentials, setRememberCredentials] = useState(false);
   const error = state.error || notice || null;
+
+  useEffect(() => {
+    const saved = loadSavedCredentials();
+    if (!saved) return;
+    setEmail(saved.email);
+    setPassword(saved.password);
+    setRememberCredentials(true);
+  }, []);
+
+  function handleSubmit() {
+    if (rememberCredentials) {
+      localStorage.setItem(
+        REMEMBER_CREDENTIALS_KEY,
+        JSON.stringify({ email, password }),
+      );
+      return;
+    }
+    localStorage.removeItem(REMEMBER_CREDENTIALS_KEY);
+  }
 
   return (
     <motion.div
@@ -24,13 +68,26 @@ export function LoginForm({ notice }: LoginFormProps) {
       className="w-full max-w-sm"
     >
       <div className="mb-8 text-center">
+        <VenueBrandIcon
+          slug="orilla"
+          name="Orilla"
+          variant="badge"
+          className="mx-auto mb-5 h-[72px] w-[72px]"
+          title="Orilla"
+        />
         <p className="font-serif text-3xl leading-tight text-white">
-          Stellar Society
+          Stellar Society Group
         </p>
-        <p className="font-serif text-lg text-white/70">Operational Hub</p>
+        <p className="font-serif text-lg text-white/70">
+          Hospitality Operational Hub
+        </p>
       </div>
 
-      <form action={formAction} className="space-y-4">
+      <form
+        action={formAction}
+        className="space-y-4"
+        onSubmit={handleSubmit}
+      >
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -40,6 +97,8 @@ export function LoginForm({ notice }: LoginFormProps) {
             autoComplete="email"
             required
             placeholder="you@stellarsociety.ae"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
           />
         </div>
         <div className="space-y-2">
@@ -51,8 +110,20 @@ export function LoginForm({ notice }: LoginFormProps) {
             autoComplete="current-password"
             required
             placeholder="••••••••"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
           />
         </div>
+
+        <label className="flex cursor-pointer items-center gap-2.5 text-sm text-white/70">
+          <input
+            type="checkbox"
+            checked={rememberCredentials}
+            onChange={(event) => setRememberCredentials(event.target.checked)}
+            className="size-4 rounded border border-white/25 bg-white/5 accent-[#818a40] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#818a40] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+          />
+          Remember credentials
+        </label>
 
         {error ? (
           <p className="text-sm text-red-300" role="alert">
@@ -62,7 +133,7 @@ export function LoginForm({ notice }: LoginFormProps) {
 
         <Button
           type="submit"
-          className="w-full bg-[#808A3E] hover:bg-[#6f7835]"
+          className="w-full bg-[#818a40] hover:bg-[#6f7835]"
           disabled={pending}
         >
           {pending ? "Signing in…" : "Sign in"}

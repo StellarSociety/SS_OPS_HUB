@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Card } from "@/components/ui/card";
-import { getDashboardWidgets } from "@/lib/modules-registry";
+import { getDashboardWidgets } from "@/lib/dashboard-widgets";
 import { hasPermission, isAppAdmin } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";

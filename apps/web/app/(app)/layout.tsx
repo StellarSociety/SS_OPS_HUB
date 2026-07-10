@@ -8,6 +8,7 @@ import {
 } from "@/lib/notifications/store";
 import { isAppAdmin } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
+import { getUserRoleLabel } from "@/lib/user/display";
 
 async function getActiveVenue() {
   const cookieStore = await cookies();
@@ -43,12 +44,33 @@ export default async function AppLayout({
     redirect("/select-venue");
   }
 
-  const { data: permissions } = await supabase
-    .from("user_permissions")
-    .select("*")
-    .eq("user_id", user.id);
+  const [{ data: permissions }, { data: profile }, { data: allVenues }] =
+    await Promise.all([
+      supabase.from("user_permissions").select("*").eq("user_id", user.id),
+      supabase
+        .from("profiles")
+        .select("email, full_name")
+        .eq("id", user.id)
+        .single(),
+      supabase.from("venues").select("*").order("created_at", { ascending: true }),
+    ]);
 
-  const showSettings = isAppAdmin(permissions ?? []);
+  const perms = permissions ?? [];
+  const showSettings = isAppAdmin(perms);
+  const venues = (allVenues ?? []).filter((v) => !v.is_global);
+
+  const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  const avatarUrl =
+    (typeof metadata?.avatar_url === "string" && metadata.avatar_url) ||
+    (typeof metadata?.picture === "string" && metadata.picture) ||
+    null;
+
+  const shellUser = {
+    email: profile?.email ?? user.email ?? "",
+    fullName: profile?.full_name ?? null,
+    avatarUrl,
+    roleLabel: getUserRoleLabel(perms),
+  };
 
   const venueContext = {
     venueId: venue.id,
@@ -63,6 +85,8 @@ export default async function AppLayout({
   return (
     <AppShell
       venue={venue}
+      venues={venues}
+      user={shellUser}
       showSettings={showSettings}
       notifications={notifications}
       unreadCount={unreadCount}

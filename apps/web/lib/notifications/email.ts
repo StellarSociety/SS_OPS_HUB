@@ -41,7 +41,7 @@ export function buildExpiryEmailHtml(params: {
         <tbody>${rows}</tbody>
       </table>
       <p style="margin: 28px 0;">
-        <a href="${appUrl}" style="background: #808A3E; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+        <a href="${appUrl}" style="background: #818a40; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
           Open SS Ops Hub
         </a>
       </p>
