@@ -4,12 +4,23 @@
  *
  * Usage: pnpm import-staff [path-to-csv]
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = resolvePath(__dirname, "../.env.local");
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, "utf8").split("\n")) {
+    if (!line || line.startsWith("#")) continue;
+    const i = line.indexOf("=");
+    if (i === -1) continue;
+    const key = line.slice(0, i);
+    const value = line.slice(i + 1);
+    if (!process.env[key]) process.env[key] = value;
+  }
+}
 const csvPath =
   process.argv[2] ?? resolvePath(__dirname, "../../../data/orilla-staff.csv");
 

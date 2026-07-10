@@ -10,18 +10,22 @@ import {
 import { cn } from "@/lib/utils";
 import type { Venue } from "@/lib/types/database";
 
-const navItems = [
+const baseNavItems = [
   { label: "Dashboards", href: "/dashboard", icon: LayoutDashboard },
   { label: "Modules", href: "/modules", icon: LayoutGrid },
-  { label: "Settings", href: "/settings", icon: Settings },
-];
+  { label: "Settings", href: "/settings", icon: Settings, adminOnly: true },
+] as const;
 
 type AppSidebarProps = {
   venue: Venue;
+  showSettings?: boolean;
 };
 
-export function AppSidebar({ venue }: AppSidebarProps) {
+export function AppSidebar({ venue, showSettings = false }: AppSidebarProps) {
   const pathname = usePathname();
+  const navItems = baseNavItems.filter(
+    (item) => !("adminOnly" in item && item.adminOnly) || showSettings,
+  );
 
   return (
     <aside className="hidden w-64 shrink-0 border-r border-black/5 bg-white/50 backdrop-blur-md md:flex md:flex-col">

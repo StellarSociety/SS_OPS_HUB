@@ -25,6 +25,19 @@ function loadDatabaseUrl() {
   return line.slice("DATABASE_URL=".length).trim();
 }
 
+/** Prefer Supavisor pooler — direct db.*.supabase.co often blocks from dev networks. */
+function toPoolerUrl(directUrl) {
+  const url = new URL(directUrl);
+  const refMatch = url.hostname.match(/^db\.([^.]+)\.supabase\.co$/);
+  if (!refMatch) return directUrl;
+
+  const ref = refMatch[1];
+  url.hostname = "aws-0-ap-northeast-1.pooler.supabase.com";
+  url.port = "6543";
+  url.username = `postgres.${ref}`;
+  return url.toString();
+}
+
 const PENDING = [
   "20260710120000_hr_schema.sql",
   "20260710140000_user_access_schema.sql",
@@ -51,10 +64,11 @@ async function isApplied(client, version) {
 }
 
 async function main() {
-  const databaseUrl = loadDatabaseUrl();
+  const databaseUrl = toPoolerUrl(loadDatabaseUrl());
   const client = new pg.Client({
     connectionString: databaseUrl,
     ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 30000,
   });
 
   await client.connect();

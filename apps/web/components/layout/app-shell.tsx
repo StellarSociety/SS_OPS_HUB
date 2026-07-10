@@ -8,17 +8,18 @@ import type { Venue } from "@/lib/types/database";
 
 type AppShellProps = {
   venue: Venue;
+  showSettings?: boolean;
   children: React.ReactNode;
 };
 
-export function AppShell({ venue, children }: AppShellProps) {
+export function AppShell({ venue, showSettings = false, children }: AppShellProps) {
   return (
     <VenueProvider initialVenue={venue}>
       <div
         className="flex min-h-screen flex-col bg-[var(--venue-secondary,#F0F3DD)]/30 md:flex-row"
         style={venueThemeStyle(venue)}
       >
-        <AppSidebar venue={venue} />
+        <AppSidebar venue={venue} showSettings={showSettings} />
         <div className="flex min-h-screen flex-1 flex-col">
           <AppHeader venue={venue} />
           <main className="flex-1 p-4 md:p-8">{children}</main>

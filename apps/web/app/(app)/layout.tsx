@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import { isAppAdmin } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 
 async function getActiveVenue() {
@@ -38,5 +39,16 @@ export default async function AppLayout({
     redirect("/select-venue");
   }
 
-  return <AppShell venue={venue}>{children}</AppShell>;
+  const { data: permissions } = await supabase
+    .from("user_permissions")
+    .select("*")
+    .eq("user_id", user.id);
+
+  const showSettings = isAppAdmin(permissions ?? []);
+
+  return (
+    <AppShell venue={venue} showSettings={showSettings}>
+      {children}
+    </AppShell>
+  );
 }

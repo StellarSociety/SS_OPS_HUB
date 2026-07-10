@@ -8,10 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const initialState = { error: "" };
+type LoginFormProps = {
+  notice?: string | null;
+};
 
-export function LoginForm() {
-  const [state, formAction, pending] = useActionState(signIn, initialState);
+export function LoginForm({ notice }: LoginFormProps) {
+  const [state, formAction, pending] = useActionState(signIn, { error: "" });
+  const error = state.error || notice || null;
 
   return (
     <motion.div
@@ -51,9 +54,9 @@ export function LoginForm() {
           />
         </div>
 
-        {state.error ? (
+        {error ? (
           <p className="text-sm text-red-300" role="alert">
-            {state.error}
+            {error}
           </p>
         ) : null}
 
