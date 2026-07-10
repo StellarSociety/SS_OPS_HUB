@@ -1,10 +1,20 @@
 import {
+  hasFeatureAccess,
   hasPermission,
+  hasSubmitGrant,
   isAppAdmin,
   type AccessLevel,
   type UserPermission,
 } from "@/lib/role-permissions";
 import { HR_FEATURES, HR_MODULE_KEY } from "./types";
+
+function matchesVenueScope(
+  permissionVenueId: string | null,
+  venueId?: string | null,
+): boolean {
+  if (!venueId) return true;
+  return permissionVenueId === null || permissionVenueId === venueId;
+}
 
 export function hasHrPermission(
   permissions: UserPermission[],
@@ -14,26 +24,56 @@ export function hasHrPermission(
 ): boolean {
   if (isAppAdmin(permissions)) return true;
 
-  if (venueId) {
-    const venueScoped = permissions.some((p) => {
-      if (p.module_key !== HR_MODULE_KEY || p.feature_key !== featureKey) {
-        return false;
-      }
-      if (p.venue_id !== null && p.venue_id !== venueId) return false;
-      return hasPermission([p], HR_MODULE_KEY, featureKey, minLevel);
-    });
-    if (venueScoped) return true;
-  }
+  return permissions.some(
+    (p) =>
+      p.module_key === HR_MODULE_KEY &&
+      p.feature_key === featureKey &&
+      matchesVenueScope(p.venue_id, venueId) &&
+      hasPermission([p], HR_MODULE_KEY, featureKey, minLevel),
+  );
+}
+
+export function hasHrFeatureAccess(
+  permissions: UserPermission[],
+  featureKey: string,
+  venueId?: string | null,
+): boolean {
+  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
       p.module_key === HR_MODULE_KEY &&
       p.feature_key === featureKey &&
-      p.venue_id === null &&
-      hasPermission([p], HR_MODULE_KEY, featureKey, minLevel),
+      matchesVenueScope(p.venue_id, venueId) &&
+      hasFeatureAccess([p], HR_MODULE_KEY, featureKey),
   );
 }
 
+export function hasHrSubmitGrant(
+  permissions: UserPermission[],
+  featureKey: string,
+  venueId?: string | null,
+): boolean {
+  if (isAppAdmin(permissions)) return true;
+
+  return permissions.some(
+    (p) =>
+      p.module_key === HR_MODULE_KEY &&
+      p.feature_key === featureKey &&
+      matchesVenueScope(p.venue_id, venueId) &&
+      hasSubmitGrant([p], HR_MODULE_KEY, featureKey),
+  );
+}
+
+/** Can enter the staff feature (submit or ladder grant). */
+export function canAccessStaff(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasHrFeatureAccess(permissions, HR_FEATURES.staff, venueId);
+}
+
+/** Can read all staff rows (view/edit/admin ladder). */
 export function canViewStaff(
   permissions: UserPermission[],
   venueId: string,
@@ -41,11 +81,34 @@ export function canViewStaff(
   return hasHrPermission(permissions, HR_FEATURES.staff, "view", venueId);
 }
 
+/** Can create staff entries (submit or edit/admin). */
+export function canSubmitStaff(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrPermission(permissions, HR_FEATURES.staff, "edit", venueId) ||
+    hasHrSubmitGrant(permissions, HR_FEATURES.staff, venueId)
+  );
+}
+
+/** Can edit any staff row (edit/admin ladder). */
 export function canEditStaff(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
   return hasHrPermission(permissions, HR_FEATURES.staff, "edit", venueId);
+}
+
+export function canEditOwnStaff(
+  permissions: UserPermission[],
+  venueId: string,
+  createdBy: string | null,
+  userId: string,
+): boolean {
+  if (canEditStaff(permissions, venueId)) return true;
+  if (!createdBy || createdBy !== userId) return false;
+  return hasHrSubmitGrant(permissions, HR_FEATURES.staff, venueId);
 }
 
 export function canAdminStaff(
@@ -75,7 +138,7 @@ export function canViewLookups(
 ): boolean {
   return (
     hasHrPermission(permissions, HR_FEATURES.lookups, "view", venueId) ||
-    canViewStaff(permissions, venueId)
+    canAccessStaff(permissions, venueId)
   );
 }
 

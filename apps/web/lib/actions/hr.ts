@@ -12,8 +12,10 @@ import {
   type ImportStaffRow,
 } from "@/lib/hr/import";
 import {
+  canAccessStaff,
   canAdminLookups,
   canAdminStaff,
+  canEditOwnStaff,
   canEditStaff,
   canViewStaff,
 } from "@/lib/hr/permissions";
@@ -226,10 +228,6 @@ export async function updateStaff(
 ) {
   const { supabase, user, venue, permissions } = await getAuthContext();
 
-  if (!canEditStaff(permissions, venue.id)) {
-    return { error: "You do not have permission to edit staff." };
-  }
-
   const { data: before } = await supabase
     .from("staff")
     .select("*")
@@ -238,6 +236,10 @@ export async function updateStaff(
     .single();
 
   if (!before) return { error: "Staff member not found." };
+
+  if (!canEditOwnStaff(permissions, venue.id, before.created_by, user.id)) {
+    return { error: "You do not have permission to edit staff." };
+  }
 
   const updates = formDataToStaffPayload(formData);
   const service = createServiceClient();
@@ -461,6 +463,7 @@ export async function getHrAccess() {
   const { venue, permissions } = await getAuthContext();
   return {
     venue,
+    canAccess: canAccessStaff(permissions, venue.id),
     canView: canViewStaff(permissions, venue.id),
     canEdit: canEditStaff(permissions, venue.id),
     canAdmin: canAdminStaff(permissions, venue.id),

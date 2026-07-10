@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { HrSubNav } from "@/components/hr/hr-sub-nav";
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
 import { StaffDirectory } from "@/components/hr/staff-directory";
-import { canViewStaff } from "@/lib/hr/permissions";
+import { canAccessStaff } from "@/lib/hr/permissions";
 import {
   getExpiryItems,
   listDepartments,
@@ -44,7 +44,7 @@ async function getHrPageContext() {
 export default async function HrPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
 
-  if (!canViewStaff(permissions, venue.id)) {
+  if (!canAccessStaff(permissions, venue.id)) {
     return (
       <div className="mx-auto max-w-4xl">
         <p className="text-sm text-black/60">

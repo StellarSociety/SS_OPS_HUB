@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addMonths, daysUntil } from "./derived";
+// Sensitive columns (salary, passport, EID, bank, etc.) are not protected at the DB
+// column level. Reads must stay server-side and be gated by hr/salary before any
+// client payload; never select those fields into a client response without that grant.
 import {
   DEFAULT_EXPIRY_LEAD_DAYS,
   EXPIRY_FIELDS,

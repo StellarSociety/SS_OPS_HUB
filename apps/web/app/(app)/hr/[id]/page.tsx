@@ -4,7 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { HrSubNav } from "@/components/hr/hr-sub-nav";
 import { StaffDetailView } from "@/components/hr/staff-detail";
 import {
-  canEditStaff,
+  canAccessStaff,
+  canEditOwnStaff,
   canViewSalary,
   canViewStaff,
   maskSensitiveStaffFields,
@@ -50,11 +51,17 @@ export default async function StaffDetailPage({
     .eq("user_id", user.id);
 
   const perms = permissions ?? [];
-  if (!canViewStaff(perms, venue.id)) {
+  if (!canAccessStaff(perms, venue.id)) {
     redirect("/hr");
   }
 
   const staffRaw = await getStaffById(supabase, id, venue.id);
+  if (
+    !canViewStaff(perms, venue.id) &&
+    staffRaw.created_by !== user.id
+  ) {
+    redirect("/hr");
+  }
   const staff = maskSensitiveStaffFields(staffRaw, perms, venue.id);
 
   const [departments, positions, statuses, nationalities] = await Promise.all([
@@ -90,7 +97,7 @@ export default async function StaffDetailPage({
         positions={positions}
         statuses={statuses}
         nationalities={nationalities}
-        canEdit={canEditStaff(perms, venue.id)}
+        canEdit={canEditOwnStaff(perms, venue.id, staffRaw.created_by, user.id)}
         canViewSalary={canViewSalary(perms, venue.id)}
       />
     </div>
