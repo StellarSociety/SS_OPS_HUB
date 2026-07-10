@@ -1,16 +1,24 @@
 "use client";
 
 import { Menu } from "lucide-react";
+import { NotificationCenter } from "@/components/layout/notification-center";
 import { signOut } from "@/lib/actions/auth";
 import { clearVenueSelection } from "@/lib/actions/venue";
+import type { NotificationRow } from "@/lib/notifications/types";
 import { Button } from "@/components/ui/button";
 import type { Venue } from "@/lib/types/database";
 
 type AppHeaderProps = {
   venue: Venue;
+  notifications: NotificationRow[];
+  unreadCount: number;
 };
 
-export function AppHeader({ venue }: AppHeaderProps) {
+export function AppHeader({
+  venue,
+  notifications,
+  unreadCount,
+}: AppHeaderProps) {
   return (
     <header className="flex items-center justify-between border-b border-black/5 bg-white/60 px-4 py-3 backdrop-blur-md md:px-6">
       <div className="flex items-center gap-3">
@@ -37,6 +45,12 @@ export function AppHeader({ venue }: AppHeaderProps) {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <NotificationCenter
+          venueId={venue.id}
+          isGlobalVenue={venue.is_global}
+          initialNotifications={notifications}
+          initialUnreadCount={unreadCount}
+        />
         <form action={clearVenueSelection}>
           <Button variant="ghost" size="sm" className="text-[#3D421F]" type="submit">
             Switch venue

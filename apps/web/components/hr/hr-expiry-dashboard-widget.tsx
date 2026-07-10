@@ -6,10 +6,13 @@ import type { DashboardWidgetProps } from "@/lib/modules-registry";
 
 export async function HrExpiryDashboardWidget({
   venueId,
+  isGlobalVenue,
   leadDays = DEFAULT_EXPIRY_LEAD_DAYS,
 }: DashboardWidgetProps) {
   const supabase = await createClient();
-  const items = await getExpiryItems(supabase, venueId, leadDays);
+  const items = await getExpiryItems(supabase, venueId, leadDays, {
+    allVenues: isGlobalVenue,
+  });
 
   return (
     <ExpiryWidgets

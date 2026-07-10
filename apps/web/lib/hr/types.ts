@@ -113,4 +113,5 @@ export const EXPIRY_FIELDS = [
   { field: "first_aid_date", label: "First aid", renewalMonths: 24 },
 ] as const;
 
+/** Display window for HR expiry widgets (notifications fire at 30/14/7 days). */
 export const DEFAULT_EXPIRY_LEAD_DAYS = 90;

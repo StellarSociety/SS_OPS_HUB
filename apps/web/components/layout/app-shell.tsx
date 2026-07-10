@@ -4,15 +4,24 @@ import {
   VenueProvider,
   venueThemeStyle,
 } from "@/components/providers/venue-provider";
+import type { NotificationRow } from "@/lib/notifications/types";
 import type { Venue } from "@/lib/types/database";
 
 type AppShellProps = {
   venue: Venue;
   showSettings?: boolean;
+  notifications: NotificationRow[];
+  unreadCount: number;
   children: React.ReactNode;
 };
 
-export function AppShell({ venue, showSettings = false, children }: AppShellProps) {
+export function AppShell({
+  venue,
+  showSettings = false,
+  notifications,
+  unreadCount,
+  children,
+}: AppShellProps) {
   return (
     <VenueProvider initialVenue={venue}>
       <div
@@ -21,7 +30,11 @@ export function AppShell({ venue, showSettings = false, children }: AppShellProp
       >
         <AppSidebar venue={venue} showSettings={showSettings} />
         <div className="flex min-h-screen flex-1 flex-col">
-          <AppHeader venue={venue} />
+          <AppHeader
+            venue={venue}
+            notifications={notifications}
+            unreadCount={unreadCount}
+          />
           <main className="flex-1 p-4 md:p-8">{children}</main>
         </div>
       </div>

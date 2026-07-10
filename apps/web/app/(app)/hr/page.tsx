@@ -58,7 +58,9 @@ export default async function HrPage() {
     listStaffForVenue(supabase, venue.id),
     listDepartments(supabase, venue.id),
     listEmploymentStatuses(supabase),
-    getExpiryItems(supabase, venue.id, DEFAULT_EXPIRY_LEAD_DAYS),
+    getExpiryItems(supabase, venue.id, DEFAULT_EXPIRY_LEAD_DAYS, {
+      allVenues: venue.is_global,
+    }),
   ]);
 
   return (

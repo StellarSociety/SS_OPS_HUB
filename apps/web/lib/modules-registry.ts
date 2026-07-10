@@ -20,6 +20,7 @@ import {
   type ModuleDef,
   type ModuleFeatureDef,
 } from "@/lib/modules-catalog";
+import { notificationSettingsMeta } from "@/lib/notifications/registry";
 
 export type { ModuleDef, ModuleFeatureDef };
 export {
@@ -151,6 +152,8 @@ export function getModuleNavItems(): ModuleNavItem[] {
 export function getDashboardWidgets(): DashboardWidgetDef[] {
   return dashboardWidgets;
 }
+
+export { notificationSettingsMeta };
 
 export function getModuleByKey(key: string) {
   return modulesRegistry.find((m) => m.key === key);

@@ -18,6 +18,25 @@ export type Profile = {
   created_at: string;
 };
 
+export type Notification = {
+  id: string;
+  user_id: string;
+  venue_id: string | null;
+  module_key: string;
+  type: string;
+  title: string;
+  body: string | null;
+  entity: string;
+  entity_id: string;
+  severity: "info" | "warning" | "critical";
+  due_date: string | null;
+  lead_days: number | null;
+  read_at: string | null;
+  email_sent_at: string | null;
+  dedupe_key: string;
+  created_at: string;
+};
+
 export type EmploymentStatus = {
   id: string;
   name: string;
@@ -151,6 +170,19 @@ export type Database = {
       departments: { Row: Department };
       positions: { Row: Position };
       staff: { Row: Staff };
+      notifications: {
+        Row: Notification;
+        Insert: Omit<
+          Notification,
+          "id" | "created_at" | "read_at" | "email_sent_at"
+        > & {
+          id?: string;
+          created_at?: string;
+          read_at?: string | null;
+          email_sent_at?: string | null;
+        };
+        Update: Partial<Notification>;
+      };
       venue_modules: {
         Row: {
           id: string;

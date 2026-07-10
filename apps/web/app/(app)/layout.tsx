@@ -2,6 +2,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/layout/app-shell";
 import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import {
+  countUnreadNotifications,
+  listNotificationsForUser,
+} from "@/lib/notifications/store";
 import { isAppAdmin } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 
@@ -46,8 +50,23 @@ export default async function AppLayout({
 
   const showSettings = isAppAdmin(permissions ?? []);
 
+  const venueContext = {
+    venueId: venue.id,
+    isGlobalVenue: venue.is_global,
+  };
+
+  const [notifications, unreadCount] = await Promise.all([
+    listNotificationsForUser(supabase, user.id, { ...venueContext, limit: 40 }),
+    countUnreadNotifications(supabase, user.id, venueContext),
+  ]);
+
   return (
-    <AppShell venue={venue} showSettings={showSettings}>
+    <AppShell
+      venue={venue}
+      showSettings={showSettings}
+      notifications={notifications}
+      unreadCount={unreadCount}
+    >
       {children}
     </AppShell>
   );

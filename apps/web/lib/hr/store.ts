@@ -1,11 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addMonths, daysUntil } from "./derived";
+import {
+  getHrExpiryItems,
+  toHrExpiryWidgetItems,
+} from "@/lib/notifications/rules/hr-expiry";
 // Sensitive columns (salary, passport, EID, bank, etc.) are not protected at the DB
 // column level. Reads must stay server-side and be gated by hr/salary before any
 // client payload; never select those fields into a client response without that grant.
 import {
   DEFAULT_EXPIRY_LEAD_DAYS,
-  EXPIRY_FIELDS,
   type ExpiryItem,
   type StaffWithLookups,
 } from "./types";
@@ -122,46 +124,10 @@ export async function getExpiryItems(
   supabase: SupabaseClient,
   homeVenueId: string,
   leadDays = DEFAULT_EXPIRY_LEAD_DAYS,
+  options?: { allVenues?: boolean },
 ): Promise<ExpiryItem[]> {
-  const { data, error } = await supabase
-    .from("staff")
-    .select(
-      "id, emp_no, full_name, passport_expiry, eid_expiry, medical_insurance_expiry_date, ohc_date, pic_date, basic_food_safety_date, fire_safety_date, first_aid_date",
-    )
-    .eq("home_venue_id", homeVenueId);
-
-  if (error) throw error;
-
-  const items: ExpiryItem[] = [];
-
-  for (const staff of data ?? []) {
-    for (const config of EXPIRY_FIELDS) {
-      const raw = staff[config.field as keyof typeof staff] as string | null;
-      if (!raw) continue;
-
-      let expiryDate = raw;
-      if ("renewalMonths" in config && config.renewalMonths) {
-        expiryDate = addMonths(raw, config.renewalMonths)
-          .toISOString()
-          .slice(0, 10);
-      }
-
-      const until = daysUntil(expiryDate);
-      if (until == null || until > leadDays) continue;
-
-      items.push({
-        staffId: staff.id,
-        empNo: staff.emp_no,
-        fullName: staff.full_name,
-        field: config.field,
-        label: config.label,
-        expiryDate,
-        daysUntil: until,
-      });
-    }
-  }
-
-  return items.sort((a, b) => a.daysUntil - b.daysUntil);
+  const items = await getHrExpiryItems(supabase, homeVenueId, leadDays, options);
+  return toHrExpiryWidgetItems(items);
 }
 
 export function resolveLookupId<T extends { id: string; name: string }>(
