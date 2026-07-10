@@ -1,4 +1,8 @@
+import Link from "next/link";
+import { Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
+import type { AccessLevel } from "@/lib/role-permissions";
 
 export type ModuleNavItem = {
   key: string;
@@ -6,13 +10,58 @@ export type ModuleNavItem = {
   href: string;
   icon?: LucideIcon;
   description?: string;
+  allowedRoles?: AccessLevel[];
 };
 
-/**
- * Central registry for pluggable modules. Business modules register here later.
- */
-export const modulesRegistry: ModuleNavItem[] = [];
+export type DashboardWidgetDef = {
+  key: string;
+  moduleKey: string;
+  title: string;
+  /** venue = only on venue dashboards; global = only global; both = everywhere */
+  scope: "venue" | "global" | "both";
+  requiredFeature: { moduleKey: string; featureKey: string; minLevel?: AccessLevel };
+  load: () => Promise<React.ComponentType<DashboardWidgetProps>>;
+};
+
+export type DashboardWidgetProps = {
+  venueId: string;
+  isGlobalVenue: boolean;
+  leadDays?: number;
+};
+
+export const modulesRegistry: ModuleNavItem[] = [
+  {
+    key: "hr",
+    label: "Human Resources",
+    href: "/hr",
+    icon: Users,
+    description: "Staff directory, lookups, document & training expiries",
+    allowedRoles: ["view", "edit", "admin", "submit"],
+  },
+];
+
+const dashboardWidgets: DashboardWidgetDef[] = [
+  {
+    key: "hr-expiry",
+    moduleKey: "hr",
+    title: "HR expiries",
+    scope: "both",
+    requiredFeature: { moduleKey: "hr", featureKey: "staff", minLevel: "view" },
+    load: async () => {
+      const mod = await import("@/components/hr/hr-expiry-dashboard-widget");
+      return mod.HrExpiryDashboardWidget;
+    },
+  },
+];
 
 export function getModuleNavItems(): ModuleNavItem[] {
   return modulesRegistry;
+}
+
+export function getDashboardWidgets(): DashboardWidgetDef[] {
+  return dashboardWidgets;
+}
+
+export function getModuleByKey(key: string) {
+  return modulesRegistry.find((m) => m.key === key);
 }

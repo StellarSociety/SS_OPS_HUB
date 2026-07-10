@@ -1,35 +1,13 @@
-export type Venue = {
-  id: string;
-  slug: string;
-  name: string;
-  is_global: boolean;
-  primary_color: string;
-  secondary_color: string;
-  logo_url: string | null;
-  created_at: string;
-};
-
-export type Profile = {
-  id: string;
-  email: string;
-  full_name: string | null;
-  status: "active" | "disabled";
-  staff_id: string | null;
-  created_at: string;
-};
-
 export type EmploymentStatus = {
   id: string;
   name: string;
   sort_order: number;
-  created_at: string;
 };
 
 export type Nationality = {
   id: string;
   name: string;
   fly_home_ticket_value: number;
-  created_at: string;
 };
 
 export type Department = {
@@ -37,7 +15,6 @@ export type Department = {
   venue_id: string;
   name: string;
   sort_order: number;
-  created_at: string;
 };
 
 export type Position = {
@@ -46,7 +23,6 @@ export type Position = {
   department_id: string;
   name: string;
   sort_order: number;
-  created_at: string;
 };
 
 export type Staff = {
@@ -102,55 +78,39 @@ export type Staff = {
   updated_at: string;
 };
 
-export type Database = {
-  public: {
-    Tables: {
-      venues: {
-        Row: Venue;
-        Insert: Omit<Venue, "id" | "created_at"> & {
-          id?: string;
-          created_at?: string;
-        };
-        Update: Partial<Venue>;
-      };
-      profiles: {
-        Row: Profile;
-        Insert: Omit<Profile, "created_at" | "staff_id"> & {
-          created_at?: string;
-          staff_id?: string | null;
-        };
-        Update: Partial<Profile>;
-      };
-      user_permissions: {
-        Row: {
-          id: string;
-          user_id: string;
-          venue_id: string | null;
-          module_key: string;
-          feature_key: string;
-          access_level: "admin" | "edit" | "view" | "submit";
-          created_at: string;
-        };
-      };
-      audit_log: {
-        Row: {
-          id: string;
-          actor_id: string | null;
-          action: string;
-          module_key: string | null;
-          entity: string | null;
-          entity_id: string | null;
-          venue_id: string | null;
-          before: Record<string, unknown> | null;
-          after: Record<string, unknown> | null;
-          created_at: string;
-        };
-      };
-      employment_statuses: { Row: EmploymentStatus };
-      nationalities: { Row: Nationality };
-      departments: { Row: Department };
-      positions: { Row: Position };
-      staff: { Row: Staff };
-    };
-  };
+export type StaffWithLookups = Staff & {
+  department?: Department | null;
+  position?: Position | null;
+  employment_status?: EmploymentStatus | null;
+  nationality?: Nationality | null;
 };
+
+export type ExpiryItem = {
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  field: string;
+  label: string;
+  expiryDate: string;
+  daysUntil: number;
+};
+
+export const HR_MODULE_KEY = "hr" as const;
+export const HR_FEATURES = {
+  staff: "staff",
+  lookups: "lookups",
+  salary: "salary",
+} as const;
+
+export const EXPIRY_FIELDS = [
+  { field: "passport_expiry", label: "Passport" },
+  { field: "eid_expiry", label: "Emirates ID" },
+  { field: "medical_insurance_expiry_date", label: "Medical insurance" },
+  { field: "ohc_date", label: "OHC training", renewalMonths: 12 },
+  { field: "pic_date", label: "PIC training", renewalMonths: 12 },
+  { field: "basic_food_safety_date", label: "Food safety", renewalMonths: 12 },
+  { field: "fire_safety_date", label: "Fire safety", renewalMonths: 12 },
+  { field: "first_aid_date", label: "First aid", renewalMonths: 24 },
+] as const;
+
+export const DEFAULT_EXPIRY_LEAD_DAYS = 90;
