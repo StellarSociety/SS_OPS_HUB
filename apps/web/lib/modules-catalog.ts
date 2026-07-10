@@ -37,6 +37,7 @@ export const moduleCatalog: ModuleDef[] = [
   {
     key: "checklists",
     label: "Operational Checklists",
+    description: "Shift reports, opening & closing duties.",
     features: [
       { key: "shift_report", label: "Shift report" },
       { key: "opening", label: "Opening duties" },
@@ -46,6 +47,7 @@ export const moduleCatalog: ModuleDef[] = [
   {
     key: "sales",
     label: "Sales & Revenue",
+    description: "Daily sales records & closing reports.",
     features: [
       { key: "venue_daily", label: "Venue daily sales" },
       { key: "waiter_daily", label: "Waiter daily sales" },
@@ -55,6 +57,7 @@ export const moduleCatalog: ModuleDef[] = [
   {
     key: "hr",
     label: "Human Resources",
+    description: "Staff, departments, documents, expiries.",
     features: [
       { key: "staff", label: "Staff directory" },
       { key: "lookups", label: "Lookups" },
@@ -64,6 +67,7 @@ export const moduleCatalog: ModuleDef[] = [
   {
     key: "venue_ops",
     label: "Venue Ops",
+    description: "Legal docs, contractors, maintenance.",
     features: [
       { key: "legal_docs", label: "Legal documents" },
       { key: "contractors", label: "Contractors" },
@@ -73,6 +77,7 @@ export const moduleCatalog: ModuleDef[] = [
   {
     key: "gp_cos",
     label: "GP & COS",
+    description: "Invoices, food & beverage cost.",
     features: [
       { key: "invoices", label: "Invoices" },
       { key: "food_cost", label: "Food cost" },
@@ -82,6 +87,7 @@ export const moduleCatalog: ModuleDef[] = [
   {
     key: "management",
     label: "Management",
+    description: "Approvals, accounts, P&L, projects.",
     features: [
       { key: "approvals", label: "Approvals" },
     ],
@@ -121,7 +127,7 @@ export function isModuleEnabledForVenue(
   moduleKey: string,
 ): boolean {
   const row = venueModules.find((m) => m.module_key === moduleKey);
-  return row?.enabled ?? true;
+  return row?.enabled ?? false;
 }
 
 export type ModuleNavItem = {
