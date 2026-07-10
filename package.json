@@ -6,9 +6,11 @@
     "build": "pnpm --filter @ss-ops-hub/web build",
     "start": "pnpm --filter @ss-ops-hub/web start",
     "lint": "pnpm --filter @ss-ops-hub/web lint",
-    "import-staff": "node scripts/import-orilla-staff.mjs"
+    "import-staff": "pnpm --filter @ss-ops-hub/web exec node scripts/import-orilla-staff.mjs",
+    "db:migrate": "node scripts/apply-pending-migrations.mjs"
   },
   "devDependencies": {
+    "pg": "^8.22.0",
     "typescript": "^5.7.3"
   }
 }
