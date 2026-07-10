@@ -1,21 +1,41 @@
+import Link from "next/link";
 import { Card } from "@/components/ui/card";
+import { SettingsSubNav } from "@/components/settings/settings-sub-nav";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <h1 className="font-serif text-3xl text-[#3D421F]">Settings</h1>
         <p className="mt-1 text-sm text-black/60">
-          App-wide and per-module configuration will live here.
+          App-wide configuration for SS Ops Hub.
         </p>
       </div>
-      <Card className="p-8 text-center">
-        <p className="font-serif text-xl text-[#3D421F]">Settings scaffold</p>
-        <p className="mt-2 text-sm text-black/50">
-          Global settings (users, roles, integrations) and module settings
-          panels will be wired in with the modules registry.
-        </p>
-      </Card>
+
+      <SettingsSubNav />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/settings/users">
+          <Card className="h-full p-6 transition-colors hover:bg-[var(--venue-secondary)]/30">
+            <h2 className="font-serif text-xl text-[#3D421F]">
+              Users & access
+            </h2>
+            <p className="mt-2 text-sm text-black/60">
+              Invite staff, assign permissions, activate or deactivate accounts.
+            </p>
+          </Card>
+        </Link>
+        <Link href="/settings/venue-modules">
+          <Card className="h-full p-6 transition-colors hover:bg-[var(--venue-secondary)]/30">
+            <h2 className="font-serif text-xl text-[#3D421F]">
+              Venue modules
+            </h2>
+            <p className="mt-2 text-sm text-black/60">
+              Enable or disable modules per venue for phased rollouts.
+            </p>
+          </Card>
+        </Link>
+      </div>
     </div>
   );
 }

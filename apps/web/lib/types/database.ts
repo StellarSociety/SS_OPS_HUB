@@ -151,6 +151,23 @@ export type Database = {
       departments: { Row: Department };
       positions: { Row: Position };
       staff: { Row: Staff };
+      venue_modules: {
+        Row: {
+          id: string;
+          venue_id: string;
+          module_key: string;
+          enabled: boolean;
+          created_at: string;
+        };
+        Insert: {
+          venue_id: string;
+          module_key: string;
+          enabled?: boolean;
+        };
+        Update: Partial<{
+          enabled: boolean;
+        }>;
+      };
     };
   };
 };

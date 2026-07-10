@@ -3,6 +3,28 @@ import { Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { AccessLevel } from "@/lib/role-permissions";
+import {
+  getFeaturesForModule,
+  getModuleCatalog,
+  getModuleFeaturesFlat,
+  getModuleLabel,
+  isModuleEnabledForVenue,
+  moduleCatalog,
+  VENUE_TOGGLEABLE_MODULES,
+  type ModuleDef,
+  type ModuleFeatureDef,
+} from "@/lib/modules-catalog";
+
+export type { ModuleDef, ModuleFeatureDef };
+export {
+  getFeaturesForModule,
+  getModuleCatalog,
+  getModuleFeaturesFlat,
+  getModuleLabel,
+  isModuleEnabledForVenue,
+  moduleCatalog,
+  VENUE_TOGGLEABLE_MODULES,
+};
 
 export type ModuleNavItem = {
   key: string;
