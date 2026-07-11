@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import type { PieLabelRenderProps } from "recharts";
 import { Card } from "@/components/ui/card";
 import { formatMoney } from "@/lib/sales/daily-sales-calculations";
 import { buildMonthlyTendersMtd } from "@/lib/sales/monthly-tenders";
@@ -11,19 +12,12 @@ import type { VenueTender } from "@/lib/sales/tenders-types";
 
 const RADIAN = Math.PI / 180;
 
-function renderPercentLabel({
-  cx,
-  cy,
-  midAngle,
-  outerRadius,
-  percent,
-}: {
-  cx: number;
-  cy: number;
-  midAngle: number;
-  outerRadius: number;
-  percent: number;
-}) {
+function renderPercentLabel(props: PieLabelRenderProps) {
+  const cx = Number(props.cx ?? 0);
+  const cy = Number(props.cy ?? 0);
+  const midAngle = Number(props.midAngle ?? 0);
+  const outerRadius = Number(props.outerRadius ?? 0);
+  const percent = Number(props.percent ?? 0);
   if (percent < 0.03) return null;
   const radius = outerRadius + 18;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);

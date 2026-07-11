@@ -71,6 +71,8 @@ export type DailySalesImportPayload = {
   dinner_walkin_covers: number;
 };
 
+type DailySalesNumericField = Exclude<keyof DailySalesImportPayload, "sale_date">;
+
 function emptyPayload(): DailySalesImportPayload {
   return {
     sale_date: "",
@@ -127,11 +129,11 @@ function mapRowToPayload(row: SheetRow, rowNumber: number): {
     }
 
     if (column.type === "money") {
-      payload[key as VenueDailySalesInputField] = parseExcelMoney(rawValue);
+      payload[key as DailySalesNumericField] = parseExcelMoney(rawValue);
       continue;
     }
 
-    payload[key as VenueDailySalesInputField] = parseExcelCount(rawValue);
+    payload[key as DailySalesNumericField] = parseExcelCount(rawValue);
   }
 
   if (!payload.sale_date) {
