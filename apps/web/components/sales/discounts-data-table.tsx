@@ -68,7 +68,7 @@ type DiscountsDataTableProps = {
   canEdit: boolean;
 };
 
-const SECTIONS = ["fixed", "lunch", "dinner", "total"] as const;
+const SECTIONS = ["fixed", "input", "total"] as const;
 
 const FIXED_STICKY = [...SALES_TABLE_FIXED_STICKY_COLUMNS];
 

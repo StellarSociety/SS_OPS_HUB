@@ -162,34 +162,33 @@ function buildDiscountCategoryRows(
   return [
     {
       label: "Food",
-      lunchGs: record.lunch_food_discount_gs,
-      dinnerGs: record.dinner_food_discount_gs,
-      totalGs: record.lunch_food_discount_gs + record.dinner_food_discount_gs,
+      lunchGs: 0,
+      dinnerGs: 0,
+      totalGs: record.food_discount_gs,
     },
     {
       label: "Beverages",
-      lunchGs: record.lunch_beverages_discount_gs,
-      dinnerGs: record.dinner_beverages_discount_gs,
-      totalGs:
-        record.lunch_beverages_discount_gs + record.dinner_beverages_discount_gs,
+      lunchGs: 0,
+      dinnerGs: 0,
+      totalGs: record.beverages_discount_gs,
     },
     {
       label: "Wine",
-      lunchGs: record.lunch_wine_discount_gs,
-      dinnerGs: record.dinner_wine_discount_gs,
-      totalGs: record.lunch_wine_discount_gs + record.dinner_wine_discount_gs,
+      lunchGs: 0,
+      dinnerGs: 0,
+      totalGs: record.wine_discount_gs,
     },
     {
       label: "Shisha",
-      lunchGs: record.lunch_shisha_discount_gs,
-      dinnerGs: record.dinner_shisha_discount_gs,
-      totalGs: record.lunch_shisha_discount_gs + record.dinner_shisha_discount_gs,
+      lunchGs: 0,
+      dinnerGs: 0,
+      totalGs: record.shisha_discount_gs,
     },
     {
       label: "Others",
-      lunchGs: record.lunch_others_discount_gs,
-      dinnerGs: record.dinner_others_discount_gs,
-      totalGs: record.lunch_others_discount_gs + record.dinner_others_discount_gs,
+      lunchGs: 0,
+      dinnerGs: 0,
+      totalGs: record.others_discount_gs,
     },
   ];
 }

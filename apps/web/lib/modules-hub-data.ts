@@ -37,6 +37,7 @@ export function buildModuleGridItems(
       category: mod.category,
       href: mod.href,
       status: mod.status,
+      description: mod.description,
       clickable:
         mod.status === "live" &&
         Boolean(mod.href) &&

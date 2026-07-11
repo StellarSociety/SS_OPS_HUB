@@ -195,6 +195,170 @@ export async function listVenueDailySnapEvents(
   return (data ?? []) as VenueDailySnapEvent[];
 }
 
+/**
+ * Dates (YYYY-MM-DD) that have any *filled* Daily Snap data for the venue:
+ * notes with at least one non-empty comment or a cash drawer amount, or any
+ * event / discount line. Used to flag "no entry" days in the date picker.
+ */
+export async function listVenueDailySnapEntryDates(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<string[]> {
+  const dates = new Set<string>();
+
+  const notesResult = await supabase
+    .from("venue_daily_snap_notes")
+    .select(
+      "sale_date, eighty_six_lunch, eighty_six_dinner, service_comments_lunch, service_comments_dinner, cash_drawer_opening_gs, cash_drawer_closing_gs",
+    )
+    .eq("venue_id", venueId);
+  if (notesResult.error) {
+    if (!isMissingTableError(notesResult.error, "venue_daily_snap_notes")) {
+      throw notesResult.error;
+    }
+  } else {
+    for (const row of notesResult.data ?? []) {
+      const hasText = [
+        row.eighty_six_lunch,
+        row.eighty_six_dinner,
+        row.service_comments_lunch,
+        row.service_comments_dinner,
+      ].some((value) => String(value ?? "").trim() !== "");
+      const hasCash =
+        Number(row.cash_drawer_opening_gs ?? 0) > 0 ||
+        Number(row.cash_drawer_closing_gs ?? 0) > 0;
+      if (hasText || hasCash) {
+        dates.add(String(row.sale_date));
+      }
+    }
+  }
+
+  for (const table of [
+    "venue_daily_snap_discount_lines",
+    "venue_daily_snap_events",
+  ] as const) {
+    const result = await supabase
+      .from(table)
+      .select("sale_date")
+      .eq("venue_id", venueId);
+    if (result.error) {
+      if (!isMissingTableError(result.error, table)) throw result.error;
+      continue;
+    }
+    for (const row of result.data ?? []) {
+      dates.add(String(row.sale_date));
+    }
+  }
+
+  return Array.from(dates);
+}
+
+export type VenueDailySnapReportStatus = {
+  sale_date: string;
+  hasReport: boolean;
+  lastEditorId: string | null;
+  updatedAt: string | null;
+};
+
+/**
+ * For the given dates, determines whether a Daily Snap closing report exists
+ * (notes with content, or any event / discount line) and who last edited it.
+ */
+export async function listVenueDailySnapReportStatus(
+  supabase: SupabaseClient,
+  venueId: string,
+  saleDates: string[],
+): Promise<Map<string, VenueDailySnapReportStatus>> {
+  const result = new Map<string, VenueDailySnapReportStatus>();
+  if (saleDates.length === 0) return result;
+
+  const ensure = (saleDate: string): VenueDailySnapReportStatus => {
+    let entry = result.get(saleDate);
+    if (!entry) {
+      entry = {
+        sale_date: saleDate,
+        hasReport: false,
+        lastEditorId: null,
+        updatedAt: null,
+      };
+      result.set(saleDate, entry);
+    }
+    return entry;
+  };
+
+  const consider = (
+    saleDate: string,
+    hasContent: boolean,
+    updatedBy: string | null,
+    updatedAt: string | null,
+  ) => {
+    if (!hasContent) return;
+    const entry = ensure(saleDate);
+    entry.hasReport = true;
+    if (updatedAt && (!entry.updatedAt || updatedAt > entry.updatedAt)) {
+      entry.updatedAt = updatedAt;
+      entry.lastEditorId = updatedBy ?? entry.lastEditorId;
+    }
+  };
+
+  const notesResult = await supabase
+    .from("venue_daily_snap_notes")
+    .select(
+      "sale_date, eighty_six_lunch, eighty_six_dinner, service_comments_lunch, service_comments_dinner, cash_drawer_opening_gs, cash_drawer_closing_gs, updated_by, updated_at",
+    )
+    .eq("venue_id", venueId)
+    .in("sale_date", saleDates);
+
+  if (notesResult.error) {
+    if (!isMissingTableError(notesResult.error, "venue_daily_snap_notes")) {
+      throw notesResult.error;
+    }
+  } else {
+    for (const row of notesResult.data ?? []) {
+      const hasText = [
+        row.eighty_six_lunch,
+        row.eighty_six_dinner,
+        row.service_comments_lunch,
+        row.service_comments_dinner,
+      ].some((value) => String(value ?? "").trim() !== "");
+      const hasCash =
+        Number(row.cash_drawer_opening_gs ?? 0) > 0 ||
+        Number(row.cash_drawer_closing_gs ?? 0) > 0;
+      consider(
+        String(row.sale_date),
+        hasText || hasCash,
+        (row.updated_by as string | null) ?? null,
+        (row.updated_at as string | null) ?? null,
+      );
+    }
+  }
+
+  for (const table of [
+    "venue_daily_snap_events",
+    "venue_daily_snap_discount_lines",
+  ] as const) {
+    const res = await supabase
+      .from(table)
+      .select("sale_date, updated_by, updated_at")
+      .eq("venue_id", venueId)
+      .in("sale_date", saleDates);
+    if (res.error) {
+      if (!isMissingTableError(res.error, table)) throw res.error;
+      continue;
+    }
+    for (const row of res.data ?? []) {
+      consider(
+        String(row.sale_date),
+        true,
+        (row.updated_by as string | null) ?? null,
+        (row.updated_at as string | null) ?? null,
+      );
+    }
+  }
+
+  return result;
+}
+
 export async function upsertVenueDailySnapNotes(
   supabase: SupabaseClient,
   venueId: string,

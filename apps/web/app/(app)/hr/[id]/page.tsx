@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { StaffDetailView } from "@/components/hr/staff-detail";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
   canAccessStaff,
   canEditOwnStaff,
@@ -82,7 +83,7 @@ export default async function StaffDetailPage({
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl text-[#3D421F]">{staff.full_name}</h1>
+          <ModulePageTitle>{staff.full_name}</ModulePageTitle>
           <p className="mt-1 font-mono text-sm text-black/50">{staff.emp_no}</p>
         </div>
         <StatusBadge status={staff.employment_status?.name} />

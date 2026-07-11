@@ -1,3 +1,4 @@
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessSalesWaitersSettings, canAccessVenueDaily } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
 
@@ -24,9 +25,7 @@ export default async function SalesSettingsLayout({
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">
-          Sales & Revenue Settings
-        </h1>
+        <ModulePageTitle>Sales & Revenue Settings</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Configuration for {venue.name} — tax rates, waiters, and sales defaults.
         </p>

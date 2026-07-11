@@ -20,6 +20,7 @@ import {
   upsertVenueDailySales,
   upsertVenueSalesTaxSettings,
 } from "@/lib/sales/daily-sales-store";
+import { upsertVenueDailyTenderTotals } from "@/lib/sales/daily-tender-totals-store";
 import type { TaxSettingsInput } from "@/lib/sales/daily-sales-types";
 import { salesEntryCreateDateError } from "@/lib/sales/sales-entry-dates";
 import {
@@ -213,6 +214,14 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
       dinner_bookings: parseCount(formData.get("dinner_bookings")),
       dinner_walkin_tables: parseCount(formData.get("dinner_walkin_tables")),
       dinner_walkin_covers: parseCount(formData.get("dinner_walkin_covers")),
+      all_day_discount_gs: parseMoney(formData.get("all_day_discount_gs")),
+      vat_collected_gs: parseMoney(formData.get("vat_collected_gs")),
+      municipality_fee_collected_gs: parseMoney(
+        formData.get("municipality_fee_collected_gs"),
+      ),
+      service_charge_collected_gs: parseMoney(
+        formData.get("service_charge_collected_gs"),
+      ),
     });
 
     await writeAuditLog({
@@ -233,6 +242,52 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
         ? "A record already exists for this date."
         : "Could not save daily sales.";
     return { error: message };
+  }
+}
+
+export async function saveVenueDailyTenderTotals(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditVenueDaily(permissions, venue.id)) {
+    return { error: "You do not have permission to edit daily sales." };
+  }
+
+  const saleDate = String(formData.get("sale_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  const amountsByTender: Record<string, number> = {};
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("tender_")) continue;
+    const tenderId = key.slice("tender_".length);
+    if (!tenderId) continue;
+    amountsByTender[tenderId] = parseMoney(value);
+  }
+
+  try {
+    const rows = await upsertVenueDailyTenderTotals(
+      supabase,
+      venue.id,
+      user.id,
+      saleDate,
+      amountsByTender,
+    );
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "update",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_daily_tender_totals",
+      entity_id: saleDate,
+      venue_id: venue.id,
+      after: { sale_date: saleDate },
+    });
+
+    revalidateSalesDaily();
+    return { success: "Daily tender totals saved.", rows };
+  } catch {
+    return { error: "Could not save daily tender totals." };
   }
 }
 
@@ -318,32 +373,11 @@ export async function saveVenueDailyDiscountsEntry(formData: FormData) {
     const record = await upsertVenueDailyDiscounts(supabase, venue.id, user.id, {
       id,
       sale_date: saleDate,
-      lunch_food_discount_gs: parseMoney(formData.get("lunch_food_discount_gs")),
-      lunch_beverages_discount_gs: parseMoney(
-        formData.get("lunch_beverages_discount_gs"),
-      ),
-      lunch_wine_discount_gs: parseMoney(formData.get("lunch_wine_discount_gs")),
-      lunch_shisha_discount_gs: parseMoney(
-        formData.get("lunch_shisha_discount_gs"),
-      ),
-      lunch_others_discount_gs: parseMoney(
-        formData.get("lunch_others_discount_gs"),
-      ),
-      dinner_food_discount_gs: parseMoney(
-        formData.get("dinner_food_discount_gs"),
-      ),
-      dinner_beverages_discount_gs: parseMoney(
-        formData.get("dinner_beverages_discount_gs"),
-      ),
-      dinner_wine_discount_gs: parseMoney(
-        formData.get("dinner_wine_discount_gs"),
-      ),
-      dinner_shisha_discount_gs: parseMoney(
-        formData.get("dinner_shisha_discount_gs"),
-      ),
-      dinner_others_discount_gs: parseMoney(
-        formData.get("dinner_others_discount_gs"),
-      ),
+      food_discount_gs: parseMoney(formData.get("food_discount_gs")),
+      beverages_discount_gs: parseMoney(formData.get("beverages_discount_gs")),
+      wine_discount_gs: parseMoney(formData.get("wine_discount_gs")),
+      shisha_discount_gs: parseMoney(formData.get("shisha_discount_gs")),
+      others_discount_gs: parseMoney(formData.get("others_discount_gs")),
     });
 
     await writeAuditLog({

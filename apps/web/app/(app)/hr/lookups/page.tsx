@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { LookupsAdmin } from "@/components/hr/lookups-admin";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAdminLookups } from "@/lib/hr/permissions";
 import {
   listDepartments,
@@ -38,7 +39,7 @@ export default async function HrLookupsPage() {
   if (!canAdminLookups(perms, venue.id)) {
     return (
       <div className="mx-auto max-w-4xl space-y-4">
-        <h1 className="font-serif text-3xl text-[#3D421F]">Lookups</h1>
+        <ModulePageTitle>Lookups</ModulePageTitle>
         <p className="text-sm text-black/60">
           Admin access to HR lookups is required to manage this page.
         </p>
@@ -56,7 +57,7 @@ export default async function HrLookupsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">HR lookups</h1>
+        <ModulePageTitle>HR lookups</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Departments, positions, statuses, and nationalities for {venue.name}.
         </p>

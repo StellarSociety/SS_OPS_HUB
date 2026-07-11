@@ -199,6 +199,44 @@ async function rasterizeExportImages(
   };
 }
 
+/**
+ * Force muted/gray text to solid black in the export clone only.
+ * Leaves the brand olive, colored (green/red) deltas, and white text intact,
+ * and never touches the on-screen panel.
+ */
+function forceGrayTextToBlack(cloneRoot: HTMLElement): void {
+  const view = cloneRoot.ownerDocument.defaultView;
+  if (!view) return;
+
+  const applyToElement = (element: HTMLElement) => {
+    const color = view.getComputedStyle(element).color;
+    const match = color.match(/rgba?\(([^)]+)\)/i);
+    if (!match) return;
+
+    const parts = match[1].split(",").map((value) => parseFloat(value.trim()));
+    const [r, g, b, a = 1] = parts;
+    if ([r, g, b].some((channel) => Number.isNaN(channel))) return;
+
+    const isGrayscale =
+      Math.abs(r - g) <= 6 && Math.abs(g - b) <= 6 && Math.abs(r - b) <= 6;
+    if (!isGrayscale) return;
+
+    // Semi-transparent black (e.g. text-black/60, /50, /45) → solid black.
+    if (a < 1 && r <= 30 && g <= 30 && b <= 30) {
+      element.style.setProperty("color", "#000000", "important");
+      return;
+    }
+
+    // Opaque mid-grays → black; skip near-white and already-dark text.
+    if (a >= 1 && r >= 60 && r <= 200) {
+      element.style.setProperty("color", "#000000", "important");
+    }
+  };
+
+  applyToElement(cloneRoot);
+  cloneRoot.querySelectorAll<HTMLElement>("*").forEach(applyToElement);
+}
+
 function prepareCloneForExport(
   sourceRoot: HTMLElement,
   cloneRoot: HTMLElement,
@@ -208,6 +246,8 @@ function prepareCloneForExport(
       node.style.display = "none";
     }
   });
+
+  forceGrayTextToBlack(cloneRoot);
 
   const sourceTextareas = sourceRoot.querySelectorAll("textarea");
   const cloneTextareas = cloneRoot.querySelectorAll("textarea");

@@ -18,7 +18,8 @@ export async function HrExpiryDashboardWidget({
     <ExpiryWidgets
       items={items}
       leadDays={leadDays}
-      title="Human Resources — upcoming expiries"
+      title="Dashboards"
+      titleClassName="font-serif text-3xl text-[#3D421F]"
       compact
     />
   );

@@ -1,9 +1,17 @@
-import Link from "next/link";
+import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { Card } from "@/components/ui/card";
-import { getDashboardWidgets } from "@/lib/dashboard-widgets";
-import { hasPermission, isAppAdmin } from "@/lib/role-permissions";
+import { DashboardModuleTabs } from "@/components/dashboard/dashboard-module-tabs";
+import { DashboardsPanel } from "@/components/dashboard/dashboards-panel";
+import { SalesTrendCharts } from "@/components/sales/sales-trend-charts";
+import { loadModulesHubContext } from "@/lib/modules-hub-data";
+import { totalTaxRateFromSettings } from "@/lib/sales/daily-sales-calculations";
+import {
+  getVenueSalesTaxSettings,
+  listVenueDailySales,
+} from "@/lib/sales/daily-sales-store";
+import { canAccessSalesModule } from "@/lib/sales/permissions";
+import type { UserPermission } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
 export default async function DashboardPage() {
@@ -24,76 +32,41 @@ export default async function DashboardPage() {
     .single();
   if (!venue) redirect("/select-venue");
 
-  const { data: permissions } = await supabase
-    .from("user_permissions")
-    .select("*")
-    .eq("user_id", user.id);
-
-  const perms = permissions ?? [];
   const isGlobal = venue.is_global;
 
-  const widgets = getDashboardWidgets().filter((w) => {
-    if (isGlobal && w.scope === "venue") return false;
-    if (!isGlobal && w.scope === "global") return false;
-    if (isAppAdmin(perms)) return true;
-    return hasPermission(
-      perms,
-      w.requiredFeature.moduleKey,
-      w.requiredFeature.featureKey,
-      w.requiredFeature.minLevel ?? "view",
-    );
-  });
+  const [{ sections }, { data: permissions }] = await Promise.all([
+    loadModulesHubContext(),
+    supabase.from("user_permissions").select("*").eq("user_id", user.id),
+  ]);
 
-  const loaded = await Promise.all(
-    widgets.map(async (w) => {
-      const Component = await w.load();
-      return { key: w.key, Component };
-    }),
-  );
+  const perms = (permissions ?? []) as UserPermission[];
+
+  let revenueSlot: ReactNode = null;
+  if (canAccessSalesModule(perms, venue.id)) {
+    try {
+      const [records, taxSettings] = await Promise.all([
+        listVenueDailySales(supabase, venue.id),
+        getVenueSalesTaxSettings(supabase, venue.id),
+      ]);
+      const totalTaxPct = totalTaxRateFromSettings(taxSettings);
+      revenueSlot = (
+        <SalesTrendCharts records={records} totalTaxPct={totalTaxPct} />
+      );
+    } catch (error) {
+      console.error("[dashboard/revenue-charts]", error);
+    }
+  }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto w-full max-w-none space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">Dashboards</h1>
-        <p className="mt-1 text-sm text-black/60">
-          {isGlobal
-            ? "Consolidated view across all venues."
-            : `${venue.name} — venue overview.`}
-        </p>
+        <h1 className="pl-[21px] font-serif text-3xl text-[#3D421F]">
+          {isGlobal ? "All Venues Apps" : `${venue.name} Apps`}
+        </h1>
+        <DashboardModuleTabs sections={sections} />
       </div>
 
-      {loaded.length === 0 ? (
-        <Card className="p-8 text-center">
-          <p className="font-serif text-xl text-[#3D421F]">No widgets yet</p>
-          <p className="mt-2 text-sm text-black/50">
-            Modules you have access to will register dashboard widgets here.
-          </p>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {loaded.map(({ key, Component }) => (
-            <Component
-              key={key}
-              venueId={venue.id}
-              isGlobalVenue={isGlobal}
-            />
-          ))}
-        </div>
-      )}
-
-      <Card className="p-5">
-        <p className="text-sm text-black/60">
-          Open{" "}
-          <Link href="/modules" className="text-[#3D421F] underline">
-            Modules
-          </Link>{" "}
-          to access operational workflows, or{" "}
-          <Link href="/hr" className="text-[#3D421F] underline">
-            Human Resources
-          </Link>{" "}
-          for the full staff directory and expiry list.
-        </p>
-      </Card>
+      <DashboardsPanel slots={{ revenue: revenueSlot }} />
     </div>
   );
 }

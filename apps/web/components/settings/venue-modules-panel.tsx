@@ -5,6 +5,7 @@ import { setVenueModuleEnabled } from "@/lib/actions/users";
 import { VENUE_TOGGLEABLE_MODULES } from "@/lib/modules-catalog";
 import type { Venue } from "@/lib/types/database";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 
 type VenueModulesPanelProps = {
   venues: Venue[];
@@ -28,7 +29,6 @@ export function VenueModulesPanel({
     realVenues[0]?.id ?? "",
   );
   const [isPending, startTransition] = useTransition();
-  const [message, setMessage] = useState<string | null>(null);
 
   const enabledMap = useMemo(() => {
     const map = new Map<string, boolean>();
@@ -44,14 +44,17 @@ export function VenueModulesPanel({
 
   function handleToggle(moduleKey: string, enabled: boolean) {
     if (!selectedVenueId) return;
-    setMessage(null);
     startTransition(async () => {
       const result = await setVenueModuleEnabled(
         selectedVenueId,
         moduleKey,
         enabled,
       );
-      setMessage(result.error ?? result.success ?? null);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Saved.");
     });
   }
 
@@ -74,7 +77,6 @@ export function VenueModulesPanel({
             ))}
           </select>
         </label>
-        {message ? <p className="text-sm text-black/60">{message}</p> : null}
       </div>
 
       {selectedVenue ? (

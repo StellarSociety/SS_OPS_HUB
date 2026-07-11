@@ -15,6 +15,7 @@ import {
 } from "@/lib/sales/forecast-aggregations";
 import { total445WeeksInYear } from "@/lib/sales/forecast-445-calendar";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 type SalesForecastPanelProps = {
@@ -425,7 +426,6 @@ export function SalesForecastPanel({
 }: SalesForecastPanelProps) {
   const router = useRouter();
   const [year, setYear] = useState(initialYear);
-  const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const yearOptions = useMemo(
@@ -456,14 +456,18 @@ export function SalesForecastPanel({
         formData.set(key, value || "0");
       }
       const result = await saveVenueMonthlyForecast(formData);
-      setMessage(result.success ?? result.error ?? null);
-      if (result.success) router.refresh();
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Forecast saved.");
+      router.refresh();
     });
   }
 
   return (
     <div className="mx-auto w-full space-y-4 lg:w-2/3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-3 text-center">
         <p className="text-sm text-black/55">
           Yearly revenue, covers, and ASPH targets using the 4-4-5 fiscal week
           pattern ({total445WeeksInYear()} weeks). Actuals come from Daily Sales.
@@ -492,12 +496,6 @@ export function SalesForecastPanel({
           </button>
         </div>
       </div>
-
-      {message ? (
-        <div className="rounded-lg border border-black/10 bg-white px-4 py-2 text-sm text-black/70">
-          {message}
-        </div>
-      ) : null}
 
       <YearSummaryCards summary={yearView} />
 

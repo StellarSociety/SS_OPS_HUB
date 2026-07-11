@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/toast";
 import {
   computeAge,
   computeVacationBalance,
@@ -71,7 +72,6 @@ export function StaffDetailView({
 }: StaffDetailViewProps) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const age = computeAge(staff.dob);
   const worked = computeWorkedTime(staff.joining_date, staff.termination_date);
@@ -84,12 +84,12 @@ export function StaffDetailView({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
-    setError(null);
     const result = await updateStaff(staff.id, new FormData(e.currentTarget));
     setSaving(false);
     if (result.error) {
-      setError(result.error);
+      toast.error(result.error);
     } else {
+      toast.saved("Staff details saved.");
       setEditing(false);
     }
   }
@@ -97,11 +97,6 @@ export function StaffDetailView({
   if (editing && canEdit) {
     return (
       <form onSubmit={handleSubmit} className="space-y-6">
-        {error ? (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
         <Section title="Identity & details">
           <div>
             <Label htmlFor="full_name">Full name</Label>

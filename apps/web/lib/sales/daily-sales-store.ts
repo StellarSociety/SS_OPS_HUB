@@ -96,6 +96,10 @@ export async function upsertVenueDailySales(
     dinner_bookings: number;
     dinner_walkin_tables: number;
     dinner_walkin_covers: number;
+    all_day_discount_gs: number;
+    vat_collected_gs: number;
+    municipality_fee_collected_gs: number;
+    service_charge_collected_gs: number;
   },
 ): Promise<VenueDailySalesRecord> {
   const row = {

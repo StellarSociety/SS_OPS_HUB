@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { ModuleGrid } from "@/components/modules/module-grid";
+import { ModuleExplanations } from "@/components/modules/module-explanations";
 import { loadModulesHubContext } from "@/lib/modules-hub-data";
 import {
   getModuleCategoryMeta,
@@ -31,7 +32,7 @@ export default async function ModuleCategoryPage({ params }: CategoryPageProps) 
 
       <ModuleGrid modules={modules} />
 
-      <div className="min-h-48" aria-hidden />
+      <ModuleExplanations modules={modules} />
     </div>
   );
 }

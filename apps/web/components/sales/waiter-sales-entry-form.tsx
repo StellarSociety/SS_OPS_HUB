@@ -38,7 +38,7 @@ import {
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
 import { WaiterSelectBar } from "@/components/sales/waiter-select-bar";
-import { AutoDismissToast } from "@/components/ui/auto-dismiss-toast";
+import { toast } from "@/components/ui/toast";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -247,14 +247,20 @@ export function WaiterSalesEntryForm({
   );
 
   const [selectedWaiterId, setSelectedWaiterId] = useState("");
+  const datesWithEntries = useMemo(() => {
+    const set = new Set<string>();
+    for (const record of records) {
+      if (selectedWaiterId && record.waiter_id !== selectedWaiterId) continue;
+      set.add(record.sale_date);
+    }
+    return set;
+  }, [records, selectedWaiterId]);
   const [selectedDate, setSelectedDate] = useState(today);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [inputMode, setInputMode] = useState<SalesInputMode>("gross");
   const [form, setForm] = useState<FormState>(() =>
     emptyForm("", today, tenderIds),
   );
-  const [message, setMessage] = useState<string | null>(null);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -331,8 +337,6 @@ export function WaiterSalesEntryForm({
   saveFormRef.current = async () => {
     if (!selectedWaiterId) return false;
 
-    setMessage(null);
-
     const formData = new FormData();
     if (form.id) formData.set("id", form.id);
     formData.set("waiter_id", selectedWaiterId);
@@ -355,7 +359,7 @@ export function WaiterSalesEntryForm({
 
     const result = await saveVenueWaiterDailySalesEntry(formData);
     if (result.error) {
-      setMessage(result.error);
+      toast.error(result.error);
       return false;
     }
 
@@ -364,7 +368,7 @@ export function WaiterSalesEntryForm({
       : form;
     setForm(updated);
     syncBaseline(updated);
-    setSaveToast("Details saved and uploaded to the cloud.");
+    toast.uploaded("Details saved and uploaded to the cloud.");
     return true;
   };
 
@@ -424,7 +428,6 @@ export function WaiterSalesEntryForm({
     guardAction(() => {
       setSelectedWaiterId(waiterId);
       setIsFormOpen(false);
-      setMessage(null);
     });
   }
 
@@ -432,7 +435,6 @@ export function WaiterSalesEntryForm({
     guardAction(() => {
       setSelectedDate(date);
       setIsFormOpen(false);
-      setMessage(null);
     });
   }
 
@@ -461,14 +463,13 @@ export function WaiterSalesEntryForm({
   function openForm() {
     if (!selectedWaiterId) return;
     if (!canCreateSalesEntryForDate(selectedDate, isExisting)) {
-      setMessage(FUTURE_SALES_ENTRY_ERROR);
+      toast.alert(FUTURE_SALES_ENTRY_ERROR);
       return;
     }
     const initial = formForSelection(selectedWaiterId, selectedDate);
     setForm(initial);
     syncBaseline(initial);
     setIsFormOpen(true);
-    setMessage(null);
   }
 
   function handleSave() {
@@ -513,6 +514,7 @@ export function WaiterSalesEntryForm({
         isPending={isPending}
         onOpenForm={openForm}
         onSave={handleSave}
+        datesWithEntries={datesWithEntries}
         extraBadges={
           selectedWaiter ? (
             <span className="inline-flex h-10 shrink-0 items-center rounded-full border border-black/10 bg-[var(--venue-secondary)]/30 px-3 text-sm text-black/60">
@@ -560,10 +562,6 @@ export function WaiterSalesEntryForm({
           </div>
         </SalesFormColumnsLayout>
       </div>
-
-      {message ? (
-        <p className="text-center text-sm text-black/60">{message}</p>
-      ) : null}
 
       <SalesFormThreeColumnGroup>
         <SalesFormColumnsLayout>
@@ -814,11 +812,6 @@ export function WaiterSalesEntryForm({
           </div>
         </Card>
       </SalesFormThreeColumnGroup>
-
-      <AutoDismissToast
-        message={saveToast}
-        onDismiss={() => setSaveToast(null)}
-      />
     </div>
   );
 }

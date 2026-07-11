@@ -1,4 +1,5 @@
 import { DiscountsSubNav } from "@/components/sales/discounts-sub-nav";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessDiscounts } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
 
@@ -22,7 +23,7 @@ export default async function SalesDiscountsLayout({
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">Discounts</h1>
+        <ModulePageTitle>Discounts</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Daily discount records — {venue.name}
         </p>

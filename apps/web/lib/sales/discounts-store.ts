@@ -22,16 +22,11 @@ export async function upsertVenueDailyDiscounts(
   payload: {
     id?: string;
     sale_date: string;
-    lunch_food_discount_gs: number;
-    lunch_beverages_discount_gs: number;
-    lunch_wine_discount_gs: number;
-    lunch_shisha_discount_gs: number;
-    lunch_others_discount_gs: number;
-    dinner_food_discount_gs: number;
-    dinner_beverages_discount_gs: number;
-    dinner_wine_discount_gs: number;
-    dinner_shisha_discount_gs: number;
-    dinner_others_discount_gs: number;
+    food_discount_gs: number;
+    beverages_discount_gs: number;
+    wine_discount_gs: number;
+    shisha_discount_gs: number;
+    others_discount_gs: number;
   },
 ): Promise<VenueDailyDiscountsRecord> {
   const row = {

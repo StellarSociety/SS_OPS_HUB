@@ -13,6 +13,7 @@ import {
 import type { Venue } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 
 const ACCESS_LEVELS: AccessLevel[] = ["submit", "view", "edit", "admin"];
 
@@ -37,7 +38,6 @@ export function UserPermissionsGrid({
   venues,
 }: UserPermissionsGridProps) {
   const [rows, setRows] = useState<GrantRow[]>(() => toRows(initialGrants));
-  const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const moduleCatalog = useMemo(() => getModuleCatalog(), []);
@@ -82,7 +82,6 @@ export function UserPermissionsGrid({
   }
 
   function handleSave() {
-    setMessage(null);
     startTransition(async () => {
       const grants: PermissionGrantInput[] = rows.map(
         ({ module_key, feature_key, access_level, venue_id }) => ({
@@ -94,10 +93,10 @@ export function UserPermissionsGrid({
       );
       const result = await saveUserPermissions(userId, grants);
       if (result.error) {
-        setMessage(result.error);
+        toast.error(result.error);
         return;
       }
-      setMessage(result.success ?? "Saved.");
+      toast.saved(result.success ?? "Saved.");
     });
   }
 
@@ -217,9 +216,6 @@ export function UserPermissionsGrid({
         <Button type="button" size="sm" disabled={isPending} onClick={handleSave}>
           {isPending ? "Saving…" : "Save permissions"}
         </Button>
-        {message ? (
-          <p className="text-sm text-black/60">{message}</p>
-        ) : null}
       </div>
 
       {rows.length > 0 ? (

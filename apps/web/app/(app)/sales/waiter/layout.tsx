@@ -1,4 +1,5 @@
 import { WaiterSalesSubNav } from "@/components/sales/waiter-sales-sub-nav";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessWaiterDaily } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
 
@@ -22,7 +23,7 @@ export default async function SalesWaiterLayout({
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">Waiter Sales</h1>
+        <ModulePageTitle>Waiter Sales</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Waiter Daily Sales Record — {venue.name}
         </p>

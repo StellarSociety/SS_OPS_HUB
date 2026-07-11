@@ -8,9 +8,9 @@ import {
   ClipboardList,
   Code2,
   LayoutDashboard,
-  LayoutGrid,
   Scale,
   Settings,
+  Store,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -19,6 +19,8 @@ import {
   moduleBrandedNavIconClass,
   moduleBrandedNavLinkClass,
 } from "@/lib/sub-nav-ui";
+import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
+import { useNavTooltip } from "@/components/layout/use-nav-tooltip";
 import { VenueBrandIcon, hasVenueBrandAssets } from "@/components/brand/venue-brand-icon";
 import { moduleCategoryMeta } from "@/lib/module-categories";
 import { getModuleSidebarForPath, isModuleSidebarItemActive } from "@/lib/module-sidebar";
@@ -36,7 +38,7 @@ const hubNavItems = [
 const appsHubItem = {
   label: "Apps Hub",
   href: "/modules",
-  icon: LayoutGrid,
+  icon: Store,
 } as const;
 
 const appCategoryNavItems = [
@@ -63,13 +65,15 @@ const appCategoryNavItems = [
 ] as const;
 
 const venueSettingsNavItem = {
-  label: "Venue Settings",
+  label: "Settings",
+  sublabel: "Venue",
   href: "/settings",
   icon: Settings,
 } as const;
 
 const globalSettingsNavItem = {
-  label: "Global Settings",
+  label: "Settings",
+  sublabel: "Global",
   href: "/global/settings",
   icon: Settings,
 } as const;
@@ -107,19 +111,22 @@ function SidebarLink({
   branded?: boolean;
 }) {
   const collapsedTitle = sublabel ? `${sublabel} ${label}` : label;
+  const { triggerProps, tooltip } = useNavTooltip(collapsedTitle, collapsed);
 
   if (branded) {
     return (
       <Link
         href={href}
-        title={collapsed ? collapsedTitle : undefined}
         aria-label={collapsed ? collapsedTitle : undefined}
+        {...triggerProps}
         className={cn(
           moduleBrandedNavLinkClass(active, { fullWidth: !collapsed }),
+          "relative",
           collapsed && "justify-center px-2",
         )}
       >
-        <Icon className={moduleBrandedNavIconClass(active)} />
+        <Icon className={cn(moduleBrandedNavIconClass(active), collapsed && "h-5 w-5")} />
+        {tooltip}
         {!collapsed ? (
           sublabel ? (
             <span className="min-w-0 flex-1 leading-none">
@@ -132,6 +139,7 @@ function SidebarLink({
             <span className="truncate">{label}</span>
           )
         ) : null}
+        <NavigationPendingIndicator className={collapsed ? "absolute right-1 top-1" : "ml-auto"} />
       </Link>
     );
   }
@@ -139,17 +147,18 @@ function SidebarLink({
   return (
     <Link
       href={href}
-      title={collapsed ? collapsedTitle : undefined}
       aria-label={collapsed ? collapsedTitle : undefined}
+      {...triggerProps}
       className={cn(
-        "flex items-center rounded-lg py-2 text-sm transition-colors",
+        "relative flex items-center rounded-lg py-2 text-sm transition-colors",
         collapsed ? "justify-center px-2" : "gap-2.5 px-3",
         active
           ? "bg-[var(--venue-primary)]/15 font-medium text-[#3D421F]"
           : "text-black/60 hover:bg-black/5 hover:text-[#3D421F]",
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-4 w-4")} />
+      {tooltip}
       {!collapsed ? (
         sublabel ? (
           <span className="min-w-0 flex-1 leading-tight">
@@ -162,6 +171,41 @@ function SidebarLink({
           <span className="truncate">{label}</span>
         )
       ) : null}
+      <NavigationPendingIndicator className={collapsed ? "absolute right-1 top-1" : "ml-auto"} />
+    </Link>
+  );
+}
+
+function SidebarTopLink({
+  href,
+  label,
+  icon: Icon,
+  collapsed,
+  className,
+}: {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  collapsed: boolean;
+  className?: string;
+}) {
+  const { triggerProps, tooltip } = useNavTooltip(label, collapsed);
+
+  return (
+    <Link
+      href={href}
+      aria-label={collapsed ? label : undefined}
+      {...triggerProps}
+      className={cn(
+        "relative flex items-center rounded-lg py-2 text-xs font-medium uppercase tracking-wide text-black/45 transition-colors hover:bg-black/5 hover:text-[#3D421F]",
+        collapsed ? "justify-center px-2" : "gap-2 px-3",
+        className,
+      )}
+    >
+      <Icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-3.5 w-3.5")} />
+      {!collapsed ? label : null}
+      <NavigationPendingIndicator className={collapsed ? "absolute right-1 top-1" : "ml-auto"} />
+      {tooltip}
     </Link>
   );
 }
@@ -212,7 +256,7 @@ export function AppSidebar({
             logoUrl={venue.logo_url}
             iconUrl={venue.icon_url}
             faviconUrl={venue.favicon_url}
-            variant="badge"
+            variant="mark"
             className="h-10 w-10"
             title={venue.name}
           />
@@ -248,25 +292,37 @@ export function AppSidebar({
 
         {moduleSidebar ? (
           <>
-            <Link
+            <SidebarTopLink
+              href="/dashboard"
+              label="Dashboards"
+              icon={LayoutDashboard}
+              collapsed={collapsed}
+            />
+            <SidebarTopLink
               href="/modules"
-              title={collapsed ? "Apps Hub" : undefined}
-              aria-label={collapsed ? "Apps Hub" : undefined}
-              className={cn(
-                "mb-1 flex items-center rounded-lg py-2 text-xs font-medium uppercase tracking-wide text-black/45 transition-colors hover:bg-black/5 hover:text-[#3D421F]",
-                collapsed ? "justify-center px-2" : "gap-2 px-3",
-              )}
-            >
-              <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
-              {!collapsed ? "Apps Hub" : null}
-            </Link>
-            {!collapsed && ModuleIcon ? (
-              <div className="mx-1 mb-1 mt-2 flex items-center gap-2.5 rounded-lg border border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/12 px-3 py-2.5 shadow-sm">
-                <ModuleIcon className="h-4 w-4 shrink-0 text-[#3D421F]" />
-                <p className="truncate font-serif text-sm font-semibold uppercase tracking-wide text-[#3D421F]">
-                  {moduleSidebar.label}
-                </p>
-              </div>
+              label="Apps Hub"
+              icon={Store}
+              collapsed={collapsed}
+              className="mb-1"
+            />
+            <SidebarDivider collapsed={collapsed} />
+            {ModuleIcon ? (
+              collapsed ? (
+                <div
+                  title={moduleSidebar.label}
+                  aria-label={moduleSidebar.label}
+                  className="mx-1 mb-1 mt-2 flex items-center justify-center rounded-lg border border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/12 p-2 shadow-sm"
+                >
+                  <ModuleIcon className="h-5 w-5 shrink-0 text-[#3D421F]" />
+                </div>
+              ) : (
+                <div className="mx-1 mb-1 mt-2 flex items-center gap-2.5 rounded-lg border border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/12 px-3 py-2.5 shadow-sm">
+                  <ModuleIcon className="h-4 w-4 shrink-0 text-[#3D421F]" />
+                  <p className="truncate font-serif text-sm font-semibold tracking-wide text-[#3D421F]">
+                    {moduleSidebar.label}
+                  </p>
+                </div>
+              )
             ) : null}
             {moduleSidebar.items.map((item) => {
               const active = isModuleSidebarItemActive(pathname, item);
@@ -337,13 +393,16 @@ export function AppSidebar({
             ))}
             {showSettings ? (
               <>
+                <div className="flex-1" />
                 <SidebarDivider collapsed={collapsed} />
                 <SidebarLink
                   href={settingsNav.href}
                   label={settingsNav.label}
+                  sublabel={settingsNav.sublabel}
                   icon={settingsNav.icon}
                   active={settingsActive}
                   collapsed={collapsed}
+                  branded
                 />
               </>
             ) : null}

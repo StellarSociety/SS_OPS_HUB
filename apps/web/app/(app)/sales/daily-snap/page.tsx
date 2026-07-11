@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { DailySnapPanel } from "@/components/sales/daily-snap-panel";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
   SalesSchemaSetupNotice,
   getSalesDataLoadErrorMessage,
@@ -12,6 +13,7 @@ import {
 import {
   getVenueDailySnapNotes,
   listVenueDailySnapDiscountLines,
+  listVenueDailySnapEntryDates,
   listVenueDailySnapEvents,
   listVenueMonthlyForecasts,
 } from "@/lib/sales/daily-snap-store";
@@ -24,6 +26,7 @@ import { listActiveVenueWaiters } from "@/lib/sales/waiters-store";
 import { Card } from "@/components/ui/card";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 import { getLocalTodayIsoDate } from "@/lib/sales/sales-entry-dates";
+import { buildExportUserLabel } from "@/lib/exports/user-label";
 
 type DailySnapPageProps = {
   searchParams: Promise<{ date?: string }>;
@@ -59,6 +62,7 @@ export default async function SalesDailySnapPage({ searchParams }: DailySnapPage
       notes,
       discountLines,
       events,
+      snapEntryDates,
     ] = await Promise.all([
       listVenueDailySales(supabase, venue.id),
       listVenueDailyDiscounts(supabase, venue.id),
@@ -70,6 +74,7 @@ export default async function SalesDailySnapPage({ searchParams }: DailySnapPage
       getVenueDailySnapNotes(supabase, venue.id, selectedDate),
       listVenueDailySnapDiscountLines(supabase, venue.id, selectedDate),
       listVenueDailySnapEvents(supabase, venue.id, selectedDate),
+      listVenueDailySnapEntryDates(supabase, venue.id),
     ]);
 
     const totalTaxPct = totalTaxRateFromSettings(taxSettings);
@@ -83,16 +88,15 @@ export default async function SalesDailySnapPage({ searchParams }: DailySnapPage
           .single()
       : { data: null };
 
-    const userDisplayName =
-      profile?.full_name?.trim() ||
-      profile?.email ||
-      user?.email ||
-      "Unknown";
+    const userDisplayName = buildExportUserLabel(
+      profile?.full_name,
+      profile?.email ?? user?.email,
+    );
 
     return (
       <div className="mx-auto w-full max-w-none space-y-6">
         <div>
-          <h1 className="font-serif text-3xl text-[#3D421F]">Daily Snap</h1>
+          <ModulePageTitle>Daily Snap</ModulePageTitle>
           <p className="mt-1 text-sm text-black/60">
             End-of-day closing report — {venue.name}
           </p>
@@ -113,6 +117,7 @@ export default async function SalesDailySnapPage({ searchParams }: DailySnapPage
             notes={notes}
             discountLines={discountLines}
             events={events}
+            snapEntryDates={snapEntryDates}
             totalTaxPct={totalTaxPct}
             canEdit={canEdit}
             userDisplayName={userDisplayName}
@@ -125,7 +130,7 @@ export default async function SalesDailySnapPage({ searchParams }: DailySnapPage
       return (
         <div className="mx-auto max-w-4xl space-y-4">
           <div>
-            <h1 className="font-serif text-3xl text-[#3D421F]">Daily Snap</h1>
+            <ModulePageTitle>Daily Snap</ModulePageTitle>
             <p className="mt-1 text-sm text-black/60">
               End-of-day closing report — {venue.name}
             </p>
@@ -140,7 +145,7 @@ export default async function SalesDailySnapPage({ searchParams }: DailySnapPage
     return (
       <div className="mx-auto max-w-4xl space-y-4">
         <div>
-          <h1 className="font-serif text-3xl text-[#3D421F]">Daily Snap</h1>
+          <ModulePageTitle>Daily Snap</ModulePageTitle>
           <p className="mt-1 text-sm text-black/60">
             End-of-day closing report — {venue.name}
           </p>

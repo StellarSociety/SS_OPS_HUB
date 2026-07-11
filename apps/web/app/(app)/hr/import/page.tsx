@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { ImportStaffForm } from "@/components/hr/import-staff";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canEditStaff } from "@/lib/hr/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
@@ -51,7 +52,7 @@ export default async function HrImportPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">Import staff</h1>
+        <ModulePageTitle>Import staff</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           One-off import from the client HR workbook for {venue.name}.
         </p>

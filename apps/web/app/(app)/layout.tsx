@@ -10,12 +10,13 @@ import { isAppAdmin } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 import { getUserRoleLabel } from "@/lib/user/display";
 
-async function getActiveVenue() {
-  const cookieStore = await cookies();
+async function getActiveVenue(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+) {
   const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
   if (!slug) return null;
 
-  const supabase = await createClient();
   const { data } = await supabase
     .from("venues")
     .select("*")
@@ -30,6 +31,7 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const cookieStore = await cookies();
   const supabase = await createClient();
   const {
     data: { user },
@@ -39,7 +41,7 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  const venue = await getActiveVenue();
+  const venue = await getActiveVenue(supabase, cookieStore);
   if (!venue) {
     redirect("/select-venue");
   }

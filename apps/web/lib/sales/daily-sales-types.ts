@@ -41,6 +41,10 @@ export type VenueDailySalesRecord = {
   dinner_bookings: number;
   dinner_walkin_tables: number;
   dinner_walkin_covers: number;
+  all_day_discount_gs: number;
+  vat_collected_gs: number;
+  municipality_fee_collected_gs: number;
+  service_charge_collected_gs: number;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -69,7 +73,11 @@ export type VenueDailySalesInputField =
   | "dinner_covers"
   | "dinner_bookings"
   | "dinner_walkin_tables"
-  | "dinner_walkin_covers";
+  | "dinner_walkin_covers"
+  | "all_day_discount_gs"
+  | "vat_collected_gs"
+  | "municipality_fee_collected_gs"
+  | "service_charge_collected_gs";
 
 export type ComputedDailySales = {
   weekNumber: number;

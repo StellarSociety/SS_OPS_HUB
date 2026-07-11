@@ -1,5 +1,5 @@
-import { LineChart } from "lucide-react";
 import { SalesForecastPanel } from "@/components/sales/sales-forecast-panel";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
   SalesSchemaSetupNotice,
   getSalesDataLoadErrorMessage,
@@ -15,17 +15,10 @@ import {
 import { listVenueMonthlyForecasts } from "@/lib/sales/daily-snap-store";
 import { canAccessCashUp, canEditCashUp } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
-import { moduleSidebarRegistry } from "@/lib/module-sidebar";
 import { Card } from "@/components/ui/card";
 
 export default async function SalesForecastPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
-  const salesModule = moduleSidebarRegistry.find(
-    (module) => module.moduleKey === "sales",
-  );
-  const ForecastIcon = salesModule?.items.find(
-    (item) => item.href === "/sales/forecast",
-  )?.icon;
 
   if (!canAccessCashUp(permissions, venue.id)) {
     return (
@@ -64,22 +57,7 @@ export default async function SalesForecastPage() {
     return (
       <div className="mx-auto w-full max-w-none space-y-6">
         <div>
-          <h1 className="flex items-center gap-2.5 font-serif text-3xl text-[#3D421F]">
-            {ForecastIcon ? (
-              <ForecastIcon
-                className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
-                strokeWidth={1.5}
-                aria-hidden
-              />
-            ) : (
-              <LineChart
-                className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
-                strokeWidth={1.5}
-                aria-hidden
-              />
-            )}
-            Forecasts
-          </h1>
+          <ModulePageTitle>Forecasts</ModulePageTitle>
           <p className="mt-1 text-sm text-black/60">
             Yearly revenue, covers, and ASPH planning — {venue.name}
           </p>

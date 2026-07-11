@@ -17,6 +17,11 @@ type SalesDateInputProps = {
   placeholder?: string;
   /** When set, dates after this (YYYY-MM-DD) cannot be selected. */
   maxDate?: string;
+  /**
+   * ISO dates (YYYY-MM-DD) that already have an entry. When provided, past days
+   * without an entry are highlighted with a red background in the calendar.
+   */
+  datesWithEntries?: ReadonlySet<string>;
 };
 
 const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
@@ -76,6 +81,7 @@ type SalesDateCalendarProps = {
   viewMonth: Date;
   selectedIso: string;
   maxDate?: string;
+  datesWithEntries?: ReadonlySet<string>;
   onSelect: (iso: string) => void;
   onViewMonthChange: (month: Date) => void;
 };
@@ -84,10 +90,12 @@ function SalesDateCalendar({
   viewMonth,
   selectedIso,
   maxDate,
+  datesWithEntries,
   onSelect,
   onViewMonthChange,
 }: SalesDateCalendarProps) {
   const today = new Date();
+  const todayIso = dateToIso(today);
   const selectedDate = isoToDate(selectedIso);
   const monthLabel = viewMonth.toLocaleString(undefined, {
     month: "long",
@@ -135,6 +143,11 @@ function SalesDateCalendar({
           const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
           const isToday = isSameDay(day, today);
           const isAfterMax = maxDate ? iso > maxDate : false;
+          const isMissingEntry =
+            !!datesWithEntries &&
+            iso < todayIso &&
+            !isAfterMax &&
+            !datesWithEntries.has(iso);
 
           return (
             <button
@@ -143,11 +156,14 @@ function SalesDateCalendar({
               disabled={isAfterMax}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onSelect(iso)}
+              title={isMissingEntry ? "No entry for this day" : undefined}
               className={cn(
                 "inline-flex h-8 w-8 items-center justify-center rounded-md text-sm tabular-nums transition-colors",
                 isSelected
                   ? "bg-[var(--venue-primary)] font-semibold text-white"
-                  : "text-[#3D421F] hover:bg-[var(--venue-secondary)]/35",
+                  : isMissingEntry
+                    ? "bg-red-500/12 text-red-700 hover:bg-red-500/20"
+                    : "text-[#3D421F] hover:bg-[var(--venue-secondary)]/35",
                 isToday &&
                   !isSelected &&
                   "ring-2 ring-[var(--venue-primary)]/45 ring-offset-1",
@@ -160,6 +176,13 @@ function SalesDateCalendar({
           );
         })}
       </div>
+
+      {datesWithEntries ? (
+        <div className="mt-3 flex items-center gap-1.5 border-t border-black/5 pt-2 text-[10px] text-black/50">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-500/25" />
+          No entry for that day
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -171,6 +194,7 @@ export function SalesDateInput({
   className,
   placeholder = "DD/MM/YYYY",
   maxDate,
+  datesWithEntries,
 }: SalesDateInputProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -326,6 +350,7 @@ export function SalesDateInput({
                 viewMonth={viewMonth}
                 selectedIso={value}
                 maxDate={maxDate}
+                datesWithEntries={datesWithEntries}
                 onSelect={applyIsoDate}
                 onViewMonthChange={setViewMonth}
               />

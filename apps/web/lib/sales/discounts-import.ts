@@ -16,40 +16,15 @@ export type DiscountsImportColumn = {
 
 export const DISCOUNTS_IMPORT_COLUMNS: DiscountsImportColumn[] = [
   { key: "sale_date", label: "Date", type: "date" },
-  { key: "lunch_food_discount_gs", label: "Lunch Food Discount GS", type: "money" },
+  { key: "food_discount_gs", label: "Food Discount GS", type: "money" },
   {
-    key: "lunch_beverages_discount_gs",
-    label: "Lunch Beverages Discount GS",
+    key: "beverages_discount_gs",
+    label: "Beverages Discount GS",
     type: "money",
   },
-  { key: "lunch_wine_discount_gs", label: "Lunch Wine Discount GS", type: "money" },
-  {
-    key: "lunch_shisha_discount_gs",
-    label: "Lunch Shisha Discount GS",
-    type: "money",
-  },
-  {
-    key: "lunch_others_discount_gs",
-    label: "Lunch Others Discount GS",
-    type: "money",
-  },
-  { key: "dinner_food_discount_gs", label: "Dinner Food Discount GS", type: "money" },
-  {
-    key: "dinner_beverages_discount_gs",
-    label: "Dinner Beverages Discount GS",
-    type: "money",
-  },
-  { key: "dinner_wine_discount_gs", label: "Dinner Wine Discount GS", type: "money" },
-  {
-    key: "dinner_shisha_discount_gs",
-    label: "Dinner Shisha Discount GS",
-    type: "money",
-  },
-  {
-    key: "dinner_others_discount_gs",
-    label: "Dinner Others Discount GS",
-    type: "money",
-  },
+  { key: "wine_discount_gs", label: "Wine Discount GS", type: "money" },
+  { key: "shisha_discount_gs", label: "Shisha Discount GS", type: "money" },
+  { key: "others_discount_gs", label: "Others Discount GS", type: "money" },
 ];
 
 const HEADER_ALIASES: Record<string, DiscountsImportColumn["key"]> = {};
@@ -59,33 +34,47 @@ for (const column of DISCOUNTS_IMPORT_COLUMNS) {
   HEADER_ALIASES[column.key.replace(/_/g, " ")] = column.key;
 }
 
+// Backwards compatibility: old templates split each category into a Lunch and a
+// Dinner column. Map both to the single per-day column so their values are summed.
+const LEGACY_SERVICE_ALIASES: Record<string, VenueDailyDiscountsInputField> = {
+  lunch_food_discount_gs: "food_discount_gs",
+  dinner_food_discount_gs: "food_discount_gs",
+  lunch_beverages_discount_gs: "beverages_discount_gs",
+  dinner_beverages_discount_gs: "beverages_discount_gs",
+  lunch_wine_discount_gs: "wine_discount_gs",
+  dinner_wine_discount_gs: "wine_discount_gs",
+  lunch_shisha_discount_gs: "shisha_discount_gs",
+  dinner_shisha_discount_gs: "shisha_discount_gs",
+  lunch_others_discount_gs: "others_discount_gs",
+  dinner_others_discount_gs: "others_discount_gs",
+};
+for (const [legacyKey, newKey] of Object.entries(LEGACY_SERVICE_ALIASES)) {
+  const label = legacyKey
+    .replace(/_gs$/, " GS")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  HEADER_ALIASES[legacyKey] = newKey;
+  HEADER_ALIASES[legacyKey.replace(/_/g, " ")] = newKey;
+  HEADER_ALIASES[label.toLowerCase()] = newKey;
+}
+
 export type DiscountsImportPayload = {
   sale_date: string;
-  lunch_food_discount_gs: number;
-  lunch_beverages_discount_gs: number;
-  lunch_wine_discount_gs: number;
-  lunch_shisha_discount_gs: number;
-  lunch_others_discount_gs: number;
-  dinner_food_discount_gs: number;
-  dinner_beverages_discount_gs: number;
-  dinner_wine_discount_gs: number;
-  dinner_shisha_discount_gs: number;
-  dinner_others_discount_gs: number;
+  food_discount_gs: number;
+  beverages_discount_gs: number;
+  wine_discount_gs: number;
+  shisha_discount_gs: number;
+  others_discount_gs: number;
 };
 
 function emptyPayload(): DiscountsImportPayload {
   return {
     sale_date: "",
-    lunch_food_discount_gs: 0,
-    lunch_beverages_discount_gs: 0,
-    lunch_wine_discount_gs: 0,
-    lunch_shisha_discount_gs: 0,
-    lunch_others_discount_gs: 0,
-    dinner_food_discount_gs: 0,
-    dinner_beverages_discount_gs: 0,
-    dinner_wine_discount_gs: 0,
-    dinner_shisha_discount_gs: 0,
-    dinner_others_discount_gs: 0,
+    food_discount_gs: 0,
+    beverages_discount_gs: 0,
+    wine_discount_gs: 0,
+    shisha_discount_gs: 0,
+    others_discount_gs: 0,
   };
 }
 
@@ -116,7 +105,8 @@ function mapRowToPayload(row: SheetRow, rowNumber: number): {
       continue;
     }
 
-    payload[key as VenueDailyDiscountsInputField] = parseExcelMoney(rawValue);
+    // Accumulate so legacy Lunch + Dinner columns collapse into one per-day value.
+    payload[key as VenueDailyDiscountsInputField] += parseExcelMoney(rawValue);
   }
 
   if (!payload.sale_date) {

@@ -5,6 +5,7 @@ import { saveVenueWaiterSalesSettings } from "@/lib/actions/sales";
 import { formatPct } from "@/lib/sales/daily-sales-calculations";
 import type { VenueWaiterSalesSettings } from "@/lib/sales/waiter-sales-settings-types";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 
 type SalesGroupsServiceChargeSettingsPanelProps = {
   settings: VenueWaiterSalesSettings;
@@ -17,16 +18,18 @@ export function SalesGroupsServiceChargeSettingsPanel({
 }: SalesGroupsServiceChargeSettingsPanelProps) {
   const [groupsAddedServiceChargePct, setGroupsAddedServiceChargePct] =
     useState(settings.groups_added_service_charge_pct);
-  const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function handleSave() {
-    setMessage(null);
     startTransition(async () => {
       const result = await saveVenueWaiterSalesSettings({
         groups_added_service_charge_pct: groupsAddedServiceChargePct,
       });
-      setMessage(result.error ?? result.success ?? null);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Settings saved.");
     });
   }
 
@@ -80,7 +83,6 @@ export function SalesGroupsServiceChargeSettingsPanel({
           >
             Save settings
           </button>
-          {message ? <p className="text-sm text-black/60">{message}</p> : null}
         </div>
       ) : (
         <p className="text-sm text-black/50">

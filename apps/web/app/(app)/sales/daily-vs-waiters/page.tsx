@@ -1,4 +1,5 @@
 import { DailyVsWaitersTable } from "@/components/sales/daily-vs-waiters-table";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
   SalesSchemaSetupNotice,
   getSalesDataLoadErrorMessage,
@@ -17,9 +18,13 @@ import { getSalesPageContext } from "@/lib/sales/page-context";
 import { listVenueWaiterDailySales } from "@/lib/sales/waiter-sales-store";
 import { Card } from "@/components/ui/card";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
+import { buildExportUserLabel } from "@/lib/exports/user-label";
 
 export default async function DailyVsWaitersPage() {
   const { supabase, venue, permissions } = await getSalesPageContext();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!canAccessDailyVsWaiters(permissions, venue.id)) {
     return (
@@ -42,10 +47,23 @@ export default async function DailyVsWaitersPage() {
     const totalTaxPct = totalTaxRateFromSettings(taxSettings);
     const canEdit = canEditDailyVsWaiters(permissions, venue.id);
 
+    const { data: profile } = user
+      ? await supabase
+          .from("profiles")
+          .select("full_name, email")
+          .eq("id", user.id)
+          .single()
+      : { data: null };
+
+    const userDisplayName = buildExportUserLabel(
+      profile?.full_name,
+      profile?.email ?? user?.email,
+    );
+
     return (
       <div className="mx-auto w-full max-w-none space-y-6">
         <div>
-          <h1 className="font-serif text-3xl text-[#3D421F]">Daily vs Waiters</h1>
+          <ModulePageTitle>Daily vs Waiters</ModulePageTitle>
           <p className="mt-1 text-sm text-black/60">
             Reconcile daily sales with waiter totals — {venue.name}
           </p>
@@ -60,6 +78,7 @@ export default async function DailyVsWaitersPage() {
           comments={comments}
           totalTaxPct={totalTaxPct}
           canEdit={canEdit}
+          userDisplayName={userDisplayName}
         />
       </div>
     );
@@ -68,7 +87,7 @@ export default async function DailyVsWaitersPage() {
       return (
         <div className="mx-auto max-w-4xl space-y-4">
           <div>
-            <h1 className="font-serif text-3xl text-[#3D421F]">Daily vs Waiters</h1>
+            <ModulePageTitle>Daily vs Waiters</ModulePageTitle>
             <p className="mt-1 text-sm text-black/60">
               Reconcile daily sales with waiter totals — {venue.name}
             </p>
@@ -83,7 +102,7 @@ export default async function DailyVsWaitersPage() {
     return (
       <div className="mx-auto max-w-4xl space-y-4">
         <div>
-          <h1 className="font-serif text-3xl text-[#3D421F]">Daily vs Waiters</h1>
+          <ModulePageTitle>Daily vs Waiters</ModulePageTitle>
           <p className="mt-1 text-sm text-black/60">
             Reconcile daily sales with waiter totals — {venue.name}
           </p>

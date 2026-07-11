@@ -46,6 +46,7 @@ export type ModuleOverviewItem = {
   category: ModuleCategoryKey;
   href?: string;
   status: ModuleStatus;
+  description: string;
 };
 
 export type ModuleNavItem = {
@@ -65,6 +66,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "clipboard-list",
     category: "operational",
     status: "coming_soon",
+    description:
+      "Build and complete checklists, opening and closing forms, and standard procedures so every shift follows the same steps.",
   },
   {
     key: "team_projects",
@@ -72,6 +75,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "folder-kanban",
     category: "operational",
     status: "coming_soon",
+    description:
+      "Plan projects, assign tasks, and track progress across the team with clear ownership and due dates.",
   },
   {
     key: "maintenance",
@@ -79,6 +84,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "wrench",
     category: "operational",
     status: "coming_soon",
+    description:
+      "Log equipment issues, schedule repairs, and keep assets running with a full maintenance history.",
   },
   {
     key: "sentiment",
@@ -86,6 +93,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "smile",
     category: "operational",
     status: "coming_soon",
+    description:
+      "Capture guest and staff feedback to spot trends and act on how people feel about the venue.",
   },
   {
     key: "sales",
@@ -94,6 +103,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     category: "revenue",
     href: "/sales",
     status: "live",
+    description:
+      "Track daily sales, revenue trends, and performance against targets across the venue.",
   },
   {
     key: "gp_cos",
@@ -101,6 +112,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "calculator",
     category: "revenue",
     status: "coming_soon",
+    description:
+      "Monitor gross profit and cost of sales to understand margins on every product and category.",
   },
   {
     key: "accounting",
@@ -108,6 +121,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "landmark",
     category: "revenue",
     status: "coming_soon",
+    description:
+      "Manage invoices, expenses, and financial records to keep the books accurate and up to date.",
   },
   {
     key: "hr",
@@ -116,6 +131,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     category: "people",
     href: "/hr",
     status: "live",
+    description:
+      "Manage staff records, roles, contracts, and everything related to your people in one place.",
   },
   {
     key: "learning",
@@ -123,6 +140,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "graduation-cap",
     category: "people",
     status: "coming_soon",
+    description:
+      "Deliver training, track certifications, and grow your team's skills over time.",
   },
   {
     key: "venue_governance",
@@ -130,6 +149,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "building-2",
     category: "management",
     status: "coming_soon",
+    description:
+      "Central oversight of venue policies, standards, and configuration for leadership.",
   },
   {
     key: "approvals",
@@ -137,6 +158,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "check-circle-2",
     category: "management",
     status: "coming_soon",
+    description:
+      "Review and sign off on requests, changes, and workflows that need management approval.",
   },
 ];
 

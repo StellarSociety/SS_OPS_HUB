@@ -4,6 +4,7 @@ import {
   pillSubNavLinkClass,
   segmentedSubNavLinkClass,
 } from "@/lib/sub-nav-ui";
+import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 
 type SubNavTabProps = {
   href: string;
@@ -37,6 +38,7 @@ export function SubNavTab({
       >
         {label}
       </span>
+      <NavigationPendingIndicator />
     </Link>
   );
 }

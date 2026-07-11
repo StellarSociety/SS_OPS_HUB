@@ -12,13 +12,12 @@ export type DiscountsColumn = {
   field?: VenueDailyDiscountsInputField;
   computedKey?: keyof ComputedDailyDiscounts;
   group: string;
-  section: "fixed" | "lunch" | "dinner" | "total";
+  section: "fixed" | "input" | "total";
 };
 
 export const DISCOUNTS_SECTION_LABELS = {
   fixed: "",
-  lunch: "Lunch",
-  dinner: "Dinner",
+  input: "Discounts",
   total: "Totals",
 } as const;
 
@@ -41,84 +40,44 @@ export const DISCOUNTS_COLUMNS: DiscountsColumn[] = [
     section: "fixed",
   },
   {
-    key: "lunch_food_discount_gs",
+    key: "food_discount_gs",
     label: "Food Discounts",
     kind: "input",
-    field: "lunch_food_discount_gs",
+    field: "food_discount_gs",
     group: "Food",
-    section: "lunch",
+    section: "input",
   },
   {
-    key: "lunch_beverages_discount_gs",
+    key: "beverages_discount_gs",
     label: "Beverages Discounts",
     kind: "input",
-    field: "lunch_beverages_discount_gs",
+    field: "beverages_discount_gs",
     group: "Beverages",
-    section: "lunch",
+    section: "input",
   },
   {
-    key: "lunch_wine_discount_gs",
+    key: "wine_discount_gs",
     label: "Wine Discounts",
     kind: "input",
-    field: "lunch_wine_discount_gs",
+    field: "wine_discount_gs",
     group: "Wine",
-    section: "lunch",
+    section: "input",
   },
   {
-    key: "lunch_shisha_discount_gs",
+    key: "shisha_discount_gs",
     label: "Shisha Discounts",
     kind: "input",
-    field: "lunch_shisha_discount_gs",
+    field: "shisha_discount_gs",
     group: "Shisha",
-    section: "lunch",
+    section: "input",
   },
   {
-    key: "lunch_others_discount_gs",
+    key: "others_discount_gs",
     label: "Other Discounts",
     kind: "input",
-    field: "lunch_others_discount_gs",
+    field: "others_discount_gs",
     group: "Others",
-    section: "lunch",
-  },
-  {
-    key: "dinner_food_discount_gs",
-    label: "Food Discounts",
-    kind: "input",
-    field: "dinner_food_discount_gs",
-    group: "Food",
-    section: "dinner",
-  },
-  {
-    key: "dinner_beverages_discount_gs",
-    label: "Beverages Discounts",
-    kind: "input",
-    field: "dinner_beverages_discount_gs",
-    group: "Beverages",
-    section: "dinner",
-  },
-  {
-    key: "dinner_wine_discount_gs",
-    label: "Wine Discounts",
-    kind: "input",
-    field: "dinner_wine_discount_gs",
-    group: "Wine",
-    section: "dinner",
-  },
-  {
-    key: "dinner_shisha_discount_gs",
-    label: "Shisha Discounts",
-    kind: "input",
-    field: "dinner_shisha_discount_gs",
-    group: "Shisha",
-    section: "dinner",
-  },
-  {
-    key: "dinner_others_discount_gs",
-    label: "Other Discounts",
-    kind: "input",
-    field: "dinner_others_discount_gs",
-    group: "Others",
-    section: "dinner",
+    section: "input",
   },
   {
     key: "totalFoodDiscountGs",

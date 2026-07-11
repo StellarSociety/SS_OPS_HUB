@@ -19,6 +19,7 @@ import type {
   VenueDailyDiscountsInputField,
   VenueDailyDiscountsRecord,
 } from "@/lib/sales/discounts-types";
+import type { VenueDailySalesRecord } from "@/lib/sales/daily-sales-types";
 import { SalesEntryDateBar } from "@/components/sales/sales-entry-date-bar";
 import { SalesEntryDateBanner } from "@/components/sales/sales-entry-date-banner";
 import {
@@ -32,10 +33,12 @@ import {
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 type DiscountsEntryFormProps = {
   records: VenueDailyDiscountsRecord[];
+  dailySalesRecords: VenueDailySalesRecord[];
   totalTaxPct: number;
   canEdit: boolean;
 };
@@ -45,53 +48,34 @@ type DiscountsInputMode = "gross" | "net";
 type FormState = {
   id: string;
   sale_date: string;
-  lunch_food_discount_gs: number;
-  lunch_beverages_discount_gs: number;
-  lunch_wine_discount_gs: number;
-  lunch_shisha_discount_gs: number;
-  lunch_others_discount_gs: number;
-  dinner_food_discount_gs: number;
-  dinner_beverages_discount_gs: number;
-  dinner_wine_discount_gs: number;
-  dinner_shisha_discount_gs: number;
-  dinner_others_discount_gs: number;
+  food_discount_gs: number;
+  beverages_discount_gs: number;
+  wine_discount_gs: number;
+  shisha_discount_gs: number;
+  others_discount_gs: number;
 };
 
-const LUNCH_FIELDS: { key: VenueDailyDiscountsInputField; label: string }[] = [
-  { key: "lunch_food_discount_gs", label: "Food Discounts" },
-  { key: "lunch_beverages_discount_gs", label: "Beverages Discounts" },
-  { key: "lunch_wine_discount_gs", label: "Wine Discounts" },
-  { key: "lunch_shisha_discount_gs", label: "Shisha Discounts" },
-  { key: "lunch_others_discount_gs", label: "Other Discounts" },
+const DISCOUNT_FIELDS: { key: VenueDailyDiscountsInputField; label: string }[] = [
+  { key: "food_discount_gs", label: "Food Discounts" },
+  { key: "beverages_discount_gs", label: "Beverages Discounts" },
+  { key: "wine_discount_gs", label: "Wine Discounts" },
+  { key: "shisha_discount_gs", label: "Shisha Discounts" },
+  { key: "others_discount_gs", label: "Other Discounts" },
 ];
 
-const DINNER_FIELDS: { key: VenueDailyDiscountsInputField; label: string }[] = [
-  { key: "dinner_food_discount_gs", label: "Food Discounts" },
-  { key: "dinner_beverages_discount_gs", label: "Beverages Discounts" },
-  { key: "dinner_wine_discount_gs", label: "Wine Discounts" },
-  { key: "dinner_shisha_discount_gs", label: "Shisha Discounts" },
-  { key: "dinner_others_discount_gs", label: "Other Discounts" },
-];
-
-const SAVE_FIELDS: VenueDailyDiscountsInputField[] = [
-  ...LUNCH_FIELDS.map((f) => f.key),
-  ...DINNER_FIELDS.map((f) => f.key),
-];
+const SAVE_FIELDS: VenueDailyDiscountsInputField[] = DISCOUNT_FIELDS.map(
+  (f) => f.key,
+);
 
 function emptyForm(date: string): FormState {
   return {
     id: "",
     sale_date: date,
-    lunch_food_discount_gs: 0,
-    lunch_beverages_discount_gs: 0,
-    lunch_wine_discount_gs: 0,
-    lunch_shisha_discount_gs: 0,
-    lunch_others_discount_gs: 0,
-    dinner_food_discount_gs: 0,
-    dinner_beverages_discount_gs: 0,
-    dinner_wine_discount_gs: 0,
-    dinner_shisha_discount_gs: 0,
-    dinner_others_discount_gs: 0,
+    food_discount_gs: 0,
+    beverages_discount_gs: 0,
+    wine_discount_gs: 0,
+    shisha_discount_gs: 0,
+    others_discount_gs: 0,
   };
 }
 
@@ -203,14 +187,14 @@ function CategoryTotalCell({
   net: number;
 }) {
   return (
-    <div className="rounded-lg border border-black/10 bg-white px-4 py-3 text-center">
+    <div className="flex flex-1 flex-col justify-center rounded-lg border border-black/10 bg-white px-4 py-2 text-center">
       <p className="text-xs font-medium tracking-wide text-black/50">{label}</p>
-      <div className="mt-2 grid grid-cols-2 gap-3">
+      <div className="mt-1 grid grid-cols-2 gap-3">
         <div>
           <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
             Gross
           </p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
+          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#3D421F]">
             {formatMoney(gross)}
           </p>
         </div>
@@ -218,7 +202,7 @@ function CategoryTotalCell({
           <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
             Net
           </p>
-          <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
+          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#3D421F]">
             {formatMoney(net)}
           </p>
         </div>
@@ -270,8 +254,86 @@ function DiscountsTotalsColumn({
   );
 }
 
+function ValidationRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-black/10 bg-white px-3 py-1.5">
+      <span className="text-[11px] font-medium tracking-wide text-black/50">
+        {label}
+      </span>
+      <span className="text-sm font-bold tabular-nums text-[#3D421F]">
+        {formatMoney(value)}
+      </span>
+    </div>
+  );
+}
+
+function DiscountsValidationColumn({
+  discountsTotalGs,
+  allDayDiscountGs,
+}: {
+  discountsTotalGs: number;
+  allDayDiscountGs: number;
+}) {
+  const diff = Math.round((discountsTotalGs - allDayDiscountGs) * 100) / 100;
+  const hasData = discountsTotalGs > 0 || allDayDiscountGs > 0;
+  const matches = Math.abs(diff) < 0.005;
+
+  return (
+    <div
+      className={salesFormColumnShellClass(
+        "gap-2 border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
+      )}
+    >
+      <h3 className="font-serif text-lg font-bold text-[#3D421F]">Validation</h3>
+      <ValidationRow label="Discounts entry (this page)" value={discountsTotalGs} />
+      <ValidationRow
+        label="All day Discounts (Daily Sales)"
+        value={allDayDiscountGs}
+      />
+      <div
+        className={cn(
+          "rounded-md border px-3 py-1.5 text-center",
+          !hasData
+            ? "border-black/10 bg-white"
+            : matches
+              ? "border-emerald-200 bg-emerald-50"
+              : "border-amber-200 bg-amber-50",
+        )}
+      >
+        {!hasData ? (
+          <p className="text-xs font-medium text-black/45">
+            No discounts entered for this date
+          </p>
+        ) : matches ? (
+          <p className="text-sm font-bold text-emerald-700">
+            Matched — both entries agree
+          </p>
+        ) : (
+          <p className="text-sm font-bold text-amber-700">
+            Difference {formatMoney(diff)}
+            <span className="ml-1 font-medium text-amber-700/80">
+              (
+              {diff > 0
+                ? "Discounts entry higher"
+                : "Daily Sales higher"}
+              )
+            </span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function DiscountsEntryForm({
   records,
+  dailySalesRecords,
   totalTaxPct,
   canEdit,
 }: DiscountsEntryFormProps) {
@@ -280,6 +342,17 @@ export function DiscountsEntryForm({
   const recordsByDate = useMemo(
     () => new Map(records.map((r) => [r.sale_date, r])),
     [records],
+  );
+  const datesWithEntries = useMemo(
+    () => new Set(recordsByDate.keys()),
+    [recordsByDate],
+  );
+  const allDayDiscountByDate = useMemo(
+    () =>
+      new Map(
+        dailySalesRecords.map((r) => [r.sale_date, r.all_day_discount_gs ?? 0]),
+      ),
+    [dailySalesRecords],
   );
 
   const [selectedDate, setSelectedDate] = useState(today);
@@ -294,11 +367,7 @@ export function DiscountsEntryForm({
   }, [searchParams]);
 
   const [form, setForm] = useState<FormState>(() => emptyForm(today));
-  const [lunchInputMode, setLunchInputMode] =
-    useState<DiscountsInputMode>("gross");
-  const [dinnerInputMode, setDinnerInputMode] =
-    useState<DiscountsInputMode>("gross");
-  const [message, setMessage] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<DiscountsInputMode>("gross");
   const [isPending, startTransition] = useTransition();
 
   const isExisting = recordsByDate.has(selectedDate);
@@ -324,8 +393,6 @@ export function DiscountsEntryForm({
   });
 
   saveFormRef.current = async () => {
-    setMessage(null);
-
     const formData = new FormData();
     if (form.id) formData.set("id", form.id);
     formData.set("sale_date", selectedDate);
@@ -333,14 +400,14 @@ export function DiscountsEntryForm({
 
     const result = await saveVenueDailyDiscountsEntry(formData);
     if (result.error) {
-      setMessage(result.error);
+      toast.error(result.error);
       return false;
     }
 
     const updated = result.record ? recordToForm(result.record) : form;
     setForm(updated);
     syncBaseline(updated);
-    setMessage(result.success ?? "Saved to cloud.");
+    toast.saved(result.success ?? "Saved to cloud.");
     return true;
   };
 
@@ -360,20 +427,18 @@ export function DiscountsEntryForm({
     guardAction(() => {
       setSelectedDate(date);
       setIsFormOpen(false);
-      setMessage(null);
     });
   }
 
   function openForm() {
     if (!canCreateSalesEntryForDate(selectedDate, isExisting)) {
-      setMessage(FUTURE_SALES_ENTRY_ERROR);
+      toast.alert(FUTURE_SALES_ENTRY_ERROR);
       return;
     }
     const initial = formForDate(selectedDate);
     setForm(initial);
     syncBaseline(initial);
     setIsFormOpen(true);
-    setMessage(null);
   }
 
   function updateField(field: VenueDailyDiscountsInputField, value: string) {
@@ -405,6 +470,7 @@ export function DiscountsEntryForm({
         isPending={isPending}
         onOpenForm={openForm}
         onSave={handleSave}
+        datesWithEntries={datesWithEntries}
       />
 
       <div className="space-y-3 text-center">
@@ -413,8 +479,8 @@ export function DiscountsEntryForm({
             Enter discount amounts as{" "}
             <span className="font-medium text-[#3D421F]">Gross</span> or{" "}
             <span className="font-medium text-[#3D421F]">Net</span> using the
-            toggle on each service period. Values are saved as gross; combined
-            tax rate {formatPct(totalTaxPct)}% is applied for net conversions.
+            toggle. Values are saved as gross; combined tax rate{" "}
+            {formatPct(totalTaxPct)}% is applied for net conversions.
           </p>
         ) : isFutureSalesEntryDate(selectedDate) && !isExisting ? (
           <p className="text-sm text-black/50">{FUTURE_SALES_ENTRY_ERROR}</p>
@@ -442,31 +508,35 @@ export function DiscountsEntryForm({
         </SalesFormColumnsLayout>
       </div>
 
-      {message ? (
-        <p className="text-center text-sm text-black/60">{message}</p>
-      ) : null}
 
       <SalesFormColumnsLayout>
-        <ServiceColumn
-          title="Lunch"
-          fields={LUNCH_FIELDS}
-          form={form}
-          canEdit={fieldsEditable}
-          inputMode={lunchInputMode}
-          totalTaxPct={totalTaxPct}
-          onInputModeChange={setLunchInputMode}
-          onChange={updateField}
-        />
-        <ServiceColumn
-          title="Dinner"
-          fields={DINNER_FIELDS}
-          form={form}
-          canEdit={fieldsEditable}
-          inputMode={dinnerInputMode}
-          totalTaxPct={totalTaxPct}
-          onInputModeChange={setDinnerInputMode}
-          onChange={updateField}
-        />
+        <div
+          className={cn(
+            salesFormColumnWidthClass(),
+            "flex flex-col gap-6 self-start",
+          )}
+        >
+          <ServiceColumn
+            title="Discounts"
+            fields={DISCOUNT_FIELDS}
+            form={form}
+            canEdit={fieldsEditable}
+            inputMode={inputMode}
+            totalTaxPct={totalTaxPct}
+            onInputModeChange={setInputMode}
+            onChange={updateField}
+          />
+          <DiscountsValidationColumn
+            discountsTotalGs={
+              totals.totalFoodDiscountGs +
+              totals.totalBeveragesDiscountGs +
+              totals.totalWineDiscountGs +
+              totals.totalShishaDiscountGs +
+              totals.totalOthersDiscountGs
+            }
+            allDayDiscountGs={allDayDiscountByDate.get(selectedDate) ?? 0}
+          />
+        </div>
         <DiscountsTotalsColumn totals={totals} />
       </SalesFormColumnsLayout>
     </div>

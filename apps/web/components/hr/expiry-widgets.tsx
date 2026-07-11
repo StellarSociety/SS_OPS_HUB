@@ -9,8 +9,11 @@ type ExpiryWidgetsProps = {
   items: ExpiryItem[];
   leadDays: number;
   title?: string;
+  titleClassName?: string;
   compact?: boolean;
 };
+
+const defaultTitleClass = "font-serif text-lg text-[#3D421F]";
 
 function urgencyClass(daysUntil: number) {
   if (daysUntil < 0) return "text-red-700 bg-red-50";
@@ -23,12 +26,13 @@ export function ExpiryWidgets({
   items,
   leadDays,
   title = "Upcoming expiries",
+  titleClassName = defaultTitleClass,
   compact = false,
 }: ExpiryWidgetsProps) {
   if (items.length === 0) {
     return (
       <Card className="p-5">
-        <h2 className="font-serif text-lg text-[#3D421F]">{title}</h2>
+        <h2 className={titleClassName}>{title}</h2>
         <p className="mt-2 text-sm text-black/50">
           No passport, ID, insurance, or training items expiring within{" "}
           {leadDays} days.
@@ -43,7 +47,7 @@ export function ExpiryWidgets({
     <Card className="p-5">
       <div className="mb-4 flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 text-amber-600" />
-        <h2 className="font-serif text-lg text-[#3D421F]">{title}</h2>
+        <h2 className={titleClassName}>{title}</h2>
         <span className="ml-auto text-xs text-black/50">
           Next {leadDays} days · {items.length} item
           {items.length === 1 ? "" : "s"}

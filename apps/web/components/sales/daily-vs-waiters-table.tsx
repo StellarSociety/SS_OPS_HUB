@@ -73,6 +73,7 @@ type DailyVsWaitersTableProps = {
   comments: VenueDailyVsWaitersComment[];
   totalTaxPct: number;
   canEdit: boolean;
+  userDisplayName: string;
 };
 
 function formatDifference(value: number): string {
@@ -243,6 +244,7 @@ export function DailyVsWaitersTable({
   comments,
   totalTaxPct,
   canEdit,
+  userDisplayName,
 }: DailyVsWaitersTableProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -311,6 +313,7 @@ export function DailyVsWaitersTable({
         activeRowCount,
         sections: exportSections,
         exportedAt: new Date(),
+        userDisplayName,
       });
       setExportDialogOpen(false);
     } catch (error) {

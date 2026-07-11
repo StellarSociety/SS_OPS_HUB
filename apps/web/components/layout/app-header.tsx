@@ -34,8 +34,9 @@ export function AppHeader({
   const pathname = usePathname();
   const moduleSidebar = getModuleSidebarForPath(pathname);
   const inModuleApp = Boolean(moduleSidebar);
+  const ModuleIcon = moduleSidebar?.icon;
   const title = inModuleApp
-    ? moduleSidebar!.label.toUpperCase()
+    ? moduleSidebar!.label
     : "Operational HUB";
 
   const sidebarToggle = onToggleSidebar ? (
@@ -78,8 +79,15 @@ export function AppHeader({
         ) : null}
       </div>
       {inModuleApp ? (
-        <h1 className="truncate px-4 text-center font-serif text-lg tracking-wide text-[#3D421F] md:text-xl">
-          {title}
+        <h1 className="flex min-w-0 items-center justify-center gap-2 px-4 text-center font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl">
+          {ModuleIcon ? (
+            <ModuleIcon
+              className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
+              strokeWidth={1.5}
+              aria-hidden
+            />
+          ) : null}
+          <span className="truncate">{title}</span>
         </h1>
       ) : null}
       <div className="flex items-center justify-end gap-2">

@@ -14,6 +14,7 @@ import {
 } from "@/lib/sales/waiters-types";
 import { SalesSortableTable } from "@/components/sales/sales-sortable-table";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 type SalesWaitersSettingsPanelProps = {
@@ -33,13 +34,11 @@ export function SalesWaitersSettingsPanel({
 }: SalesWaitersSettingsPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function resetForm() {
     setEditingId(null);
     setForm(EMPTY_FORM);
-    setMessage(null);
   }
 
   function startEdit(waiter: VenueWaiter) {
@@ -49,11 +48,9 @@ export function SalesWaitersSettingsPanel({
       position: waiter.position,
       status: waiter.status,
     });
-    setMessage(null);
   }
 
   function handleSave() {
-    setMessage(null);
     startTransition(async () => {
       const formData = new FormData();
       if (editingId) formData.set("id", editingId);
@@ -63,21 +60,24 @@ export function SalesWaitersSettingsPanel({
 
       const result = await saveVenueWaiter(formData);
       if (result.error) {
-        setMessage(result.error);
+        toast.error(result.error);
         return;
       }
-      setMessage(result.success ?? "Saved.");
+      toast.saved(result.success ?? "Saved.");
       resetForm();
     });
   }
 
   function handleDelete(id: string, name: string) {
     if (!window.confirm(`Remove ${name} from the waiter roster?`)) return;
-    setMessage(null);
     startTransition(async () => {
       const result = await removeVenueWaiter(id);
-      setMessage(result.error ?? result.success ?? null);
-      if (!result.error && editingId === id) {
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Waiter removed.");
+      if (editingId === id) {
         resetForm();
       }
     });
@@ -164,8 +164,6 @@ export function SalesWaitersSettingsPanel({
             ) : null}
           </div>
         ) : null}
-
-        {message ? <p className="text-sm text-black/60">{message}</p> : null}
       </Card>
 
       <Card className="overflow-hidden p-0">

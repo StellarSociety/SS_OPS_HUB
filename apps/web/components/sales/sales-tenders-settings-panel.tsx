@@ -14,6 +14,7 @@ import {
 } from "@/lib/sales/tenders-types";
 import { SalesSortableTable } from "@/components/sales/sales-sortable-table";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 type SalesTendersSettingsPanelProps = {
@@ -32,23 +33,19 @@ export function SalesTendersSettingsPanel({
 }: SalesTendersSettingsPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function resetForm() {
     setEditingId(null);
     setForm(EMPTY_FORM);
-    setMessage(null);
   }
 
   function startEdit(tender: VenueTender) {
     setEditingId(tender.id);
     setForm({ name: tender.name, status: tender.status });
-    setMessage(null);
   }
 
   function handleSave() {
-    setMessage(null);
     startTransition(async () => {
       const formData = new FormData();
       if (editingId) formData.set("id", editingId);
@@ -61,21 +58,24 @@ export function SalesTendersSettingsPanel({
 
       const result = await saveVenueTender(formData);
       if (result.error) {
-        setMessage(result.error);
+        toast.error(result.error);
         return;
       }
-      setMessage(result.success ?? "Saved.");
+      toast.saved(result.success ?? "Saved.");
       resetForm();
     });
   }
 
   function handleDelete(id: string, name: string) {
     if (!window.confirm(`Remove tender "${name}"?`)) return;
-    setMessage(null);
     startTransition(async () => {
       const result = await removeVenueTender(id);
-      setMessage(result.error ?? result.success ?? null);
-      if (!result.error && editingId === id) resetForm();
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Tender removed.");
+      if (editingId === id) resetForm();
     });
   }
 
@@ -147,8 +147,6 @@ export function SalesTendersSettingsPanel({
             ) : null}
           </div>
         ) : null}
-
-        {message ? <p className="text-sm text-black/60">{message}</p> : null}
       </Card>
 
       <Card className="overflow-hidden p-0">

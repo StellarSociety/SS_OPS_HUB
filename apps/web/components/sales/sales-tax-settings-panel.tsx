@@ -8,6 +8,7 @@ import {
 } from "@/lib/sales/daily-sales-calculations";
 import type { VenueSalesTaxSettings } from "@/lib/sales/daily-sales-types";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 
 type SalesTaxSettingsPanelProps = {
   settings: VenueSalesTaxSettings;
@@ -45,7 +46,6 @@ export function SalesTaxSettingsPanel({
     service_charge_pct: settings.service_charge_pct,
     vat_on_service_charge_pct: settings.vat_on_service_charge_pct,
   });
-  const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const totalTax = useMemo(() => totalTaxRatePct(values), [values]);
@@ -53,10 +53,13 @@ export function SalesTaxSettingsPanel({
     values.service_charge_pct * (values.vat_on_service_charge_pct / 100);
 
   function handleSave() {
-    setMessage(null);
     startTransition(async () => {
       const result = await saveVenueSalesTaxSettings(values);
-      setMessage(result.error ?? result.success ?? null);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Tax settings saved.");
     });
   }
 
@@ -127,7 +130,6 @@ export function SalesTaxSettingsPanel({
           >
             Save tax settings
           </button>
-          {message ? <p className="text-sm text-black/60">{message}</p> : null}
         </div>
       ) : (
         <p className="text-sm text-black/50">

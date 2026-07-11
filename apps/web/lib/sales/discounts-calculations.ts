@@ -12,16 +12,11 @@ export function computeDailyDiscounts(
   record: VenueDailyDiscountsRecord,
   totalTaxPct: number,
 ): ComputedDailyDiscounts {
-  const totalFoodDiscountGs =
-    record.lunch_food_discount_gs + record.dinner_food_discount_gs;
-  const totalBeveragesDiscountGs =
-    record.lunch_beverages_discount_gs + record.dinner_beverages_discount_gs;
-  const totalWineDiscountGs =
-    record.lunch_wine_discount_gs + record.dinner_wine_discount_gs;
-  const totalShishaDiscountGs =
-    record.lunch_shisha_discount_gs + record.dinner_shisha_discount_gs;
-  const totalOthersDiscountGs =
-    record.lunch_others_discount_gs + record.dinner_others_discount_gs;
+  const totalFoodDiscountGs = record.food_discount_gs;
+  const totalBeveragesDiscountGs = record.beverages_discount_gs;
+  const totalWineDiscountGs = record.wine_discount_gs;
+  const totalShishaDiscountGs = record.shisha_discount_gs;
+  const totalOthersDiscountGs = record.others_discount_gs;
 
   return {
     weekNumber: getIsoWeekNumber(record.sale_date),

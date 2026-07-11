@@ -26,6 +26,8 @@ type SalesEntryDateBarProps = {
   extraBadges?: React.ReactNode;
   trailingActions?: React.ReactNode;
   className?: string;
+  /** ISO dates that already have an entry — past days not in this set get flagged. */
+  datesWithEntries?: ReadonlySet<string>;
 };
 
 function formatLocalDate(date: Date): string {
@@ -61,6 +63,7 @@ export function SalesEntryDateBar({
   extraBadges,
   trailingActions,
   className,
+  datesWithEntries,
 }: SalesEntryDateBarProps) {
   const todayIso = getLocalTodayIsoDate();
   const isFutureDate = isFutureSalesEntryDate(selectedDate, todayIso);
@@ -82,6 +85,7 @@ export function SalesEntryDateBar({
           value={selectedDate}
           onChange={onDateChange}
           maxDate={todayIso}
+          datesWithEntries={datesWithEntries}
           className="h-10 w-[10.5rem] min-w-0 shrink-0"
         />
         <button

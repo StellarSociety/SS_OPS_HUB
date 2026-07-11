@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/toast";
 import type { Venue } from "@/lib/types/database";
 import {
   BRAND_ASSET_ACCEPT,
@@ -40,11 +41,6 @@ type VenueBrandingPanelProps = {
   venue: Venue;
 };
 
-type StatusMessage = {
-  kind: "success" | "error";
-  text: string;
-};
-
 function assetPreviewUrl(venue: Venue, assetType: BrandAssetType): string | null {
   switch (assetType) {
     case "logo":
@@ -61,7 +57,6 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
   const [name, setName] = useState(initialVenue.name);
   const [primaryColor, setPrimaryColor] = useState(initialVenue.primary_color);
   const [secondaryColor, setSecondaryColor] = useState(initialVenue.secondary_color);
-  const [status, setStatus] = useState<StatusMessage | null>(null);
   const [uploadingAsset, setUploadingAsset] = useState<BrandAssetType | null>(null);
   const [isPending, startTransition] = useTransition();
   const fileInputs = useRef<Record<BrandAssetType, HTMLInputElement | null>>({
@@ -75,7 +70,6 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
     setName(initialVenue.name);
     setPrimaryColor(initialVenue.primary_color);
     setSecondaryColor(initialVenue.secondary_color);
-    setStatus(null);
   }, [initialVenue]);
 
   const previewVenue = {
@@ -90,17 +84,7 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
     (normalizeHexColor(primaryColor) ?? primaryColor) !== venue.primary_color ||
     (normalizeHexColor(secondaryColor) ?? secondaryColor) !== venue.secondary_color;
 
-  function setSuccess(text: string) {
-    setStatus({ kind: "success", text });
-  }
-
-  function setError(text: string) {
-    setStatus({ kind: "error", text });
-  }
-
   function handleSaveBranding() {
-    setStatus(null);
-
     startTransition(async () => {
       const result = await updateVenueBranding({
         venueId: venue.id,
@@ -110,17 +94,16 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
       });
 
       if (result.error) {
-        setError(result.error);
+        toast.error(result.error);
         return;
       }
 
       if (result.venue) setVenue(result.venue as Venue);
-      setSuccess(result.success ?? "Venue branding saved.");
+      toast.saved(result.success ?? "Venue branding saved.");
     });
   }
 
   function handleUpload(assetType: BrandAssetType, file: File) {
-    setStatus(null);
     setUploadingAsset(assetType);
 
     const formData = new FormData();
@@ -133,28 +116,26 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
       setUploadingAsset(null);
 
       if (result.error) {
-        setError(result.error);
+        toast.error(result.error);
         return;
       }
       if (result.venue) setVenue(result.venue as Venue);
-      setSuccess(result.success ?? "Asset uploaded.");
+      toast.uploaded(result.success ?? "Asset uploaded.");
     });
   }
 
   function handleRemove(assetType: BrandAssetType) {
-    setStatus(null);
-
     startTransition(async () => {
       const result = await removeVenueBrandAsset({
         venueId: venue.id,
         assetType,
       });
       if (result.error) {
-        setError(result.error);
+        toast.error(result.error);
         return;
       }
       if (result.venue) setVenue(result.venue as Venue);
-      setSuccess(result.success ?? "Asset cleared. Built-in default restored.");
+      toast.saved(result.success ?? "Asset cleared. Built-in default restored.");
     });
   }
 
@@ -162,7 +143,6 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
     setName(venue.name);
     setPrimaryColor(venue.primary_color);
     setSecondaryColor(venue.secondary_color);
-    setStatus(null);
   }
 
   return (
@@ -172,8 +152,6 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
           Unsaved name or color changes
         </p>
       ) : null}
-
-      {status ? <StatusBanner status={status} /> : null}
 
       <Card className="p-5">
         <h2 className="font-serif text-lg text-[#3D421F]">Venue identity</h2>
@@ -332,21 +310,6 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
           </Button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function StatusBanner({ status }: { status: StatusMessage }) {
-  return (
-    <div
-      className={cn(
-        "rounded-lg px-4 py-3 text-sm",
-        status.kind === "success"
-          ? "bg-emerald-50 text-emerald-800"
-          : "bg-red-50 text-red-700",
-      )}
-    >
-      {status.text}
     </div>
   );
 }

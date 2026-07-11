@@ -13,6 +13,7 @@ import {
 } from "@/lib/sales/daily-sales-calculations";
 import type { VenueMonthlyForecast } from "@/lib/sales/daily-snap-types";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 
 type MonthlyForecastPanelProps = {
   forecasts: VenueMonthlyForecast[];
@@ -28,7 +29,6 @@ export function MonthlyForecastPanel({
 }: MonthlyForecastPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [message, setMessage] = useState<string | null>(null);
   const [newMonthKey, setNewMonthKey] = useState(getCurrentMonthKey());
   const [newForecastGs, setNewForecastGs] = useState("");
 
@@ -44,8 +44,12 @@ export function MonthlyForecastPanel({
       formData.set("month_key", monthKey);
       formData.set("forecast_revenue_gs", value);
       const result = await saveVenueMonthlyForecast(formData);
-      setMessage(result.success ?? result.error ?? null);
-      if (result.success) router.refresh();
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Forecast saved.");
+      router.refresh();
     });
   }
 
@@ -54,8 +58,12 @@ export function MonthlyForecastPanel({
       const formData = new FormData();
       formData.set("id", id);
       const result = await removeVenueMonthlyForecast(formData);
-      setMessage(result.success ?? result.error ?? null);
-      if (result.success) router.refresh();
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Forecast removed.");
+      router.refresh();
     });
   }
 
@@ -70,12 +78,6 @@ export function MonthlyForecastPanel({
         Set the total revenue forecast for each month. Daily Snap uses these
         values to calculate daily, weekly, and monthly deviations.
       </p>
-
-      {message ? (
-        <div className="rounded-lg border border-black/10 bg-white px-4 py-2 text-sm text-black/70">
-          {message}
-        </div>
-      ) : null}
 
       {canEdit ? (
         <Card className="p-4">

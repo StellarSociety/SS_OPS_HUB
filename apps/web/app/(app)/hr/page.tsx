@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
 import { StaffDirectory } from "@/components/hr/staff-directory";
+import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessStaff } from "@/lib/hr/permissions";
 import {
   getExpiryItems,
@@ -65,7 +66,7 @@ export default async function HrPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">Human Resources</h1>
+        <ModulePageTitle>Human Resources</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           {venue.is_global
             ? "Group staff — corporate and multi-venue personnel"

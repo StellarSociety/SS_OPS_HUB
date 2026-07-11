@@ -1,6 +1,7 @@
 import {
   Camera,
   ClipboardList,
+  Coins,
   GitCompareArrows,
   LayoutDashboard,
   LineChart,
@@ -49,7 +50,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     icon: TrendingUp,
     items: [
       { label: "Overview", href: "/sales", exact: true, icon: LayoutDashboard },
-      { label: "Daily Sales", href: "/sales/daily", icon: TrendingUp },
+      { label: "Daily Sales", href: "/sales/daily", icon: Coins },
       { label: "Waiter Sales", href: "/sales/waiter", icon: UserRound },
       {
         label: "Daily vs Waiters",
@@ -83,6 +84,22 @@ export function getModuleSidebarForPath(pathname: string): ModuleSidebarDef | nu
   return (
     moduleSidebarRegistry.find((def) => pathname.startsWith(def.basePath)) ?? null
   );
+}
+
+/** Resolve the sidebar symbol (icon) for a path: the active nav item's icon, falling back to the module icon. */
+export function getModuleSidebarIconForPath(pathname: string): LucideIcon | null {
+  const moduleSidebar = getModuleSidebarForPath(pathname);
+  if (!moduleSidebar) {
+    return null;
+  }
+  const allItems = [
+    ...moduleSidebar.items,
+    ...(moduleSidebar.bottomItems ?? []),
+  ];
+  const activeItem = allItems.find((item) =>
+    isModuleSidebarItemActive(pathname, item),
+  );
+  return activeItem?.icon ?? moduleSidebar.icon;
 }
 
 export function getAppHeaderTitle(pathname: string): string {

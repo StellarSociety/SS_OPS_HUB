@@ -9,6 +9,7 @@ import {
   isModuleSidebarItemActive,
   type ModuleSidebarItem,
 } from "@/lib/module-sidebar";
+import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 import { subNavLabelClass, moduleBrandedNavLinkClass, moduleBrandedNavIconClass } from "@/lib/sub-nav-ui";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +64,7 @@ function ShortcutLink({
       ) : (
         <span className="whitespace-nowrap">{item.label}</span>
       )}
+      <NavigationPendingIndicator />
     </Link>
   );
 }
@@ -83,7 +85,7 @@ export function SalesModuleShortcuts({
   return (
     <nav
       aria-label="Sales apps"
-      className="mt-4 flex h-[46px] w-full flex-wrap items-center justify-between gap-2"
+      className="flex h-[46px] w-full flex-wrap items-center justify-between gap-2"
     >
       <div className="flex flex-wrap items-center gap-2">
         {shortcuts.map((item) => (

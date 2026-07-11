@@ -41,6 +41,7 @@ import { SalesEntryDateBanner } from "@/components/sales/sales-entry-date-banner
 import { SalesEntryDateBar } from "@/components/sales/sales-entry-date-bar";
 import { salesFormFieldInputClass } from "@/components/sales/sales-form-field-row";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 type DailySnapPanelProps = {
@@ -55,6 +56,8 @@ type DailySnapPanelProps = {
   notes: VenueDailySnapNotes | null;
   discountLines: VenueDailySnapDiscountLine[];
   events: VenueDailySnapEvent[];
+  /** ISO dates that have any filled Daily Snap data (notes/events/discount lines). */
+  snapEntryDates: string[];
   totalTaxPct: number;
   canEdit: boolean;
   userDisplayName: string;
@@ -117,56 +120,38 @@ function KpiCard({
   value,
   sub,
   grossNetSub,
-  pair,
 }: {
   label: string;
   value?: string;
   sub?: string;
   grossNetSub?: { gross: string; net: string };
-  pair?: { leftLabel: string; left: string; rightLabel: string; right: string };
 }) {
   return (
-    <div className="flex h-full min-h-[4.5rem] flex-col items-center justify-center gap-0.5 rounded-lg border border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/10 px-3 py-2 text-center shadow-sm">
+    <div className="flex h-full min-h-[4.5rem] flex-col items-center justify-start gap-0.5 rounded-lg border border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/10 px-3 py-2 text-center shadow-sm">
       {label ? (
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#3D421F]/70">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#3D421F]/70">
           {label}
         </p>
       ) : null}
-      {pair ? (
+      {grossNetSub ? (
         <div className="mt-0.5 flex w-full flex-col gap-0.5">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#3D421F]/70">
-              {pair.leftLabel}
-            </p>
-            <p className="font-serif text-lg font-semibold tabular-nums text-[#3D421F]">
-              {pair.left}
-            </p>
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#3D421F]/70">
-              {pair.rightLabel}
-            </p>
-            <p className="font-serif text-lg font-semibold tabular-nums text-[#3D421F]">
-              {pair.right}
-            </p>
-          </div>
-        </div>
-      ) : grossNetSub ? (
-        <div className="mt-0.5 flex w-full flex-col gap-0.5">
-          <p className="font-serif text-lg font-semibold leading-tight tabular-nums text-[#3D421F]">
-            Gross {grossNetSub.gross}
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#3D421F]/70">
+            Gross
           </p>
-          <p className="text-xs leading-tight tabular-nums text-[#3D421F]/75">
+          <p className="font-serif text-xl font-semibold leading-tight tabular-nums text-[#3D421F]">
+            {grossNetSub.gross}
+          </p>
+          <p className="text-sm leading-tight tabular-nums text-[#3D421F]/75">
             Net {grossNetSub.net}
           </p>
         </div>
       ) : (
-        <p className="font-serif text-lg font-semibold tabular-nums text-[#3D421F]">
+        <p className="font-serif text-2xl font-semibold tabular-nums text-[#3D421F]">
           {value}
         </p>
       )}
       {sub ? (
-        <p className="text-xs tabular-nums text-[#3D421F]/65">{sub}</p>
+        <p className="text-sm tabular-nums text-[#3D421F]/65">{sub}</p>
       ) : null}
     </div>
   );
@@ -574,7 +559,9 @@ function VerificationBox({
   return (
     <Card className="flex h-full flex-col space-y-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className={sectionTitleClass}>Values Verification</h3>
+        <h3 className={cn(sectionTitleClass, "shrink-0 overflow-visible")}>
+          Values Verification
+        </h3>
         <span
           className={cn(
             "rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide",
@@ -662,10 +649,12 @@ function RevenueTable({
   title,
   rows,
   showEmpty,
+  hideService = false,
 }: {
   title: string;
   rows: DailySnapSnapshot["revenueCenters"];
   showEmpty: boolean;
+  hideService?: boolean;
 }) {
   if (!showEmpty && rows.length === 0) {
     return (
@@ -699,8 +688,12 @@ function RevenueTable({
           <thead>
             <tr>
               <th className={thClass}>Category</th>
-              <th className={cn(thClass, numericClass)}>Lunch</th>
-              <th className={cn(thClass, numericClass)}>Dinner</th>
+              {!hideService ? (
+                <>
+                  <th className={cn(thClass, numericClass)}>Lunch</th>
+                  <th className={cn(thClass, numericClass)}>Dinner</th>
+                </>
+              ) : null}
               <th className={cn(thClass, numericClass)}>Total</th>
             </tr>
           </thead>
@@ -708,8 +701,12 @@ function RevenueTable({
             {rows.map((row) => (
               <tr key={row.label}>
                 <td className={tdClass}>{row.label}</td>
-                <td className={cn(tdClass, numericClass)}>{formatMoney(row.lunchGs)}</td>
-                <td className={cn(tdClass, numericClass)}>{formatMoney(row.dinnerGs)}</td>
+                {!hideService ? (
+                  <>
+                    <td className={cn(tdClass, numericClass)}>{formatMoney(row.lunchGs)}</td>
+                    <td className={cn(tdClass, numericClass)}>{formatMoney(row.dinnerGs)}</td>
+                  </>
+                ) : null}
                 <td className={cn(tdClass, numericClass, "font-medium")}>
                   {formatMoney(row.totalGs)}
                 </td>
@@ -717,8 +714,12 @@ function RevenueTable({
             ))}
             <tr className="bg-[#F5F6F0] font-semibold">
               <td className={tdClass}>Total</td>
-              <td className={cn(tdClass, numericClass)}>{formatMoney(totals.lunch)}</td>
-              <td className={cn(tdClass, numericClass)}>{formatMoney(totals.dinner)}</td>
+              {!hideService ? (
+                <>
+                  <td className={cn(tdClass, numericClass)}>{formatMoney(totals.lunch)}</td>
+                  <td className={cn(tdClass, numericClass)}>{formatMoney(totals.dinner)}</td>
+                </>
+              ) : null}
               <td className={cn(tdClass, numericClass)}>{formatMoney(totals.total)}</td>
             </tr>
           </tbody>
@@ -740,6 +741,7 @@ export function DailySnapPanel({
   notes,
   discountLines,
   events,
+  snapEntryDates,
   totalTaxPct,
   canEdit,
   userDisplayName,
@@ -748,10 +750,13 @@ export function DailySnapPanel({
   const searchParams = useSearchParams();
   const todayIso = getLocalTodayIsoDate();
   const selectedDate = searchParams.get("date") ?? todayIso;
+  const datesWithEntries = useMemo(
+    () => new Set(snapEntryDates),
+    [snapEntryDates],
+  );
   const [isPending, startTransition] = useTransition();
   const [isExporting, setIsExporting] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const exportRootRef = useRef<HTMLDivElement>(null);
 
   const [notesDraft, setNotesDraft] = useState({
@@ -852,8 +857,12 @@ export function DailySnapPanel({
       formData.set("cash_drawer_opening_gs", notesDraft.cash_drawer_opening_gs);
       formData.set("cash_drawer_closing_gs", notesDraft.cash_drawer_closing_gs);
       const result = await saveVenueDailySnapNotes(formData);
-      setMessage(result.success ?? result.error ?? null);
-      if (result.success) router.refresh();
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Saved to cloud.");
+      router.refresh();
     });
   }
 
@@ -870,8 +879,12 @@ export function DailySnapPanel({
       formData.set("amount_gs", line.amount_gs);
       formData.set("sort_order", String(line.sort_order));
       const result = await saveVenueDailySnapDiscountLine(formData);
-      setMessage(result.success ?? result.error ?? null);
-      if (result.success) router.refresh();
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Saved to cloud.");
+      router.refresh();
     });
   }
 
@@ -882,8 +895,12 @@ export function DailySnapPanel({
         const formData = new FormData();
         formData.set("id", line.id!);
         const result = await removeVenueDailySnapDiscountLine(formData);
-        setMessage(result.success ?? result.error ?? null);
-        if (result.success) router.refresh();
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.saved(result.success ?? "Removed.");
+        router.refresh();
       });
       return;
     }
@@ -917,8 +934,12 @@ export function DailySnapPanel({
       formData.set("service_comments", event.service_comments);
       formData.set("sort_order", String(event.sort_order));
       const result = await saveVenueDailySnapEvent(formData);
-      setMessage(result.success ?? result.error ?? null);
-      if (result.success) router.refresh();
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Saved to cloud.");
+      router.refresh();
     });
   }
 
@@ -929,8 +950,12 @@ export function DailySnapPanel({
         const formData = new FormData();
         formData.set("id", event.id!);
         const result = await removeVenueDailySnapEvent(formData);
-        setMessage(result.success ?? result.error ?? null);
-        if (result.success) router.refresh();
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.saved(result.success ?? "Removed.");
+        router.refresh();
       });
       return;
     }
@@ -953,7 +978,7 @@ export function DailySnapPanel({
 
   async function handleExport() {
     if (!exportRootRef.current) {
-      setMessage("Could not export — report content is not ready.");
+      toast.alert("Could not export — report content is not ready.");
       return;
     }
 
@@ -966,7 +991,7 @@ export function DailySnapPanel({
       );
     } catch (error) {
       console.error("[daily-snap] PDF export failed:", error);
-      setMessage(error instanceof Error ? error.message : "Export failed.");
+      toast.error(error instanceof Error ? error.message : "Export failed.");
     } finally {
       setIsExporting(false);
     }
@@ -993,6 +1018,7 @@ export function DailySnapPanel({
           isPending={isPending}
           onOpenForm={() => setIsFormOpen(true)}
           onSave={handleSaveNotes}
+          datesWithEntries={datesWithEntries}
           trailingActions={
             <button
               type="button"
@@ -1017,12 +1043,10 @@ export function DailySnapPanel({
         </p>
       ) : null}
 
-      {message ? (
-        <div
-          data-export-hide
-          className="rounded-lg border border-black/10 bg-white px-4 py-2 text-sm text-black/70"
-        >
-          {message}
+      {missingData.length > 0 ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          Missing entries for this date: {missingData.join(", ")}. Data shown is
+          partial until all forms are completed.
         </div>
       ) : null}
 
@@ -1031,13 +1055,6 @@ export function DailySnapPanel({
         venueLogoUrl={venueLogoUrl}
         selectedDate={selectedDate}
       />
-
-      {missingData.length > 0 ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Missing entries for this date: {missingData.join(", ")}. Data shown is
-          partial until all forms are completed.
-        </div>
-      ) : null}
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-9">
         <KpiCard
@@ -1066,17 +1083,13 @@ export function DailySnapPanel({
         />
         <KpiCard
           label="Covers"
-          value={String(snapshot.totalCovers)}
+          value={String(snapshot.totalCovers + snapshot.totalWalkinCovers)}
           sub={`${snapshot.totalWalkinCovers} walk-in covers`}
         />
         <KpiCard
-          label=""
-          pair={{
-            leftLabel: "Bookings",
-            left: String(snapshot.totalBookings),
-            rightLabel: "Walk-in Tables",
-            right: String(snapshot.totalWalkinTables),
-          }}
+          label="Bookings"
+          value={String(snapshot.totalBookings + snapshot.totalWalkinTables)}
+          sub={`${snapshot.totalWalkinTables} walk-in tables`}
         />
         <KpiCard label="Avg Spend" value={formatMoney(snapshot.averageSpend)} />
         <KpiCard
@@ -1151,6 +1164,7 @@ export function DailySnapPanel({
           title="Discounts by Category"
           rows={snapshot.discountCategories}
           showEmpty={snapshot.hasDiscounts}
+          hideService
         />
       </div>
 

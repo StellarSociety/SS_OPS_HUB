@@ -235,7 +235,7 @@ CROSS JOIN (
     ('Amex', 3),
     ('Cash', 4),
     ('Qlab', 5),
-    ('Redeemed Voucher', 6),
+    ('Voucher', 6),
     ('Deposit', 7),
     ('On Accounts', 8)
 ) AS d(name, sort_order)
