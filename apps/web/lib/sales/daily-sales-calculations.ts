@@ -128,8 +128,11 @@ export function formatShortDate(date: Date): string {
 }
 
 export function formatIsoWeekLabel(year: number, week: number): string {
-  const monday = formatDisplayDateFromDate(getIsoWeekMonday(year, week));
-  return `Week ${week}, ${year} · ${monday}`;
+  const monday = getIsoWeekMonday(year, week);
+  const day = String(monday.getDate()).padStart(2, "0");
+  const month = MONTHS_SHORT[monday.getMonth()].toUpperCase();
+  const dateYearShort = String(monday.getFullYear()).slice(-2);
+  return `Week ${week} · ${day}/${month}/${dateYearShort}`;
 }
 
 export function formatMonthKey(dateStr: string): string {
@@ -154,6 +157,45 @@ export function getWeekDayLabel(dateStr: string): string {
   const [year, month, day] = dateStr.split("-").map(Number);
   const date = new Date(year, month - 1, day);
   return WEEK_DAYS[date.getDay()];
+}
+
+function ordinalDaySuffix(day: number): string {
+  if (day % 100 >= 11 && day % 100 <= 13) return "th";
+  switch (day % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
+/** Parts for the sales entry date banner (Week №, date, weekday). */
+export function getSalesEntryDateBannerParts(dateStr: string): {
+  weekNumber: string;
+  day: string;
+  dayOrdinal: string;
+  monthName: string;
+  year: string;
+  weekday: string;
+} {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  const weekNumber = String(getIsoWeekNumber(dateStr)).padStart(2, "0");
+  const monthName = date.toLocaleString(undefined, { month: "long" });
+  const weekday = date.toLocaleString(undefined, { weekday: "long" });
+
+  return {
+    weekNumber,
+    day: String(day),
+    dayOrdinal: ordinalDaySuffix(day),
+    monthName,
+    year: String(year),
+    weekday,
+  };
 }
 
 function asph(gross: number, covers: number): number | null {
@@ -200,6 +242,10 @@ export function computeDailySales(
   const totalVenueGs = lunchTotalGs + dinnerTotalGs;
   const totalCovers = record.lunch_covers + record.dinner_covers;
   const totalBookings = record.lunch_bookings + record.dinner_bookings;
+  const totalWalkinTables =
+    (record.lunch_walkin_tables ?? 0) + (record.dinner_walkin_tables ?? 0);
+  const totalWalkinCovers =
+    (record.lunch_walkin_covers ?? 0) + (record.dinner_walkin_covers ?? 0);
 
   return {
     weekNumber: getIsoWeekNumber(record.sale_date),
@@ -226,6 +272,8 @@ export function computeDailySales(
     totalVenueNet: grossToNet(totalVenueGs, totalTaxPct),
     totalCovers,
     totalBookings,
+    totalWalkinTables,
+    totalWalkinCovers,
     foodLunchAsph: asph(record.lunch_food_gs, record.lunch_covers),
     foodDinnerAsph: asph(record.dinner_food_gs, record.dinner_covers),
     beveragesLunchAsph: asph(record.lunch_beverages_gs, record.lunch_covers),

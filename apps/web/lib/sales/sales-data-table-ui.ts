@@ -37,11 +37,11 @@ export function salesTableFilterControlClass() {
 }
 
 export function salesTableFilterButtonClass() {
-  return "inline-flex h-9 min-w-[6.25rem] shrink-0 items-center justify-center rounded-md border border-black/10 bg-white px-3 text-sm font-bold text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30";
+  return "inline-flex h-9 min-w-[6.25rem] shrink-0 items-center justify-center rounded-md border border-[var(--venue-primary)] bg-[var(--venue-primary)] px-3 text-sm font-bold text-white transition-opacity hover:opacity-90";
 }
 
 export function salesTableFilterClearButtonClass() {
-  return "inline-flex h-9 min-w-[6.25rem] shrink-0 items-center justify-center rounded-md border border-black/10 bg-white px-3 text-sm font-bold text-black/60 transition-colors hover:bg-black/5";
+  return "inline-flex h-9 min-w-[6.25rem] shrink-0 items-center justify-center rounded-md border border-[var(--venue-primary)]/30 bg-[var(--venue-primary)]/12 px-3 text-sm font-bold text-[#3D421F] transition-colors hover:bg-[var(--venue-primary)]/20";
 }
 
 export function salesTableCellInputClass(

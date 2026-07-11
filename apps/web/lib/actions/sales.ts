@@ -21,10 +21,20 @@ import {
   upsertVenueSalesTaxSettings,
 } from "@/lib/sales/daily-sales-store";
 import type { TaxSettingsInput } from "@/lib/sales/daily-sales-types";
+import { salesEntryCreateDateError } from "@/lib/sales/sales-entry-dates";
 import {
   deleteVenueDailyVsWaitersComment,
   upsertVenueDailyVsWaitersComment,
 } from "@/lib/sales/daily-vs-waiters-store";
+import {
+  deleteVenueDailySnapDiscountLine,
+  deleteVenueDailySnapEvent,
+  deleteVenueMonthlyForecast,
+  upsertVenueDailySnapDiscountLine,
+  upsertVenueDailySnapEvent,
+  upsertVenueDailySnapNotes,
+  upsertVenueMonthlyForecast,
+} from "@/lib/sales/daily-snap-store";
 import {
   deleteVenueTender,
   reorderVenueTenders,
@@ -40,6 +50,7 @@ import {
 } from "@/lib/sales/waiter-sales-settings-store";
 import type { WaiterSalesSettingsInput } from "@/lib/sales/waiter-sales-settings-types";
 import {
+  canEditCashUp,
   canEditDailyVsWaiters,
   canEditDiscounts,
   canEditVenueDaily,
@@ -53,6 +64,8 @@ const SALES_WAITERS_PATHS = [
   "/sales/settings/waiters",
   "/sales/settings/tenders",
   "/sales/settings/groups-charge",
+  "/sales/settings/data-management",
+  "/sales/settings/data-management/waiter-sales",
   "/sales/waiter/entry",
   "/sales/waiter/data",
 ];
@@ -67,6 +80,8 @@ const SALES_DISCOUNTS_PATHS = [
   "/sales/discounts",
   "/sales/discounts/data",
   "/sales/discounts/entry",
+  "/sales/settings/data-management",
+  "/sales/settings/data-management/discounts",
 ];
 
 function revalidateSalesDiscounts() {
@@ -76,11 +91,15 @@ function revalidateSalesDiscounts() {
 }
 
 const SALES_DAILY_PATHS = [
+  "/sales",
   "/sales/daily",
   "/sales/daily/data",
   "/sales/daily/entry",
+  "/sales/forecast",
   "/sales/settings",
   "/sales/settings/tax",
+  "/sales/settings/data-management",
+  "/sales/settings/data-management/daily-sales",
 ];
 
 function revalidateSalesDaily() {
@@ -93,6 +112,17 @@ const SALES_DAILY_VS_WAITERS_PATHS = ["/sales/daily-vs-waiters"];
 
 function revalidateSalesDailyVsWaiters() {
   for (const path of SALES_DAILY_VS_WAITERS_PATHS) {
+    revalidatePath(path);
+  }
+}
+
+const SALES_DAILY_SNAP_PATHS = [
+  "/sales/daily-snap",
+  "/sales/forecast",
+];
+
+function revalidateSalesDailySnap() {
+  for (const path of SALES_DAILY_SNAP_PATHS) {
     revalidatePath(path);
   }
 }
@@ -154,6 +184,8 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
   }
 
   const id = String(formData.get("id") ?? "").trim() || undefined;
+  const createDateError = salesEntryCreateDateError(saleDate, !id);
+  if (createDateError) return { error: createDateError };
 
   try {
     const record = await upsertVenueDailySales(supabase, venue.id, user.id, {
@@ -168,6 +200,8 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
       lunch_service_fees_gs: parseMoney(formData.get("lunch_service_fees_gs")),
       lunch_covers: parseCount(formData.get("lunch_covers")),
       lunch_bookings: parseCount(formData.get("lunch_bookings")),
+      lunch_walkin_tables: parseCount(formData.get("lunch_walkin_tables")),
+      lunch_walkin_covers: parseCount(formData.get("lunch_walkin_covers")),
       dinner_food_gs: parseMoney(formData.get("dinner_food_gs")),
       dinner_beverages_gs: parseMoney(formData.get("dinner_beverages_gs")),
       dinner_wine_gs: parseMoney(formData.get("dinner_wine_gs")),
@@ -177,6 +211,8 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
       dinner_service_fees_gs: parseMoney(formData.get("dinner_service_fees_gs")),
       dinner_covers: parseCount(formData.get("dinner_covers")),
       dinner_bookings: parseCount(formData.get("dinner_bookings")),
+      dinner_walkin_tables: parseCount(formData.get("dinner_walkin_tables")),
+      dinner_walkin_covers: parseCount(formData.get("dinner_walkin_covers")),
     });
 
     await writeAuditLog({
@@ -275,6 +311,8 @@ export async function saveVenueDailyDiscountsEntry(formData: FormData) {
   }
 
   const id = String(formData.get("id") ?? "").trim() || undefined;
+  const createDateError = salesEntryCreateDateError(saleDate, !id);
+  if (createDateError) return { error: createDateError };
 
   try {
     const record = await upsertVenueDailyDiscounts(supabase, venue.id, user.id, {
@@ -596,6 +634,9 @@ export async function saveVenueWaiterDailySalesEntry(formData: FormData) {
   }
 
   const id = String(formData.get("id") ?? "").trim() || undefined;
+  const createDateError = salesEntryCreateDateError(saleDate, !id);
+  if (createDateError) return { error: createDateError };
+
   const tenderAmounts: Record<string, number> = {};
   for (const [key, value] of formData.entries()) {
     if (key.startsWith("tender_")) {
@@ -683,6 +724,9 @@ export async function saveVenueDailyVsWaitersComment(formData: FormData) {
   }
 
   const id = String(formData.get("id") ?? "").trim() || undefined;
+  const createDateError = salesEntryCreateDateError(saleDate, !id);
+  if (createDateError) return { error: createDateError };
+
   const commentText = String(formData.get("comment_text") ?? "");
 
   try {
@@ -735,5 +779,261 @@ export async function removeVenueDailyVsWaitersComment(id: string) {
     return { success: "Comment removed." };
   } catch {
     return { error: "Could not delete comment." };
+  }
+}
+
+export async function saveVenueDailySnapNotes(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditCashUp(permissions, venue.id)) {
+    return { error: "You do not have permission to edit Daily Snap notes." };
+  }
+
+  const saleDate = String(formData.get("sale_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim() || undefined;
+
+  try {
+    const record = await upsertVenueDailySnapNotes(supabase, venue.id, user.id, {
+      id,
+      sale_date: saleDate,
+      eighty_six_lunch: String(formData.get("eighty_six_lunch") ?? ""),
+      eighty_six_dinner: String(formData.get("eighty_six_dinner") ?? ""),
+      service_comments_lunch: String(formData.get("service_comments_lunch") ?? ""),
+      service_comments_dinner: String(formData.get("service_comments_dinner") ?? ""),
+      cash_drawer_opening_gs: parseMoney(formData.get("cash_drawer_opening_gs")),
+      cash_drawer_closing_gs: parseMoney(formData.get("cash_drawer_closing_gs")),
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: id ? "update" : "create",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_daily_snap_notes",
+      entity_id: record.id,
+      venue_id: venue.id,
+      after: { sale_date: saleDate },
+    });
+    revalidateSalesDailySnap();
+    return { success: "Daily Snap notes saved." };
+  } catch {
+    return { error: "Could not save Daily Snap notes." };
+  }
+}
+
+export async function saveVenueDailySnapDiscountLine(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditCashUp(permissions, venue.id)) {
+    return { error: "You do not have permission to edit discount details." };
+  }
+
+  const saleDate = String(formData.get("sale_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim() || undefined;
+
+  try {
+    const record = await upsertVenueDailySnapDiscountLine(
+      supabase,
+      venue.id,
+      user.id,
+      {
+        id,
+        sale_date: saleDate,
+        table_number: String(formData.get("table_number") ?? ""),
+        time_of_day: String(formData.get("time_of_day") ?? ""),
+        guest_name: String(formData.get("guest_name") ?? ""),
+        reason: String(formData.get("reason") ?? ""),
+        amount_gs: parseMoney(formData.get("amount_gs")),
+        sort_order: parseCount(formData.get("sort_order")),
+      },
+    );
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: id ? "update" : "create",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_daily_snap_discount_lines",
+      entity_id: record.id,
+      venue_id: venue.id,
+      after: { sale_date: saleDate },
+    });
+    revalidateSalesDailySnap();
+    return { success: "Discount line saved.", id: record.id };
+  } catch {
+    return { error: "Could not save discount line." };
+  }
+}
+
+export async function removeVenueDailySnapDiscountLine(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditCashUp(permissions, venue.id)) {
+    return { error: "You do not have permission to delete discount details." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { error: "Discount line id is required." };
+
+  try {
+    await deleteVenueDailySnapDiscountLine(supabase, venue.id, id);
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "delete",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_daily_snap_discount_lines",
+      entity_id: id,
+      venue_id: venue.id,
+    });
+    revalidateSalesDailySnap();
+    return { success: "Discount line removed." };
+  } catch {
+    return { error: "Could not delete discount line." };
+  }
+}
+
+export async function saveVenueDailySnapEvent(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditCashUp(permissions, venue.id)) {
+    return { error: "You do not have permission to edit events." };
+  }
+
+  const saleDate = String(formData.get("sale_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim() || undefined;
+
+  try {
+    const record = await upsertVenueDailySnapEvent(supabase, venue.id, user.id, {
+      id,
+      sale_date: saleDate,
+      event_name: String(formData.get("event_name") ?? ""),
+      guest_count: parseCount(formData.get("guest_count")),
+      package_name: String(formData.get("package_name") ?? ""),
+      total_pay_gs: parseMoney(formData.get("total_pay_gs")),
+      service_comments: String(formData.get("service_comments") ?? ""),
+      sort_order: parseCount(formData.get("sort_order")),
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: id ? "update" : "create",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_daily_snap_events",
+      entity_id: record.id,
+      venue_id: venue.id,
+      after: { sale_date: saleDate, event_name: record.event_name },
+    });
+    revalidateSalesDailySnap();
+    return { success: "Event saved.", id: record.id };
+  } catch {
+    return { error: "Could not save event." };
+  }
+}
+
+export async function removeVenueDailySnapEvent(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditCashUp(permissions, venue.id)) {
+    return { error: "You do not have permission to delete events." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { error: "Event id is required." };
+
+  try {
+    await deleteVenueDailySnapEvent(supabase, venue.id, id);
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "delete",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_daily_snap_events",
+      entity_id: id,
+      venue_id: venue.id,
+    });
+    revalidateSalesDailySnap();
+    return { success: "Event removed." };
+  } catch {
+    return { error: "Could not delete event." };
+  }
+}
+
+export async function saveVenueMonthlyForecast(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditCashUp(permissions, venue.id)) {
+    return { error: "You do not have permission to edit monthly forecasts." };
+  }
+
+  const monthKey = String(formData.get("month_key") ?? "").trim();
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+    return { error: "A valid month is required." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim() || undefined;
+
+  try {
+    const record = await upsertVenueMonthlyForecast(supabase, venue.id, user.id, {
+      id,
+      month_key: monthKey,
+      forecast_revenue_gs: parseMoney(formData.get("forecast_revenue_gs")),
+      forecast_covers: parseCount(formData.get("forecast_covers")),
+      forecast_venue_asph: parseMoney(formData.get("forecast_venue_asph")),
+      forecast_food_asph: parseMoney(formData.get("forecast_food_asph")),
+      forecast_beverages_asph: parseMoney(formData.get("forecast_beverages_asph")),
+      forecast_wine_asph: parseMoney(formData.get("forecast_wine_asph")),
+      forecast_shisha_asph: parseMoney(formData.get("forecast_shisha_asph")),
+      forecast_other_asph: parseMoney(formData.get("forecast_other_asph")),
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: id ? "update" : "create",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_monthly_forecasts",
+      entity_id: record.id,
+      venue_id: venue.id,
+      after: { month_key: monthKey },
+    });
+    revalidateSalesDailySnap();
+    return { success: "Forecast saved." };
+  } catch {
+    return { error: "Could not save forecast." };
+  }
+}
+
+export async function removeVenueMonthlyForecast(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditCashUp(permissions, venue.id)) {
+    return { error: "You do not have permission to delete forecasts." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { error: "Forecast id is required." };
+
+  try {
+    await deleteVenueMonthlyForecast(supabase, venue.id, id);
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "delete",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_monthly_forecasts",
+      entity_id: id,
+      venue_id: venue.id,
+    });
+    revalidateSalesDailySnap();
+    return { success: "Forecast removed." };
+  } catch {
+    return { error: "Could not delete forecast." };
   }
 }

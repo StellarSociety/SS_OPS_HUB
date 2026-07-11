@@ -36,6 +36,18 @@ import {
   salesTableNumericCellClass,
 } from "@/lib/sales/sales-data-table-ui";
 import {
+  buildSalesTableMonthOptions,
+  buildSalesTableWeekOptions,
+  countSalesTableRowsWithData,
+  createEmptyDiscountsRecord,
+  formatLocalDateFromDate,
+  getCurrentWeekFilterKey,
+  getCurrentYearKey,
+  isSalesTableEmptyRowId,
+  resolveSalesTableCalendarDates,
+  SALES_TABLE_EMPTY_ROW_CLASS,
+} from "@/lib/sales/sales-data-table-dates";
+import {
   SalesDataTableActionColumnHeader,
   SalesDataTableActionsCell,
 } from "@/components/sales/sales-data-table-actions-cell";
@@ -47,6 +59,7 @@ import {
   discountsColumnFormat,
   discountsColumnValue,
 } from "@/lib/sales/sales-data-table-totals";
+import { isFutureSalesEntryDate } from "@/lib/sales/sales-entry-dates";
 import { cn } from "@/lib/utils";
 
 type DiscountsDataTableProps = {
@@ -124,13 +137,6 @@ function renderCellValue(row: VenueDailyDiscountsRow, column: DiscountsColumn) {
   return <span className="text-xs text-black/40">—</span>;
 }
 
-function formatLocalDateFromDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function parseWeekFilterKey(key: string): { week: number; year: number } | null {
   const match = /^(\d{4})-W(\d{2})$/.exec(key);
   if (!match) return null;
@@ -147,8 +153,9 @@ export function DiscountsDataTable({
   const [isPending, startTransition] = useTransition();
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [weekFilter, setWeekFilter] = useState("");
-  const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthKey());
+  const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
+  const [monthFilter, setMonthFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
 
   const allRows = useMemo(() => {
     return records.map((record) => ({
@@ -157,25 +164,25 @@ export function DiscountsDataTable({
     }));
   }, [records, totalTaxPct]);
 
-  const weekOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const row of allRows) {
-      const { week, year } = getIsoWeekParts(row.sale_date);
-      const key = `${year}-W${String(week).padStart(2, "0")}`;
-      map.set(key, formatIsoWeekLabel(year, week));
-    }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([value, label]) => ({ value, label }));
-  }, [allRows]);
+  const weekOptions = useMemo(
+    () =>
+      buildSalesTableWeekOptions(
+        allRows.map((row) => row.sale_date),
+        formatIsoWeekLabel,
+        getIsoWeekParts,
+      ),
+    [allRows],
+  );
 
-  const monthOptions = useMemo(() => {
-    const set = new Set(allRows.map((row) => row.sale_date.slice(0, 7)));
-    set.add(getCurrentMonthKey());
-    return Array.from(set)
-      .sort((a, b) => b.localeCompare(a))
-      .map((value) => ({ value, label: formatMonthLabel(value) }));
-  }, [allRows]);
+  const monthOptions = useMemo(
+    () =>
+      buildSalesTableMonthOptions(
+        allRows.map((row) => row.sale_date),
+        formatMonthLabel,
+        getCurrentMonthKey,
+      ),
+    [allRows],
+  );
 
   useEffect(() => {
     if (weekFilter && !weekOptions.some((opt) => opt.value === weekFilter)) {
@@ -190,39 +197,77 @@ export function DiscountsDataTable({
   }, [monthFilter, monthOptions]);
 
   const filteredRows = useMemo(() => {
+    const recordsByDate = new Map(allRows.map((row) => [row.sale_date, row]));
+    const calendarDates = resolveSalesTableCalendarDates({
+      fromDate,
+      toDate,
+      weekFilter,
+      monthFilter,
+      yearFilter,
+    });
+    const venueId = records[0]?.venue_id ?? "";
+
+    if (calendarDates) {
+      return calendarDates.map((saleDate) => {
+        const existing = recordsByDate.get(saleDate);
+        if (existing) return existing;
+
+        const emptyRecord = createEmptyDiscountsRecord(saleDate, venueId);
+        return {
+          ...emptyRecord,
+          ...computeDailyDiscounts(emptyRecord, totalTaxPct),
+        };
+      });
+    }
+
     return allRows
       .filter((row) => {
-      if (fromDate && row.sale_date < fromDate) return false;
-      if (toDate && row.sale_date > toDate) return false;
+        if (fromDate && row.sale_date < fromDate) return false;
+        if (toDate && row.sale_date > toDate) return false;
 
-      if (weekFilter) {
-        const { week, year } = getIsoWeekParts(row.sale_date);
-        const key = `${year}-W${String(week).padStart(2, "0")}`;
-        if (key !== weekFilter) return false;
-      }
+        if (weekFilter) {
+          const { week, year } = getIsoWeekParts(row.sale_date);
+          const key = `${year}-W${String(week).padStart(2, "0")}`;
+          if (key !== weekFilter) return false;
+        }
 
-      if (monthFilter && row.sale_date.slice(0, 7) !== monthFilter) {
-        return false;
-      }
+        if (monthFilter && row.sale_date.slice(0, 7) !== monthFilter) {
+          return false;
+        }
 
-      return true;
-    })
+        if (yearFilter && row.sale_date.slice(0, 4) !== yearFilter) {
+          return false;
+        }
+
+        return true;
+      })
       .sort((a, b) => a.sale_date.localeCompare(b.sale_date));
-  }, [allRows, fromDate, toDate, weekFilter, monthFilter]);
+  }, [allRows, records, fromDate, toDate, weekFilter, monthFilter, yearFilter, totalTaxPct]);
+
+  const rowsWithData = useMemo(
+    () => countSalesTableRowsWithData(filteredRows),
+    [filteredRows],
+  );
 
   function applyThisWeek() {
-    const today = formatLocalDateFromDate(new Date());
-    const { week, year } = getIsoWeekParts(today);
-    const key = `${year}-W${String(week).padStart(2, "0")}`;
-    if (!weekOptions.some((opt) => opt.value === key)) return;
-    setWeekFilter(key);
+    setWeekFilter(getCurrentWeekFilterKey());
     setMonthFilter("");
+    setYearFilter("");
     setFromDate("");
     setToDate("");
   }
 
   function applyThisMonth() {
     setMonthFilter(getCurrentMonthKey());
+    setWeekFilter("");
+    setYearFilter("");
+    setFromDate("");
+    setToDate("");
+  }
+
+  function applyThisYear() {
+    setYearFilter(getCurrentYearKey());
+    setMonthFilter("");
     setWeekFilter("");
     setFromDate("");
     setToDate("");
@@ -233,6 +278,7 @@ export function DiscountsDataTable({
     setToDate("");
     setWeekFilter("");
     setMonthFilter("");
+    setYearFilter("");
   }
 
   const totalColumns = DISCOUNTS_COLUMNS.length + 1;
@@ -266,33 +312,40 @@ export function DiscountsDataTable({
           setFromDate(value);
           setWeekFilter("");
           setMonthFilter("");
+          setYearFilter("");
         }}
         onToDateChange={(value) => {
           setToDate(value);
           setWeekFilter("");
           setMonthFilter("");
+          setYearFilter("");
         }}
         onWeekFilterChange={(value) => {
           setWeekFilter(value);
           setFromDate("");
           setToDate("");
           setMonthFilter("");
+          setYearFilter("");
         }}
         onMonthFilterChange={(value) => {
           setMonthFilter(value);
           setFromDate("");
           setToDate("");
           setWeekFilter("");
+          setYearFilter("");
         }}
         onThisWeek={applyThisWeek}
         onThisMonth={applyThisMonth}
+        onThisYear={applyThisYear}
         onClear={clearFilters}
       />
 
       <p className="text-sm text-black/50">
-        {filteredRows.length} of {allRows.length} daily entr
-        {allRows.length === 1 ? "y" : "ies"} · Tax rate{" "}
-        {totalTaxPct.toFixed(2)}% applied to NET calculations
+        {filteredRows.length} day{filteredRows.length === 1 ? "" : "s"} shown
+        {rowsWithData !== filteredRows.length
+          ? ` · ${rowsWithData} with data`
+          : ""}{" "}
+        · Tax rate {totalTaxPct.toFixed(2)}% applied to NET calculations
       </p>
 
       <div className="w-full max-w-none overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm">
@@ -377,10 +430,16 @@ export function DiscountsDataTable({
               ) : (
                 filteredRows.map((row) => {
                   const rowPending = isPending && pendingRowId === row.id;
+                  const isEmptyRow = isSalesTableEmptyRowId(row.id);
+                  const isFutureEmptyRow =
+                    isEmptyRow && isFutureSalesEntryDate(row.sale_date);
                   return (
                   <tr
                     key={row.id}
-                    className="border-b border-black/5 hover:bg-[var(--venue-secondary)]/15"
+                    className={cn(
+                      "border-b border-black/5 hover:bg-[var(--venue-secondary)]/15",
+                      isEmptyRow && SALES_TABLE_EMPTY_ROW_CLASS,
+                    )}
                   >
                     {SECTIONS.flatMap((section) =>
                       columnsForSection(section).map((column) => {
@@ -418,6 +477,8 @@ export function DiscountsDataTable({
                       canEdit={canEdit}
                       isEditing={false}
                       isPending={rowPending}
+                      disableDelete={isEmptyRow}
+                      disableAdd={isFutureEmptyRow}
                       onEdit={() =>
                         router.push(
                           `/sales/discounts/entry?date=${row.sale_date}`,
@@ -434,7 +495,7 @@ export function DiscountsDataTable({
               )}
             </tbody>
             <SalesDataTableTotalsRow
-              rows={filteredRows}
+              rows={filteredRows.filter((row) => !isSalesTableEmptyRowId(row.id))}
               sections={SECTIONS}
               getColumnsForSection={columnsForSection}
               getColumnKey={(column) => column.key}

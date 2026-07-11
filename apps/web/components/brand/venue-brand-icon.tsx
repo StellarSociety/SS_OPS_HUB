@@ -1,5 +1,13 @@
 import { Globe } from "lucide-react";
 import {
+  getVenueBadgeUrl,
+  getVenueIconUrl,
+  getVenueLogoUrl,
+  hasVenueBrandAssets,
+  venueUsesCustomBrandAsset,
+  type VenueBrandAssetSource,
+} from "@/lib/venue/branding";
+import {
   ORILLA_CREAM,
   ORILLA_MARK_PATH,
   ORILLA_OLIVE,
@@ -14,10 +22,53 @@ type VenueBrandIconProps = {
   name: string;
   isGlobal?: boolean;
   primaryColor?: string;
+  logoUrl?: string | null;
+  iconUrl?: string | null;
+  faviconUrl?: string | null;
   variant: VenueBrandVariant;
   className?: string;
   title?: string;
 };
+
+function venueAssetSource(props: VenueBrandIconProps): VenueBrandAssetSource {
+  return {
+    slug: props.slug,
+    logo_url: props.logoUrl,
+    icon_url: props.iconUrl,
+    favicon_url: props.faviconUrl,
+  };
+}
+
+function variantUrl(props: VenueBrandIconProps): string | null {
+  const venue = venueAssetSource(props);
+  switch (props.variant) {
+    case "wordmark":
+      return getVenueLogoUrl(venue);
+    case "mark":
+      return getVenueIconUrl(venue);
+    case "badge":
+      return getVenueBadgeUrl(venue);
+  }
+}
+
+function BrandImage({
+  src,
+  className,
+  title,
+}: {
+  src: string;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <img
+      src={src}
+      alt={title ?? ""}
+      className={cn("object-contain", className)}
+      title={title}
+    />
+  );
+}
 
 function OrillaMark({ className, title }: { className?: string; title?: string }) {
   return (
@@ -88,11 +139,29 @@ function VenueFallbackIcon({
   );
 }
 
+function shouldRenderOrillaSvg(
+  props: VenueBrandIconProps,
+): boolean {
+  if (props.slug !== "orilla") return false;
+
+  const asset =
+    props.variant === "wordmark"
+      ? "logo"
+      : props.variant === "mark"
+        ? "icon"
+        : "favicon";
+
+  return !venueUsesCustomBrandAsset(venueAssetSource(props), asset);
+}
+
 export function VenueBrandIcon({
   slug,
   name,
   isGlobal = false,
   primaryColor = ORILLA_OLIVE,
+  logoUrl,
+  iconUrl,
+  faviconUrl,
   variant,
   className,
   title,
@@ -112,7 +181,18 @@ export function VenueBrandIcon({
     );
   }
 
-  if (slug === "orilla") {
+  const props = {
+    slug,
+    name,
+    logoUrl,
+    iconUrl,
+    faviconUrl,
+    variant,
+    className,
+    title,
+  };
+
+  if (shouldRenderOrillaSvg(props)) {
     switch (variant) {
       case "badge":
         return <OrillaBadge className={className} title={title ?? name} />;
@@ -121,6 +201,13 @@ export function VenueBrandIcon({
       case "wordmark":
         return <OrillaWordmark className={className} title={title ?? name} />;
     }
+  }
+
+  const url = variantUrl(props);
+  if (url) {
+    return (
+      <BrandImage src={url} className={className} title={title ?? name} />
+    );
   }
 
   return (
@@ -132,6 +219,4 @@ export function VenueBrandIcon({
   );
 }
 
-export function hasVenueBrandAssets(slug: string): boolean {
-  return slug === "orilla";
-}
+export { hasVenueBrandAssets } from "@/lib/venue/branding";

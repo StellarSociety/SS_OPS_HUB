@@ -6,6 +6,8 @@ export type Venue = {
   primary_color: string;
   secondary_color: string;
   logo_url: string | null;
+  icon_url: string | null;
+  favicon_url: string | null;
   created_at: string;
 };
 

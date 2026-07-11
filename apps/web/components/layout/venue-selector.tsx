@@ -21,6 +21,9 @@ function VenueOptionIcon({ venue }: { venue: Venue }) {
       name={venue.name}
       isGlobal={venue.is_global}
       primaryColor={venue.primary_color}
+      logoUrl={venue.logo_url}
+      iconUrl={venue.icon_url}
+      faviconUrl={venue.favicon_url}
       variant="badge"
       className="h-6 w-6 shrink-0"
     />

@@ -41,6 +41,18 @@ import {
   isSalesTableCoversOrBookingsKey,
 } from "@/lib/sales/sales-data-table-ui";
 import {
+  buildSalesTableMonthOptions,
+  buildSalesTableWeekOptions,
+  countSalesTableRowsWithData,
+  createEmptyDailySalesRecord,
+  formatLocalDateFromDate,
+  getCurrentWeekFilterKey,
+  getCurrentYearKey,
+  isSalesTableEmptyRowId,
+  resolveSalesTableCalendarDates,
+  SALES_TABLE_EMPTY_ROW_CLASS,
+} from "@/lib/sales/sales-data-table-dates";
+import {
   SalesDataTableActionColumnHeader,
   SalesDataTableActionsCell,
 } from "@/components/sales/sales-data-table-actions-cell";
@@ -52,6 +64,9 @@ import {
   dailySalesColumnFormat,
   dailySalesColumnValue,
 } from "@/lib/sales/sales-data-table-totals";
+import {
+  isFutureSalesEntryDate,
+} from "@/lib/sales/sales-entry-dates";
 import { cn } from "@/lib/utils";
 
 type DailySalesDataTableProps = {
@@ -163,7 +178,7 @@ function renderCellValue(
 
 function buildDailySalesFormData(draft: DraftRow): FormData {
   const formData = new FormData();
-  formData.set("id", draft.id);
+  formData.set("id", isSalesTableEmptyRowId(draft.id) ? "" : draft.id);
   formData.set("sale_date", draft.sale_date);
   formData.set("lunch_food_gs", String(draft.lunch_food_gs));
   formData.set("lunch_beverages_gs", String(draft.lunch_beverages_gs));
@@ -174,6 +189,8 @@ function buildDailySalesFormData(draft: DraftRow): FormData {
   formData.set("lunch_service_fees_gs", String(draft.lunch_service_fees_gs));
   formData.set("lunch_covers", String(draft.lunch_covers));
   formData.set("lunch_bookings", String(draft.lunch_bookings));
+  formData.set("lunch_walkin_tables", String(draft.lunch_walkin_tables ?? 0));
+  formData.set("lunch_walkin_covers", String(draft.lunch_walkin_covers ?? 0));
   formData.set("dinner_food_gs", String(draft.dinner_food_gs));
   formData.set("dinner_beverages_gs", String(draft.dinner_beverages_gs));
   formData.set("dinner_wine_gs", String(draft.dinner_wine_gs));
@@ -183,14 +200,9 @@ function buildDailySalesFormData(draft: DraftRow): FormData {
   formData.set("dinner_service_fees_gs", String(draft.dinner_service_fees_gs));
   formData.set("dinner_covers", String(draft.dinner_covers));
   formData.set("dinner_bookings", String(draft.dinner_bookings));
+  formData.set("dinner_walkin_tables", String(draft.dinner_walkin_tables ?? 0));
+  formData.set("dinner_walkin_covers", String(draft.dinner_walkin_covers ?? 0));
   return formData;
-}
-
-function formatLocalDateFromDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function parseWeekFilterKey(key: string): { week: number; year: number } | null {
@@ -210,8 +222,9 @@ export function DailySalesDataTable({
 
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [weekFilter, setWeekFilter] = useState("");
-  const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthKey());
+  const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
+  const [monthFilter, setMonthFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [pendingRowId, setPendingRowId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -231,17 +244,15 @@ export function DailySalesDataTable({
     });
   }, [records, drafts, totalTaxPct]);
 
-  const weekOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const row of allRows) {
-      const { week, year } = getIsoWeekParts(row.sale_date);
-      const key = `${year}-W${String(week).padStart(2, "0")}`;
-      map.set(key, formatIsoWeekLabel(year, week));
-    }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([value, label]) => ({ value, label }));
-  }, [allRows]);
+  const weekOptions = useMemo(
+    () =>
+      buildSalesTableWeekOptions(
+        allRows.map((row) => row.sale_date),
+        formatIsoWeekLabel,
+        getIsoWeekParts,
+      ),
+    [allRows],
+  );
 
   useEffect(() => {
     if (weekFilter && !weekOptions.some((opt) => opt.value === weekFilter)) {
@@ -249,13 +260,15 @@ export function DailySalesDataTable({
     }
   }, [weekFilter, weekOptions]);
 
-  const monthOptions = useMemo(() => {
-    const set = new Set(allRows.map((row) => row.sale_date.slice(0, 7)));
-    set.add(getCurrentMonthKey());
-    return Array.from(set)
-      .sort((a, b) => b.localeCompare(a))
-      .map((value) => ({ value, label: formatMonthLabel(value) }));
-  }, [allRows]);
+  const monthOptions = useMemo(
+    () =>
+      buildSalesTableMonthOptions(
+        allRows.map((row) => row.sale_date),
+        formatMonthLabel,
+        getCurrentMonthKey,
+      ),
+    [allRows],
+  );
 
   useEffect(() => {
     if (monthFilter && !monthOptions.some((opt) => opt.value === monthFilter)) {
@@ -264,39 +277,88 @@ export function DailySalesDataTable({
   }, [monthFilter, monthOptions]);
 
   const filteredRows = useMemo(() => {
+    const recordsByDate = new Map(allRows.map((row) => [row.sale_date, row]));
+    const calendarDates = resolveSalesTableCalendarDates({
+      fromDate,
+      toDate,
+      weekFilter,
+      monthFilter,
+      yearFilter,
+    });
+    const venueId = records[0]?.venue_id ?? "";
+
+    if (calendarDates) {
+      return calendarDates.map((saleDate) => {
+        const existing = recordsByDate.get(saleDate);
+        if (existing) return existing;
+
+        const emptyRecord = createEmptyDailySalesRecord(saleDate, venueId);
+        const draft = drafts[emptyRecord.id] ?? emptyRecord;
+        return {
+          ...draft,
+          ...computeDailySales(draft, totalTaxPct),
+        };
+      });
+    }
+
     return allRows
       .filter((row) => {
-      if (fromDate && row.sale_date < fromDate) return false;
-      if (toDate && row.sale_date > toDate) return false;
+        if (fromDate && row.sale_date < fromDate) return false;
+        if (toDate && row.sale_date > toDate) return false;
 
-      if (weekFilter) {
-        const { week, year } = getIsoWeekParts(row.sale_date);
-        const key = `${year}-W${String(week).padStart(2, "0")}`;
-        if (key !== weekFilter) return false;
-      }
+        if (weekFilter) {
+          const { week, year } = getIsoWeekParts(row.sale_date);
+          const key = `${year}-W${String(week).padStart(2, "0")}`;
+          if (key !== weekFilter) return false;
+        }
 
-      if (monthFilter && row.sale_date.slice(0, 7) !== monthFilter) {
-        return false;
-      }
+        if (monthFilter && row.sale_date.slice(0, 7) !== monthFilter) {
+          return false;
+        }
 
-      return true;
-    })
+        if (yearFilter && row.sale_date.slice(0, 4) !== yearFilter) {
+          return false;
+        }
+
+        return true;
+      })
       .sort((a, b) => a.sale_date.localeCompare(b.sale_date));
-  }, [allRows, fromDate, toDate, weekFilter, monthFilter]);
+  }, [
+    allRows,
+    records,
+    fromDate,
+    toDate,
+    weekFilter,
+    monthFilter,
+    yearFilter,
+    totalTaxPct,
+    drafts,
+  ]);
+
+  const rowsWithData = useMemo(
+    () => countSalesTableRowsWithData(filteredRows),
+    [filteredRows],
+  );
 
   function applyThisWeek() {
-    const today = formatLocalDateFromDate(new Date());
-    const { week, year } = getIsoWeekParts(today);
-    const key = `${year}-W${String(week).padStart(2, "0")}`;
-    if (!weekOptions.some((opt) => opt.value === key)) return;
-    setWeekFilter(key);
+    setWeekFilter(getCurrentWeekFilterKey());
     setMonthFilter("");
+    setYearFilter("");
     setFromDate("");
     setToDate("");
   }
 
   function applyThisMonth() {
     setMonthFilter(getCurrentMonthKey());
+    setWeekFilter("");
+    setYearFilter("");
+    setFromDate("");
+    setToDate("");
+  }
+
+  function applyThisYear() {
+    setYearFilter(getCurrentYearKey());
+    setMonthFilter("");
     setWeekFilter("");
     setFromDate("");
     setToDate("");
@@ -307,6 +369,7 @@ export function DailySalesDataTable({
     setToDate("");
     setWeekFilter("");
     setMonthFilter("");
+    setYearFilter("");
   }
 
   function updateDraft(
@@ -331,6 +394,12 @@ export function DailySalesDataTable({
   }
 
   function handleEditRow(rowId: string) {
+    setDrafts((prev) => {
+      if (prev[rowId]) return prev;
+      const row = filteredRows.find((entry) => entry.id === rowId);
+      if (!row) return prev;
+      return { ...prev, [rowId]: toDraft(row) };
+    });
     setEditingRowId(rowId);
   }
 
@@ -384,33 +453,40 @@ export function DailySalesDataTable({
           setFromDate(value);
           setWeekFilter("");
           setMonthFilter("");
+          setYearFilter("");
         }}
         onToDateChange={(value) => {
           setToDate(value);
           setWeekFilter("");
           setMonthFilter("");
+          setYearFilter("");
         }}
         onWeekFilterChange={(value) => {
           setWeekFilter(value);
           setFromDate("");
           setToDate("");
           setMonthFilter("");
+          setYearFilter("");
         }}
         onMonthFilterChange={(value) => {
           setMonthFilter(value);
           setFromDate("");
           setToDate("");
           setWeekFilter("");
+          setYearFilter("");
         }}
         onThisWeek={applyThisWeek}
         onThisMonth={applyThisMonth}
+        onThisYear={applyThisYear}
         onClear={clearFilters}
       />
 
       <p className="text-sm text-black/50">
-        {filteredRows.length} of {allRows.length} daily entr
-        {allRows.length === 1 ? "y" : "ies"} · Tax rate{" "}
-        {totalTaxPct.toFixed(2)}% applied to NET calculations
+        {filteredRows.length} day{filteredRows.length === 1 ? "" : "s"} shown
+        {rowsWithData !== filteredRows.length
+          ? ` · ${rowsWithData} with data`
+          : ""}{" "}
+        · Tax rate {totalTaxPct.toFixed(2)}% applied to NET calculations
       </p>
 
 
@@ -497,10 +573,16 @@ export function DailySalesDataTable({
                 filteredRows.map((row) => {
                   const isEditing = editingRowId === row.id;
                   const rowPending = isPending && pendingRowId === row.id;
+                  const isEmptyRow = isSalesTableEmptyRowId(row.id);
+                  const isFutureEmptyRow =
+                    isEmptyRow && isFutureSalesEntryDate(row.sale_date);
                   return (
                   <tr
                     key={row.id}
-                    className="border-b border-black/5 hover:bg-[var(--venue-secondary)]/15"
+                    className={cn(
+                      "border-b border-black/5 hover:bg-[var(--venue-secondary)]/15",
+                      isEmptyRow && SALES_TABLE_EMPTY_ROW_CLASS,
+                    )}
                   >
                     {SECTIONS.flatMap((section) =>
                       columnsForSection(section).map((column) => {
@@ -545,6 +627,8 @@ export function DailySalesDataTable({
                       canEdit={canEdit}
                       isEditing={isEditing}
                       isPending={rowPending}
+                      disableDelete={isEmptyRow}
+                      disableAdd={isFutureEmptyRow}
                       onEdit={() => handleEditRow(row.id)}
                       onSave={() => handleSaveRow(row.id)}
                       onDelete={() =>
@@ -557,7 +641,7 @@ export function DailySalesDataTable({
               )}
             </tbody>
             <SalesDataTableTotalsRow
-              rows={filteredRows}
+              rows={filteredRows.filter((row) => !isSalesTableEmptyRowId(row.id))}
               sections={SECTIONS}
               getColumnsForSection={columnsForSection}
               getColumnKey={(column) => column.key}

@@ -16,6 +16,7 @@ import {
 import { getSalesPageContext } from "@/lib/sales/page-context";
 import { listVenueWaiterDailySales } from "@/lib/sales/waiter-sales-store";
 import { Card } from "@/components/ui/card";
+import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 export default async function DailyVsWaitersPage() {
   const { supabase, venue, permissions } = await getSalesPageContext();
@@ -52,6 +53,8 @@ export default async function DailyVsWaitersPage() {
         </div>
 
         <DailyVsWaitersTable
+          venueName={venue.name}
+          venueLogoUrl={getVenueLogoUrl(venue)}
           dailyRecords={dailyRecords}
           waiterRecords={waiterRecords}
           comments={comments}

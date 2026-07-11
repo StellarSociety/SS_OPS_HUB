@@ -83,6 +83,8 @@ export async function upsertVenueDailySales(
     lunch_service_fees_gs: number;
     lunch_covers: number;
     lunch_bookings: number;
+    lunch_walkin_tables: number;
+    lunch_walkin_covers: number;
     dinner_food_gs: number;
     dinner_beverages_gs: number;
     dinner_wine_gs: number;
@@ -92,6 +94,8 @@ export async function upsertVenueDailySales(
     dinner_service_fees_gs: number;
     dinner_covers: number;
     dinner_bookings: number;
+    dinner_walkin_tables: number;
+    dinner_walkin_covers: number;
   },
 ): Promise<VenueDailySalesRecord> {
   const row = {

@@ -15,6 +15,10 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  moduleBrandedNavIconClass,
+  moduleBrandedNavLinkClass,
+} from "@/lib/sub-nav-ui";
 import { VenueBrandIcon, hasVenueBrandAssets } from "@/components/brand/venue-brand-icon";
 import { moduleCategoryMeta } from "@/lib/module-categories";
 import { getModuleSidebarForPath, isModuleSidebarItemActive } from "@/lib/module-sidebar";
@@ -58,11 +62,16 @@ const appCategoryNavItems = [
   },
 ] as const;
 
-const settingsNavItem = {
+const venueSettingsNavItem = {
   label: "Venue Settings",
   href: "/settings",
   icon: Settings,
-  adminOnly: true,
+} as const;
+
+const globalSettingsNavItem = {
+  label: "Global Settings",
+  href: "/global/settings",
+  icon: Settings,
 } as const;
 
 const footerNavItems = [
@@ -83,21 +92,55 @@ function SidebarDivider({ collapsed }: { collapsed: boolean }) {
 function SidebarLink({
   href,
   label,
+  sublabel,
   icon: Icon,
   active,
   collapsed,
+  branded = false,
 }: {
   href: string;
   label: string;
+  sublabel?: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   collapsed: boolean;
+  branded?: boolean;
 }) {
+  const collapsedTitle = sublabel ? `${sublabel} ${label}` : label;
+
+  if (branded) {
+    return (
+      <Link
+        href={href}
+        title={collapsed ? collapsedTitle : undefined}
+        aria-label={collapsed ? collapsedTitle : undefined}
+        className={cn(
+          moduleBrandedNavLinkClass(active, { fullWidth: !collapsed }),
+          collapsed && "justify-center px-2",
+        )}
+      >
+        <Icon className={moduleBrandedNavIconClass(active)} />
+        {!collapsed ? (
+          sublabel ? (
+            <span className="min-w-0 flex-1 leading-none">
+              <span className="block text-[9px] font-medium uppercase tracking-wide text-black/45">
+                {sublabel}
+              </span>
+              <span className="mt-0.5 block">{label}</span>
+            </span>
+          ) : (
+            <span className="truncate">{label}</span>
+          )
+        ) : null}
+      </Link>
+    );
+  }
+
   return (
     <Link
       href={href}
-      title={collapsed ? label : undefined}
-      aria-label={collapsed ? label : undefined}
+      title={collapsed ? collapsedTitle : undefined}
+      aria-label={collapsed ? collapsedTitle : undefined}
       className={cn(
         "flex items-center rounded-lg py-2 text-sm transition-colors",
         collapsed ? "justify-center px-2" : "gap-2.5 px-3",
@@ -107,7 +150,18 @@ function SidebarLink({
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      {!collapsed ? <span className="truncate">{label}</span> : null}
+      {!collapsed ? (
+        sublabel ? (
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-[10px] font-medium uppercase tracking-wide text-black/45">
+              {sublabel}
+            </span>
+            <span className="block truncate">{label}</span>
+          </span>
+        ) : (
+          <span className="truncate">{label}</span>
+        )
+      ) : null}
     </Link>
   );
 }
@@ -127,9 +181,13 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const pathname = usePathname();
   const collapsed = !open;
-  const hasBrandAssets = hasVenueBrandAssets(venue.slug);
+  const hasBrandAssets = hasVenueBrandAssets(venue);
   const moduleSidebar = getModuleSidebarForPath(pathname);
   const ModuleIcon = moduleSidebar?.icon;
+  const settingsNav = venue.is_global ? globalSettingsNavItem : venueSettingsNavItem;
+  const settingsActive = venue.is_global
+    ? pathname.startsWith("/global/settings")
+    : pathname.startsWith("/settings") && !pathname.startsWith("/global/settings");
 
   return (
     <aside
@@ -151,6 +209,9 @@ export function AppSidebar({
             name={venue.name}
             isGlobal={venue.is_global}
             primaryColor={venue.primary_color}
+            logoUrl={venue.logo_url}
+            iconUrl={venue.icon_url}
+            faviconUrl={venue.favicon_url}
             variant="badge"
             className="h-10 w-10"
             title={venue.name}
@@ -161,6 +222,9 @@ export function AppSidebar({
             name={venue.name}
             isGlobal={venue.is_global}
             primaryColor={venue.primary_color}
+            logoUrl={venue.logo_url}
+            iconUrl={venue.icon_url}
+            faviconUrl={venue.favicon_url}
             variant="wordmark"
             className="h-7 w-auto max-w-full"
             title={venue.name}
@@ -230,9 +294,11 @@ export function AppSidebar({
                       key={item.href}
                       href={item.href}
                       label={item.label}
+                      sublabel={moduleSidebar.label}
                       icon={Icon}
                       active={active}
                       collapsed={collapsed}
+                      branded
                     />
                   );
                 })}
@@ -273,10 +339,10 @@ export function AppSidebar({
               <>
                 <SidebarDivider collapsed={collapsed} />
                 <SidebarLink
-                  href={settingsNavItem.href}
-                  label={settingsNavItem.label}
-                  icon={settingsNavItem.icon}
-                  active={pathname.startsWith(settingsNavItem.href)}
+                  href={settingsNav.href}
+                  label={settingsNav.label}
+                  icon={settingsNav.icon}
+                  active={settingsActive}
                   collapsed={collapsed}
                 />
               </>

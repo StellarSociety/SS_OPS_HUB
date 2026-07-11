@@ -56,7 +56,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const appRoutes = ["/dashboard", "/modules", "/settings", "/hr"];
+  const appRoutes = ["/dashboard", "/modules", "/settings", "/global", "/hr"];
   const isAppRoute = appRoutes.some((route) => pathname.startsWith(route));
 
   if (user && isAppRoute && !request.cookies.get(ACTIVE_VENUE_COOKIE)) {

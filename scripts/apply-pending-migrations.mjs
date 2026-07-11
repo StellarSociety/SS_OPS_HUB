@@ -38,28 +38,20 @@ function toPoolerUrl(directUrl) {
   return url.toString();
 }
 
-const PENDING = [
-  "20260710120000_hr_schema.sql",
-  "20260710140000_user_access_schema.sql",
-  "20260710150000_seed_venue_modules.sql",
-  "20260710160000_access_model_submit.sql",
-  "20260710160000_operational_apps_modules.sql",
-  "20260710160000_orilla_brand_color_svg.sql",
-  "20260710140000_orilla_logo_assets.sql",
-  "20260710170000_notifications.sql",
-  "20260710180000_enable_sales_module.sql",
-  "20260710200000_venue_daily_sales.sql",
-  "20260710210000_venue_daily_sales_venue_hire.sql",
-  "20260710220000_rename_venue_hire_to_service_fees.sql",
-  "20260710230000_venue_daily_discounts.sql",
-  "20260710240000_venue_waiters.sql",
-  "20260710250000_venue_tenders_and_waiter_sales.sql",
-  "20260710260000_venue_waiter_daily_sales_comments.sql",
-  "20260710270000_venue_waiter_on_accounts_comments.sql",
-  "20260710280000_venue_waiter_groups_service_charge.sql",
-  "20260710290000_daily_sales_tobacco_waiter_sort_order.sql",
-  "20260710300000_venue_daily_vs_waiters_comments.sql",
-];
+/**
+ * Migrations whose objects already exist in the remote DB (applied before the
+ * schema_migrations tracking table existed). These are recorded as applied
+ * without re-running the SQL, since re-running non-idempotent DDL would fail.
+ */
+const RECORD_ONLY = new Set(["20260710000000_initial_schema"]);
+
+/** Auto-discover every migration file, sorted by version (filename). */
+function discoverMigrations() {
+  return fs
+    .readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+}
 
 async function ensureMigrationsTable(client) {
   await client.query(`
@@ -91,10 +83,19 @@ async function main() {
   await client.connect();
   await ensureMigrationsTable(client);
 
-  for (const file of PENDING) {
+  for (const file of discoverMigrations()) {
     const version = file.replace(/\.sql$/, "");
     if (await isApplied(client, version)) {
       console.log(`skip  ${version} (already applied)`);
+      continue;
+    }
+
+    if (RECORD_ONLY.has(version)) {
+      await client.query(
+        "INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING",
+        [version, file],
+      );
+      console.log(`mark  ${version} (record-only, objects already present)`);
       continue;
     }
 

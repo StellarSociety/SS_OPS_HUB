@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { saveVenueDailySalesEntry } from "@/lib/actions/sales";
 import {
   computeDailySales,
@@ -14,13 +14,21 @@ import type {
   VenueDailySalesInputField,
   VenueDailySalesRecord,
 } from "@/lib/sales/daily-sales-types";
+import {
+  canCreateSalesEntryForDate,
+  FUTURE_SALES_ENTRY_ERROR,
+  isFutureSalesEntryDate,
+} from "@/lib/sales/sales-entry-dates";
 import { SalesEntryDateBar } from "@/components/sales/sales-entry-date-bar";
+import { SalesEntryDateBanner } from "@/components/sales/sales-entry-date-banner";
 import {
   SalesFormColumnsLayout,
   SalesFormFieldRow,
   SalesFormInputModeToggle,
   SalesFormSectionHeader,
   salesFormColumnClassName,
+  salesFormColumnShellClass,
+  salesFormColumnWidthClass,
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
@@ -46,6 +54,8 @@ type FormState = {
   lunch_service_fees_gs: number;
   lunch_covers: number;
   lunch_bookings: number;
+  lunch_walkin_tables: number;
+  lunch_walkin_covers: number;
   dinner_food_gs: number;
   dinner_beverages_gs: number;
   dinner_wine_gs: number;
@@ -55,6 +65,8 @@ type FormState = {
   dinner_service_fees_gs: number;
   dinner_covers: number;
   dinner_bookings: number;
+  dinner_walkin_tables: number;
+  dinner_walkin_covers: number;
 };
 
 const LUNCH_SALES_FIELDS: {
@@ -96,6 +108,8 @@ function emptyForm(date: string): FormState {
     lunch_service_fees_gs: 0,
     lunch_covers: 0,
     lunch_bookings: 0,
+    lunch_walkin_tables: 0,
+    lunch_walkin_covers: 0,
     dinner_food_gs: 0,
     dinner_beverages_gs: 0,
     dinner_wine_gs: 0,
@@ -105,6 +119,8 @@ function emptyForm(date: string): FormState {
     dinner_service_fees_gs: 0,
     dinner_covers: 0,
     dinner_bookings: 0,
+    dinner_walkin_tables: 0,
+    dinner_walkin_covers: 0,
   };
 }
 
@@ -121,6 +137,8 @@ function recordToForm(record: VenueDailySalesRecord): FormState {
     lunch_service_fees_gs: record.lunch_service_fees_gs ?? 0,
     lunch_covers: record.lunch_covers,
     lunch_bookings: record.lunch_bookings,
+    lunch_walkin_tables: record.lunch_walkin_tables ?? 0,
+    lunch_walkin_covers: record.lunch_walkin_covers ?? 0,
     dinner_food_gs: record.dinner_food_gs,
     dinner_beverages_gs: record.dinner_beverages_gs,
     dinner_wine_gs: record.dinner_wine_gs,
@@ -130,6 +148,8 @@ function recordToForm(record: VenueDailySalesRecord): FormState {
     dinner_service_fees_gs: record.dinner_service_fees_gs ?? 0,
     dinner_covers: record.dinner_covers,
     dinner_bookings: record.dinner_bookings,
+    dinner_walkin_tables: record.dinner_walkin_tables ?? 0,
+    dinner_walkin_covers: record.dinner_walkin_covers ?? 0,
   };
 }
 
@@ -163,6 +183,8 @@ function ServiceColumn({
   salesFields,
   coversKey,
   bookingsKey,
+  walkinTablesKey,
+  walkinCoversKey,
   form,
   canEdit,
   inputMode,
@@ -174,6 +196,8 @@ function ServiceColumn({
   salesFields: { key: VenueDailySalesInputField; label: string }[];
   coversKey: VenueDailySalesInputField;
   bookingsKey: VenueDailySalesInputField;
+  walkinTablesKey: VenueDailySalesInputField;
+  walkinCoversKey: VenueDailySalesInputField;
   form: FormState;
   canEdit: boolean;
   inputMode: SalesInputMode;
@@ -242,6 +266,24 @@ function ServiceColumn({
               onChange={(v) => onChange(bookingsKey, v)}
             />
           </SalesFormFieldRow>
+          <SalesFormFieldRow label="Walk-in Tables">
+            <SalesNumericInput
+              key={`${walkinTablesKey}-${form.id}-${form.sale_date}`}
+              value={form[walkinTablesKey]}
+              disabled={!canEdit}
+              isInteger
+              onChange={(v) => onChange(walkinTablesKey, v)}
+            />
+          </SalesFormFieldRow>
+          <SalesFormFieldRow label="Walk-in Covers">
+            <SalesNumericInput
+              key={`${walkinCoversKey}-${form.id}-${form.sale_date}`}
+              value={form[walkinCoversKey]}
+              disabled={!canEdit}
+              isInteger
+              onChange={(v) => onChange(walkinCoversKey, v)}
+            />
+          </SalesFormFieldRow>
         </div>
       </div>
     </div>
@@ -252,14 +294,22 @@ function DailyTotalsColumn({
   totals,
   lunchCovers,
   lunchBookings,
+  lunchWalkinTables,
+  lunchWalkinCovers,
   dinnerCovers,
   dinnerBookings,
+  dinnerWalkinTables,
+  dinnerWalkinCovers,
 }: {
   totals: ReturnType<typeof computeDailySales>;
   lunchCovers: number;
   lunchBookings: number;
+  lunchWalkinTables: number;
+  lunchWalkinCovers: number;
   dinnerCovers: number;
   dinnerBookings: number;
+  dinnerWalkinTables: number;
+  dinnerWalkinCovers: number;
 }) {
   return (
     <div
@@ -275,6 +325,8 @@ function DailyTotalsColumn({
           net={totals.lunchTotalNet}
           covers={lunchCovers}
           bookings={lunchBookings}
+          walkinTables={lunchWalkinTables}
+          walkinCovers={lunchWalkinCovers}
         />
         <TotalCell
           label="Dinner Revenue"
@@ -282,6 +334,8 @@ function DailyTotalsColumn({
           net={totals.dinnerTotalNet}
           covers={dinnerCovers}
           bookings={dinnerBookings}
+          walkinTables={dinnerWalkinTables}
+          walkinCovers={dinnerWalkinCovers}
         />
         <TotalCell
           label="Total Revenue (Excluding Graduity)"
@@ -289,6 +343,8 @@ function DailyTotalsColumn({
           net={totals.totalVenueNet}
           covers={totals.totalCovers}
           bookings={totals.totalBookings}
+          walkinTables={totals.totalWalkinTables}
+          walkinCovers={totals.totalWalkinCovers}
         />
       </div>
     </div>
@@ -301,12 +357,16 @@ function TotalCell({
   net,
   covers,
   bookings,
+  walkinTables,
+  walkinCovers,
 }: {
   label: string;
   gross: number;
   net: number;
   covers: number;
   bookings: number;
+  walkinTables: number;
+  walkinCovers: number;
 }) {
   return (
     <div className="rounded-lg border border-black/10 bg-white px-4 py-3 text-center">
@@ -334,6 +394,10 @@ function TotalCell({
       <p className="mt-2 text-sm font-medium tabular-nums text-black/60">
         {formatCount(covers)} covers · {formatCount(bookings)} bookings
       </p>
+      <p className="mt-1 text-xs tabular-nums text-black/50">
+        {formatCount(walkinTables)} walk-in tables · {formatCount(walkinCovers)}{" "}
+        walk-in covers
+      </p>
     </div>
   );
 }
@@ -358,6 +422,7 @@ export function DailySalesEntryForm({
   const [isPending, startTransition] = useTransition();
 
   const isExisting = recordsByDate.has(selectedDate);
+  const fieldsEditable = canEdit && isFormOpen;
 
   const totals = useMemo(() => {
     const asRecord: VenueDailySalesRecord = {
@@ -395,6 +460,8 @@ export function DailySalesEntryForm({
         "lunch_service_fees_gs",
         "lunch_covers",
         "lunch_bookings",
+        "lunch_walkin_tables",
+        "lunch_walkin_covers",
         "dinner_food_gs",
         "dinner_beverages_gs",
         "dinner_wine_gs",
@@ -404,6 +471,8 @@ export function DailySalesEntryForm({
         "dinner_service_fees_gs",
         "dinner_covers",
         "dinner_bookings",
+        "dinner_walkin_tables",
+        "dinner_walkin_covers",
       ] as VenueDailySalesInputField[]
     ).forEach((field) => formData.set(field, String(form[field])));
 
@@ -420,6 +489,18 @@ export function DailySalesEntryForm({
     return true;
   };
 
+  function formForDate(date: string): FormState {
+    const existing = recordsByDate.get(date);
+    return existing ? recordToForm(existing) : emptyForm(date);
+  }
+
+  useEffect(() => {
+    if (isFormOpen) return;
+    const next = formForDate(selectedDate);
+    setForm(next);
+    syncBaseline(next);
+  }, [selectedDate, recordsByDate, isFormOpen, syncBaseline]);
+
   function handleDateChange(date: string) {
     guardAction(() => {
       setSelectedDate(date);
@@ -429,8 +510,11 @@ export function DailySalesEntryForm({
   }
 
   function openForm() {
-    const existing = recordsByDate.get(selectedDate);
-    const initial = existing ? recordToForm(existing) : emptyForm(selectedDate);
+    if (!canCreateSalesEntryForDate(selectedDate, isExisting)) {
+      setMessage(FUTURE_SALES_ENTRY_ERROR);
+      return;
+    }
+    const initial = formForDate(selectedDate);
     setForm(initial);
     syncBaseline(initial);
     setIsFormOpen(true);
@@ -438,7 +522,11 @@ export function DailySalesEntryForm({
   }
 
   function updateField(field: VenueDailySalesInputField, value: string) {
-    const isCount = field.endsWith("_covers") || field.endsWith("_bookings");
+    const isCount =
+      field.endsWith("_covers") ||
+      field.endsWith("_bookings") ||
+      field.endsWith("_walkin_tables") ||
+      field.endsWith("_walkin_covers");
     const parsed = isCount
       ? Number.parseInt(value, 10)
       : Number.parseFloat(value);
@@ -474,8 +562,8 @@ export function DailySalesEntryForm({
         onSave={handleSave}
       />
 
-      {isFormOpen ? (
-        <>
+      <div className="space-y-3 text-center">
+        {isFormOpen ? (
           <p className="text-sm text-black/60">
             Enter sales figures as{" "}
             <span className="font-medium text-[#3D421F]">Gross</span> or{" "}
@@ -484,63 +572,77 @@ export function DailySalesEntryForm({
             combined tax rate {formatPct(totalTaxPct)}% is applied for net
             conversions.
           </p>
+        ) : isFutureSalesEntryDate(selectedDate) && !isExisting ? (
+          <p className="text-sm text-black/50">{FUTURE_SALES_ENTRY_ERROR}</p>
+        ) : canEdit ? (
+          <p className="text-sm text-black/50">
+            Viewing {isExisting ? "saved entry" : "empty day"} for this date. Click{" "}
+            {isExisting ? "Edit entry" : "Create entry"} to make changes.
+          </p>
+        ) : (
+          <p className="text-sm text-black/50">
+            You have view-only access for daily sales entry.
+          </p>
+        )}
 
-          {message ? <p className="text-sm text-black/60">{message}</p> : null}
+        <SalesFormColumnsLayout>
+          <div
+            className={cn(
+              salesFormColumnShellClass(),
+              salesFormColumnWidthClass(),
+              "items-center justify-center py-3 text-center text-sm font-medium tabular-nums text-[#3D421F] shadow-sm",
+            )}
+          >
+            <SalesEntryDateBanner dateStr={selectedDate} />
+          </div>
+        </SalesFormColumnsLayout>
+      </div>
 
-          <SalesFormColumnsLayout>
-            <ServiceColumn
-              title="Lunch"
-              salesFields={LUNCH_SALES_FIELDS}
-              coversKey="lunch_covers"
-              bookingsKey="lunch_bookings"
-              form={form}
-              canEdit={canEdit}
-              inputMode={lunchInputMode}
-              totalTaxPct={totalTaxPct}
-              onInputModeChange={setLunchInputMode}
-              onChange={updateField}
-            />
-            <ServiceColumn
-              title="Dinner"
-              salesFields={DINNER_SALES_FIELDS}
-              coversKey="dinner_covers"
-              bookingsKey="dinner_bookings"
-              form={form}
-              canEdit={canEdit}
-              inputMode={dinnerInputMode}
-              totalTaxPct={totalTaxPct}
-              onInputModeChange={setDinnerInputMode}
-              onChange={updateField}
-            />
-            <DailyTotalsColumn
-              totals={totals}
-              lunchCovers={form.lunch_covers}
-              lunchBookings={form.lunch_bookings}
-              dinnerCovers={form.dinner_covers}
-              dinnerBookings={form.dinner_bookings}
-            />
-          </SalesFormColumnsLayout>
+      {message ? (
+        <p className="text-center text-sm text-black/60">{message}</p>
+      ) : null}
 
-          {canEdit ? (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleSave}
-                className="inline-flex h-10 items-center justify-center rounded-md bg-[var(--venue-primary)] px-6 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {isPending ? "Saving…" : "SAVE"}
-              </button>
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <p className="text-sm text-black/50">
-          {canEdit
-            ? `Select a date, then click ${isExisting ? "Edit entry" : "Create entry"} to ${isExisting ? "update" : "add"} sales for this day.`
-            : "You have view-only access for daily sales entry."}
-        </p>
-      )}
+      <SalesFormColumnsLayout>
+        <ServiceColumn
+          title="Lunch"
+          salesFields={LUNCH_SALES_FIELDS}
+          coversKey="lunch_covers"
+          bookingsKey="lunch_bookings"
+          walkinTablesKey="lunch_walkin_tables"
+          walkinCoversKey="lunch_walkin_covers"
+          form={form}
+          canEdit={fieldsEditable}
+          inputMode={lunchInputMode}
+          totalTaxPct={totalTaxPct}
+          onInputModeChange={setLunchInputMode}
+          onChange={updateField}
+        />
+        <ServiceColumn
+          title="Dinner"
+          salesFields={DINNER_SALES_FIELDS}
+          coversKey="dinner_covers"
+          bookingsKey="dinner_bookings"
+          walkinTablesKey="dinner_walkin_tables"
+          walkinCoversKey="dinner_walkin_covers"
+          form={form}
+          canEdit={fieldsEditable}
+          inputMode={dinnerInputMode}
+          totalTaxPct={totalTaxPct}
+          onInputModeChange={setDinnerInputMode}
+          onChange={updateField}
+        />
+        <DailyTotalsColumn
+          totals={totals}
+          lunchCovers={form.lunch_covers}
+          lunchBookings={form.lunch_bookings}
+          lunchWalkinTables={form.lunch_walkin_tables}
+          lunchWalkinCovers={form.lunch_walkin_covers}
+          dinnerCovers={form.dinner_covers}
+          dinnerBookings={form.dinner_bookings}
+          dinnerWalkinTables={form.dinner_walkin_tables}
+          dinnerWalkinCovers={form.dinner_walkin_covers}
+        />
+      </SalesFormColumnsLayout>
     </div>
   );
 }

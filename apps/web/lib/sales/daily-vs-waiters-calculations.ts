@@ -3,8 +3,11 @@ import {
   getIsoWeekNumber,
   getWeekDayLabel,
 } from "./daily-sales-calculations";
+import { getDatesInMonth } from "./sales-data-table-dates";
 import type { VenueDailySalesRecord } from "./daily-sales-types";
 import type { VenueWaiterDailySalesEntry } from "./waiter-sales-types";
+
+export { getDatesInMonth };
 
 export type DailyVsWaitersDayRow = {
   sale_date: string;
@@ -30,18 +33,9 @@ export type DailyVsWaitersMonthSummary = {
   grossSalesDifference: number;
   matchedDays: number;
   discrepancyDays: number;
+  coversDiscrepancyDays: number;
+  revenueDiscrepancyDays: number;
 };
-
-export function getDatesInMonth(monthKey: string): string[] {
-  const [year, month] = monthKey.split("-").map(Number);
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const monthStr = String(month).padStart(2, "0");
-
-  return Array.from({ length: daysInMonth }, (_, index) => {
-    const day = String(index + 1).padStart(2, "0");
-    return `${year}-${monthStr}-${day}`;
-  });
-}
 
 export function aggregateWaiterSalesByDate(
   records: VenueWaiterDailySalesEntry[],
@@ -120,6 +114,10 @@ export function summarizeDailyVsWaitersRows(
         acc.grossSalesDifference + row.grossSalesDifference,
       matchedDays: acc.matchedDays + (row.isMatched ? 1 : 0),
       discrepancyDays: acc.discrepancyDays + (row.isMatched ? 0 : 1),
+      coversDiscrepancyDays:
+        acc.coversDiscrepancyDays + (row.coversDifference !== 0 ? 1 : 0),
+      revenueDiscrepancyDays:
+        acc.revenueDiscrepancyDays + (row.grossSalesDifference !== 0 ? 1 : 0),
     }),
     {
       dailyCovers: 0,
@@ -130,6 +128,8 @@ export function summarizeDailyVsWaitersRows(
       grossSalesDifference: 0,
       matchedDays: 0,
       discrepancyDays: 0,
+      coversDiscrepancyDays: 0,
+      revenueDiscrepancyDays: 0,
     },
   );
 

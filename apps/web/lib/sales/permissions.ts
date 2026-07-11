@@ -150,6 +150,18 @@ export function canAccessCashUp(
   return hasSalesFeatureAccess(permissions, SALES_FEATURES.cashUp, venueId);
 }
 
+export function canEditCashUp(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSalesPermission(
+    permissions,
+    SALES_FEATURES.cashUp,
+    "edit",
+    venueId,
+  );
+}
+
 export function canAccessDailyVsWaiters(
   permissions: UserPermission[],
   venueId: string,

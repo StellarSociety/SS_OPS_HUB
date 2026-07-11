@@ -15,6 +15,8 @@ type SalesDataTableActionsCellProps = {
   canEdit: boolean;
   isEditing: boolean;
   isPending: boolean;
+  disableDelete?: boolean;
+  disableAdd?: boolean;
   onEdit: () => void;
   onSave: () => void;
   onDelete: () => void;
@@ -24,6 +26,8 @@ export function SalesDataTableActionsCell({
   canEdit,
   isEditing,
   isPending,
+  disableDelete = false,
+  disableAdd = false,
   onEdit,
   onSave,
   onDelete,
@@ -59,15 +63,20 @@ export function SalesDataTableActionsCell({
       <div className="flex flex-row items-center justify-end gap-1">
         <button
           type="button"
-          disabled={isPending}
+          disabled={isPending || (!isEditing && disableDelete && disableAdd)}
           onClick={isEditing ? onSave : onEdit}
+          title={
+            !isEditing && disableDelete && disableAdd
+              ? "Entries cannot be created for a future date."
+              : undefined
+          }
           className="h-6 rounded border border-[var(--venue-primary)]/30 bg-[var(--venue-primary)]/10 px-1.5 text-[10px] font-bold leading-none text-[#3D421F] transition-colors hover:bg-[var(--venue-primary)]/15 disabled:opacity-50"
         >
-          {isPending ? "…" : isEditing ? "Save" : "Edit"}
+          {isPending ? "…" : isEditing ? "Save" : disableDelete ? "Add" : "Edit"}
         </button>
         <button
           type="button"
-          disabled={isPending || isEditing}
+          disabled={isPending || isEditing || disableDelete}
           onClick={onDelete}
           className="h-6 rounded border border-red-200 bg-red-50 px-1.5 text-[10px] font-bold leading-none text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
         >

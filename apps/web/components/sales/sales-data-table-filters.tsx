@@ -23,6 +23,7 @@ type SalesDataTableFiltersProps = {
   onMonthFilterChange: (value: string) => void;
   onThisWeek: () => void;
   onThisMonth: () => void;
+  onThisYear: () => void;
   onClear: () => void;
 };
 
@@ -39,6 +40,7 @@ export function SalesDataTableFilters({
   onMonthFilterChange,
   onThisWeek,
   onThisMonth,
+  onThisYear,
   onClear,
 }: SalesDataTableFiltersProps) {
   return (
@@ -95,6 +97,9 @@ export function SalesDataTableFilters({
         </button>
         <button type="button" onClick={onThisMonth} className={salesTableFilterButtonClass()}>
           This month
+        </button>
+        <button type="button" onClick={onThisYear} className={salesTableFilterButtonClass()}>
+          This year
         </button>
         <button type="button" onClick={onClear} className={salesTableFilterClearButtonClass()}>
           Clear

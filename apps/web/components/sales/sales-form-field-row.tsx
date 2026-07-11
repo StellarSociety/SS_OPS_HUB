@@ -22,11 +22,20 @@ export function salesFormColumnShellClass(className?: string) {
   );
 }
 
+const salesFormColumnSizeClass =
+  "min-w-[min(100%,14rem)] max-w-[22rem] flex-[1_1_18rem]";
+
+/** Width/sizing shared by Lunch, Dinner, totals columns and aligned banners. */
+export function salesFormColumnWidthClass() {
+  return salesFormColumnSizeClass;
+}
+
 /** Shared sizing for Lunch / Dinner / totals columns — flexes with viewport, capped at 22rem. */
 export function salesFormColumnClassName(className?: string) {
   return cn(
     salesFormColumnShellClass(),
-    "min-w-[min(100%,14rem)] max-w-[22rem] flex-[1_1_18rem] self-stretch",
+    salesFormColumnSizeClass,
+    "self-stretch",
     className,
   );
 }
@@ -138,7 +147,7 @@ export function SalesFormSectionHeader({
       className="grid items-center gap-x-4"
       style={{ gridTemplateColumns: SALES_FORM_FIELD_GRID_COLUMNS }}
     >
-      <h3 className="font-serif text-lg text-[#3D421F]">{title}</h3>
+      <h3 className="font-serif text-lg font-bold text-[#3D421F]">{title}</h3>
       {action ? (
         <div
           className="justify-self-end"

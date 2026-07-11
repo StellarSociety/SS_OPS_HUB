@@ -3,6 +3,7 @@ import {
   ClipboardList,
   GitCompareArrows,
   LayoutDashboard,
+  LineChart,
   Percent,
   Settings,
   TrendingUp,
@@ -56,6 +57,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: GitCompareArrows,
       },
       { label: "Discounts", href: "/sales/discounts", icon: Percent },
+      { label: "Forecasts", href: "/sales/forecast", icon: LineChart },
       { label: "Daily Snap", href: "/sales/daily-snap", icon: Camera },
     ],
     bottomItems: [

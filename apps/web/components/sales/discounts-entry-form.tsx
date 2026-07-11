@@ -4,6 +4,11 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useRef, useState, useTransition, useEffect } from "react";
 import { saveVenueDailyDiscountsEntry } from "@/lib/actions/sales";
 import {
+  canCreateSalesEntryForDate,
+  FUTURE_SALES_ENTRY_ERROR,
+  isFutureSalesEntryDate,
+} from "@/lib/sales/sales-entry-dates";
+import {
   formatMoney,
   formatPct,
   grossToNet,
@@ -15,16 +20,18 @@ import type {
   VenueDailyDiscountsRecord,
 } from "@/lib/sales/discounts-types";
 import { SalesEntryDateBar } from "@/components/sales/sales-entry-date-bar";
+import { SalesEntryDateBanner } from "@/components/sales/sales-entry-date-banner";
 import {
   SalesFormColumnsLayout,
   SalesFormFieldRow,
   SalesFormInputModeToggle,
   SalesFormSectionHeader,
   salesFormColumnClassName,
+  salesFormColumnShellClass,
+  salesFormColumnWidthClass,
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
-import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 type DiscountsEntryFormProps = {
@@ -197,15 +204,13 @@ function CategoryTotalCell({
 }) {
   return (
     <div className="rounded-lg border border-black/10 bg-white px-4 py-3 text-center">
-      <p className="text-xs font-medium uppercase tracking-wide text-black/50">
-        {label}
-      </p>
+      <p className="text-xs font-medium tracking-wide text-black/50">{label}</p>
       <div className="mt-2 grid grid-cols-2 gap-3">
         <div>
           <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
             Gross
           </p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#3D421F]">
+          <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
             {formatMoney(gross)}
           </p>
         </div>
@@ -213,10 +218,53 @@ function CategoryTotalCell({
           <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
             Net
           </p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#3D421F]">
+          <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
             {formatMoney(net)}
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DiscountsTotalsColumn({
+  totals,
+}: {
+  totals: ReturnType<typeof computeDailyDiscounts>;
+}) {
+  return (
+    <div
+      className={salesFormColumnClassName(
+        "border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
+      )}
+    >
+      <SalesFormSectionHeader title="Totals" />
+      <div className="flex flex-1 flex-col space-y-2">
+        <CategoryTotalCell
+          label="Food"
+          gross={totals.totalFoodDiscountGs}
+          net={totals.totalFoodDiscountNet}
+        />
+        <CategoryTotalCell
+          label="Beverages"
+          gross={totals.totalBeveragesDiscountGs}
+          net={totals.totalBeveragesDiscountNet}
+        />
+        <CategoryTotalCell
+          label="Wine"
+          gross={totals.totalWineDiscountGs}
+          net={totals.totalWineDiscountNet}
+        />
+        <CategoryTotalCell
+          label="Shisha"
+          gross={totals.totalShishaDiscountGs}
+          net={totals.totalShishaDiscountNet}
+        />
+        <CategoryTotalCell
+          label="Other"
+          gross={totals.totalOthersDiscountGs}
+          net={totals.totalOthersDiscountNet}
+        />
       </div>
     </div>
   );
@@ -254,6 +302,7 @@ export function DiscountsEntryForm({
   const [isPending, startTransition] = useTransition();
 
   const isExisting = recordsByDate.has(selectedDate);
+  const fieldsEditable = canEdit && isFormOpen;
 
   const totals = useMemo(() => {
     const asRecord: VenueDailyDiscountsRecord = {
@@ -295,6 +344,18 @@ export function DiscountsEntryForm({
     return true;
   };
 
+  function formForDate(date: string): FormState {
+    const existing = recordsByDate.get(date);
+    return existing ? recordToForm(existing) : emptyForm(date);
+  }
+
+  useEffect(() => {
+    if (isFormOpen) return;
+    const next = formForDate(selectedDate);
+    setForm(next);
+    syncBaseline(next);
+  }, [selectedDate, recordsByDate, isFormOpen, syncBaseline]);
+
   function handleDateChange(date: string) {
     guardAction(() => {
       setSelectedDate(date);
@@ -304,8 +365,11 @@ export function DiscountsEntryForm({
   }
 
   function openForm() {
-    const existing = recordsByDate.get(selectedDate);
-    const initial = existing ? recordToForm(existing) : emptyForm(selectedDate);
+    if (!canCreateSalesEntryForDate(selectedDate, isExisting)) {
+      setMessage(FUTURE_SALES_ENTRY_ERROR);
+      return;
+    }
+    const initial = formForDate(selectedDate);
     setForm(initial);
     syncBaseline(initial);
     setIsFormOpen(true);
@@ -343,8 +407,8 @@ export function DiscountsEntryForm({
         onSave={handleSave}
       />
 
-      {isFormOpen ? (
-        <>
+      <div className="space-y-3 text-center">
+        {isFormOpen ? (
           <p className="text-sm text-black/60">
             Enter discount amounts as{" "}
             <span className="font-medium text-[#3D421F]">Gross</span> or{" "}
@@ -352,85 +416,59 @@ export function DiscountsEntryForm({
             toggle on each service period. Values are saved as gross; combined
             tax rate {formatPct(totalTaxPct)}% is applied for net conversions.
           </p>
+        ) : isFutureSalesEntryDate(selectedDate) && !isExisting ? (
+          <p className="text-sm text-black/50">{FUTURE_SALES_ENTRY_ERROR}</p>
+        ) : canEdit ? (
+          <p className="text-sm text-black/50">
+            Viewing {isExisting ? "saved entry" : "empty day"} for this date. Click{" "}
+            {isExisting ? "Edit entry" : "Create entry"} to make changes.
+          </p>
+        ) : (
+          <p className="text-sm text-black/50">
+            You have view-only access for discounts entry.
+          </p>
+        )}
 
-          {message ? <p className="text-sm text-black/60">{message}</p> : null}
+        <SalesFormColumnsLayout>
+          <div
+            className={cn(
+              salesFormColumnShellClass(),
+              salesFormColumnWidthClass(),
+              "items-center justify-center py-3 text-center text-sm font-medium tabular-nums text-[#3D421F] shadow-sm",
+            )}
+          >
+            <SalesEntryDateBanner dateStr={selectedDate} />
+          </div>
+        </SalesFormColumnsLayout>
+      </div>
 
-          <SalesFormColumnsLayout>
-            <ServiceColumn
-              title="Lunch"
-              fields={LUNCH_FIELDS}
-              form={form}
-              canEdit={canEdit}
-              inputMode={lunchInputMode}
-              totalTaxPct={totalTaxPct}
-              onInputModeChange={setLunchInputMode}
-              onChange={updateField}
-            />
-            <ServiceColumn
-              title="Dinner"
-              fields={DINNER_FIELDS}
-              form={form}
-              canEdit={canEdit}
-              inputMode={dinnerInputMode}
-              totalTaxPct={totalTaxPct}
-              onInputModeChange={setDinnerInputMode}
-              onChange={updateField}
-            />
-          </SalesFormColumnsLayout>
+      {message ? (
+        <p className="text-center text-sm text-black/60">{message}</p>
+      ) : null}
 
-          <Card className="overflow-hidden p-0">
-            <div className="border-b border-black/10 bg-black/[0.02] px-5 py-3">
-              <h3 className="font-serif text-lg text-[#3D421F]">Totals</h3>
-            </div>
-            <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-              <CategoryTotalCell
-                label="Food"
-                gross={totals.totalFoodDiscountGs}
-                net={totals.totalFoodDiscountNet}
-              />
-              <CategoryTotalCell
-                label="Beverages"
-                gross={totals.totalBeveragesDiscountGs}
-                net={totals.totalBeveragesDiscountNet}
-              />
-              <CategoryTotalCell
-                label="Wine"
-                gross={totals.totalWineDiscountGs}
-                net={totals.totalWineDiscountNet}
-              />
-              <CategoryTotalCell
-                label="Shisha"
-                gross={totals.totalShishaDiscountGs}
-                net={totals.totalShishaDiscountNet}
-              />
-              <CategoryTotalCell
-                label="Other"
-                gross={totals.totalOthersDiscountGs}
-                net={totals.totalOthersDiscountNet}
-              />
-            </div>
-          </Card>
-
-          {canEdit ? (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleSave}
-                className="inline-flex h-10 items-center justify-center rounded-md bg-[var(--venue-primary)] px-6 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {isPending ? "Saving…" : "SAVE"}
-              </button>
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <p className="text-sm text-black/50">
-          {canEdit
-            ? `Select a date, then click ${isExisting ? "Edit entry" : "Create entry"} to ${isExisting ? "update" : "add"} discounts for this day.`
-            : "You have view-only access for discounts entry."}
-        </p>
-      )}
+      <SalesFormColumnsLayout>
+        <ServiceColumn
+          title="Lunch"
+          fields={LUNCH_FIELDS}
+          form={form}
+          canEdit={fieldsEditable}
+          inputMode={lunchInputMode}
+          totalTaxPct={totalTaxPct}
+          onInputModeChange={setLunchInputMode}
+          onChange={updateField}
+        />
+        <ServiceColumn
+          title="Dinner"
+          fields={DINNER_FIELDS}
+          form={form}
+          canEdit={fieldsEditable}
+          inputMode={dinnerInputMode}
+          totalTaxPct={totalTaxPct}
+          onInputModeChange={setDinnerInputMode}
+          onChange={updateField}
+        />
+        <DiscountsTotalsColumn totals={totals} />
+      </SalesFormColumnsLayout>
     </div>
   );
 }

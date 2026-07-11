@@ -1,7 +1,6 @@
 "use client";
 
 import type { KeyboardEvent } from "react";
-import { cn } from "@/lib/utils";
 
 const BULLET = "• ";
 
@@ -14,10 +13,17 @@ type BulletedCommentTextareaProps = {
   className?: string;
 };
 
-function withLeadingBullet(value: string): string {
-  if (!value) return "";
-  if (value.startsWith(BULLET)) return value;
-  return `${BULLET}${value}`;
+function normalizeBulletLines(raw: string): string {
+  if (!raw.trim()) return "";
+
+  return raw
+    .split("\n")
+    .map((line) => {
+      const text = line.replace(/^\u2022\s?/, "").trimEnd();
+      if (!text.trim()) return "";
+      return `${BULLET}${text.trim()}`;
+    })
+    .join("\n");
 }
 
 export function BulletedCommentTextarea({
@@ -29,7 +35,7 @@ export function BulletedCommentTextarea({
   className,
 }: BulletedCommentTextareaProps) {
   function handleChange(raw: string) {
-    onChange(withLeadingBullet(raw.replace(/^\u2022\s?/, "")));
+    onChange(normalizeBulletLines(raw));
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -42,7 +48,7 @@ export function BulletedCommentTextarea({
       value.slice(0, selectionStart) +
       `\n${BULLET}` +
       value.slice(selectionEnd);
-    onChange(next);
+    onChange(normalizeBulletLines(next));
 
     const cursor = selectionStart + 1 + BULLET.length;
     window.requestAnimationFrame(() => {
@@ -59,6 +65,7 @@ export function BulletedCommentTextarea({
       placeholder={placeholder}
       onChange={(e) => handleChange(e.target.value)}
       onKeyDown={handleKeyDown}
+      onBlur={(e) => handleChange(e.currentTarget.value)}
       onFocus={(e) => {
         if (!disabled && !e.currentTarget.value.trim()) {
           onChange(BULLET);

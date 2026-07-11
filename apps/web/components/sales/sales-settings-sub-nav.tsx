@@ -1,17 +1,32 @@
 "use client";
 
-import Link from "next/link";
+import {
+  Database,
+  LayoutGrid,
+  Percent,
+  UserCog,
+  Users,
+  Wallet,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { SubNavTab } from "@/components/layout/sub-nav-tab";
+import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
 const tabs = [
-  { href: "/sales/settings", label: "Overview", exact: true as const },
-  { href: "/sales/settings/tax", label: "Sales Tax", exact: false as const },
-  { href: "/sales/settings/waiters", label: "Waiters", exact: false as const },
-  { href: "/sales/settings/tenders", label: "Tenders", exact: false as const },
+  { href: "/sales/settings", label: "Overview", icon: LayoutGrid, exact: true as const },
+  { href: "/sales/settings/tax", label: "Sales Tax", icon: Percent, exact: false as const },
+  { href: "/sales/settings/waiters", label: "Waiters", icon: Users, exact: false as const },
+  { href: "/sales/settings/tenders", label: "Tenders", icon: Wallet, exact: false as const },
   {
     href: "/sales/settings/groups-charge",
     label: "Groups charge",
+    icon: UserCog,
+    exact: false as const,
+  },
+  {
+    href: "/sales/settings/data-management",
+    label: "Data Management",
+    icon: Database,
     exact: false as const,
   },
 ] as const;
@@ -22,7 +37,7 @@ export function SalesSettingsSubNav() {
   return (
     <nav
       aria-label="Sales settings sections"
-      className="flex w-full overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md"
+      className={segmentedSubNavShellClass}
     >
       {tabs.map((tab) => {
         const active = tab.exact
@@ -30,18 +45,13 @@ export function SalesSettingsSubNav() {
           : pathname.startsWith(tab.href);
 
         return (
-          <Link
+          <SubNavTab
             key={tab.href}
             href={tab.href}
-            className={cn(
-              "flex flex-1 items-center justify-center border-r border-black/10 px-4 py-3 text-sm transition-colors last:border-r-0",
-              active
-                ? "bg-[var(--venue-primary)]/15 font-medium text-[#3D421F]"
-                : "text-black/60 hover:bg-black/[0.03] hover:text-[#3D421F]",
-            )}
-          >
-            {tab.label}
-          </Link>
+            label={tab.label}
+            icon={tab.icon}
+            active={active}
+          />
         );
       })}
     </nav>

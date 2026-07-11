@@ -28,6 +28,8 @@ export type VenueDailySalesRecord = {
   lunch_service_fees_gs: number;
   lunch_covers: number;
   lunch_bookings: number;
+  lunch_walkin_tables: number;
+  lunch_walkin_covers: number;
   dinner_food_gs: number;
   dinner_beverages_gs: number;
   dinner_wine_gs: number;
@@ -37,6 +39,8 @@ export type VenueDailySalesRecord = {
   dinner_service_fees_gs: number;
   dinner_covers: number;
   dinner_bookings: number;
+  dinner_walkin_tables: number;
+  dinner_walkin_covers: number;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -53,6 +57,8 @@ export type VenueDailySalesInputField =
   | "lunch_service_fees_gs"
   | "lunch_covers"
   | "lunch_bookings"
+  | "lunch_walkin_tables"
+  | "lunch_walkin_covers"
   | "dinner_food_gs"
   | "dinner_beverages_gs"
   | "dinner_wine_gs"
@@ -61,7 +67,9 @@ export type VenueDailySalesInputField =
   | "dinner_others_gs"
   | "dinner_service_fees_gs"
   | "dinner_covers"
-  | "dinner_bookings";
+  | "dinner_bookings"
+  | "dinner_walkin_tables"
+  | "dinner_walkin_covers";
 
 export type ComputedDailySales = {
   weekNumber: number;
@@ -88,6 +96,8 @@ export type ComputedDailySales = {
   totalVenueNet: number;
   totalCovers: number;
   totalBookings: number;
+  totalWalkinTables: number;
+  totalWalkinCovers: number;
   foodLunchAsph: number | null;
   foodDinnerAsph: number | null;
   beveragesLunchAsph: number | null;

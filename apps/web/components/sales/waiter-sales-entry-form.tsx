@@ -5,6 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { saveVenueWaiterDailySalesEntry } from "@/lib/actions/sales";
 import {
+  canCreateSalesEntryForDate,
+  FUTURE_SALES_ENTRY_ERROR,
+  isFutureSalesEntryDate,
+} from "@/lib/sales/sales-entry-dates";
+import {
   formatMoney,
   formatPct,
   grossToNet,
@@ -19,6 +24,7 @@ import type {
 import type { VenueWaiter } from "@/lib/sales/waiters-types";
 import { BulletedCommentTextarea } from "@/components/sales/bulleted-comment-textarea";
 import { SalesEntryDateBar } from "@/components/sales/sales-entry-date-bar";
+import { SalesEntryDateBanner } from "@/components/sales/sales-entry-date-banner";
 import {
   SalesFormColumnsLayout,
   SalesFormFieldRow,
@@ -27,6 +33,7 @@ import {
   SalesFormThreeColumnGroup,
   salesFormColumnClassName,
   salesFormColumnShellClass,
+  salesFormColumnWidthClass,
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
@@ -239,14 +246,12 @@ export function WaiterSalesEntryForm({
     [records],
   );
 
-  const [selectedWaiterId, setSelectedWaiterId] = useState(
-    () => waiters[0]?.id ?? "",
-  );
+  const [selectedWaiterId, setSelectedWaiterId] = useState("");
   const [selectedDate, setSelectedDate] = useState(today);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [inputMode, setInputMode] = useState<SalesInputMode>("gross");
   const [form, setForm] = useState<FormState>(() =>
-    emptyForm(waiters[0]?.id ?? "", today, tenderIds),
+    emptyForm("", today, tenderIds),
   );
   const [message, setMessage] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
@@ -265,16 +270,12 @@ export function WaiterSalesEntryForm({
     }
   }, [searchParams, waiters]);
 
-  useEffect(() => {
-    if (waiters.length && !waiters.some((w) => w.id === selectedWaiterId)) {
-      setSelectedWaiterId(waiters[0].id);
-    }
-  }, [waiters, selectedWaiterId]);
-
   const selectedWaiter = waiters.find((w) => w.id === selectedWaiterId);
-  const isExisting = recordsByKey.has(
-    recordKey(selectedWaiterId, selectedDate),
+  const isExisting = Boolean(
+    selectedWaiterId &&
+      recordsByKey.has(recordKey(selectedWaiterId, selectedDate)),
   );
+  const fieldsEditable = canEdit && isFormOpen && Boolean(selectedWaiterId);
 
   const computed = useMemo(
     () =>
@@ -435,12 +436,35 @@ export function WaiterSalesEntryForm({
     });
   }
 
+  function formForSelection(waiterId: string, date: string): FormState {
+    if (!waiterId) return emptyForm("", date, tenderIds);
+    const existing = recordsByKey.get(recordKey(waiterId, date));
+    return existing
+      ? recordToForm(existing, tenderIds)
+      : emptyForm(waiterId, date, tenderIds);
+  }
+
+  useEffect(() => {
+    if (isFormOpen) return;
+    const next = formForSelection(selectedWaiterId, selectedDate);
+    setForm(next);
+    syncBaseline(next);
+  }, [
+    selectedDate,
+    selectedWaiterId,
+    recordsByKey,
+    isFormOpen,
+    syncBaseline,
+    tenderIds,
+  ]);
+
   function openForm() {
     if (!selectedWaiterId) return;
-    const existing = recordsByKey.get(recordKey(selectedWaiterId, selectedDate));
-    const initial = existing
-      ? recordToForm(existing, tenderIds)
-      : emptyForm(selectedWaiterId, selectedDate, tenderIds);
+    if (!canCreateSalesEntryForDate(selectedDate, isExisting)) {
+      setMessage(FUTURE_SALES_ENTRY_ERROR);
+      return;
+    }
+    const initial = formForSelection(selectedWaiterId, selectedDate);
     setForm(initial);
     syncBaseline(initial);
     setIsFormOpen(true);
@@ -498,287 +522,299 @@ export function WaiterSalesEntryForm({
         }
       />
 
-      {isFormOpen ? (
-        <>
+      <div className="space-y-3 text-center">
+        {isFormOpen ? (
           <p className="text-sm text-black/60">
             Enter amounts as{" "}
             <span className="font-medium text-[#3D421F]">Gross</span> or{" "}
             <span className="font-medium text-[#3D421F]">Net</span>. Values
             save as gross; tax rate {formatPct(totalTaxPct)}%.
           </p>
+        ) : !selectedWaiterId ? (
+          <p className="text-sm text-black/50">
+            Select a waiter to view or enter sales for this date.
+          </p>
+        ) : isFutureSalesEntryDate(selectedDate) && !isExisting ? (
+          <p className="text-sm text-black/50">{FUTURE_SALES_ENTRY_ERROR}</p>
+        ) : canEdit ? (
+          <p className="text-sm text-black/50">
+            Viewing {isExisting ? "saved entry" : "empty day"} for{" "}
+            {selectedWaiter?.name ?? "this waiter"}. Click{" "}
+            {isExisting ? "Edit entry" : "Create entry"} to make changes.
+          </p>
+        ) : (
+          <p className="text-sm text-black/50">
+            You have view-only access for waiter sales entry.
+          </p>
+        )}
 
-          {message ? <p className="text-sm text-black/60">{message}</p> : null}
+        <SalesFormColumnsLayout>
+          <div
+            className={cn(
+              salesFormColumnShellClass(),
+              salesFormColumnWidthClass(),
+              "items-center justify-center py-3 text-center text-sm font-medium tabular-nums text-[#3D421F] shadow-sm",
+            )}
+          >
+            <SalesEntryDateBanner dateStr={selectedDate} />
+          </div>
+        </SalesFormColumnsLayout>
+      </div>
 
-          <SalesFormThreeColumnGroup>
-          <SalesFormColumnsLayout>
-            <Card className={salesFormColumnClassName("shadow-sm backdrop-blur-xl")}>
-              <SalesFormSectionHeader
-                title="Summary"
-                action={
-                  <InputModeToggle
-                    mode={inputMode}
-                    onChange={setInputMode}
-                    disabled={!canEdit}
-                  />
-                }
-              />
-              <div className="space-y-2">
-                {SUMMARY_MONEY_FIELDS.map((field) => (
-                  <SalesFormFieldRow
-                    key={field}
-                    label={
-                      field === "total_sales_gs" ? (
-                        <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-right">
-                          <span>{FIELD_LABELS[field]}</span>
-                          <span className="text-xs text-black/45">
-                            Excluding Gratuity
-                          </span>
-                        </span>
-                      ) : (
-                        FIELD_LABELS[field]
-                      )
-                    }
-                  >
-                    <SalesNumericInput
-                      key={`${field}-${form.id}-${inputMode}`}
-                      value={displayMoney(form[field])}
-                      disabled={!canEdit}
-                      onChange={(v) => applyMoneyChange(field, v)}
-                    />
-                  </SalesFormFieldRow>
-                ))}
-                <SalesFormFieldRow label="Total Covers">
-                  <SalesNumericInput
-                    key={`covers-${form.id}`}
-                    value={form.total_covers}
-                    disabled={!canEdit}
-                    isInteger
-                    onChange={(v) =>
-                      updateScalarField(
-                        "total_covers",
-                        Number.parseInt(v, 10) || 0,
-                      )
-                    }
-                  />
-                </SalesFormFieldRow>
-                <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary)]/20 px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-black/50">
-                    ASPH
-                  </p>
-                  <p className="mt-1 text-2xl font-bold tabular-nums text-[#3D421F]">
-                    {formatMoney(computed.asph)}
-                  </p>
-                  <p className="mt-1 text-xs text-black/50">
-                    Sales Total ÷ Total Covers
-                  </p>
-                </div>
-              </div>
+      {message ? (
+        <p className="text-center text-sm text-black/60">{message}</p>
+      ) : null}
 
-              <div className="mt-6 space-y-2 border-t border-black/10 pt-4">
-                <SalesFormSectionHeader title="Gratuity collected" />
-                {GRATUITY_FIELDS.map((field) => (
-                  <SalesFormFieldRow key={field} label={FIELD_LABELS[field]}>
-                    <SalesNumericInput
-                      key={`${field}-${form.id}-${inputMode}`}
-                      value={displayMoney(form[field])}
-                      disabled={!canEdit}
-                      onChange={(v) => applyMoneyChange(field, v)}
-                    />
-                  </SalesFormFieldRow>
-                ))}
+      <SalesFormThreeColumnGroup>
+        <SalesFormColumnsLayout>
+          <Card className={salesFormColumnClassName("shadow-sm backdrop-blur-xl")}>
+            <SalesFormSectionHeader
+              title="Summary"
+              action={
+                <InputModeToggle
+                  mode={inputMode}
+                  onChange={setInputMode}
+                  disabled={!fieldsEditable}
+                />
+              }
+            />
+            <div className="space-y-2">
+              {SUMMARY_MONEY_FIELDS.map((field) => (
                 <SalesFormFieldRow
+                  key={field}
                   label={
-                    <>
-                      Groups Total Collected Service Charge Value{" "}
-                      {formatPct(groupsAddedServiceChargePct)}%
-                    </>
+                    field === "total_sales_gs" ? (
+                      <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-right">
+                        <span>{FIELD_LABELS[field]}</span>
+                        <span className="text-xs text-black/45">
+                          Excluding Gratuity
+                        </span>
+                      </span>
+                    ) : (
+                      FIELD_LABELS[field]
+                    )
                   }
                 >
                   <SalesNumericInput
-                    key={`groups-sc-${form.id}-${inputMode}`}
-                    value={displayMoney(form.groups_service_charge_gs)}
-                    disabled={!canEdit}
-                    onChange={(v) =>
-                      applyMoneyChange("groups_service_charge_gs", v)
-                    }
+                    key={`${field}-${form.id}-${inputMode}`}
+                    value={displayMoney(form[field])}
+                    disabled={!fieldsEditable}
+                    onChange={(v) => applyMoneyChange(field, v)}
                   />
                 </SalesFormFieldRow>
-              </div>
-            </Card>
-
-            <Card className={salesFormColumnClassName("space-y-4 shadow-sm backdrop-blur-xl")}>
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="font-serif text-lg text-[#3D421F]">Tenders Total</h3>
-                {tenders.length === 0 ? (
-                  <Link
-                    href="/sales/settings/tenders"
-                    className="text-sm font-medium text-[var(--venue-primary)] underline-offset-2 hover:underline"
-                  >
-                    Configure tenders
-                  </Link>
-                ) : null}
-              </div>
-              {tenders.length === 0 ? (
-                <p className="text-sm text-black/50">
-                  No active tenders. Add them in Settings → Tenders.
-                </p>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    {tenders.map((tender) => (
-                      <SalesFormFieldRow key={tender.id} label={tender.name}>
-                        <SalesNumericInput
-                          key={`${tender.id}-${form.id}-${inputMode}`}
-                          value={displayMoney(
-                            form.tender_amounts[tender.id] ?? 0,
-                          )}
-                          disabled={!canEdit}
-                          onChange={(v) => applyTenderChange(tender.id, v)}
-                        />
-                      </SalesFormFieldRow>
-                    ))}
-                  </div>
-                  <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary)]/20 px-4 py-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-black/50">
-                      Total
-                    </p>
-                    <div className="mt-2 grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-                          Gross
-                        </p>
-                        <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
-                          {formatMoney(tendersTotalGross)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-                          Net
-                        </p>
-                        <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
-                          {formatMoney(tendersTotalNet)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </Card>
-
-            <Card className={salesFormColumnClassName("space-y-4 shadow-sm backdrop-blur-xl")}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="font-serif text-lg text-[#3D421F]">
-                  Balance check
-                </h3>
-                <span
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide",
-                    reconciliation.isBalanced
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-amber-100 text-amber-800",
-                  )}
-                >
-                  {reconciliation.isBalanced ? "Balanced" : "Difference found"}
-                </span>
-              </div>
-              <p className="text-sm text-black/60">
-                Payment Total and the tenders total should both equal{" "}
-                <span className="font-medium text-[#3D421F]">
-                  Sales Total + Credit Card Gratuity
-                </span>
-                .
-              </p>
+              ))}
+              <SalesFormFieldRow label="Total Covers">
+                <SalesNumericInput
+                  key={`covers-${form.id}`}
+                  value={form.total_covers}
+                  disabled={!fieldsEditable}
+                  isInteger
+                  onChange={(v) =>
+                    updateScalarField(
+                      "total_covers",
+                      Number.parseInt(v, 10) || 0,
+                    )
+                  }
+                />
+              </SalesFormFieldRow>
               <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary)]/20 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-black/50">
-                  Expected total
+                  ASPH
                 </p>
                 <p className="mt-1 text-2xl font-bold tabular-nums text-[#3D421F]">
-                  {formatMoney(reconciliation.expectedPaymentsGs)}
+                  {formatMoney(computed.asph)}
                 </p>
                 <p className="mt-1 text-xs text-black/50">
-                  Sales Total + Credit Card Gratuity
+                  Sales Total ÷ Total Covers
                 </p>
               </div>
-              <div className="space-y-3">
-                <ReconciliationRow
-                  label="Payment Total"
-                  entered={form.total_payments_gs}
-                  expected={reconciliation.expectedPaymentsGs}
-                  difference={reconciliation.paymentsDifferenceGs}
-                />
-                <ReconciliationRow
-                  label="Tenders total"
-                  entered={tendersTotalGross}
-                  expected={reconciliation.expectedPaymentsGs}
-                  difference={reconciliation.tendersDifferenceGs}
-                />
-              </div>
-            </Card>
-          </SalesFormColumnsLayout>
+            </div>
 
-          <Card className="w-full space-y-4 border border-black/5 bg-white/60 p-5 shadow-sm backdrop-blur-xl">
-            <h3 className="font-serif text-lg text-[#3D421F]">Comments</h3>
-            <div className="grid gap-4 lg:grid-cols-3">
-              <label className="block text-sm">
-                <span className="text-black/60">Voucher Comments</span>
-                <BulletedCommentTextarea
-                  disabled={!canEdit}
-                  value={form.voucher_comments}
-                  onChange={(value) =>
-                    updateCommentField("voucher_comments", value)
+            <div className="mt-6 space-y-2 border-t border-black/10 pt-4">
+              <SalesFormSectionHeader title="Gratuity collected" />
+              {GRATUITY_FIELDS.map((field) => (
+                <SalesFormFieldRow key={field} label={FIELD_LABELS[field]}>
+                  <SalesNumericInput
+                    key={`${field}-${form.id}-${inputMode}`}
+                    value={displayMoney(form[field])}
+                    disabled={!fieldsEditable}
+                    onChange={(v) => applyMoneyChange(field, v)}
+                  />
+                </SalesFormFieldRow>
+              ))}
+              <SalesFormFieldRow
+                label={
+                  <>
+                    Groups Total Collected Service Charge Value{" "}
+                    {formatPct(groupsAddedServiceChargePct)}%
+                  </>
+                }
+              >
+                <SalesNumericInput
+                  key={`groups-sc-${form.id}-${inputMode}`}
+                  value={displayMoney(form.groups_service_charge_gs)}
+                  disabled={!fieldsEditable}
+                  onChange={(v) =>
+                    applyMoneyChange("groups_service_charge_gs", v)
                   }
-                  placeholder="For each Voucher reference include the: Voucher Name | Number | Value"
-                  className={cn(textareaClass(!canEdit), "mt-1")}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="text-black/60">Deposit Comments</span>
-                <BulletedCommentTextarea
-                  disabled={!canEdit}
-                  value={form.deposit_comments}
-                  onChange={(value) =>
-                    updateCommentField("deposit_comments", value)
-                  }
-                  placeholder="For each Deposit reference include the: Acount Name | Value"
-                  className={cn(textareaClass(!canEdit), "mt-1")}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="text-black/60">On Accounts Comments</span>
-                <BulletedCommentTextarea
-                  disabled={!canEdit}
-                  value={form.on_accounts_comments}
-                  onChange={(value) =>
-                    updateCommentField("on_accounts_comments", value)
-                  }
-                  placeholder="For each On-Accounts reference include the: Acount Name | Value"
-                  className={cn(textareaClass(!canEdit), "mt-1")}
-                />
-              </label>
+              </SalesFormFieldRow>
             </div>
           </Card>
-          </SalesFormThreeColumnGroup>
 
-          {canEdit ? (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={handleSave}
-                className="inline-flex h-10 items-center justify-center rounded-md bg-[var(--venue-primary)] px-6 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {isPending ? "Saving…" : "SAVE"}
-              </button>
+          <Card className={salesFormColumnClassName("space-y-4 shadow-sm backdrop-blur-xl")}>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-serif text-lg font-bold text-[#3D421F]">Tenders Total</h3>
+              {tenders.length === 0 ? (
+                <Link
+                  href="/sales/settings/tenders"
+                  className="text-sm font-medium text-[var(--venue-primary)] underline-offset-2 hover:underline"
+                >
+                  Configure tenders
+                </Link>
+              ) : null}
             </div>
-          ) : null}
-        </>
-      ) : (
-        <p className="text-sm text-black/50">
-          {canEdit
-            ? `Select a waiter and date, then click ${isExisting ? "Edit entry" : "Create entry"} to record sales for ${selectedWaiter?.name ?? "this waiter"}.`
-            : "You have view-only access for waiter sales entry."}
-        </p>
-      )}
+            {tenders.length === 0 ? (
+              <p className="text-sm text-black/50">
+                No active tenders. Add them in Settings → Tenders.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {tenders.map((tender) => (
+                    <SalesFormFieldRow key={tender.id} label={tender.name}>
+                      <SalesNumericInput
+                        key={`${tender.id}-${form.id}-${inputMode}`}
+                        value={displayMoney(
+                          form.tender_amounts[tender.id] ?? 0,
+                        )}
+                        disabled={!fieldsEditable}
+                        onChange={(v) => applyTenderChange(tender.id, v)}
+                      />
+                    </SalesFormFieldRow>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary)]/20 px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-black/50">
+                    Total
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                        Gross
+                      </p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
+                        {formatMoney(tendersTotalGross)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                        Net
+                      </p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
+                        {formatMoney(tendersTotalNet)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </Card>
+
+          <Card className={salesFormColumnClassName("space-y-4 shadow-sm backdrop-blur-xl")}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="font-serif text-lg font-bold text-[#3D421F]">
+                Balance check
+              </h3>
+              <span
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium uppercase tracking-wide",
+                  reconciliation.isBalanced
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-amber-100 text-amber-800",
+                )}
+              >
+                {reconciliation.isBalanced ? "Balanced" : "Difference found"}
+              </span>
+            </div>
+            <p className="text-sm text-black/60">
+              Payment Total and the tenders total should both equal{" "}
+              <span className="font-medium text-[#3D421F]">
+                Sales Total + Credit Card Gratuity
+              </span>
+              .
+            </p>
+            <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary)]/20 px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-black/50">
+                Expected total
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-[#3D421F]">
+                {formatMoney(reconciliation.expectedPaymentsGs)}
+              </p>
+              <p className="mt-1 text-xs text-black/50">
+                Sales Total + Credit Card Gratuity
+              </p>
+            </div>
+            <div className="space-y-3">
+              <ReconciliationRow
+                label="Payment Total"
+                entered={form.total_payments_gs}
+                expected={reconciliation.expectedPaymentsGs}
+                difference={reconciliation.paymentsDifferenceGs}
+              />
+              <ReconciliationRow
+                label="Tenders total"
+                entered={tendersTotalGross}
+                expected={reconciliation.expectedPaymentsGs}
+                difference={reconciliation.tendersDifferenceGs}
+              />
+            </div>
+          </Card>
+        </SalesFormColumnsLayout>
+
+        <Card className="w-full space-y-4 border border-black/5 bg-white/60 p-5 shadow-sm backdrop-blur-xl">
+          <h3 className="font-serif text-lg font-bold text-[#3D421F]">Comments</h3>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <label className="block text-sm">
+              <span className="text-black/60">Voucher Comments</span>
+              <BulletedCommentTextarea
+                disabled={!fieldsEditable}
+                value={form.voucher_comments}
+                onChange={(value) =>
+                  updateCommentField("voucher_comments", value)
+                }
+                placeholder="For each Voucher reference include the: Voucher Name | Number | Value"
+                className={cn(textareaClass(!fieldsEditable), "mt-1")}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-black/60">Deposit Comments</span>
+              <BulletedCommentTextarea
+                disabled={!fieldsEditable}
+                value={form.deposit_comments}
+                onChange={(value) =>
+                  updateCommentField("deposit_comments", value)
+                }
+                placeholder="For each Deposit reference include the: Acount Name | Value"
+                className={cn(textareaClass(!fieldsEditable), "mt-1")}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-black/60">On Accounts Comments</span>
+              <BulletedCommentTextarea
+                disabled={!fieldsEditable}
+                value={form.on_accounts_comments}
+                onChange={(value) =>
+                  updateCommentField("on_accounts_comments", value)
+                }
+                placeholder="For each On-Accounts reference include the: Acount Name | Value"
+                className={cn(textareaClass(!fieldsEditable), "mt-1")}
+              />
+            </label>
+          </div>
+        </Card>
+      </SalesFormThreeColumnGroup>
+
       <AutoDismissToast
         message={saveToast}
         onDismiss={() => setSaveToast(null)}

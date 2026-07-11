@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   formatDisplayDate,
@@ -14,6 +15,8 @@ type SalesDateInputProps = {
   disabled?: boolean;
   className?: string;
   placeholder?: string;
+  /** When set, dates after this (YYYY-MM-DD) cannot be selected. */
+  maxDate?: string;
 };
 
 const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
@@ -72,6 +75,7 @@ function buildCalendarDays(viewMonth: Date): Array<Date | null> {
 type SalesDateCalendarProps = {
   viewMonth: Date;
   selectedIso: string;
+  maxDate?: string;
   onSelect: (iso: string) => void;
   onViewMonthChange: (month: Date) => void;
 };
@@ -79,6 +83,7 @@ type SalesDateCalendarProps = {
 function SalesDateCalendar({
   viewMonth,
   selectedIso,
+  maxDate,
   onSelect,
   onViewMonthChange,
 }: SalesDateCalendarProps) {
@@ -129,11 +134,14 @@ function SalesDateCalendar({
           const iso = dateToIso(day);
           const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
           const isToday = isSameDay(day, today);
+          const isAfterMax = maxDate ? iso > maxDate : false;
 
           return (
             <button
               key={iso}
               type="button"
+              disabled={isAfterMax}
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => onSelect(iso)}
               className={cn(
                 "inline-flex h-8 w-8 items-center justify-center rounded-md text-sm tabular-nums transition-colors",
@@ -144,6 +152,7 @@ function SalesDateCalendar({
                   !isSelected &&
                   "ring-2 ring-[var(--venue-primary)]/45 ring-offset-1",
                 isToday && isSelected && "ring-2 ring-white/70 ring-offset-1",
+                isAfterMax && "cursor-not-allowed opacity-35 hover:bg-transparent",
               )}
             >
               {day.getDate()}
@@ -161,9 +170,11 @@ export function SalesDateInput({
   disabled = false,
   className,
   placeholder = "DD/MM/YYYY",
+  maxDate,
 }: SalesDateInputProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [text, setText] = useState(() =>
     value ? formatDisplayDate(value) : "",
   );
@@ -171,18 +182,41 @@ export function SalesDateInput({
   const [viewMonth, setViewMonth] = useState(() =>
     monthStart(isoToDate(value) ?? new Date()),
   );
+  const [popoverPosition, setPopoverPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   useEffect(() => {
     setText(value ? formatDisplayDate(value) : "");
   }, [value]);
 
+  const updatePopoverPosition = () => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPopoverPosition({
+      top: rect.bottom + 6,
+      left: rect.left,
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!calendarOpen) return;
+    updatePopoverPosition();
+  }, [calendarOpen]);
+
   useEffect(() => {
     if (!calendarOpen) return;
 
     function handlePointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
-        setCalendarOpen(false);
+      const target = event.target as Node;
+      if (
+        containerRef.current?.contains(target) ||
+        popoverRef.current?.contains(target)
+      ) {
+        return;
       }
+      setCalendarOpen(false);
     }
 
     function handleEscape(event: KeyboardEvent) {
@@ -191,15 +225,24 @@ export function SalesDateInput({
       }
     }
 
+    function handleReposition() {
+      updatePopoverPosition();
+    }
+
     document.addEventListener("mousedown", handlePointerDown);
     window.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
     };
   }, [calendarOpen]);
 
   function applyIsoDate(iso: string) {
+    if (maxDate && iso > maxDate) return;
     onChange(iso);
     setText(formatDisplayDate(iso));
     setViewMonth(monthStart(isoToDate(iso) ?? new Date()));
@@ -219,59 +262,77 @@ export function SalesDateInput({
       return;
     }
 
+    if (maxDate && parsed > maxDate) {
+      setText(value ? formatDisplayDate(value) : "");
+      return;
+    }
+
     applyIsoDate(parsed);
   }
 
   function openCalendar() {
     if (disabled) return;
     setViewMonth(monthStart(isoToDate(value) ?? new Date()));
+    updatePopoverPosition();
     setCalendarOpen(true);
   }
 
   return (
-    <div ref={containerRef} className={cn("relative inline-flex", className)}>
-      <input
-        type="text"
-        inputMode="numeric"
-        autoComplete="off"
-        disabled={disabled}
-        value={text}
-        placeholder={placeholder}
-        onChange={(event) => setText(event.target.value)}
-        onBlur={handleBlur}
-        className={cn(
-          "h-full w-full rounded-md border border-black/10 bg-white px-9 text-center text-sm tabular-nums text-[#3D421F] placeholder:text-black/35",
-          disabled && "cursor-not-allowed opacity-60",
-        )}
-      />
-      <button
-        type="button"
-        disabled={disabled}
-        aria-controls={calendarId}
-        aria-expanded={calendarOpen}
-        aria-label="Open calendar"
-        onClick={openCalendar}
-        className={cn(
-          "absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded p-0.5 text-black/45 transition-colors hover:text-[#3D421F]",
-          disabled && "cursor-not-allowed opacity-60",
-        )}
-      >
-        <Calendar className="h-4 w-4" />
-      </button>
-
-      {calendarOpen ? (
-        <div
-          id={calendarId}
-          className="absolute left-0 top-[calc(100%+0.375rem)] z-50"
+    <>
+      <div ref={containerRef} className={cn("relative inline-flex", className)}>
+        <input
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          disabled={disabled}
+          value={text}
+          placeholder={placeholder}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={handleBlur}
+          className={cn(
+            "h-full w-full rounded-md border border-black/10 bg-white px-9 text-center text-sm tabular-nums text-[#3D421F] placeholder:text-black/35",
+            disabled && "cursor-not-allowed opacity-60",
+          )}
+        />
+        <button
+          type="button"
+          disabled={disabled}
+          aria-controls={calendarId}
+          aria-expanded={calendarOpen}
+          aria-label="Open calendar"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={openCalendar}
+          className={cn(
+            "absolute right-2 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded p-0.5 text-black/45 transition-colors hover:text-[#3D421F]",
+            disabled && "cursor-not-allowed opacity-60",
+          )}
         >
-          <SalesDateCalendar
-            viewMonth={viewMonth}
-            selectedIso={value}
-            onSelect={applyIsoDate}
-            onViewMonthChange={setViewMonth}
-          />
-        </div>
-      ) : null}
-    </div>
+          <Calendar className="h-4 w-4" />
+        </button>
+      </div>
+
+      {calendarOpen && popoverPosition
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              id={calendarId}
+              className="fixed z-[250]"
+              style={{
+                top: popoverPosition.top,
+                left: popoverPosition.left,
+              }}
+            >
+              <SalesDateCalendar
+                viewMonth={viewMonth}
+                selectedIso={value}
+                maxDate={maxDate}
+                onSelect={applyIsoDate}
+                onViewMonthChange={setViewMonth}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }

@@ -5,6 +5,11 @@ import {
   getIsoWeekNumber,
   getWeekDayLabel,
 } from "@/lib/sales/daily-sales-calculations";
+import {
+  canCreateSalesEntryForDate,
+  getLocalTodayIsoDate,
+  isFutureSalesEntryDate,
+} from "@/lib/sales/sales-entry-dates";
 import { SalesDateInput } from "@/components/sales/sales-date-input";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -19,13 +24,12 @@ type SalesEntryDateBarProps = {
   onOpenForm: () => void;
   onSave: () => void;
   extraBadges?: React.ReactNode;
+  trailingActions?: React.ReactNode;
+  className?: string;
 };
 
 function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getLocalTodayIsoDate(date);
 }
 
 function shiftDate(dateStr: string, days: number): string {
@@ -41,6 +45,10 @@ const metaBadgeClass =
 const navButtonClass =
   "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-50";
 
+/** Fixed width so SAVE / Saving… / Edit entry / Create entry never resize the bar. */
+const entryActionButtonClass =
+  "inline-flex h-10 w-[8.75rem] shrink-0 items-center justify-center rounded-md text-sm";
+
 export function SalesEntryDateBar({
   selectedDate,
   canEdit,
@@ -51,10 +59,17 @@ export function SalesEntryDateBar({
   onOpenForm,
   onSave,
   extraBadges,
+  trailingActions,
+  className,
 }: SalesEntryDateBarProps) {
+  const todayIso = getLocalTodayIsoDate();
+  const isFutureDate = isFutureSalesEntryDate(selectedDate, todayIso);
+  const canCreateEntry = canCreateSalesEntryForDate(selectedDate, isExisting);
+  const isAtToday = selectedDate >= todayIso;
+
   return (
-    <Card className="p-3">
-      <div className="flex flex-wrap items-center justify-center gap-2">
+    <Card className={cn("p-4", className)}>
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
         <span className={metaBadgeClass}>
           Week {getIsoWeekNumber(selectedDate)}
         </span>
@@ -66,6 +81,7 @@ export function SalesEntryDateBar({
           disabled={!canEdit}
           value={selectedDate}
           onChange={onDateChange}
+          maxDate={todayIso}
           className="h-10 w-[10.5rem] min-w-0 shrink-0"
         />
         <button
@@ -79,7 +95,7 @@ export function SalesEntryDateBar({
         </button>
         <button
           type="button"
-          disabled={!canEdit}
+          disabled={!canEdit || isAtToday}
           onClick={() => onDateChange(shiftDate(selectedDate, 1))}
           title="Next day"
           className={navButtonClass}
@@ -89,7 +105,7 @@ export function SalesEntryDateBar({
         <button
           type="button"
           disabled={!canEdit}
-          onClick={() => onDateChange(formatLocalDate(new Date()))}
+          onClick={() => onDateChange(todayIso)}
           className="inline-flex h-10 shrink-0 items-center justify-center rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-50"
         >
           Today
@@ -100,18 +116,28 @@ export function SalesEntryDateBar({
               type="button"
               disabled={isPending}
               onClick={onSave}
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-md bg-[var(--venue-primary)] px-6 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className={cn(
+                entryActionButtonClass,
+                "bg-[var(--venue-primary)] font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-50",
+              )}
             >
               {isPending ? "Saving…" : "SAVE"}
             </button>
           ) : (
             <button
               type="button"
+              disabled={!canCreateEntry}
+              title={
+                isFutureDate && !isExisting
+                  ? "Entries cannot be created for a future date."
+                  : undefined
+              }
               onClick={onOpenForm}
               className={cn(
-                "inline-flex h-10 shrink-0 items-center justify-center rounded-md border px-6 text-sm font-medium transition-colors",
+                entryActionButtonClass,
+                "border font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 isExisting
-                  ? "border-[var(--venue-primary)]/30 bg-[var(--venue-primary)]/10 text-[#3D421F] hover:bg-[var(--venue-primary)]/15"
+                  ? "border-black/10 bg-[var(--venue-secondary)]/30 text-[#3D421F] hover:bg-[var(--venue-secondary)]/45"
                   : "border-black/10 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary)]/30",
               )}
             >
@@ -119,6 +145,7 @@ export function SalesEntryDateBar({
             </button>
           )
         ) : null}
+        {trailingActions}
       </div>
     </Card>
   );

@@ -1,13 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import { List, Upload, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const links = [
-  { href: "/hr", label: "Staff directory", exact: true },
-  { href: "/hr/import", label: "Import" },
-  { href: "/hr/lookups", label: "Lookups" },
+  { href: "/hr", label: "Staff directory", icon: Users, exact: true },
+  { href: "/hr/import", label: "Import", icon: Upload, exact: false },
+  { href: "/hr/lookups", label: "Lookups", icon: List, exact: false },
 ];
 
 export function HrSubNav() {
@@ -20,18 +20,14 @@ export function HrSubNav() {
           ? pathname === link.href
           : pathname.startsWith(link.href);
         return (
-          <Link
+          <SubNavTab
             key={link.href}
             href={link.href}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-sm transition-colors",
-              active
-                ? "bg-[var(--venue-primary)]/15 font-medium text-[#3D421F]"
-                : "text-black/60 hover:bg-black/5",
-            )}
-          >
-            {link.label}
-          </Link>
+            label={link.label}
+            icon={link.icon}
+            active={active}
+            variant="pill"
+          />
         );
       })}
     </nav>

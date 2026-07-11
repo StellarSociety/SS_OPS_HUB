@@ -1,0 +1,589 @@
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import {
+  formatCount,
+  formatDisplayDate,
+  formatMoney,
+} from "@/lib/sales/daily-sales-calculations";
+import type {
+  DailyVsWaitersDayRow,
+  DailyVsWaitersMonthSummary,
+} from "@/lib/sales/daily-vs-waiters-calculations";
+import type { VenueDailyVsWaitersComment } from "@/lib/sales/daily-vs-waiters-types";
+
+export type DailyVsWaitersPdfSections = {
+  covers: boolean;
+  grossSales: boolean;
+  comments: boolean;
+};
+
+export const DEFAULT_DAILY_VS_WAITERS_PDF_SECTIONS: DailyVsWaitersPdfSections = {
+  covers: true,
+  grossSales: true,
+  comments: true,
+};
+
+type ExportDailyVsWaitersPdfOptions = {
+  venueName: string;
+  venueLogoUrl?: string | null;
+  monthKey: string;
+  monthLabel: string;
+  rows: DailyVsWaitersDayRow[];
+  summary: DailyVsWaitersMonthSummary;
+  comments: VenueDailyVsWaitersComment[];
+  activeRowCount: number;
+  sections: DailyVsWaitersPdfSections;
+  exportedAt: Date;
+};
+
+type PdfLogoAsset = {
+  dataUrl: string;
+  format: "PNG" | "JPEG" | "WEBP";
+  width: number;
+  height: number;
+};
+
+const PDF_REPORT_TITLE = "Daily vs Waiters DIF";
+const PDF_REPORT_SUBTITLE =
+  "Difference between Daily Revenue Input and Total Waiters Revenue";
+
+type PdfColumn = {
+  key: string;
+  header: string;
+  halign: "left" | "center" | "right";
+  cellWidth: number | "auto";
+  diffKind?: "covers" | "sales";
+  valueForRow: (
+    row: DailyVsWaitersDayRow,
+    commentsByDate: Map<string, VenueDailyVsWaitersComment>,
+  ) => string;
+  valueForSummary: (summary: DailyVsWaitersMonthSummary) => string;
+};
+
+const BRAND_DARK: [number, number, number] = [61, 66, 31];
+const HEADER_SECTION_BG: [number, number, number] = [226, 232, 200];
+const HEADER_COLUMN_BG: [number, number, number] = [240, 243, 221];
+const DISCREPANCY_BG: [number, number, number] = [255, 251, 235];
+const EMPTY_ROW_BG: [number, number, number] = [245, 246, 240];
+const DIFF_TEXT: [number, number, number] = [180, 83, 9];
+const MATCH_TEXT: [number, number, number] = [4, 120, 87];
+
+function sanitizeFilenamePart(value: string): string {
+  return value
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function formatExportDateStamp(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear()).slice(-2);
+  return `${day}-${month}-${year}`;
+}
+
+function formatExportTimestamp(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
+}
+
+export function buildExportSectionLabel(
+  sections: DailyVsWaitersPdfSections,
+): string {
+  const parts: string[] = [];
+  if (sections.covers) parts.push("Covers");
+  if (sections.grossSales) parts.push("Revenue");
+  if (sections.comments) parts.push("Comments");
+  return parts.join(" & ");
+}
+
+export function buildDailyVsWaitersPdfFilename(
+  venueName: string,
+  monthLabel: string,
+  sections: DailyVsWaitersPdfSections,
+  exportedAt: Date = new Date(),
+): string {
+  const venue = sanitizeFilenamePart(venueName);
+  const month = sanitizeFilenamePart(monthLabel);
+  const stamp = formatExportDateStamp(exportedAt);
+  const sectionLabel = sanitizeFilenamePart(buildExportSectionLabel(sections));
+  return `${venue} ${PDF_REPORT_TITLE} (${sectionLabel}) ${month} ${stamp}.pdf`;
+}
+
+async function loadPdfLogoAsset(url: string): Promise<PdfLogoAsset | null> {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const blob = await response.blob();
+
+    if (blob.type.includes("svg") || url.endsWith(".svg")) {
+      const svgText = await blob.text();
+      const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+      const objectUrl = URL.createObjectURL(svgBlob);
+
+      try {
+        return await new Promise<PdfLogoAsset | null>((resolve) => {
+          const image = new Image();
+          image.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth || 400;
+            canvas.height = image.naturalHeight || 400;
+            const context = canvas.getContext("2d");
+            URL.revokeObjectURL(objectUrl);
+
+            if (!context) {
+              resolve(null);
+              return;
+            }
+
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            resolve({
+              dataUrl: canvas.toDataURL("image/png"),
+              format: "PNG",
+              width: canvas.width,
+              height: canvas.height,
+            });
+          };
+          image.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            resolve(null);
+          };
+          image.src = objectUrl;
+        });
+      } catch {
+        URL.revokeObjectURL(objectUrl);
+        return null;
+      }
+    }
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+    const format = blob.type.includes("jpeg")
+      ? "JPEG"
+      : blob.type.includes("webp")
+        ? "WEBP"
+        : "PNG";
+
+    return await new Promise<PdfLogoAsset | null>((resolve) => {
+      const image = new Image();
+      image.onload = () =>
+        resolve({
+          dataUrl,
+          format,
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+        });
+      image.onerror = () => resolve(null);
+      image.src = dataUrl;
+    });
+  } catch {
+    return null;
+  }
+}
+
+function formatDifference(value: number): string {
+  if (value === 0) return formatMoney(0);
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${formatMoney(Math.abs(value))}`;
+}
+
+function formatCoversDifference(value: number): string {
+  if (value === 0) return formatCount(0);
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${formatCount(Math.abs(value))}`;
+}
+
+function formatNumericCell(
+  value: number,
+  missing: boolean,
+  formatter: (value: number) => string,
+): string {
+  return missing ? "—" : formatter(value);
+}
+
+function truncateComment(text: string, maxLength = 72): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "—";
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength - 1)}…`;
+}
+
+function hasActivity(row: DailyVsWaitersDayRow): boolean {
+  return row.hasDailyRecord || row.hasWaiterRecords;
+}
+
+function buildPdfColumns(sections: DailyVsWaitersPdfSections): PdfColumn[] {
+  const columns: PdfColumn[] = [
+    {
+      key: "date",
+      header: "Date",
+      halign: "center",
+      cellWidth: 18,
+      valueForRow: (row) => formatDisplayDate(row.sale_date),
+      valueForSummary: () => "Month total",
+    },
+    {
+      key: "week",
+      header: "Wk",
+      halign: "center",
+      cellWidth: 8,
+      valueForRow: (row) => String(row.weekNumber),
+      valueForSummary: () => "",
+    },
+    {
+      key: "day",
+      header: "Day",
+      halign: "center",
+      cellWidth: 10,
+      valueForRow: (row) => row.weekDay,
+      valueForSummary: () => "",
+    },
+  ];
+
+  if (sections.covers) {
+    columns.push(
+      {
+        key: "covers-daily",
+        header: "Covers Daily",
+        halign: "right",
+        cellWidth: 16,
+        valueForRow: (row) =>
+          formatNumericCell(row.dailyCovers, !row.hasDailyRecord, formatCount),
+        valueForSummary: (summary) => formatCount(summary.dailyCovers),
+      },
+      {
+        key: "covers-waiters",
+        header: "Covers Waiters",
+        halign: "right",
+        cellWidth: 16,
+        valueForRow: (row) =>
+          formatNumericCell(row.waiterCovers, !row.hasWaiterRecords, formatCount),
+        valueForSummary: (summary) => formatCount(summary.waiterCovers),
+      },
+      {
+        key: "covers-diff",
+        header: "Covers Diff",
+        halign: "right",
+        cellWidth: 16,
+        diffKind: "covers",
+        valueForRow: (row) => formatCoversDifference(row.coversDifference),
+        valueForSummary: (summary) =>
+          formatCoversDifference(summary.coversDifference),
+      },
+    );
+  }
+
+  if (sections.grossSales) {
+    columns.push(
+      {
+        key: "sales-daily",
+        header: "Sales Daily",
+        halign: "right",
+        cellWidth: 20,
+        valueForRow: (row) =>
+          formatNumericCell(row.dailyGrossSales, !row.hasDailyRecord, formatMoney),
+        valueForSummary: (summary) => formatMoney(summary.dailyGrossSales),
+      },
+      {
+        key: "sales-waiters",
+        header: "Sales Waiters",
+        halign: "right",
+        cellWidth: 20,
+        valueForRow: (row) =>
+          formatNumericCell(
+            row.waiterGrossSales,
+            !row.hasWaiterRecords,
+            formatMoney,
+          ),
+        valueForSummary: (summary) => formatMoney(summary.waiterGrossSales),
+      },
+      {
+        key: "sales-diff",
+        header: "Sales Diff",
+        halign: "right",
+        cellWidth: 20,
+        diffKind: "sales",
+        valueForRow: (row) => formatDifference(row.grossSalesDifference),
+        valueForSummary: (summary) =>
+          formatDifference(summary.grossSalesDifference),
+      },
+    );
+  }
+
+  if (sections.comments) {
+    columns.push({
+      key: "comments",
+      header: "Comments",
+      halign: "left",
+      cellWidth: "auto",
+      valueForRow: (row, commentsByDate) =>
+        truncateComment(commentsByDate.get(row.sale_date)?.comment_text ?? ""),
+      valueForSummary: () => "—",
+    });
+  }
+
+  return columns;
+}
+
+function buildTableBody(
+  rows: DailyVsWaitersDayRow[],
+  columns: PdfColumn[],
+  commentsByDate: Map<string, VenueDailyVsWaitersComment>,
+) {
+  return rows.map((row) =>
+    columns.map((column) => column.valueForRow(row, commentsByDate)),
+  );
+}
+
+function buildTableFoot(
+  columns: PdfColumn[],
+  summary: DailyVsWaitersMonthSummary,
+) {
+  const cells: Array<string | { content: string; colSpan: number; styles: { halign: "center"; fontStyle: "bold" } }> = [
+    {
+      content: "Month total",
+      colSpan: 3,
+      styles: { halign: "center" as const, fontStyle: "bold" as const },
+    },
+  ];
+
+  for (const column of columns.slice(3)) {
+    cells.push(column.valueForSummary(summary));
+  }
+
+  return [cells];
+}
+
+function drawDocumentHeader(
+  doc: jsPDF,
+  options: ExportDailyVsWaitersPdfOptions,
+  logo: PdfLogoAsset | null,
+  marginLeft: number,
+): number {
+  const sectionLabel = buildExportSectionLabel(options.sections);
+  const title = `${PDF_REPORT_TITLE} (${sectionLabel})`;
+  const logoGap = 4;
+  const logoMaxWidth = 44;
+  const logoHeight = 10;
+  let logoWidth = 0;
+  let textLeft = marginLeft;
+  let textBaseline = 10.5;
+
+  if (logo) {
+    logoWidth = Math.min(logoMaxWidth, (logo.width / logo.height) * logoHeight);
+    const renderedLogoHeight = logoWidth / (logo.width / logo.height);
+    doc.addImage(
+      logo.dataUrl,
+      logo.format,
+      marginLeft,
+      8,
+      logoWidth,
+      renderedLogoHeight,
+      undefined,
+      "FAST",
+    );
+    textLeft = marginLeft + logoWidth + logoGap;
+  }
+
+  doc.setFont("times", "bold");
+  doc.setFontSize(15);
+  doc.setTextColor(...BRAND_DARK);
+  doc.text(title, textLeft, textBaseline);
+  textBaseline += 5.5;
+
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8.5);
+  doc.setTextColor(72, 78, 42);
+  const subtitleLines = doc.splitTextToSize(PDF_REPORT_SUBTITLE, 255);
+  doc.text(subtitleLines, textLeft, textBaseline);
+  textBaseline += subtitleLines.length * 3.8 + 1.2;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...BRAND_DARK);
+  doc.text(`${options.venueName} · ${options.monthLabel}`, textLeft, textBaseline);
+  textBaseline += 4.5;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(95, 95, 95);
+  doc.text(
+    `Days with data: ${options.activeRowCount} · Matched: ${options.summary.matchedDays} · Covers discrepancies: ${options.summary.coversDiscrepancyDays} · Revenue discrepancies: ${options.summary.revenueDiscrepancyDays}`,
+    textLeft,
+    textBaseline,
+  );
+  textBaseline += 4;
+
+  doc.text(
+    `Exported: ${formatExportTimestamp(options.exportedAt)}`,
+    textLeft,
+    textBaseline,
+  );
+
+  return Math.max(32, textBaseline + 4);
+}
+
+function renderPdf(
+  options: ExportDailyVsWaitersPdfOptions,
+  logo: PdfLogoAsset | null,
+  fontSize: number,
+  cellPadding: number,
+) {
+  const doc = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+  });
+
+  const margin = { top: 0, right: 8, bottom: 6, left: 8 };
+  const commentsByDate = new Map(
+    options.comments.map((comment) => [comment.sale_date, comment]),
+  );
+  const columns = buildPdfColumns(options.sections);
+  const body = buildTableBody(options.rows, columns, commentsByDate);
+  const foot = buildTableFoot(columns, options.summary);
+  const rowMeta = options.rows.map((row) => ({
+    hasActivity: hasActivity(row),
+    isDiscrepancy: hasActivity(row) && !row.isMatched,
+    coversDifference: row.coversDifference,
+    grossSalesDifference: row.grossSalesDifference,
+  }));
+  const diffColumnIndexes = new Map<number, "covers" | "sales">(
+    columns
+      .map((column, index) =>
+        column.diffKind ? ([index, column.diffKind] as const) : null,
+      )
+      .filter((entry): entry is [number, "covers" | "sales"] => entry != null),
+  );
+
+  const columnStyles = Object.fromEntries(
+    columns.map((column, index) => [
+      index,
+      { halign: column.halign, cellWidth: column.cellWidth },
+    ]),
+  );
+
+  const tableStartY = drawDocumentHeader(doc, options, logo, margin.left);
+  margin.top = tableStartY;
+
+  autoTable(doc, {
+    startY: tableStartY,
+    margin,
+    tableWidth: "auto",
+    theme: "grid",
+    pageBreak: "avoid",
+    rowPageBreak: "avoid",
+    showHead: "firstPage",
+    showFoot: "lastPage",
+    styles: {
+      font: "helvetica",
+      fontSize,
+      cellPadding,
+      lineColor: [210, 210, 210],
+      lineWidth: 0.1,
+      textColor: BRAND_DARK,
+      overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: HEADER_SECTION_BG,
+      textColor: BRAND_DARK,
+      fontStyle: "bold",
+      halign: "center",
+      fontSize: Math.max(fontSize, 6.5),
+    },
+    bodyStyles: {
+      fontSize,
+    },
+    footStyles: {
+      fillColor: HEADER_COLUMN_BG,
+      textColor: BRAND_DARK,
+      fontStyle: "bold",
+      fontSize: Math.max(fontSize, 6.5),
+    },
+    head: [columns.map((column) => column.header)],
+    body,
+    foot,
+    columnStyles,
+    didParseCell(data) {
+      const diffKind = diffColumnIndexes.get(data.column.index);
+
+      if (data.section === "body") {
+        const meta = rowMeta[data.row.index];
+        if (!meta) return;
+
+        if (meta.isDiscrepancy) {
+          data.cell.styles.fillColor = DISCREPANCY_BG;
+        } else if (!meta.hasActivity) {
+          data.cell.styles.fillColor = EMPTY_ROW_BG;
+          data.cell.styles.textColor = [130, 130, 130];
+        }
+
+        if (diffKind === "covers") {
+          data.cell.styles.textColor =
+            meta.coversDifference === 0 ? MATCH_TEXT : DIFF_TEXT;
+        }
+
+        if (diffKind === "sales") {
+          data.cell.styles.textColor =
+            meta.grossSalesDifference === 0 ? MATCH_TEXT : DIFF_TEXT;
+        }
+      }
+
+      if (data.section === "foot") {
+        if (diffKind === "covers") {
+          data.cell.styles.textColor =
+            options.summary.coversDifference === 0 ? MATCH_TEXT : DIFF_TEXT;
+        }
+        if (diffKind === "sales") {
+          data.cell.styles.textColor =
+            options.summary.grossSalesDifference === 0 ? MATCH_TEXT : DIFF_TEXT;
+        }
+      }
+    },
+  });
+
+  return doc;
+}
+
+export async function exportDailyVsWaitersPdf(
+  options: ExportDailyVsWaitersPdfOptions,
+): Promise<void> {
+  if (!options.sections.covers && !options.sections.grossSales && !options.sections.comments) {
+    throw new Error("Select at least one export section.");
+  }
+
+  const logo = options.venueLogoUrl
+    ? await loadPdfLogoAsset(options.venueLogoUrl)
+    : null;
+
+  let fontSize = 8;
+  let cellPadding = 1.4;
+  let doc = renderPdf(options, logo, fontSize, cellPadding);
+
+  while (doc.getNumberOfPages() > 1 && fontSize > 4.5) {
+    fontSize -= 0.5;
+    cellPadding = Math.max(0.35, cellPadding - 0.12);
+    doc = renderPdf(options, logo, fontSize, cellPadding);
+  }
+
+  doc.save(
+    buildDailyVsWaitersPdfFilename(
+      options.venueName,
+      options.monthLabel,
+      options.sections,
+      options.exportedAt,
+    ),
+  );
+}

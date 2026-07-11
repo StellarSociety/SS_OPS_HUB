@@ -1,13 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import { Blocks, LayoutGrid, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const items = [
-  { label: "Overview", href: "/settings" },
-  { label: "Users & access", href: "/settings/users" },
-  { label: "Venue modules", href: "/settings/venue-modules" },
+  { label: "Overview", href: "/settings", icon: LayoutGrid },
+  { label: "Users & access", href: "/settings/users", icon: Users },
+  { label: "Venue modules", href: "/settings/venue-modules", icon: Blocks },
 ];
 
 export function SettingsSubNav() {
@@ -21,18 +21,14 @@ export function SettingsSubNav() {
             ? pathname === "/settings"
             : pathname.startsWith(item.href);
         return (
-          <Link
+          <SubNavTab
             key={item.href}
             href={item.href}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm transition-colors",
-              active
-                ? "bg-[var(--venue-primary)]/15 font-medium text-[#3D421F]"
-                : "text-black/60 hover:bg-black/5 hover:text-[#3D421F]",
-            )}
-          >
-            {item.label}
-          </Link>
+            label={item.label}
+            icon={item.icon}
+            active={active}
+            variant="pill"
+          />
         );
       })}
     </nav>
