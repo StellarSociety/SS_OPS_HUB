@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -23,7 +24,11 @@ import { NavigationPendingIndicator } from "@/components/layout/navigation-pendi
 import { useNavTooltip } from "@/components/layout/use-nav-tooltip";
 import { VenueBrandIcon, hasVenueBrandAssets } from "@/components/brand/venue-brand-icon";
 import { moduleCategoryMeta } from "@/lib/module-categories";
-import { getModuleSidebarForPath, isModuleSidebarItemActive } from "@/lib/module-sidebar";
+import {
+  getModuleSidebarForPath,
+  isModuleSidebarItemActive,
+  type ModuleSidebarDef,
+} from "@/lib/module-sidebar";
 import { VenueSelector } from "@/components/layout/venue-selector";
 import type { Venue } from "@/lib/types/database";
 
@@ -64,20 +69,6 @@ const appCategoryNavItems = [
   },
 ] as const;
 
-const venueSettingsNavItem = {
-  label: "Settings",
-  sublabel: "Venue",
-  href: "/settings",
-  icon: Settings,
-} as const;
-
-const globalSettingsNavItem = {
-  label: "Settings",
-  sublabel: "Global",
-  href: "/global/settings",
-  icon: Settings,
-} as const;
-
 const footerNavItems = [
   { label: "User Guide", href: "/user-guide", icon: BookOpen },
   { label: "Developers", href: "/developers", icon: Code2 },
@@ -87,7 +78,7 @@ const footerNavItems = [
 function SidebarDivider({ collapsed }: { collapsed: boolean }) {
   return (
     <div
-      className={cn("h-px bg-black/10", collapsed ? "mx-2 my-1" : "my-1")}
+      className={cn("h-px shrink-0 bg-black/25", collapsed ? "mx-2 my-1.5" : "mx-1 my-1.5")}
       aria-hidden
     />
   );
@@ -101,6 +92,7 @@ function SidebarLink({
   active,
   collapsed,
   branded = false,
+  compact = false,
 }: {
   href: string;
   label: string;
@@ -109,6 +101,7 @@ function SidebarLink({
   active: boolean;
   collapsed: boolean;
   branded?: boolean;
+  compact?: boolean;
 }) {
   const collapsedTitle = sublabel ? `${sublabel} ${label}` : label;
   const { triggerProps, tooltip } = useNavTooltip(collapsedTitle, collapsed);
@@ -130,10 +123,10 @@ function SidebarLink({
         {!collapsed ? (
           sublabel ? (
             <span className="min-w-0 flex-1 leading-none">
-              <span className="block text-[9px] font-medium uppercase tracking-wide text-black/45">
+              <span className="block truncate text-[9px] font-medium uppercase tracking-wide text-black/45">
                 {sublabel}
               </span>
-              <span className="mt-0.5 block">{label}</span>
+              <span className="mt-0.5 block truncate">{label}</span>
             </span>
           ) : (
             <span className="truncate">{label}</span>
@@ -150,7 +143,8 @@ function SidebarLink({
       aria-label={collapsed ? collapsedTitle : undefined}
       {...triggerProps}
       className={cn(
-        "relative flex items-center rounded-lg py-2 text-sm transition-colors",
+        "relative flex items-center rounded-lg text-sm transition-colors",
+        compact ? "py-1" : "py-2",
         collapsed ? "justify-center px-2" : "gap-2.5 px-3",
         active
           ? "bg-[var(--venue-primary)]/15 font-medium text-[#3D421F]"
@@ -210,6 +204,100 @@ function SidebarTopLink({
   );
 }
 
+function SidebarCategoryLabel({ label }: { label: string }) {
+  return (
+    <p className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-black/40">
+      {label}
+    </p>
+  );
+}
+
+/**
+ * Renders a module's nav items. When the module defines `categories`, items are
+ * grouped under their category label (matching the module shortcuts bar);
+ * otherwise it falls back to a flat list using each item's `dividerAfter`.
+ */
+function ModuleSidebarItems({
+  moduleSidebar,
+  pathname,
+  collapsed,
+}: {
+  moduleSidebar: ModuleSidebarDef;
+  pathname: string;
+  collapsed: boolean;
+}) {
+  const categories = moduleSidebar.categories ?? [];
+
+  if (categories.length === 0) {
+    return (
+      <>
+        {moduleSidebar.items.map((item) => {
+          const active = isModuleSidebarItemActive(pathname, item);
+          const Icon = item.icon ?? moduleSidebar.icon;
+          return (
+            <Fragment key={item.href}>
+              <SidebarLink
+                href={item.href}
+                label={item.label}
+                icon={Icon}
+                active={active}
+                collapsed={collapsed}
+              />
+              {item.dividerAfter ? (
+                <SidebarDivider collapsed={collapsed} />
+              ) : null}
+            </Fragment>
+          );
+        })}
+      </>
+    );
+  }
+
+  const itemByHref = new Map(
+    moduleSidebar.items.map((item) => [item.href, item]),
+  );
+  const categorizedHrefs = new Set(
+    categories.flatMap((category) => category.itemHrefs),
+  );
+  const leadingItems = moduleSidebar.items.filter(
+    (item) => !categorizedHrefs.has(item.href),
+  );
+
+  const renderItem = (href: string) => {
+    const item = itemByHref.get(href);
+    if (!item) {
+      return null;
+    }
+    const Icon = item.icon ?? moduleSidebar.icon;
+    return (
+      <SidebarLink
+        key={item.href}
+        href={item.href}
+        label={item.label}
+        icon={Icon}
+        active={isModuleSidebarItemActive(pathname, item)}
+        collapsed={collapsed}
+      />
+    );
+  };
+
+  return (
+    <>
+      {leadingItems.map((item) => renderItem(item.href))}
+      {categories.map((category) => (
+        <Fragment key={category.key}>
+          {collapsed ? (
+            <SidebarDivider collapsed={collapsed} />
+          ) : (
+            <SidebarCategoryLabel label={category.label} />
+          )}
+          {category.itemHrefs.map((href) => renderItem(href))}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 type AppSidebarProps = {
   venue: Venue;
   venues: Venue[];
@@ -228,10 +316,6 @@ export function AppSidebar({
   const hasBrandAssets = hasVenueBrandAssets(venue);
   const moduleSidebar = getModuleSidebarForPath(pathname);
   const ModuleIcon = moduleSidebar?.icon;
-  const settingsNav = venue.is_global ? globalSettingsNavItem : venueSettingsNavItem;
-  const settingsActive = venue.is_global
-    ? pathname.startsWith("/global/settings")
-    : pathname.startsWith("/settings") && !pathname.startsWith("/global/settings");
 
   return (
     <aside
@@ -324,61 +408,29 @@ export function AppSidebar({
                 </div>
               )
             ) : null}
-            {moduleSidebar.items.map((item) => {
-              const active = isModuleSidebarItemActive(pathname, item);
-              const Icon = item.icon ?? moduleSidebar.icon;
-              return (
-                <SidebarLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  icon={Icon}
-                  active={active}
-                  collapsed={collapsed}
-                />
-              );
-            })}
-            {moduleSidebar.bottomItems?.length ? (
-              <>
-                <div className="flex-1" />
-                <SidebarDivider collapsed={collapsed} />
-                {moduleSidebar.bottomItems.map((item) => {
-                  const active = isModuleSidebarItemActive(pathname, item);
-                  const Icon = item.icon ?? Settings;
-                  return (
-                    <SidebarLink
-                      key={item.href}
-                      href={item.href}
-                      label={item.label}
-                      sublabel={moduleSidebar.label}
-                      icon={Icon}
-                      active={active}
-                      collapsed={collapsed}
-                      branded
-                    />
-                  );
-                })}
-              </>
-            ) : null}
+            <ModuleSidebarItems
+              moduleSidebar={moduleSidebar}
+              pathname={pathname}
+              collapsed={collapsed}
+            />
           </>
         ) : (
           <>
             {hubNavItems.map((item) => (
-              <SidebarLink
+              <SidebarTopLink
                 key={item.href}
                 href={item.href}
                 label={item.label}
                 icon={item.icon}
-                active={pathname.startsWith(item.href)}
                 collapsed={collapsed}
               />
             ))}
-            <SidebarLink
+            <SidebarTopLink
               href={appsHubItem.href}
               label={appsHubItem.label}
               icon={appsHubItem.icon}
-              active={pathname === appsHubItem.href}
               collapsed={collapsed}
+              className="mb-1"
             />
             <SidebarDivider collapsed={collapsed} />
             {appCategoryNavItems.map((item) => (
@@ -391,31 +443,45 @@ export function AppSidebar({
                 collapsed={collapsed}
               />
             ))}
-            {showSettings ? (
-              <>
-                <div className="flex-1" />
-                <SidebarDivider collapsed={collapsed} />
-                <SidebarLink
-                  href={settingsNav.href}
-                  label={settingsNav.label}
-                  sublabel={settingsNav.sublabel}
-                  icon={settingsNav.icon}
-                  active={settingsActive}
-                  collapsed={collapsed}
-                  branded
-                />
-              </>
-            ) : null}
           </>
         )}
       </nav>
 
       <nav
         className={cn(
-          "flex shrink-0 flex-col gap-0 border-t border-black/5",
-          collapsed ? "p-1.5" : "p-2",
+          "flex shrink-0 flex-col gap-0.5 border-t border-black/5",
+          collapsed ? "p-1.5" : "px-2 py-1.5",
         )}
       >
+        {showSettings && venue.is_global ? (
+          <SidebarLink
+            href="/global/settings"
+            label="Settings"
+            sublabel="Global"
+            icon={Settings}
+            active={pathname.startsWith("/global/settings")}
+            collapsed={collapsed}
+            branded
+          />
+        ) : null}
+        {moduleSidebar?.bottomItems?.map((item) => {
+          const Icon = item.icon ?? Settings;
+          return (
+            <SidebarLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              sublabel={moduleSidebar.label}
+              icon={Icon}
+              active={isModuleSidebarItemActive(pathname, item)}
+              collapsed={collapsed}
+              branded
+            />
+          );
+        })}
+        {(showSettings && venue.is_global) || moduleSidebar?.bottomItems?.length ? (
+          <SidebarDivider collapsed={collapsed} />
+        ) : null}
         {footerNavItems.map((item) => (
           <SidebarLink
             key={item.href}
@@ -424,6 +490,7 @@ export function AppSidebar({
             icon={item.icon}
             active={pathname.startsWith(item.href)}
             collapsed={collapsed}
+            compact
           />
         ))}
       </nav>

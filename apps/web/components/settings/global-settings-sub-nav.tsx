@@ -1,12 +1,13 @@
 "use client";
 
-import { LayoutGrid, Palette } from "lucide-react";
+import { AppWindow, LayoutGrid, Palette } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const items = [
   { label: "Overview", href: "/global/settings", icon: LayoutGrid },
   { label: "Branding", href: "/global/settings/branding", icon: Palette },
+  { label: "Apps", href: "/global/settings/apps", icon: AppWindow },
 ] as const;
 
 export function GlobalSettingsSubNav() {

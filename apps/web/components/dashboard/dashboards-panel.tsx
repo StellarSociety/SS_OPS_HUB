@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { pillSubNavLinkClass } from "@/lib/sub-nav-ui";
@@ -34,6 +34,17 @@ export function DashboardsPanel({ slots }: DashboardsPanelProps) {
     DASHBOARD_TABS.find((tab) => tab.key === activeKey) ?? DASHBOARD_TABS[0];
   const activeSlot = slots?.[activeTab.key];
 
+  // Recharts' ResponsiveContainer only measures its size once, after mount.
+  // On the initial (hydrated) render inside this animated container the layout
+  // isn't settled yet, so it can read a 0 size and render nothing until a real
+  // remount happens. Bumping this key one frame after mount forces the active
+  // content to remount against a settled layout, so charts appear immediately.
+  const [mountTick, setMountTick] = useState(0);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setMountTick(1));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   return (
     <Card className="p-5">
       <h2 className="font-serif text-3xl text-[#3D421F]">Dashboards</h2>
@@ -57,10 +68,10 @@ export function DashboardsPanel({ slots }: DashboardsPanelProps) {
 
       <hr className="mt-4 border-black/10" />
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait" initial={false}>
         {activeSlot ? (
           <motion.div
-            key={activeTab.key}
+            key={`${activeTab.key}-${mountTick}`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

@@ -34,11 +34,15 @@ import {
   buildSalesTableMonthOptions,
   buildSalesTableWeekOptions,
   createEmptyDailySalesRecord,
+  formatLocalDateFromDate,
   getCurrentWeekFilterKey,
   getCurrentYearKey,
   resolveSalesTableCalendarDates,
 } from "@/lib/sales/sales-data-table-dates";
-import { salesTableFilterButtonClass } from "@/lib/sales/sales-data-table-ui";
+import {
+  salesTableFilterButtonClass,
+  salesTableFilterClearButtonClass,
+} from "@/lib/sales/sales-data-table-ui";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -187,10 +191,8 @@ function periodModeBarSize(pointCount: number, compact = false): number {
   return 12;
 }
 
-function periodSelectWidthClass(periodMode: PeriodMode): string {
-  if (periodMode === "week") return "w-[17.5rem]";
-  if (periodMode === "month") return "w-44";
-  return "w-28";
+function periodSelectWidthClass(_periodMode: PeriodMode): string {
+  return "w-[17.5rem]";
 }
 
 function periodNavButtonClass() {
@@ -904,6 +906,7 @@ export function DailySalesInsightsCharts({
   const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
   const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthKey());
   const [yearFilter, setYearFilter] = useState(() => getCurrentYearKey());
+  const [toDateOnly, setToDateOnly] = useState(false);
 
   const allRows = useMemo(
     () => enrichDailySalesRows(records, totalTaxPct),
@@ -962,7 +965,12 @@ export function DailySalesInsightsCharts({
 
     if (!calendarDates) return allRows;
 
-    return calendarDates.map((saleDate) => {
+    const cutoff = toDateOnly ? formatLocalDateFromDate(new Date()) : null;
+    const scopedDates = cutoff
+      ? calendarDates.filter((saleDate) => saleDate <= cutoff)
+      : calendarDates;
+
+    return scopedDates.map((saleDate) => {
       const existing = recordsByDate.get(saleDate);
       if (existing) return existing;
 
@@ -972,7 +980,16 @@ export function DailySalesInsightsCharts({
         ...computeDailySales(emptyRecord, totalTaxPct),
       };
     });
-  }, [allRows, records, periodMode, weekFilter, monthFilter, yearFilter, totalTaxPct]);
+  }, [
+    allRows,
+    records,
+    periodMode,
+    weekFilter,
+    monthFilter,
+    yearFilter,
+    totalTaxPct,
+    toDateOnly,
+  ]);
 
   const totalSeries = useMemo(() => {
     const getValue = TOTAL_METRIC.getValue;
@@ -1077,15 +1094,17 @@ export function DailySalesInsightsCharts({
     }
   }
 
-  const periodSelectLabel =
-    periodMode === "week"
-      ? "Select week"
-      : periodMode === "month"
-        ? "Select month"
-        : "Select year";
-
   const currentPeriodLabel =
     periodMode === "week" ? "week" : periodMode === "month" ? "month" : "year";
+
+  const toDateShortLabel =
+    periodMode === "week" ? "WTD" : periodMode === "month" ? "MTD" : "YTD";
+  const toDateLongLabel =
+    periodMode === "week"
+      ? "Week to date"
+      : periodMode === "month"
+        ? "Month to date"
+        : "Year to date";
 
   const activePeriodIndex = periodOptions.findIndex(
     (option) => option.value === activeFilterKey,
@@ -1150,12 +1169,6 @@ export function DailySalesInsightsCharts({
           </div>
 
           <div className="flex items-center gap-2">
-            <label
-              htmlFor="daily-sales-insights-period"
-              className="text-xs font-medium uppercase tracking-wide text-black/45"
-            >
-              {periodSelectLabel}
-            </label>
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -1201,6 +1214,20 @@ export function DailySalesInsightsCharts({
             onClick={applyCurrentPeriod}
           >
             This {currentPeriodLabel}
+          </button>
+
+          <button
+            type="button"
+            className={
+              toDateOnly
+                ? salesTableFilterButtonClass()
+                : salesTableFilterClearButtonClass()
+            }
+            onClick={() => setToDateOnly((prev) => !prev)}
+            aria-pressed={toDateOnly}
+            title={`${toDateLongLabel}${toDateOnly ? " (on)" : ""}`}
+          >
+            {toDateShortLabel}
           </button>
         </div>
       </Card>

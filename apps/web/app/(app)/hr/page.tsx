@@ -1,47 +1,20 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
-import { StaffDirectory } from "@/components/hr/staff-directory";
-import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { HrOverview } from "@/components/hr/hr-overview";
+import { ModuleShortcuts } from "@/components/layout/module-shortcuts";
 import { canAccessStaff } from "@/lib/hr/permissions";
+import { getHrPageContext } from "@/lib/hr/page-context";
+import { buildHrOverviewStats } from "@/lib/hr/overview";
 import {
   getExpiryItems,
-  listDepartments,
-  listEmploymentStatuses,
+  getHrVenueSetting,
   listStaffForVenue,
 } from "@/lib/hr/store";
-import { DEFAULT_EXPIRY_LEAD_DAYS } from "@/lib/hr/types";
-import { createClient } from "@/lib/supabase/server";
-import { cookies } from "next/headers";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import {
+  DEFAULT_HR_EXPIRY_SETTINGS,
+  HR_SETTINGS_KEYS,
+} from "@/lib/hr/types";
 
-async function getHrPageContext() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const cookieStore = await cookies();
-  const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!slug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", slug)
-    .single();
-  if (!venue) redirect("/select-venue");
-
-  const { data: permissions } = await supabase
-    .from("user_permissions")
-    .select("*")
-    .eq("user_id", user.id);
-
-  return { supabase, venue, permissions: permissions ?? [] };
-}
-
-export default async function HrPage() {
+export default async function HrOverviewPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
 
   if (!canAccessStaff(permissions, venue.id)) {
@@ -54,36 +27,38 @@ export default async function HrPage() {
     );
   }
 
-  const [staff, departments, statuses, expiryItems] = await Promise.all([
+  const expirySettings = await getHrVenueSetting(
+    supabase,
+    venue.id,
+    HR_SETTINGS_KEYS.expiry,
+    DEFAULT_HR_EXPIRY_SETTINGS,
+  );
+  const leadDays = expirySettings.displayWindowDays;
+
+  const [staff, expiryItems] = await Promise.all([
     listStaffForVenue(supabase, venue.id),
-    listDepartments(supabase, venue.id),
-    listEmploymentStatuses(supabase),
-    getExpiryItems(supabase, venue.id, DEFAULT_EXPIRY_LEAD_DAYS, {
+    getExpiryItems(supabase, venue.id, leadDays, {
       allVenues: venue.is_global,
     }),
   ]);
 
+  const stats = buildHrOverviewStats(staff, expiryItems);
+
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto w-full max-w-none space-y-6">
       <div>
-        <ModulePageTitle>Human Resources</ModulePageTitle>
-        <p className="mt-1 text-sm text-black/60">
-          {venue.is_global
-            ? "Group staff — corporate and multi-venue personnel"
-            : `${venue.name} venue staff roster`}
-        </p>
+        <ModuleShortcuts basePath="/hr" ariaLabel="Human Resources apps" />
+        <hr className="mt-4 border-black/10" />
       </div>
+
+      <HrOverview stats={stats} />
+
+      <hr className="border-black/10" />
 
       <ExpiryWidgets
         items={expiryItems}
-        leadDays={DEFAULT_EXPIRY_LEAD_DAYS}
-        title="Expiry alerts"
-      />
-
-      <StaffDirectory
-        staff={staff}
-        departments={departments}
-        statuses={statuses}
+        leadDays={leadDays}
+        title="Upcoming expiries"
       />
     </div>
   );

@@ -1,16 +1,26 @@
 import {
+  CalendarCheck,
+  CalendarDays,
+  CalendarOff,
   Camera,
-  ClipboardList,
   Coins,
   GitCompareArrows,
+  Gift,
+  GraduationCap,
   LayoutDashboard,
   LineChart,
+  MessagesSquare,
   Percent,
+  Receipt,
+  ReceiptText,
   Settings,
+  ShieldCheck,
   TrendingUp,
-  Upload,
+  UserMinus,
+  UserPlus,
   UserRound,
   Users,
+  Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -19,6 +29,21 @@ export type ModuleSidebarItem = {
   href: string;
   icon?: LucideIcon;
   exact?: boolean;
+  /** Render a divider directly after this item to visually group the nav. */
+  dividerAfter?: boolean;
+};
+
+/**
+ * Groups a module's nav items into named categories. When present, the module
+ * shortcuts bar renders a compact set of category tabs that expand to reveal
+ * their items instead of listing every item as a pill.
+ */
+export type ModuleSidebarCategory = {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  /** Hrefs of the items (from `items`) that belong to this category, in order. */
+  itemHrefs: string[];
 };
 
 export type ModuleSidebarDef = {
@@ -28,6 +53,7 @@ export type ModuleSidebarDef = {
   icon: LucideIcon;
   items: ModuleSidebarItem[];
   bottomItems?: ModuleSidebarItem[];
+  categories?: ModuleSidebarCategory[];
 };
 
 /** Per-module sidebar navigation (shown when inside a live module). */
@@ -38,9 +64,64 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     label: "Human Resources",
     icon: Users,
     items: [
-      { label: "Staff directory", href: "/hr", exact: true, icon: Users },
-      { label: "Import", href: "/hr/import", icon: Upload },
-      { label: "Lookups", href: "/hr/lookups", icon: ClipboardList },
+      { label: "Overview", href: "/hr", exact: true, icon: LayoutDashboard },
+      { label: "Staff directory", href: "/hr/staff", icon: Users },
+      { label: "Insurance", href: "/hr/insurance", icon: ShieldCheck },
+      {
+        label: "Training",
+        href: "/hr/training",
+        icon: GraduationCap,
+        dividerAfter: true,
+      },
+      { label: "Schedules", href: "/hr/schedules", icon: CalendarDays },
+      { label: "Attendance", href: "/hr/attendance", icon: CalendarCheck },
+      {
+        label: "Leave",
+        href: "/hr/leave",
+        icon: CalendarOff,
+        dividerAfter: true,
+      },
+      { label: "Payroll", href: "/hr/payroll", icon: Wallet },
+      { label: "Benefits", href: "/hr/benefits", icon: Gift },
+      { label: "Payslips", href: "/hr/payslips", icon: ReceiptText },
+      {
+        label: "Expenses",
+        href: "/hr/expenses",
+        icon: Receipt,
+        dividerAfter: true,
+      },
+      { label: "Onboarding", href: "/hr/onboarding", icon: UserPlus },
+      { label: "Communications", href: "/hr/communications", icon: MessagesSquare },
+      { label: "Off boarding", href: "/hr/offboarding", icon: UserMinus },
+    ],
+    bottomItems: [
+      { label: "Settings", href: "/hr/settings", icon: Settings },
+    ],
+    categories: [
+      {
+        key: "staff-details",
+        label: "Staff Details",
+        icon: UserRound,
+        itemHrefs: ["/hr/staff", "/hr/insurance", "/hr/training"],
+      },
+      {
+        key: "attendance",
+        label: "Attendance",
+        icon: CalendarCheck,
+        itemHrefs: ["/hr/schedules", "/hr/attendance", "/hr/leave"],
+      },
+      {
+        key: "pay",
+        label: "Pay",
+        icon: Wallet,
+        itemHrefs: ["/hr/payroll", "/hr/benefits", "/hr/payslips", "/hr/expenses"],
+      },
+      {
+        key: "boarding",
+        label: "Boarding",
+        icon: UserPlus,
+        itemHrefs: ["/hr/onboarding", "/hr/communications", "/hr/offboarding"],
+      },
     ],
   },
   {

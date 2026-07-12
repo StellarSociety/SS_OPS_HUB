@@ -12,6 +12,15 @@ export default function GlobalSettingsPage() {
           </p>
         </Card>
       </Link>
+      <Link href="/global/settings/apps">
+        <Card className="h-full p-6 transition-colors hover:bg-[var(--venue-secondary)]/30">
+          <h2 className="font-serif text-xl text-[#3D421F]">Apps</h2>
+          <p className="mt-2 text-sm text-black/60">
+            Control app availability in the Apps Hub — coming soon, visible but
+            locked, or hidden.
+          </p>
+        </Card>
+      </Link>
     </div>
   );
 }

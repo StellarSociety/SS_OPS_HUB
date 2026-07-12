@@ -1,13 +1,14 @@
 "use client";
 
-import { List, Upload, Users } from "lucide-react";
+import { LayoutDashboard, Settings, Upload, Users } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const links = [
-  { href: "/hr", label: "Staff directory", icon: Users, exact: true },
+  { href: "/hr", label: "Overview", icon: LayoutDashboard, exact: true },
+  { href: "/hr/staff", label: "Staff directory", icon: Users, exact: false },
   { href: "/hr/import", label: "Import", icon: Upload, exact: false },
-  { href: "/hr/lookups", label: "Lookups", icon: List, exact: false },
+  { href: "/hr/settings", label: "Settings", icon: Settings, exact: false },
 ];
 
 export function HrSubNav() {

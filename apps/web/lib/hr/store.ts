@@ -115,9 +115,64 @@ export async function listNationalities(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("nationalities")
     .select("*")
+    .order("sort_order")
     .order("name");
   if (error) throw error;
   return data ?? [];
+}
+
+export async function listCivilStatuses(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("civil_statuses")
+    .select("*")
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listGenders(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("genders")
+    .select("*")
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listInsuranceCategories(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("insurance_categories")
+    .select("*")
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listCertificationTypes(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("certification_types")
+    .select("*")
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Load a single venue HR setting JSON, merged over the provided defaults. */
+export async function getHrVenueSetting<T>(
+  supabase: SupabaseClient,
+  venueId: string,
+  key: string,
+  defaults: T,
+): Promise<T> {
+  const { data, error } = await supabase
+    .from("hr_venue_settings")
+    .select("value")
+    .eq("venue_id", venueId)
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.value) return defaults;
+  return { ...defaults, ...(data.value as Partial<T>) };
 }
 
 export async function getExpiryItems(

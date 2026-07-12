@@ -177,83 +177,6 @@ function ServiceColumn({
   );
 }
 
-function CategoryTotalCell({
-  label,
-  gross,
-  net,
-}: {
-  label: string;
-  gross: number;
-  net: number;
-}) {
-  return (
-    <div className="flex flex-1 flex-col justify-center rounded-lg border border-black/10 bg-white px-4 py-2 text-center">
-      <p className="text-xs font-medium tracking-wide text-black/50">{label}</p>
-      <div className="mt-1 grid grid-cols-2 gap-3">
-        <div>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-            Gross
-          </p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#3D421F]">
-            {formatMoney(gross)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-            Net
-          </p>
-          <p className="mt-0.5 text-lg font-bold tabular-nums text-[#3D421F]">
-            {formatMoney(net)}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DiscountsTotalsColumn({
-  totals,
-}: {
-  totals: ReturnType<typeof computeDailyDiscounts>;
-}) {
-  return (
-    <div
-      className={salesFormColumnClassName(
-        "border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
-      )}
-    >
-      <SalesFormSectionHeader title="Totals" />
-      <div className="flex flex-1 flex-col space-y-2">
-        <CategoryTotalCell
-          label="Food"
-          gross={totals.totalFoodDiscountGs}
-          net={totals.totalFoodDiscountNet}
-        />
-        <CategoryTotalCell
-          label="Beverages"
-          gross={totals.totalBeveragesDiscountGs}
-          net={totals.totalBeveragesDiscountNet}
-        />
-        <CategoryTotalCell
-          label="Wine"
-          gross={totals.totalWineDiscountGs}
-          net={totals.totalWineDiscountNet}
-        />
-        <CategoryTotalCell
-          label="Shisha"
-          gross={totals.totalShishaDiscountGs}
-          net={totals.totalShishaDiscountNet}
-        />
-        <CategoryTotalCell
-          label="Other"
-          gross={totals.totalOthersDiscountGs}
-          net={totals.totalOthersDiscountNet}
-        />
-      </div>
-    </div>
-  );
-}
-
 function ValidationRow({
   label,
   value,
@@ -286,7 +209,7 @@ function DiscountsValidationColumn({
 
   return (
     <div
-      className={salesFormColumnShellClass(
+      className={salesFormColumnClassName(
         "gap-2 border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
       )}
     >
@@ -510,34 +433,26 @@ export function DiscountsEntryForm({
 
 
       <SalesFormColumnsLayout>
-        <div
-          className={cn(
-            salesFormColumnWidthClass(),
-            "flex flex-col gap-6 self-start",
-          )}
-        >
-          <ServiceColumn
-            title="Discounts"
-            fields={DISCOUNT_FIELDS}
-            form={form}
-            canEdit={fieldsEditable}
-            inputMode={inputMode}
-            totalTaxPct={totalTaxPct}
-            onInputModeChange={setInputMode}
-            onChange={updateField}
-          />
-          <DiscountsValidationColumn
-            discountsTotalGs={
-              totals.totalFoodDiscountGs +
-              totals.totalBeveragesDiscountGs +
-              totals.totalWineDiscountGs +
-              totals.totalShishaDiscountGs +
-              totals.totalOthersDiscountGs
-            }
-            allDayDiscountGs={allDayDiscountByDate.get(selectedDate) ?? 0}
-          />
-        </div>
-        <DiscountsTotalsColumn totals={totals} />
+        <ServiceColumn
+          title="Discounts"
+          fields={DISCOUNT_FIELDS}
+          form={form}
+          canEdit={fieldsEditable}
+          inputMode={inputMode}
+          totalTaxPct={totalTaxPct}
+          onInputModeChange={setInputMode}
+          onChange={updateField}
+        />
+        <DiscountsValidationColumn
+          discountsTotalGs={
+            totals.totalFoodDiscountGs +
+            totals.totalBeveragesDiscountGs +
+            totals.totalWineDiscountGs +
+            totals.totalShishaDiscountGs +
+            totals.totalOthersDiscountGs
+          }
+          allDayDiscountGs={allDayDiscountByDate.get(selectedDate) ?? 0}
+        />
       </SalesFormColumnsLayout>
     </div>
   );

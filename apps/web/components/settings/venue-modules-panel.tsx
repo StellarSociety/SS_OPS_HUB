@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useTransition } from "react";
 import { setVenueModuleEnabled } from "@/lib/actions/users";
 import { VENUE_TOGGLEABLE_MODULES } from "@/lib/modules-catalog";
 import type { Venue } from "@/lib/types/database";
@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 
 type VenueModulesPanelProps = {
-  venues: Venue[];
+  venue: Venue;
   venueModules: {
     id: string;
     venue_id: string;
@@ -18,16 +18,9 @@ type VenueModulesPanelProps = {
 };
 
 export function VenueModulesPanel({
-  venues,
+  venue,
   venueModules,
 }: VenueModulesPanelProps) {
-  const realVenues = useMemo(
-    () => venues.filter((v) => !v.is_global),
-    [venues],
-  );
-  const [selectedVenueId, setSelectedVenueId] = useState(
-    realVenues[0]?.id ?? "",
-  );
   const [isPending, startTransition] = useTransition();
 
   const enabledMap = useMemo(() => {
@@ -38,18 +31,13 @@ export function VenueModulesPanel({
     return map;
   }, [venueModules]);
 
-  function isEnabled(venueId: string, moduleKey: string) {
-    return enabledMap.get(`${venueId}:${moduleKey}`) ?? true;
+  function isEnabled(moduleKey: string) {
+    return enabledMap.get(`${venue.id}:${moduleKey}`) ?? true;
   }
 
   function handleToggle(moduleKey: string, enabled: boolean) {
-    if (!selectedVenueId) return;
     startTransition(async () => {
-      const result = await setVenueModuleEnabled(
-        selectedVenueId,
-        moduleKey,
-        enabled,
-      );
+      const result = await setVenueModuleEnabled(venue.id, moduleKey, enabled);
       if (result.error) {
         toast.error(result.error);
         return;
@@ -58,65 +46,42 @@ export function VenueModulesPanel({
     });
   }
 
-  const selectedVenue = realVenues.find((v) => v.id === selectedVenueId);
-
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <label className="text-sm text-black/60">
-          Venue
-          <select
-            value={selectedVenueId}
-            onChange={(e) => setSelectedVenueId(e.target.value)}
-            className="ml-2 h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F]"
-          >
-            {realVenues.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {selectedVenue ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {VENUE_TOGGLEABLE_MODULES.map((mod) => {
-            const enabled = isEnabled(selectedVenue.id, mod.key);
-            return (
-              <Card
-                key={mod.key}
-                className="flex items-center justify-between gap-4 p-4"
+      <div className="grid gap-3 sm:grid-cols-2">
+        {VENUE_TOGGLEABLE_MODULES.map((mod) => {
+          const enabled = isEnabled(mod.key);
+          return (
+            <Card
+              key={mod.key}
+              className="flex items-center justify-between gap-4 p-4"
+            >
+              <div>
+                <p className="font-medium text-[#3D421F]">{mod.label}</p>
+                {mod.description ? (
+                  <p className="text-xs text-black/50">{mod.description}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                disabled={isPending}
+                role="switch"
+                aria-checked={enabled}
+                onClick={() => handleToggle(mod.key, !enabled)}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+                  enabled ? "bg-[var(--venue-primary,#818a40)]" : "bg-black/20"
+                }`}
               >
-                <div>
-                  <p className="font-medium text-[#3D421F]">{mod.label}</p>
-                  {mod.description ? (
-                    <p className="text-xs text-black/50">{mod.description}</p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  role="switch"
-                  aria-checked={enabled}
-                  onClick={() => handleToggle(mod.key, !enabled)}
-                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-                    enabled ? "bg-[var(--venue-primary,#818a40)]" : "bg-black/20"
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                    enabled ? "left-[22px]" : "left-0.5"
                   }`}
-                >
-                  <span
-                    className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-                      enabled ? "left-[22px]" : "left-0.5"
-                    }`}
-                  />
-                </button>
-              </Card>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="text-sm text-black/50">No venues configured yet.</p>
-      )}
+                />
+              </button>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -37,7 +37,9 @@ export function AppHeader({
   const ModuleIcon = moduleSidebar?.icon;
   const title = inModuleApp
     ? moduleSidebar!.label
-    : "Operational HUB";
+    : venue.is_global
+      ? "All Venues Operational HUB"
+      : `${venue.name} Operational HUB`;
 
   const sidebarToggle = onToggleSidebar ? (
     <button
@@ -58,8 +60,7 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        "shrink-0 items-center border-b border-black/5 bg-white/60 px-4 backdrop-blur-md md:px-6",
-        inModuleApp ? "grid grid-cols-[1fr_auto_1fr]" : "flex justify-between",
+        "grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-black/5 bg-white/60 px-4 backdrop-blur-md md:px-6",
         SHELL_BAR_HEIGHT,
       )}
     >
@@ -72,24 +73,17 @@ export function AppHeader({
           <Menu className="h-5 w-5" />
         </button>
         {sidebarToggle}
-        {!inModuleApp ? (
-          <h1 className="truncate font-serif text-lg tracking-wide text-[#3D421F] md:text-xl">
-            {title}
-          </h1>
-        ) : null}
       </div>
-      {inModuleApp ? (
-        <h1 className="flex min-w-0 items-center justify-center gap-2 px-4 text-center font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl">
-          {ModuleIcon ? (
-            <ModuleIcon
-              className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
-              strokeWidth={1.5}
-              aria-hidden
-            />
-          ) : null}
-          <span className="truncate">{title}</span>
-        </h1>
-      ) : null}
+      <h1 className="flex min-w-0 items-center justify-center gap-2 px-4 text-center font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl">
+        {ModuleIcon ? (
+          <ModuleIcon
+            className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
+            strokeWidth={1.5}
+            aria-hidden
+          />
+        ) : null}
+        <span className="truncate">{title}</span>
+      </h1>
       <div className="flex items-center justify-end gap-2">
         <NotificationCenter
           venueId={venue.id}

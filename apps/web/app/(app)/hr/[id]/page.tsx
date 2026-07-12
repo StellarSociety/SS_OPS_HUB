@@ -60,7 +60,7 @@ export default async function StaffDetailPage({
     !canViewStaff(perms, venue.id) &&
     staffRaw.created_by !== user.id
   ) {
-    redirect("/hr");
+    redirect("/hr/staff");
   }
   const staff = maskSensitiveStaffFields(staffRaw, perms, venue.id);
 
@@ -74,7 +74,7 @@ export default async function StaffDetailPage({
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <Link
-        href="/hr"
+        href="/hr/staff"
         className="inline-flex items-center gap-1 text-sm text-black/50 hover:text-[#3D421F]"
       >
         <ArrowLeft className="h-4 w-4" />

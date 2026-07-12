@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Building2,
   LayoutGrid,
-  Settings,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -14,11 +12,7 @@ import type { LucideIcon } from "lucide-react";
 import { ModuleGrid } from "@/components/modules/module-grid";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import type { ModuleCategory, ModuleCategoryKey } from "@/lib/modules-registry";
-import {
-  moduleBrandedNavIconClass,
-  moduleBrandedNavLinkClass,
-  subNavLabelClass,
-} from "@/lib/sub-nav-ui";
+import { subNavLabelClass } from "@/lib/sub-nav-ui";
 import { cn } from "@/lib/utils";
 
 export type DashboardCategorySection = {
@@ -28,8 +22,6 @@ export type DashboardCategorySection = {
 
 type DashboardModuleTabsProps = {
   sections: DashboardCategorySection[];
-  settingsHref?: string;
-  settingsLabel?: string;
 };
 
 const CATEGORY_ICONS: Record<ModuleCategoryKey, LucideIcon> = {
@@ -51,8 +43,6 @@ function tabClass(active: boolean) {
 
 export function DashboardModuleTabs({
   sections,
-  settingsHref = "/settings",
-  settingsLabel = "Venue Settings",
 }: DashboardModuleTabsProps) {
   const [activeKey, setActiveKey] = useState<ModuleCategoryKey | null>(null);
 
@@ -66,43 +56,34 @@ export function DashboardModuleTabs({
 
   return (
     <div>
-      <hr className="mt-4 border-black/10" />
       <nav
         aria-label="App categories"
-        className="mt-4 flex w-full flex-wrap items-center justify-between gap-2"
+        className="flex w-full flex-wrap items-center justify-center gap-2"
       >
-        <div className="flex flex-wrap items-center gap-2">
-          {sections.map((section) => {
-            const Icon = CATEGORY_ICONS[section.category.key];
-            const active = section.category.key === activeKey;
-            return (
-              <button
-                key={section.category.key}
-                type="button"
-                aria-pressed={active}
-                onClick={() =>
-                  setActiveKey((current) =>
-                    current === section.category.key
-                      ? null
-                      : section.category.key,
-                  )
-                }
-                className={tabClass(active)}
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
-                <span className="whitespace-nowrap">
-                  {section.category.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href={settingsHref} className={moduleBrandedNavLinkClass(false)}>
-            <Settings className={moduleBrandedNavIconClass(false)} aria-hidden />
-            <span className="whitespace-nowrap">{settingsLabel}</span>
-          </Link>
-        </div>
+        {sections.map((section) => {
+          const Icon = CATEGORY_ICONS[section.category.key];
+          const active = section.category.key === activeKey;
+          return (
+            <button
+              key={section.category.key}
+              type="button"
+              aria-pressed={active}
+              onClick={() =>
+                setActiveKey((current) =>
+                  current === section.category.key
+                    ? null
+                    : section.category.key,
+                )
+              }
+              className={tabClass(active)}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+              <span className="whitespace-nowrap">
+                {section.category.label}
+              </span>
+            </button>
+          );
+        })}
       </nav>
       <hr className="mt-4 border-black/10" />
 
@@ -117,7 +98,7 @@ export function DashboardModuleTabs({
             className="mt-6"
           >
             {activeSection.modules.length > 0 ? (
-              <ModuleGrid modules={activeSection.modules} />
+              <ModuleGrid modules={activeSection.modules} centered />
             ) : (
               <p className="py-8 text-center text-sm text-black/50">
                 No apps in this category yet.

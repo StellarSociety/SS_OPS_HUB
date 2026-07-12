@@ -8,6 +8,7 @@ export type Nationality = {
   id: string;
   name: string;
   fly_home_ticket_value: number;
+  sort_order: number;
 };
 
 export type Department = {
@@ -22,6 +23,33 @@ export type Position = {
   venue_id: string;
   department_id: string;
   name: string;
+  sort_order: number;
+};
+
+export type CivilStatus = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
+export type Gender = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
+export type InsuranceCategory = {
+  id: string;
+  name: string;
+  default_medical_value: number;
+  sort_order: number;
+};
+
+export type CertificationType = {
+  id: string;
+  name: string;
+  renewal_months: number;
+  lead_days: number;
   sort_order: number;
 };
 
@@ -115,3 +143,61 @@ export const EXPIRY_FIELDS = [
 
 /** Display window for HR expiry widgets (notifications fire at 30/14/7 days). */
 export const DEFAULT_EXPIRY_LEAD_DAYS = 90;
+
+// ---------------------------------------------------------------------------
+// Venue-scoped HR settings (stored in public.hr_venue_settings as JSON)
+// ---------------------------------------------------------------------------
+
+export const HR_SETTINGS_KEYS = {
+  expiry: "expiry",
+  salaryDefaults: "salary_defaults",
+  notifications: "notifications",
+} as const;
+
+export type HrExpirySettings = {
+  /** How far ahead expiring items are surfaced in the HR dashboard widgets. */
+  displayWindowDays: number;
+  /** Lead days at which reminder notifications fire (descending). */
+  reminderLeadDays: number[];
+};
+
+export type HrSalaryDefaults = {
+  basicPct: number;
+  accomPct: number;
+  transpPct: number;
+  /** Annual leave entitlement in days used when creating staff. */
+  annualLeaveDays: number;
+  /** End-of-service benefit accrual (days of basic pay per year of service). */
+  eosbDaysPerYear: number;
+};
+
+export type HrNotificationSettings = {
+  /** Master switch for HR expiry reminder emails. */
+  expiryEmailsEnabled: boolean;
+  /** Notify on new staff added. */
+  newStaffEnabled: boolean;
+  /** Notify on staff termination. */
+  terminationEnabled: boolean;
+  /** Roles that receive HR notifications. */
+  recipientRoles: string[];
+};
+
+export const DEFAULT_HR_EXPIRY_SETTINGS: HrExpirySettings = {
+  displayWindowDays: DEFAULT_EXPIRY_LEAD_DAYS,
+  reminderLeadDays: [30, 14, 7],
+};
+
+export const DEFAULT_HR_SALARY_DEFAULTS: HrSalaryDefaults = {
+  basicPct: 60,
+  accomPct: 25,
+  transpPct: 15,
+  annualLeaveDays: 30,
+  eosbDaysPerYear: 21,
+};
+
+export const DEFAULT_HR_NOTIFICATION_SETTINGS: HrNotificationSettings = {
+  expiryEmailsEnabled: true,
+  newStaffEnabled: true,
+  terminationEnabled: true,
+  recipientRoles: ["hr_manager"],
+};

@@ -5,12 +5,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
-import {
-  parseDate,
-  parseNumber,
-  parseStaffCsv,
-  type ImportStaffRow,
-} from "@/lib/hr/import";
+import { parseDate, parseNumber, parseStaffCsv } from "@/lib/hr/import";
 import {
   canAccessStaff,
   canAdminLookups,
@@ -27,7 +22,12 @@ import {
   resolveLookupId,
   resolvePositionId,
 } from "@/lib/hr/store";
-import { HR_MODULE_KEY } from "@/lib/hr/types";
+import {
+  DEFAULT_HR_EXPIRY_SETTINGS,
+  DEFAULT_HR_SALARY_DEFAULTS,
+  HR_MODULE_KEY,
+  HR_SETTINGS_KEYS,
+} from "@/lib/hr/types";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -212,6 +212,7 @@ export async function importStaffFromCsv(csvText: string) {
   }
 
   revalidatePath("/hr");
+  revalidatePath("/hr/staff");
   revalidatePath("/dashboard");
 
   return {
@@ -263,6 +264,7 @@ export async function updateStaff(
 
   revalidatePath(`/hr/${staffId}`);
   revalidatePath("/hr");
+  revalidatePath("/hr/staff");
   return { success: true };
 }
 
@@ -297,7 +299,8 @@ export async function deleteStaff(staffId: string) {
   });
 
   revalidatePath("/hr");
-  redirect("/hr");
+  revalidatePath("/hr/staff");
+  redirect("/hr/staff");
 }
 
 export async function upsertDepartment(formData: FormData): Promise<void> {
@@ -316,74 +319,162 @@ export async function upsertNationality(formData: FormData): Promise<void> {
   await upsertLookup("nationalities", formData);
 }
 
-async function upsertLookup(
-  table: "departments" | "positions" | "employment_statuses" | "nationalities",
+export async function deleteDepartment(id: string): Promise<void> {
+  await deleteLookup("departments", id);
+}
+
+export async function deletePosition(id: string): Promise<void> {
+  await deleteLookup("positions", id);
+}
+
+export async function deleteEmploymentStatus(id: string): Promise<void> {
+  await deleteLookup("employment_statuses", id);
+}
+
+export async function deleteNationality(id: string): Promise<void> {
+  await deleteLookup("nationalities", id);
+}
+
+export async function reorderDepartments(orderedIds: string[]): Promise<void> {
+  await reorderLookup("departments", orderedIds);
+}
+
+export async function reorderPositions(orderedIds: string[]): Promise<void> {
+  await reorderLookup("positions", orderedIds);
+}
+
+export async function reorderEmploymentStatuses(
+  orderedIds: string[],
+): Promise<void> {
+  await reorderLookup("employment_statuses", orderedIds);
+}
+
+export async function reorderNationalities(orderedIds: string[]): Promise<void> {
+  await reorderLookup("nationalities", orderedIds);
+}
+
+export async function upsertCivilStatus(formData: FormData): Promise<void> {
+  await upsertLookup("civil_statuses", formData);
+}
+
+export async function deleteCivilStatus(id: string): Promise<void> {
+  await deleteLookup("civil_statuses", id);
+}
+
+export async function reorderCivilStatuses(orderedIds: string[]): Promise<void> {
+  await reorderLookup("civil_statuses", orderedIds);
+}
+
+export async function upsertGender(formData: FormData): Promise<void> {
+  await upsertLookup("genders", formData);
+}
+
+export async function deleteGender(id: string): Promise<void> {
+  await deleteLookup("genders", id);
+}
+
+export async function reorderGenders(orderedIds: string[]): Promise<void> {
+  await reorderLookup("genders", orderedIds);
+}
+
+export async function upsertInsuranceCategory(
   formData: FormData,
-) {
-  const { supabase, user, venue, permissions } = await getAuthContext();
+): Promise<void> {
+  await upsertLookup("insurance_categories", formData);
+}
+
+export async function deleteInsuranceCategory(id: string): Promise<void> {
+  await deleteLookup("insurance_categories", id);
+}
+
+export async function reorderInsuranceCategories(
+  orderedIds: string[],
+): Promise<void> {
+  await reorderLookup("insurance_categories", orderedIds);
+}
+
+export async function upsertCertificationType(
+  formData: FormData,
+): Promise<void> {
+  await upsertLookup("certification_types", formData);
+}
+
+export async function deleteCertificationType(id: string): Promise<void> {
+  await deleteLookup("certification_types", id);
+}
+
+export async function reorderCertificationTypes(
+  orderedIds: string[],
+): Promise<void> {
+  await reorderLookup("certification_types", orderedIds);
+}
+
+type LookupTable =
+  | "departments"
+  | "positions"
+  | "employment_statuses"
+  | "nationalities"
+  | "civil_statuses"
+  | "genders"
+  | "insurance_categories"
+  | "certification_types";
+
+type LookupTableConfig = {
+  /** Adds venue_id to the payload (venue-scoped lookups). */
+  venueScoped?: boolean;
+  /** Required foreign-key fields read from the form (e.g. department_id). */
+  refFields?: string[];
+  /** Numeric fields read from the form (parsed, defaulting to 0). */
+  numericFields?: string[];
+};
+
+const LOOKUP_CONFIG: Record<LookupTable, LookupTableConfig> = {
+  departments: { venueScoped: true },
+  positions: { venueScoped: true, refFields: ["department_id"] },
+  employment_statuses: {},
+  nationalities: { numericFields: ["fly_home_ticket_value"] },
+  civil_statuses: {},
+  genders: {},
+  insurance_categories: { numericFields: ["default_medical_value"] },
+  certification_types: { numericFields: ["renewal_months", "lead_days"] },
+};
+
+async function upsertLookup(table: LookupTable, formData: FormData) {
+  const { user, venue, permissions } = await getAuthContext();
 
   if (!canAdminLookups(permissions, venue.id)) {
     return;
   }
 
-  const id = formData.get("id") as string | null;
+  const id = (formData.get("id") as string | null) || null;
   const name = (formData.get("name") as string)?.trim();
   if (!name) return;
 
-  const service = createServiceClient();
+  const config = LOOKUP_CONFIG[table];
+  const payload: Record<string, unknown> = {
+    name,
+    sort_order: Number(formData.get("sort_order") ?? 0),
+  };
 
-  if (table === "departments" || table === "positions") {
-    const sortOrder = Number(formData.get("sort_order") ?? 0);
-    if (table === "departments") {
-      const payload = { venue_id: venue.id, name, sort_order: sortOrder };
-      const { error } = id
-        ? await service.from("departments").update(payload).eq("id", id)
-        : await service.from("departments").insert(payload);
-      if (error) {
-        console.error("[hr] department upsert failed:", error.message);
-        return;
-      }
-    } else {
-      const departmentId = formData.get("department_id") as string;
-      const payload = {
-        venue_id: venue.id,
-        department_id: departmentId,
-        name,
-        sort_order: sortOrder,
-      };
-      const { error } = id
-        ? await service.from("positions").update(payload).eq("id", id)
-        : await service.from("positions").insert(payload);
-      if (error) {
-        console.error("[hr] position upsert failed:", error.message);
-        return;
-      }
-    }
-  } else if (table === "employment_statuses") {
-    const sortOrder = Number(formData.get("sort_order") ?? 0);
-    const payload = { name, sort_order: sortOrder };
-    const { error } = id
-      ? await service.from("employment_statuses").update(payload).eq("id", id)
-      : await service.from("employment_statuses").insert(payload);
-    if (error) {
-      console.error("[hr] employment status upsert failed:", error.message);
-      return;
-    }
-  } else {
-    const ticketValue = parseNumber(
-      (formData.get("fly_home_ticket_value") as string) ?? "",
-    );
-    const payload = {
-      name,
-      fly_home_ticket_value: ticketValue ?? 0,
-    };
-    const { error } = id
-      ? await service.from("nationalities").update(payload).eq("id", id)
-      : await service.from("nationalities").insert(payload);
-    if (error) {
-      console.error("[hr] nationality upsert failed:", error.message);
-      return;
-    }
+  if (config.venueScoped) {
+    payload.venue_id = venue.id;
+  }
+  for (const field of config.refFields ?? []) {
+    const value = (formData.get(field) as string) || null;
+    if (!value) return;
+    payload[field] = value;
+  }
+  for (const field of config.numericFields ?? []) {
+    payload[field] = parseNumber((formData.get(field) as string) ?? "") ?? 0;
+  }
+
+  const service = createServiceClient();
+  const { error } = id
+    ? await service.from(table).update(payload).eq("id", id)
+    : await service.from(table).insert(payload);
+  if (error) {
+    console.error(`[hr] ${table} upsert failed:`, error.message);
+    return;
   }
 
   await writeAuditLog({
@@ -396,7 +487,151 @@ async function upsertLookup(
     after: { name },
   });
 
-  revalidatePath("/hr/lookups");
+  revalidatePath("/hr/settings", "layout");
+}
+
+async function deleteLookup(table: LookupTable, id: string) {
+  const { user, venue, permissions } = await getAuthContext();
+
+  if (!canAdminLookups(permissions, venue.id)) {
+    return;
+  }
+  if (!id) return;
+
+  const service = createServiceClient();
+  const { error } = await service.from(table).delete().eq("id", id);
+  if (error) {
+    console.error(`[hr] ${table} delete failed:`, error.message);
+    return;
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "delete",
+    module_key: HR_MODULE_KEY,
+    entity: table,
+    entity_id: id,
+    venue_id: venue.id,
+  });
+
+  revalidatePath("/hr/settings", "layout");
+}
+
+async function reorderLookup(table: LookupTable, orderedIds: string[]) {
+  const { venue, permissions } = await getAuthContext();
+
+  if (!canAdminLookups(permissions, venue.id)) {
+    return;
+  }
+  if (!orderedIds.length) return;
+
+  const service = createServiceClient();
+
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      service
+        .from(table)
+        .update({ sort_order: index + 1 })
+        .eq("id", id),
+    ),
+  );
+
+  revalidatePath("/hr/settings", "layout");
+}
+
+async function saveHrVenueSetting(
+  key: string,
+  value: Record<string, unknown>,
+) {
+  const { user, venue, permissions } = await getAuthContext();
+
+  if (!canAdminLookups(permissions, venue.id)) {
+    return;
+  }
+
+  const service = createServiceClient();
+  const { error } = await service.from("hr_venue_settings").upsert(
+    {
+      venue_id: venue.id,
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "venue_id,key" },
+  );
+  if (error) {
+    console.error(`[hr] settings "${key}" save failed:`, error.message);
+    return;
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "update",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_venue_settings",
+    entity_id: key,
+    venue_id: venue.id,
+    after: value,
+  });
+
+  revalidatePath("/hr/settings", "layout");
+  revalidatePath("/hr");
+}
+
+function num(formData: FormData, key: string, fallback: number): number {
+  const parsed = parseNumber((formData.get(key) as string) ?? "");
+  return parsed ?? fallback;
+}
+
+export async function saveHrExpirySettings(formData: FormData): Promise<void> {
+  const reminderLeadDays = String(formData.get("reminder_lead_days") ?? "")
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => b - a);
+
+  await saveHrVenueSetting(HR_SETTINGS_KEYS.expiry, {
+    displayWindowDays: num(
+      formData,
+      "display_window_days",
+      DEFAULT_HR_EXPIRY_SETTINGS.displayWindowDays,
+    ),
+    reminderLeadDays: reminderLeadDays.length
+      ? reminderLeadDays
+      : DEFAULT_HR_EXPIRY_SETTINGS.reminderLeadDays,
+  });
+}
+
+export async function saveHrSalaryDefaults(formData: FormData): Promise<void> {
+  await saveHrVenueSetting(HR_SETTINGS_KEYS.salaryDefaults, {
+    basicPct: num(formData, "basic_pct", DEFAULT_HR_SALARY_DEFAULTS.basicPct),
+    accomPct: num(formData, "accom_pct", DEFAULT_HR_SALARY_DEFAULTS.accomPct),
+    transpPct: num(formData, "transp_pct", DEFAULT_HR_SALARY_DEFAULTS.transpPct),
+    annualLeaveDays: num(
+      formData,
+      "annual_leave_days",
+      DEFAULT_HR_SALARY_DEFAULTS.annualLeaveDays,
+    ),
+    eosbDaysPerYear: num(
+      formData,
+      "eosb_days_per_year",
+      DEFAULT_HR_SALARY_DEFAULTS.eosbDaysPerYear,
+    ),
+  });
+}
+
+export async function saveHrNotificationSettings(
+  formData: FormData,
+): Promise<void> {
+  await saveHrVenueSetting(HR_SETTINGS_KEYS.notifications, {
+    expiryEmailsEnabled: formData.get("expiry_emails_enabled") === "on",
+    newStaffEnabled: formData.get("new_staff_enabled") === "on",
+    terminationEnabled: formData.get("termination_enabled") === "on",
+    recipientRoles: String(formData.get("recipient_roles") ?? "")
+      .split(",")
+      .map((role) => role.trim())
+      .filter(Boolean),
+  });
 }
 
 function formDataToStaffPayload(formData: FormData) {
@@ -476,5 +711,3 @@ export async function getHrAccess() {
     canAdminLookups: canAdminLookups(permissions, venue.id),
   };
 }
-
-export type { ImportStaffRow };

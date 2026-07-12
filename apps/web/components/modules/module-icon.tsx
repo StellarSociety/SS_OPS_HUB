@@ -9,6 +9,7 @@ import {
   FolderKanban,
   GraduationCap,
   Landmark,
+  Settings,
   Smile,
   TrendingUp,
   Users,
@@ -29,6 +30,7 @@ const MODULE_ICONS: Record<ModuleIconKey, LucideIcon> = {
   "graduation-cap": GraduationCap,
   "building-2": Building2,
   "check-circle-2": CheckCircle2,
+  settings: Settings,
 };
 
 type ModuleIconProps = {

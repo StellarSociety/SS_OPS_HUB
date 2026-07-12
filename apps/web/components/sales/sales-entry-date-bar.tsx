@@ -80,14 +80,6 @@ export function SalesEntryDateBar({
           {getWeekDayLabel(selectedDate)}
         </span>
         {extraBadges}
-        <SalesDateInput
-          disabled={!canEdit}
-          value={selectedDate}
-          onChange={onDateChange}
-          maxDate={todayIso}
-          datesWithEntries={datesWithEntries}
-          className="h-10 w-[10.5rem] min-w-0 shrink-0"
-        />
         <button
           type="button"
           disabled={!canEdit}
@@ -97,6 +89,14 @@ export function SalesEntryDateBar({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
+        <SalesDateInput
+          disabled={!canEdit}
+          value={selectedDate}
+          onChange={onDateChange}
+          maxDate={todayIso}
+          datesWithEntries={datesWithEntries}
+          className="h-10 w-[10.5rem] min-w-0 shrink-0"
+        />
         <button
           type="button"
           disabled={!canEdit || isAtToday}

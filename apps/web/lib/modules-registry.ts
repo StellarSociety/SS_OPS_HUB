@@ -31,6 +31,41 @@ export {
 
 export type ModuleStatus = "live" | "coming_soon";
 
+/**
+ * Global per-app display state, controlled from Global settings → Apps.
+ * - live           → normal, clickable
+ * - coming_soon    → "Coming soon" stamp, not clickable
+ * - visible_locked → faded icon, visible but access path blocked
+ * - hidden         → removed entirely from the Apps Hub
+ */
+export type AppModuleState =
+  | "live"
+  | "coming_soon"
+  | "visible_locked"
+  | "hidden";
+
+export const APP_MODULE_STATES: {
+  key: AppModuleState;
+  label: string;
+  description: string;
+}[] = [
+  {
+    key: "coming_soon",
+    label: "Coming soon",
+    description: "Show the app with a “Coming soon” stamp. Not clickable.",
+  },
+  {
+    key: "visible_locked",
+    label: "Visible, not accessible",
+    description: "Fade the icon and block the access path.",
+  },
+  {
+    key: "hidden",
+    label: "Hidden",
+    description: "Remove the app entirely from the Apps Hub.",
+  },
+];
+
 export type { ModuleCategoryKey, ModuleCategory } from "@/lib/module-categories";
 export {
   moduleCategories,

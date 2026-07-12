@@ -522,7 +522,7 @@ function HeadlineStat({
   const trend = compareToPreviousMonth(compareCurrent, comparePrevious);
 
   return (
-    <Card className="p-4 text-center">
+    <Card className="flex h-full flex-col justify-center p-4 text-center">
       <p className="text-xs font-medium uppercase tracking-wide text-black/45">
         {label}
       </p>
@@ -678,7 +678,7 @@ export function SalesOverviewCharts({
             (value) => value.toFixed(2),
           )}
         />
-        <Card className="p-4 text-center">
+        <Card className="flex h-full flex-col justify-center p-4 text-center">
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
             Gratuity Accumulated · MTD
           </p>

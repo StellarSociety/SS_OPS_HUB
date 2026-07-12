@@ -6,9 +6,9 @@ export default async function SettingsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="font-serif text-3xl text-[#3D421F]">Settings</h1>
+        <h1 className="font-serif text-3xl text-[#3D421F]">Venue Settings</h1>
         <p className="mt-1 text-sm text-black/60">
-          App-wide configuration for SS Ops Hub.
+          Configuration for this venue — users, access, and enabled modules.
         </p>
       </div>
 

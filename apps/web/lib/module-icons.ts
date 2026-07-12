@@ -10,6 +10,7 @@ export const MODULE_ICON_KEYS = [
   "graduation-cap",
   "building-2",
   "check-circle-2",
+  "settings",
 ] as const;
 
 export type ModuleIconKey = (typeof MODULE_ICON_KEYS)[number];

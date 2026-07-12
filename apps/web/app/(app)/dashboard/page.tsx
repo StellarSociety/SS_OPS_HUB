@@ -32,8 +32,6 @@ export default async function DashboardPage() {
     .single();
   if (!venue) redirect("/select-venue");
 
-  const isGlobal = venue.is_global;
-
   const [{ sections }, { data: permissions }] = await Promise.all([
     loadModulesHubContext(),
     supabase.from("user_permissions").select("*").eq("user_id", user.id),
@@ -59,12 +57,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
-      <div>
-        <h1 className="pl-[21px] font-serif text-3xl text-[#3D421F]">
-          {isGlobal ? "All Venues Apps" : `${venue.name} Apps`}
-        </h1>
-        <DashboardModuleTabs sections={sections} />
-      </div>
+      <DashboardModuleTabs sections={sections} />
 
       <DashboardsPanel slots={{ revenue: revenueSlot }} />
     </div>

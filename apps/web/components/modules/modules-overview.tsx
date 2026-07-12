@@ -2,11 +2,13 @@
 
 import { ModuleGrid } from "@/components/modules/module-grid";
 import type {
+  AppModuleState,
   ModuleCategory,
   ModuleOverviewItem,
 } from "@/lib/modules-registry";
 
-export type ModuleGridItem = ModuleOverviewItem & {
+export type ModuleGridItem = Omit<ModuleOverviewItem, "status"> & {
+  status: AppModuleState;
   clickable: boolean;
 };
 
@@ -15,9 +17,10 @@ type ModulesOverviewProps = {
     category: ModuleCategory;
     modules: ModuleGridItem[];
   }[];
+  trailingItem?: ModuleGridItem | null;
 };
 
-export function ModulesOverview({ sections }: ModulesOverviewProps) {
+export function ModulesOverview({ sections, trailingItem }: ModulesOverviewProps) {
   return (
     <div className="space-y-10">
       {sections.map(({ category, modules }) => (
@@ -31,6 +34,12 @@ export function ModulesOverview({ sections }: ModulesOverviewProps) {
           <ModuleGrid modules={modules} />
         </section>
       ))}
+      {trailingItem ? (
+        <section className="space-y-4">
+          <div className="h-px w-full bg-black/10" aria-hidden />
+          <ModuleGrid modules={[trailingItem]} />
+        </section>
+      ) : null}
     </div>
   );
 }

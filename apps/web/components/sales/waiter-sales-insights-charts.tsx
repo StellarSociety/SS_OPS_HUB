@@ -21,11 +21,15 @@ import {
   getCurrentMonthKey,
   getIsoWeekParts,
 } from "@/lib/sales/daily-sales-calculations";
-import { salesTableFilterButtonClass } from "@/lib/sales/sales-data-table-ui";
+import {
+  salesTableFilterButtonClass,
+  salesTableFilterClearButtonClass,
+} from "@/lib/sales/sales-data-table-ui";
 import { groupedBarChartLayout } from "@/lib/sales/sales-chart-bar-layout";
 import {
   buildSalesTableMonthOptions,
   buildSalesTableWeekOptions,
+  formatLocalDateFromDate,
   getCurrentWeekFilterKey,
   getCurrentYearKey,
 } from "@/lib/sales/sales-data-table-dates";
@@ -81,10 +85,8 @@ function buildYearOptions(saleDates: string[]): Array<{ value: string; label: st
     .map((value) => ({ value, label: value }));
 }
 
-function periodSelectWidthClass(periodMode: WaiterInsightsPeriodMode): string {
-  if (periodMode === "week") return "w-[17.5rem]";
-  if (periodMode === "month") return "w-44";
-  return "w-28";
+function periodSelectWidthClass(_periodMode: WaiterInsightsPeriodMode): string {
+  return "w-[17.5rem]";
 }
 
 function periodNavButtonClass() {
@@ -304,6 +306,7 @@ export function WaiterSalesInsightsCharts({
   const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
   const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthKey());
   const [yearFilter, setYearFilter] = useState(() => getCurrentYearKey());
+  const [toDateOnly, setToDateOnly] = useState(false);
 
   const saleDates = useMemo(
     () => entries.map((entry) => entry.sale_date),
@@ -352,11 +355,12 @@ export function WaiterSalesInsightsCharts({
   );
 
   const { revenuePoints, asphPoints, gratuityPoints } = useMemo(() => {
+    const cutoff = toDateOnly ? formatLocalDateFromDate(new Date()) : null;
     const currentEntries = filterWaiterEntriesForPeriod(
       entries,
       periodMode,
       activeFilterKey,
-    );
+    ).filter((entry) => (cutoff ? entry.sale_date <= cutoff : true));
     const previousEntries = filterWaiterEntriesForPeriod(
       entries,
       periodMode,
@@ -380,7 +384,14 @@ export function WaiterSalesInsightsCharts({
         previousEntries,
       ),
     };
-  }, [entries, waiters, periodMode, activeFilterKey, previousFilterKey]);
+  }, [
+    entries,
+    waiters,
+    periodMode,
+    activeFilterKey,
+    previousFilterKey,
+    toDateOnly,
+  ]);
 
   function selectPeriodMode(mode: WaiterInsightsPeriodMode) {
     setPeriodMode(mode);
@@ -405,15 +416,17 @@ export function WaiterSalesInsightsCharts({
     }
   }
 
-  const periodSelectLabel =
-    periodMode === "week"
-      ? "Select week"
-      : periodMode === "month"
-        ? "Select month"
-        : "Select year";
-
   const currentPeriodTypeLabel =
     periodMode === "week" ? "week" : periodMode === "month" ? "month" : "year";
+
+  const toDateShortLabel =
+    periodMode === "week" ? "WTD" : periodMode === "month" ? "MTD" : "YTD";
+  const toDateLongLabel =
+    periodMode === "week"
+      ? "Week to date"
+      : periodMode === "month"
+        ? "Month to date"
+        : "Year to date";
 
   const activePeriodIndex = periodOptions.findIndex(
     (option) => option.value === activeFilterKey,
@@ -480,12 +493,6 @@ export function WaiterSalesInsightsCharts({
           </div>
 
           <div className="flex items-center gap-2">
-            <label
-              htmlFor="waiter-sales-insights-period"
-              className="text-xs font-medium uppercase tracking-wide text-black/45"
-            >
-              {periodSelectLabel}
-            </label>
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -527,6 +534,20 @@ export function WaiterSalesInsightsCharts({
 
           <button type="button" className={salesTableFilterButtonClass()} onClick={applyCurrentPeriod}>
             This {currentPeriodTypeLabel}
+          </button>
+
+          <button
+            type="button"
+            className={
+              toDateOnly
+                ? salesTableFilterButtonClass()
+                : salesTableFilterClearButtonClass()
+            }
+            onClick={() => setToDateOnly((prev) => !prev)}
+            aria-pressed={toDateOnly}
+            title={`${toDateLongLabel}${toDateOnly ? " (on)" : ""}`}
+          >
+            {toDateShortLabel}
           </button>
         </div>
       </Card>

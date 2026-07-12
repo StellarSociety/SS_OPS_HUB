@@ -202,6 +202,25 @@ export type Database = {
           enabled: boolean;
         }>;
       };
+      app_module_states: {
+        Row: {
+          module_key: string;
+          state: "live" | "coming_soon" | "visible_locked" | "hidden";
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          module_key: string;
+          state?: "live" | "coming_soon" | "visible_locked" | "hidden";
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: Partial<{
+          state: "live" | "coming_soon" | "visible_locked" | "hidden";
+          updated_at: string;
+          updated_by: string | null;
+        }>;
+      };
     };
   };
 };

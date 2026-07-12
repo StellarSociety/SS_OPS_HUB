@@ -4,9 +4,14 @@ import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { canAccessModule } from "@/lib/module-access";
 import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
 import {
+  fetchAppModuleStateMap,
+  resolveModuleState,
+} from "@/lib/app-module-states";
+import {
   getModuleOverviewByCategory,
   getModulesByCategory,
   isModuleEnabledForVenue,
+  type AppModuleState,
   type ModuleCategoryKey,
   type ModuleOverviewItem,
 } from "@/lib/modules-registry";
@@ -20,31 +25,60 @@ type VenueModuleRow = {
   enabled: boolean;
 };
 
+/**
+ * In global context the Apps Hub becomes a per-app settings launcher: each live
+ * app tile links to that app's settings landing page instead of the app itself.
+ */
+const MODULE_SETTINGS_ROUTES: Record<string, string> = {
+  sales: "/sales/settings",
+  hr: "/hr/settings",
+};
+
+/** Standalone "Global Settings" tile shown at the bottom of the global Apps Hub. */
+export const GLOBAL_SETTINGS_TILE: ModuleGridItem = {
+  key: "global_settings",
+  label: "Global Settings",
+  iconKey: "settings",
+  category: "management",
+  href: "/global/settings",
+  status: "live",
+  description:
+    "Cross-venue configuration — branding, defaults, and organisation-wide options.",
+  clickable: true,
+};
+
 export function buildModuleGridItems(
   modules: ModuleOverviewItem[],
   venueModuleRows: VenueModuleRow[],
   permissions: UserPermission[],
   venueId: string,
   admin: boolean,
+  appStateMap: Map<string, AppModuleState>,
+  isGlobal = false,
 ): ModuleGridItem[] {
-  return modules.map((mod) => {
-    const venueEnabled = isModuleEnabledForVenue(venueModuleRows, mod.key);
-    const hasAccess = admin || canAccessModule(permissions, mod.key, venueId);
-    return {
-      key: mod.key,
-      label: mod.label,
-      iconKey: mod.iconKey,
-      category: mod.category,
-      href: mod.href,
-      status: mod.status,
-      description: mod.description,
-      clickable:
-        mod.status === "live" &&
-        Boolean(mod.href) &&
-        venueEnabled &&
-        hasAccess,
-    };
-  });
+  return modules
+    .map((mod) => {
+      const state = resolveModuleState(mod.status, appStateMap.get(mod.key));
+      const venueEnabled = isModuleEnabledForVenue(venueModuleRows, mod.key);
+      const hasAccess = admin || canAccessModule(permissions, mod.key, venueId);
+      const settingsHref = MODULE_SETTINGS_ROUTES[mod.key];
+      const href = isGlobal ? settingsHref : mod.href;
+      return {
+        key: mod.key,
+        label: mod.label,
+        iconKey: mod.iconKey,
+        category: mod.category,
+        href,
+        status: state,
+        description: mod.description,
+        clickable:
+          state === "live" &&
+          Boolean(href) &&
+          (isGlobal || venueEnabled) &&
+          hasAccess,
+      };
+    })
+    .filter((item) => item.status !== "hidden");
 }
 
 export async function loadModulesHubContext() {
@@ -65,24 +99,45 @@ export async function loadModulesHubContext() {
     .single();
   if (!venue) redirect("/select-venue");
 
-  const [{ data: permissions }, { data: venueModules }] = await Promise.all([
-    supabase.from("user_permissions").select("*").eq("user_id", user.id),
-    supabase.from("venue_modules").select("*").eq("venue_id", venue.id),
-  ]);
+  const [{ data: permissions }, { data: venueModules }, appStateMap] =
+    await Promise.all([
+      supabase.from("user_permissions").select("*").eq("user_id", user.id),
+      supabase.from("venue_modules").select("*").eq("venue_id", venue.id),
+      fetchAppModuleStateMap(supabase),
+    ]);
 
   const perms = (permissions ?? []) as UserPermission[];
   const admin = isAppAdmin(perms);
   const venueModuleRows = venueModules ?? [];
+  const isGlobal = Boolean((venue as Venue).is_global);
 
-  const toGridItems = (modules: ModuleOverviewItem[]) =>
-    buildModuleGridItems(modules, venueModuleRows, perms, venue.id, admin);
+  const toGridItems = (modules: ModuleOverviewItem[], asSettings = false) =>
+    buildModuleGridItems(
+      modules,
+      venueModuleRows,
+      perms,
+      venue.id,
+      admin,
+      appStateMap,
+      asSettings,
+    );
 
   return {
     venue: venue as Venue,
+    isGlobal,
     sections: getModuleOverviewByCategory().map(({ category, modules }) => ({
       category,
       modules: toGridItems(modules),
     })),
+    // In global context, tiles link to each app's settings landing page.
+    settingsSections: getModuleOverviewByCategory().map(
+      ({ category, modules }) => ({
+        category,
+        modules: toGridItems(modules, true),
+      }),
+    ),
+    // Extra tile appended to the bottom of the global Apps Hub (admins only).
+    globalSettingsTile: admin ? GLOBAL_SETTINGS_TILE : null,
     getCategoryModules: (category: ModuleCategoryKey) =>
       toGridItems(getModulesByCategory(category)),
   };
