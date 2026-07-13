@@ -55,6 +55,11 @@ type DailySalesEntryFormProps = {
 
 type SalesInputMode = "gross" | "net";
 
+// Tolerance (in currency units) to absorb per-line rounding drift when
+// comparing independently-rounded totals. A couple of cents keeps genuinely
+// balanced days from flagging on rounding artifacts (e.g. -0.01).
+const ROUNDING_TOLERANCE = 0.02;
+
 type FormState = {
   id: string;
   sale_date: string;
@@ -726,7 +731,8 @@ function TenderVerificationColumn({
 
   const salesVsRevenueDiff =
     Math.round((waitersExGratuity - venueRevenueGross) * 100) / 100;
-  const salesVsRevenueBalanced = salesVsRevenueDiff === 0;
+  const salesVsRevenueBalanced =
+    Math.abs(salesVsRevenueDiff) <= ROUNDING_TOLERANCE;
 
   if (tenders.length === 0) return null;
 
