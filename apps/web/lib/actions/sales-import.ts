@@ -29,6 +29,7 @@ const SALES_DISCOUNTS_PATHS = [
   "/sales/discounts",
   "/sales/discounts/data",
   "/sales/discounts/entry",
+  "/sales/discounts/insights",
   "/sales/settings/data-management",
   "/sales/settings/data-management/discounts",
 ];
@@ -37,12 +38,14 @@ const SALES_DAILY_PATHS = [
   "/sales/daily",
   "/sales/daily/data",
   "/sales/daily/entry",
+  "/sales/daily/insights",
   "/sales/daily-vs-waiters",
 ];
 
 const SALES_WAITERS_PATHS = [
   "/sales/waiter/entry",
   "/sales/waiter/data",
+  "/sales/waiter/insights",
   "/sales/daily-vs-waiters",
 ];
 

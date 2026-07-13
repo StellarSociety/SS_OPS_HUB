@@ -3,12 +3,26 @@
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import {
+  BadgePercent,
+  Calculator,
+  CheckCircle2,
+  ConciergeBell,
+  GraduationCap,
+  PieChart,
+  Scale,
+  TrendingUp,
+  Users,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { pillSubNavLinkClass } from "@/lib/sub-nav-ui";
 
 type DashboardTab = {
   key: string;
   label: string;
+  icon: LucideIcon;
 };
 
 type DashboardsPanelProps = {
@@ -16,16 +30,16 @@ type DashboardsPanelProps = {
 };
 
 const DASHBOARD_TABS: DashboardTab[] = [
-  { key: "revenue", label: "Revenue" },
-  { key: "discounts", label: "Discounts" },
-  { key: "waiters_asph", label: "Waiters ASPH" },
-  { key: "gp_cos", label: "GP & COS" },
-  { key: "accounting", label: "Accounting" },
-  { key: "maintenance", label: "Maintenance" },
-  { key: "hr", label: "HR" },
-  { key: "learning", label: "L&D" },
-  { key: "governance", label: "Governance" },
-  { key: "approvals", label: "Approvals" },
+  { key: "revenue", label: "Revenue", icon: TrendingUp },
+  { key: "discounts", label: "Discounts", icon: BadgePercent },
+  { key: "waiters_asph", label: "Waiters ASPH", icon: ConciergeBell },
+  { key: "gp_cos", label: "GP & COS", icon: PieChart },
+  { key: "accounting", label: "Accounting", icon: Calculator },
+  { key: "maintenance", label: "Maintenance", icon: Wrench },
+  { key: "hr", label: "HR", icon: Users },
+  { key: "learning", label: "L&D", icon: GraduationCap },
+  { key: "governance", label: "Governance", icon: Scale },
+  { key: "approvals", label: "Approvals", icon: CheckCircle2 },
 ];
 
 export function DashboardsPanel({ slots }: DashboardsPanelProps) {
@@ -52,32 +66,55 @@ export function DashboardsPanel({ slots }: DashboardsPanelProps) {
 
       <nav
         aria-label="Dashboard views"
-        className="mt-4 flex flex-wrap items-center justify-center gap-1.5"
+        className="mt-4 hidden flex-wrap items-center justify-center gap-1.5 sm:flex"
       >
-        {DASHBOARD_TABS.map((tab, index) => (
-          <Fragment key={tab.key}>
-            {index > 0 ? (
-              <span aria-hidden className="select-none text-black/20">
-                |
-              </span>
-            ) : null}
-            <button
-              type="button"
-              aria-pressed={tab.key === activeKey}
-              onClick={() =>
-                setActiveKey((current) =>
-                  current === tab.key ? null : tab.key,
-                )
-              }
-              className={pillSubNavLinkClass(tab.key === activeKey)}
-            >
-              {tab.label}
-            </button>
-          </Fragment>
-        ))}
+        {DASHBOARD_TABS.map((tab, index) => {
+          const Icon = tab.icon;
+          return (
+            <Fragment key={tab.key}>
+              {index > 0 ? (
+                <span aria-hidden className="select-none text-black/20">
+                  |
+                </span>
+              ) : null}
+              <button
+                type="button"
+                aria-pressed={tab.key === activeKey}
+                onClick={() =>
+                  setActiveKey((current) =>
+                    current === tab.key ? null : tab.key,
+                  )
+                }
+                className={pillSubNavLinkClass(tab.key === activeKey)}
+              >
+                <Icon aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                {tab.label}
+              </button>
+            </Fragment>
+          );
+        })}
       </nav>
 
-      <hr className="mt-4 border-black/10" />
+      <div className="mt-4 sm:hidden">
+        <label htmlFor="dashboard-view-select" className="sr-only">
+          Dashboard view
+        </label>
+        <select
+          id="dashboard-view-select"
+          value={activeKey ?? ""}
+          onChange={(event) => setActiveKey(event.target.value || null)}
+          className="h-10 w-full rounded-lg border border-black/10 bg-white px-3 text-sm text-[#3D421F]"
+        >
+          <option value="">Select a dashboard…</option>
+          {DASHBOARD_TABS.map((tab) => (
+            <option key={tab.key} value={tab.key}>
+              {tab.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {activeTab ? <hr className="mt-4 border-black/10" /> : null}
 
       <AnimatePresence mode="wait" initial={false}>
         {activeTab ? (

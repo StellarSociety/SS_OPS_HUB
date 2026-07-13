@@ -8,7 +8,7 @@ import { computeDailyDiscounts } from "./discounts-calculations";
 import type { VenueDailyDiscountsRecord } from "./discounts-types";
 import type { VenueDailySalesRecord } from "./daily-sales-types";
 import type {
-  DailySnapForecastDeviation,
+  DailySnapForecastCard,
   DailySnapPeriodComparison,
   DailySnapRevenueCenterRow,
   DailySnapSnapshot,
@@ -17,6 +17,7 @@ import type {
   DailySnapWaiterRow,
   VenueMonthlyForecast,
 } from "./daily-snap-types";
+import { get445WeekCountForMonthKey } from "./forecast-445-calendar";
 import { getPreviousMonthKey } from "./sales-overview-aggregations";
 import { getPreviousWeekFilterKey } from "./waiter-sales-insights-aggregations";
 import {
@@ -33,20 +34,23 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-function buildForecastDeviation(
-  actualGs: number,
-  forecastGs: number,
-): DailySnapForecastDeviation {
-  const hasForecast = forecastGs > 0;
-  const deviationGs = roundMoney(actualGs - forecastGs);
+function buildForecastCard(input: {
+  periodTargetGs: number;
+  toDateActualGs: number;
+  toDateTargetGs: number;
+  hasForecast: boolean;
+}): DailySnapForecastCard {
+  const { periodTargetGs, toDateActualGs, toDateTargetGs, hasForecast } = input;
+  const deviationGs = roundMoney(toDateActualGs - toDateTargetGs);
   const deviationPct =
-    hasForecast && forecastGs !== 0
-      ? roundMoney((deviationGs / forecastGs) * 100)
+    hasForecast && toDateTargetGs !== 0
+      ? roundMoney((deviationGs / toDateTargetGs) * 100)
       : null;
 
   return {
-    actualGs: roundMoney(actualGs),
-    forecastGs: roundMoney(forecastGs),
+    periodTargetGs: roundMoney(periodTargetGs),
+    toDateActualGs: roundMoney(toDateActualGs),
+    toDateTargetGs: roundMoney(toDateTargetGs),
     deviationGs,
     deviationPct,
     hasForecast,
@@ -80,15 +84,63 @@ function buildPeriodComparison(
   };
 }
 
-function getDailyForecastGs(
+/** Stored monthly revenue target (gross) for a month, or 0 when unset. */
+function getMonthTargetGs(
   forecasts: VenueMonthlyForecast[],
   monthKey: string,
 ): number {
   const forecast = forecasts.find((row) => row.month_key === monthKey);
   if (!forecast || forecast.forecast_revenue_gs <= 0) return 0;
+  return roundMoney(forecast.forecast_revenue_gs);
+}
 
-  const daysInMonth = getDatesInMonth(monthKey).length;
-  return roundMoney(forecast.forecast_revenue_gs / daysInMonth);
+/** Week target = month target split evenly across the month's fiscal (4-4-5) weeks. */
+function getWeekTargetGs(
+  forecasts: VenueMonthlyForecast[],
+  monthKey: string,
+): number {
+  const monthTargetGs = getMonthTargetGs(forecasts, monthKey);
+  if (monthTargetGs <= 0) return 0;
+  const fiscalWeekCount = get445WeekCountForMonthKey(monthKey);
+  return fiscalWeekCount > 0 ? roundMoney(monthTargetGs / fiscalWeekCount) : 0;
+}
+
+/** ISO week filter key (e.g. `2026-W28`) for a given date. */
+function getIsoWeekKeyForDate(dateStr: string): string {
+  const { week, year } = getIsoWeekParts(dateStr);
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+
+/**
+ * Dynamic daily target for a specific date.
+ *
+ * The week target is distributed across the seven weekdays using the sales
+ * distribution of the previous ISO week: each weekday's target is the week
+ * target multiplied by that weekday's share of the previous week's sales. When
+ * the previous week has no sales, the week target is split evenly (1/7).
+ */
+function computeDayTargetGs(
+  dateStr: string,
+  forecasts: VenueMonthlyForecast[],
+  gsForDate: (date: string) => number,
+): number {
+  const monthKey = formatMonthKey(dateStr);
+  const weekTargetGs = getWeekTargetGs(forecasts, monthKey);
+  if (weekTargetGs <= 0) return 0;
+
+  const sameWeekdayPrevWeek = shiftIsoDate(dateStr, -7);
+  const prevWeekDates = getDatesInIsoWeek(
+    getIsoWeekKeyForDate(sameWeekdayPrevWeek),
+  );
+  const prevWeekTotalGs = prevWeekDates.reduce(
+    (sum, date) => sum + gsForDate(date),
+    0,
+  );
+
+  const share =
+    prevWeekTotalGs > 0 ? gsForDate(sameWeekdayPrevWeek) / prevWeekTotalGs : 1 / 7;
+
+  return roundMoney(weekTargetGs * share);
 }
 
 function sumDailyRevenueForDates(
@@ -337,8 +389,16 @@ export function buildDailySnapSnapshot(input: {
       );
 
   const monthKey = formatMonthKey(saleDate);
-  const dailyForecastGs = getDailyForecastGs(forecasts, monthKey);
   const dayOfMonth = Number(saleDate.slice(8, 10));
+
+  const dailyGsByDate = new Map<string, number>();
+  for (const record of dailyRecords) {
+    dailyGsByDate.set(
+      record.sale_date,
+      computeDailySales(record, totalTaxPct).totalVenueGs,
+    );
+  }
+  const gsForDate = (date: string): number => dailyGsByDate.get(date) ?? 0;
 
   const { week, year } = getIsoWeekParts(saleDate);
   const weekKey = `${year}-W${String(week).padStart(2, "0")}`;
@@ -356,11 +416,32 @@ export function buildDailySnapSnapshot(input: {
     weekDatesThroughToday,
     totalTaxPct,
   );
+  const monthDatesThroughToday = getDatesInMonth(monthKey).filter(
+    (date) => date <= saleDate,
+  );
   const monthlyActualGs = sumDailyRevenueForDates(
     dailyRecords,
-    getDatesInMonth(monthKey).filter((date) => date <= saleDate),
+    monthDatesThroughToday,
     totalTaxPct,
   );
+
+  const monthTargetGs = getMonthTargetGs(forecasts, monthKey);
+  const weekTargetGs = getWeekTargetGs(forecasts, monthKey);
+  const dayTargetGs = computeDayTargetGs(saleDate, forecasts, gsForDate);
+  const hasForecast = monthTargetGs > 0;
+  const weekToDateTargetGs = roundMoney(
+    weekDatesThroughToday.reduce(
+      (sum, date) => sum + computeDayTargetGs(date, forecasts, gsForDate),
+      0,
+    ),
+  );
+  const monthToDateTargetGs = roundMoney(
+    monthDatesThroughToday.reduce(
+      (sum, date) => sum + computeDayTargetGs(date, forecasts, gsForDate),
+      0,
+    ),
+  );
+
   const previousWeekWtdGs = sumDailyRevenueForDates(
     dailyRecords,
     previousWeekDatesThroughSameDay,
@@ -461,15 +542,24 @@ export function buildDailySnapSnapshot(input: {
     tenderRows,
     cashTenderGs,
     verification,
-    dailyForecast: buildForecastDeviation(dailyActualGs, dailyForecastGs),
-    weeklyForecast: buildForecastDeviation(
-      weeklyActualGs,
-      roundMoney(dailyForecastGs * weekDatesThroughToday.length),
-    ),
-    monthlyForecast: buildForecastDeviation(
-      monthlyActualGs,
-      roundMoney(dailyForecastGs * dayOfMonth),
-    ),
+    dailyForecast: buildForecastCard({
+      periodTargetGs: dayTargetGs,
+      toDateActualGs: dailyActualGs,
+      toDateTargetGs: dayTargetGs,
+      hasForecast,
+    }),
+    weeklyForecast: buildForecastCard({
+      periodTargetGs: weekTargetGs,
+      toDateActualGs: weeklyActualGs,
+      toDateTargetGs: weekToDateTargetGs,
+      hasForecast,
+    }),
+    monthlyForecast: buildForecastCard({
+      periodTargetGs: monthTargetGs,
+      toDateActualGs: monthlyActualGs,
+      toDateTargetGs: monthToDateTargetGs,
+      hasForecast,
+    }),
     weekToDateRevenue,
     monthToDateRevenue,
   };

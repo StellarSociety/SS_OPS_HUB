@@ -308,7 +308,7 @@ export function UsersList({ users, venues }: UsersListProps) {
 
       <section className="space-y-3">
         <div className="flex items-baseline justify-between gap-2">
-          <h3 className="text-sm font-semibold text-[#3D421F]">Internal users</h3>
+          <h3 className="text-sm font-semibold text-[#3D421F]">Employee Users</h3>
           <p className="text-sm text-black/50">
             {internalUsers.length} user{internalUsers.length === 1 ? "" : "s"}
           </p>

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { DashboardModuleTabs } from "@/components/dashboard/dashboard-module-tabs";
+import { DashboardWelcome } from "@/components/dashboard/dashboard-welcome";
 import { DashboardsPanel } from "@/components/dashboard/dashboards-panel";
 import { SalesTrendCharts } from "@/components/sales/sales-trend-charts";
 import { loadModulesHubContext } from "@/lib/modules-hub-data";
@@ -23,12 +24,19 @@ export default async function DashboardPage() {
   const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
-  const [{ sections }, { data: permissions }] = await Promise.all([
-    loadModulesHubContext(),
-    supabase.from("user_permissions").select("*").eq("user_id", user.id),
-  ]);
+  const [{ sections }, { data: permissions }, { data: profile }] =
+    await Promise.all([
+      loadModulesHubContext(),
+      supabase.from("user_permissions").select("*").eq("user_id", user.id),
+      supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .single(),
+    ]);
 
   const perms = (permissions ?? []) as UserPermission[];
+  const userName = (profile?.full_name as string | null)?.trim() || null;
 
   let revenueSlot: ReactNode = null;
   if (canAccessSalesModule(perms, venue.id)) {
@@ -48,9 +56,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
-      <DashboardModuleTabs sections={sections} />
+      <DashboardWelcome venue={venue} userName={userName} />
 
-      <DashboardsPanel slots={{ revenue: revenueSlot }} />
+      <DashboardModuleTabs
+        sections={sections}
+        dashboardsPanel={<DashboardsPanel slots={{ revenue: revenueSlot }} />}
+      />
     </div>
   );
 }

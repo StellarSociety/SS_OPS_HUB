@@ -1,9 +1,11 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Building2,
+  LayoutDashboard,
   LayoutGrid,
   TrendingUp,
   Users,
@@ -20,8 +22,13 @@ export type DashboardCategorySection = {
   modules: ModuleGridItem[];
 };
 
+const DASHBOARDS_KEY = "dashboards";
+
+type TabKey = ModuleCategoryKey | typeof DASHBOARDS_KEY;
+
 type DashboardModuleTabsProps = {
   sections: DashboardCategorySection[];
+  dashboardsPanel?: ReactNode;
 };
 
 const CATEGORY_ICONS: Record<ModuleCategoryKey, LucideIcon> = {
@@ -43,16 +50,21 @@ function tabClass(active: boolean) {
 
 export function DashboardModuleTabs({
   sections,
+  dashboardsPanel,
 }: DashboardModuleTabsProps) {
-  const [activeKey, setActiveKey] = useState<ModuleCategoryKey | null>(null);
+  const [activeKey, setActiveKey] = useState<TabKey | null>(null);
 
   const activeSection = sections.find(
     (section) => section.category.key === activeKey,
   );
+  const dashboardsActive = activeKey === DASHBOARDS_KEY;
 
-  if (sections.length === 0) {
+  if (sections.length === 0 && !dashboardsPanel) {
     return null;
   }
+
+  const toggleKey = (key: TabKey) =>
+    setActiveKey((current) => (current === key ? null : key));
 
   return (
     <div>
@@ -60,6 +72,21 @@ export function DashboardModuleTabs({
         aria-label="App categories"
         className="flex w-full flex-wrap items-center justify-center gap-2"
       >
+        {dashboardsPanel ? (
+          <button
+            type="button"
+            aria-pressed={dashboardsActive}
+            onClick={() => toggleKey(DASHBOARDS_KEY)}
+            className={tabClass(dashboardsActive)}
+          >
+            <LayoutDashboard
+              className="h-3.5 w-3.5 shrink-0 opacity-80"
+              aria-hidden
+            />
+            <span className="whitespace-nowrap">Dashboards</span>
+          </button>
+        ) : null}
+
         {sections.map((section) => {
           const Icon = CATEGORY_ICONS[section.category.key];
           const active = section.category.key === activeKey;
@@ -68,13 +95,7 @@ export function DashboardModuleTabs({
               key={section.category.key}
               type="button"
               aria-pressed={active}
-              onClick={() =>
-                setActiveKey((current) =>
-                  current === section.category.key
-                    ? null
-                    : section.category.key,
-                )
-              }
+              onClick={() => toggleKey(section.category.key)}
               className={tabClass(active)}
             >
               <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
@@ -88,7 +109,18 @@ export function DashboardModuleTabs({
       <hr className="mt-4 border-black/10" />
 
       <AnimatePresence mode="wait">
-        {activeSection ? (
+        {dashboardsActive ? (
+          <motion.div
+            key={DASHBOARDS_KEY}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="mt-6"
+          >
+            {dashboardsPanel}
+          </motion.div>
+        ) : activeSection ? (
           <motion.div
             key={activeSection.category.key}
             initial={{ opacity: 0, y: 8 }}

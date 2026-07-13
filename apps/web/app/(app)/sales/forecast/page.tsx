@@ -13,14 +13,14 @@ import {
   listVenueDailySales,
 } from "@/lib/sales/daily-sales-store";
 import { listVenueMonthlyForecasts } from "@/lib/sales/daily-snap-store";
-import { canAccessCashUp, canEditCashUp } from "@/lib/sales/permissions";
+import { canAccessForecast, canEditForecast } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
 import { Card } from "@/components/ui/card";
 
 export default async function SalesForecastPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
 
-  if (!canAccessCashUp(permissions, venue.id)) {
+  if (!canAccessForecast(permissions, venue.id)) {
     return (
       <div className="mx-auto max-w-4xl">
         <p className="text-sm text-black/60">
@@ -67,7 +67,7 @@ export default async function SalesForecastPage() {
         <SalesForecastPanel
           forecasts={forecasts}
           dailyRows={dailyRows}
-          canEdit={canEditCashUp(permissions, venue.id)}
+          canEdit={canEditForecast(permissions, venue.id)}
           initialYear={currentYear}
         />
       </div>

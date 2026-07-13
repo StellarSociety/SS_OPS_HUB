@@ -330,35 +330,40 @@ const metricCardClass =
 
 function ForecastCard({
   label,
-  deviation,
+  toDateLabel,
+  card,
 }: {
   label: string;
-  deviation: DailySnapSnapshot["dailyForecast"];
+  toDateLabel: string;
+  card: DailySnapSnapshot["dailyForecast"];
 }) {
-  const positive = deviation.deviationGs >= 0;
+  const positive = card.deviationGs >= 0;
   return (
     <div className={metricCardClass}>
       <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-black/55">
         {label}
       </p>
-      {deviation.hasForecast ? (
+      {card.hasForecast ? (
         <>
+          <p className="mt-0.5 text-sm font-semibold tabular-nums text-black/80 xl:text-base">
+            {formatMoney(card.periodTargetGs)}
+          </p>
           <p
             className={cn(
-              "mt-0.5 text-sm font-semibold tabular-nums xl:text-base",
+              "mt-0.5 text-xs font-semibold tabular-nums xl:text-sm",
               positive ? "text-emerald-700" : "text-amber-700",
             )}
           >
-            {formatDeviation(deviation.deviationGs)} |{" "}
-            {formatDeviationPct(deviation.deviationPct)}
+            {formatDeviation(card.deviationGs)} |{" "}
+            {formatDeviationPct(card.deviationPct)}
           </p>
           <p className="mt-0.5 text-[10px] leading-tight text-black/60 xl:text-[11px]">
-            Actual {formatMoney(deviation.actualGs)} vs{" "}
-            {formatMoney(deviation.forecastGs)}
+            {toDateLabel} {formatMoney(card.toDateActualGs)} vs{" "}
+            {formatMoney(card.toDateTargetGs)}
           </p>
         </>
       ) : (
-        <p className="mt-1 text-xs text-black/45 xl:text-sm">No forecast set</p>
+        <p className="mt-1 text-xs text-black/45 xl:text-sm">No target set</p>
       )}
     </div>
   );
@@ -1107,9 +1112,21 @@ export function DailySnapPanel({
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 [&>*]:min-w-0">
-        <ForecastCard label="Daily vs Forecast" deviation={snapshot.dailyForecast} />
-        <ForecastCard label="Weekly vs Forecast" deviation={snapshot.weeklyForecast} />
-        <ForecastCard label="Monthly vs Forecast" deviation={snapshot.monthlyForecast} />
+        <ForecastCard
+          label="Day Target"
+          toDateLabel="Today"
+          card={snapshot.dailyForecast}
+        />
+        <ForecastCard
+          label="Week Target"
+          toDateLabel="WTD"
+          card={snapshot.weeklyForecast}
+        />
+        <ForecastCard
+          label="Month Target"
+          toDateLabel="MTD"
+          card={snapshot.monthlyForecast}
+        />
         <PeriodComparisonCard
           label="Week to Date Revenue"
           comparison={snapshot.weekToDateRevenue}

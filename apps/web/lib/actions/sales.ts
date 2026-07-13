@@ -53,6 +53,7 @@ import {
   canEditCashUp,
   canEditDailyVsWaiters,
   canEditDiscounts,
+  canEditForecast,
   canEditVenueDaily,
   canEditWaiterDaily,
   canManageSalesWaiters,
@@ -68,6 +69,7 @@ const SALES_WAITERS_PATHS = [
   "/sales/settings/data-management/waiter-sales",
   "/sales/waiter/entry",
   "/sales/waiter/data",
+  "/sales/waiter/insights",
 ];
 
 function revalidateSalesWaiters() {
@@ -80,6 +82,7 @@ const SALES_DISCOUNTS_PATHS = [
   "/sales/discounts",
   "/sales/discounts/data",
   "/sales/discounts/entry",
+  "/sales/discounts/insights",
   "/sales/settings/data-management",
   "/sales/settings/data-management/discounts",
 ];
@@ -95,6 +98,7 @@ const SALES_DAILY_PATHS = [
   "/sales/daily",
   "/sales/daily/data",
   "/sales/daily/entry",
+  "/sales/daily/insights",
   "/sales/forecast",
   "/sales/settings",
   "/sales/settings/tax",
@@ -995,7 +999,7 @@ export async function removeVenueDailySnapEvent(formData: FormData) {
 export async function saveVenueMonthlyForecast(formData: FormData) {
   const { supabase, user, venue, permissions } = await getSalesAuthContext();
 
-  if (!canEditCashUp(permissions, venue.id)) {
+  if (!canEditForecast(permissions, venue.id)) {
     return { error: "You do not have permission to edit monthly forecasts." };
   }
 
@@ -1039,7 +1043,7 @@ export async function saveVenueMonthlyForecast(formData: FormData) {
 export async function removeVenueMonthlyForecast(formData: FormData) {
   const { supabase, user, venue, permissions } = await getSalesAuthContext();
 
-  if (!canEditCashUp(permissions, venue.id)) {
+  if (!canEditForecast(permissions, venue.id)) {
     return { error: "You do not have permission to delete forecasts." };
   }
 

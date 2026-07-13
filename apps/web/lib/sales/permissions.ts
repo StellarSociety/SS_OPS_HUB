@@ -47,6 +47,13 @@ function hasSalesPermission(
   );
 }
 
+export function canAccessOverview(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSalesFeatureAccess(permissions, SALES_FEATURES.overview, venueId);
+}
+
 export function canAccessVenueDaily(
   permissions: UserPermission[],
   venueId: string,
@@ -166,9 +173,10 @@ export function canAccessDailyVsWaiters(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  return (
-    canAccessVenueDaily(permissions, venueId) &&
-    canAccessWaiterDaily(permissions, venueId)
+  return hasSalesFeatureAccess(
+    permissions,
+    SALES_FEATURES.dailyVsWaiters,
+    venueId,
   );
 }
 
@@ -176,9 +184,47 @@ export function canEditDailyVsWaiters(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  return (
-    canEditVenueDaily(permissions, venueId) &&
-    canEditWaiterDaily(permissions, venueId)
+  return hasSalesPermission(
+    permissions,
+    SALES_FEATURES.dailyVsWaiters,
+    "edit",
+    venueId,
+  );
+}
+
+export function canAccessForecast(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSalesFeatureAccess(permissions, SALES_FEATURES.forecast, venueId);
+}
+
+export function canEditForecast(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSalesPermission(
+    permissions,
+    SALES_FEATURES.forecast,
+    "edit",
+    venueId,
+  );
+}
+
+/**
+ * Sales settings are an admin-only surface. Only an App Admin, or a user whose
+ * per-app role granted the sales `settings` feature (admin-tier), may enter.
+ * Editors and viewers — even with page-level grants — are denied.
+ */
+export function canAccessSalesSettings(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSalesPermission(
+    permissions,
+    SALES_FEATURES.settings,
+    "admin",
+    venueId,
   );
 }
 
@@ -189,10 +235,32 @@ export function canAccessSalesModule(
   if (isAppAdmin(permissions)) return true;
 
   return (
+    canAccessOverview(permissions, venueId) ||
     canAccessVenueDaily(permissions, venueId) ||
     canAccessWaiterDaily(permissions, venueId) ||
     canAccessDailyVsWaiters(permissions, venueId) ||
     canAccessCashDrawer(permissions, venueId) ||
+    canAccessForecast(permissions, venueId) ||
     canAccessCashUp(permissions, venueId)
   );
+}
+
+/**
+ * First sales page (relative path) the user is allowed to open, in sidebar
+ * order. Used to redirect users who land on a sub-page they cannot access to
+ * somewhere they can, instead of showing a dead-end.
+ */
+export function firstAccessibleSalesPath(
+  permissions: UserPermission[],
+  venueId: string,
+): string | null {
+  if (canAccessOverview(permissions, venueId)) return "/sales";
+  if (canAccessVenueDaily(permissions, venueId)) return "/sales/daily";
+  if (canAccessWaiterDaily(permissions, venueId)) return "/sales/waiter";
+  if (canAccessDailyVsWaiters(permissions, venueId))
+    return "/sales/daily-vs-waiters";
+  if (canAccessCashDrawer(permissions, venueId)) return "/sales/discounts";
+  if (canAccessForecast(permissions, venueId)) return "/sales/forecast";
+  if (canAccessCashUp(permissions, venueId)) return "/sales/daily-snap";
+  return null;
 }

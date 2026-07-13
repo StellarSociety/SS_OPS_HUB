@@ -6,7 +6,7 @@ import {
 } from "@/components/sales/sales-schema-setup-notice";
 import { listVenueWaiters } from "@/lib/sales/waiters-store";
 import {
-  canAccessSalesWaitersSettings,
+  canAccessSalesSettings,
   canManageSalesWaiters,
 } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
@@ -15,7 +15,7 @@ import { Card } from "@/components/ui/card";
 export default async function SalesWaitersSettingsPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
 
-  if (!canAccessSalesWaitersSettings(permissions, venue.id)) {
+  if (!canAccessSalesSettings(permissions, venue.id)) {
     return (
       <>
         <SalesSettingsSubNav />

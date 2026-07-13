@@ -9,7 +9,6 @@ export type SalesSectionTab = {
 
 export function salesSectionTabs(basePath: string): SalesSectionTab[] {
   return [
-    { href: basePath, label: "Insights", icon: BarChart3, exact: true },
     {
       href: `${basePath}/entry`,
       label: "Entry Form",
@@ -20,6 +19,12 @@ export function salesSectionTabs(basePath: string): SalesSectionTab[] {
       href: `${basePath}/data`,
       label: "Database Table",
       icon: Table2,
+      exact: false,
+    },
+    {
+      href: `${basePath}/insights`,
+      label: "Insights",
+      icon: BarChart3,
       exact: false,
     },
   ];

@@ -20,14 +20,25 @@ import {
   getSalesEntryStatusDates,
   type SnapReportStatusForDay,
 } from "@/lib/sales/sales-entry-status";
-import { canAccessSalesModule } from "@/lib/sales/permissions";
+import { redirect } from "next/navigation";
+import {
+  canAccessOverview,
+  firstAccessibleSalesPath,
+} from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
+import { scopedPath } from "@/lib/venue/active-venue";
 import { Card } from "@/components/ui/card";
 
 export default async function SalesOverviewPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
 
-  if (!canAccessSalesModule(permissions, venue.id)) {
+  if (!canAccessOverview(permissions, venue.id)) {
+    // Without the Overview grant, send the user to their first accessible sales
+    // page rather than showing the dashboards or a dead-end.
+    const fallback = firstAccessibleSalesPath(permissions, venue.id);
+    if (fallback && fallback !== "/sales") {
+      redirect(await scopedPath(fallback));
+    }
     return (
       <div className="mx-auto max-w-4xl">
         <p className="text-sm text-black/60">

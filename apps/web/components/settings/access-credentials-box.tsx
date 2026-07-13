@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, KeyRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Check, Copy, KeyRound, SlidersHorizontal } from "lucide-react";
+import { ScopedLink } from "@/components/layout/scoped-link";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 type Credentials = {
   email: string;
@@ -37,7 +38,14 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function AccessCredentialsBox({ credentials }: { credentials: Credentials }) {
+export function AccessCredentialsBox({
+  credentials,
+  manageHref,
+}: {
+  credentials: Credentials;
+  /** Unscoped path to the user's management page (access + credentials). */
+  manageHref?: string;
+}) {
   const [copiedAll, setCopiedAll] = useState(false);
 
   async function copyAll() {
@@ -62,17 +70,27 @@ export function AccessCredentialsBox({ credentials }: { credentials: Credentials
         <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-800">
           <KeyRound className="h-3.5 w-3.5" /> Account ready — share these with the user
         </p>
-        <Button type="button" size="sm" variant="secondary" onClick={copyAll}>
-          {copiedAll ? (
-            <>
-              <Check className="h-4 w-4" /> Copied
-            </>
-          ) : (
-            <>
-              <Copy className="h-4 w-4" /> Copy all
-            </>
-          )}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" variant="secondary" onClick={copyAll}>
+            {copiedAll ? (
+              <>
+                <Check className="h-4 w-4" /> Copied
+              </>
+            ) : (
+              <>
+                <Copy className="h-4 w-4" /> Copy all
+              </>
+            )}
+          </Button>
+          {manageHref ? (
+            <ScopedLink
+              href={manageHref}
+              className={buttonVariants({ size: "sm" })}
+            >
+              <SlidersHorizontal className="h-4 w-4" /> Manage access
+            </ScopedLink>
+          ) : null}
+        </div>
       </div>
       <div className="space-y-2">
         <CopyRow label="Login URL" value={credentials.loginUrl} />

@@ -1,5 +1,5 @@
 import { ModulePageTitle } from "@/components/layout/module-page-title";
-import { canAccessSalesWaitersSettings, canAccessVenueDaily } from "@/lib/sales/permissions";
+import { canAccessSalesSettings } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
 
 export default async function SalesSettingsLayout({
@@ -9,10 +9,7 @@ export default async function SalesSettingsLayout({
 }) {
   const { venue, permissions } = await getSalesPageContext();
 
-  if (
-    !canAccessVenueDaily(permissions, venue.id) &&
-    !canAccessSalesWaitersSettings(permissions, venue.id)
-  ) {
+  if (!canAccessSalesSettings(permissions, venue.id)) {
     return (
       <div className="mx-auto max-w-4xl">
         <p className="text-sm text-black/60">

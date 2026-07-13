@@ -104,6 +104,7 @@ function MonthTargetsEditor({
   onSave: (monthKey: string, form: Record<string, string>) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [values, setValues] = useState(() => ({
     forecast_revenue_gs: String(month.forecastGs || ""),
     forecast_covers: String(month.forecastCovers || ""),
@@ -141,9 +142,9 @@ function MonthTargetsEditor({
       </button>
       {open ? (
         <div className="mt-3 space-y-3">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="space-y-1 text-xs text-black/55">
-              Gross forecast
+              Gross forecast target
               <input
                 type="number"
                 min="0"
@@ -190,25 +191,49 @@ function MonthTargetsEditor({
                 }
               />
             </label>
-            {FORECAST_REVENUE_CENTERS.map((center) => (
-                <label key={center.key} className="space-y-1 text-xs text-black/55">
-                  {center.label} ASPH
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className={inputClass}
-                    value={values[center.forecastField]}
-                    onChange={(event) =>
-                      setValues((current) => ({
-                        ...current,
-                        [center.forecastField]: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              ))}
           </div>
+
+          <div className="rounded-md border border-black/10 bg-white/60">
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((current) => !current)}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-black/55"
+            >
+              ASPH Target Advance
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  advancedOpen && "rotate-180",
+                )}
+              />
+            </button>
+            {advancedOpen ? (
+              <div className="grid grid-cols-2 gap-3 border-t border-black/10 p-3 sm:grid-cols-3 lg:grid-cols-5">
+                {FORECAST_REVENUE_CENTERS.map((center) => (
+                  <label
+                    key={center.key}
+                    className="space-y-1 text-xs text-black/55"
+                  >
+                    {center.label} ASPH
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className={inputClass}
+                      value={values[center.forecastField]}
+                      onChange={(event) =>
+                        setValues((current) => ({
+                          ...current,
+                          [center.forecastField]: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           <button
             type="button"
             disabled={isPending}

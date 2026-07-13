@@ -70,6 +70,7 @@ export function InviteUserPanel({
   const [password, setPassword] = useState("");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<Credentials | null>(null);
+  const [createdUserId, setCreatedUserId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   type InviteResult = {
@@ -78,11 +79,13 @@ export function InviteUserPanel({
     warning?: string;
     inviteLink?: string;
     credentials?: Credentials;
+    userId?: string;
   };
 
   function resetResults() {
     setInviteLink(null);
     setCredentials(null);
+    setCreatedUserId(null);
   }
 
   function handleResult(result: InviteResult) {
@@ -90,6 +93,7 @@ export function InviteUserPanel({
       toast.error(result.error);
       return;
     }
+    if (result.userId) setCreatedUserId(result.userId);
     if (result.credentials) {
       setCredentials(result.credentials);
       toast.saved(result.success ?? "Account created.");
@@ -450,7 +454,14 @@ export function InviteUserPanel({
         </div>
       )}
 
-      {credentials ? <AccessCredentialsBox credentials={credentials} /> : null}
+      {credentials ? (
+        <AccessCredentialsBox
+          credentials={credentials}
+          manageHref={
+            createdUserId ? `/settings/users/${createdUserId}` : undefined
+          }
+        />
+      ) : null}
       {inviteLink ? <InviteLinkBox link={inviteLink} /> : null}
     </Card>
   );

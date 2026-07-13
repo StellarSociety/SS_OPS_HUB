@@ -90,10 +90,16 @@ export type DailySnapTenderRow = {
   amountGs: number;
 };
 
-export type DailySnapForecastDeviation = {
-  actualGs: number;
-  forecastGs: number;
+export type DailySnapForecastCard = {
+  /** Full-period target (day / week / month). */
+  periodTargetGs: number;
+  /** Sales achieved so far within the period. */
+  toDateActualGs: number;
+  /** Target that should have been achieved so far within the period. */
+  toDateTargetGs: number;
+  /** toDateActualGs - toDateTargetGs. */
   deviationGs: number;
+  /** Deviation as a percentage of the to-date target. */
   deviationPct: number | null;
   hasForecast: boolean;
 };
@@ -147,9 +153,9 @@ export type DailySnapSnapshot = {
   tenderRows: DailySnapTenderRow[];
   cashTenderGs: number;
   verification: DailySnapVerification;
-  dailyForecast: DailySnapForecastDeviation;
-  weeklyForecast: DailySnapForecastDeviation;
-  monthlyForecast: DailySnapForecastDeviation;
+  dailyForecast: DailySnapForecastCard;
+  weeklyForecast: DailySnapForecastCard;
+  monthlyForecast: DailySnapForecastCard;
   weekToDateRevenue: DailySnapPeriodComparison;
   monthToDateRevenue: DailySnapPeriodComparison;
 };
