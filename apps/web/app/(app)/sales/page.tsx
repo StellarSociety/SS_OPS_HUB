@@ -120,16 +120,16 @@ export default async function SalesOverviewPage() {
           <hr className="mt-4 border-black/10" />
         </div>
 
+        <SalesEntryStatusBoxes days={entryStatusDays} />
+
+        <hr className="border-black/10" />
+
         <SalesOverviewCharts
           records={records}
           totalTaxPct={totalTaxPct}
           waiterRecords={waiterRecords}
           tenders={tenders}
         />
-
-        <hr className="border-black/10" />
-
-        <SalesEntryStatusBoxes days={entryStatusDays} />
       </div>
     );
   } catch (error) {

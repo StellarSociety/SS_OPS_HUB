@@ -660,26 +660,24 @@ function DailyTenderTotalsColumn({
                 />
               </SalesFormFieldRow>
             ))}
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-black/10 bg-white px-3 py-2">
+            <div className="flex flex-col gap-1 rounded-lg border border-black/10 bg-white px-3 py-2">
               <span className="text-xs font-medium uppercase tracking-wide text-black/50">
                 Total
               </span>
-              <div className="flex items-baseline gap-3">
-                <span className="flex items-baseline gap-1">
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-                    Gross
-                  </span>
-                  <span className="text-base font-bold tabular-nums text-[#3D421F]">
-                    {formatMoney(enteredTotalGross)}
-                  </span>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                  Gross
                 </span>
-                <span className="flex items-baseline gap-1">
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-                    Net
-                  </span>
-                  <span className="text-base font-bold tabular-nums text-[#3D421F]">
-                    {formatMoney(enteredTotalNet)}
-                  </span>
+                <span className="text-base font-bold tabular-nums text-[#3D421F]">
+                  {formatMoney(enteredTotalGross)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                  Net
+                </span>
+                <span className="text-base font-bold tabular-nums text-[#3D421F]">
+                  {formatMoney(enteredTotalNet)}
                 </span>
               </div>
             </div>
@@ -719,7 +717,7 @@ function TenderVerificationColumn({
   );
   const overallDifference =
     Math.round((enteredTotalGross - waitersTotalGross) * 100) / 100;
-  const overallBalanced = overallDifference === 0;
+  const overallBalanced = Math.abs(overallDifference) <= ROUNDING_TOLERANCE;
 
   const waitersExGratuity =
     Math.round((waitersTotalGross - gratuityCc) * 100) / 100;
@@ -727,7 +725,8 @@ function TenderVerificationColumn({
     Math.round((enteredTotalGross - gratuityCc) * 100) / 100;
   const exGratuityDifference =
     Math.round((enteredExGratuity - waitersExGratuity) * 100) / 100;
-  const exGratuityBalanced = exGratuityDifference === 0;
+  const exGratuityBalanced =
+    Math.abs(exGratuityDifference) <= ROUNDING_TOLERANCE;
 
   const salesVsRevenueDiff =
     Math.round((waitersExGratuity - venueRevenueGross) * 100) / 100;
@@ -794,7 +793,7 @@ function TenderVerificationColumn({
               overallBalanced ? "text-emerald-700" : "text-amber-700",
             )}
           >
-            {overallBalanced ? "—" : formatDifference(overallDifference)}
+            {overallDifference === 0 ? "—" : formatDifference(overallDifference)}
           </span>
         </div>
         <div
@@ -825,7 +824,9 @@ function TenderVerificationColumn({
               exGratuityBalanced ? "text-emerald-700" : "text-amber-700",
             )}
           >
-            {exGratuityBalanced ? "—" : formatDifference(exGratuityDifference)}
+            {exGratuityDifference === 0
+              ? "—"
+              : formatDifference(exGratuityDifference)}
           </span>
         </div>
         <div
@@ -842,7 +843,7 @@ function TenderVerificationColumn({
             Total Revenue Exc. CC Gratuity
           </span>
           <span className="tabular-nums font-semibold uppercase">
-            {salesVsRevenueBalanced
+            {salesVsRevenueDiff === 0
               ? "Matched"
               : formatDifference(salesVsRevenueDiff)}
           </span>
@@ -870,7 +871,7 @@ function TaxCollectionEntryRow({
   onChange: (value: string) => void;
 }) {
   const difference = Math.round((entered - expected) * 100) / 100;
-  const matched = Math.abs(difference) < 0.005;
+  const matched = Math.abs(difference) <= ROUNDING_TOLERANCE;
   return (
     <div className="space-y-1.5 border-b border-black/5 pb-2.5 last:border-0">
       <div className="flex flex-col leading-tight">
@@ -895,7 +896,7 @@ function TaxCollectionEntryRow({
             matched ? "text-emerald-700" : "text-amber-700",
           )}
         >
-          {matched ? "Matched" : formatDifference(difference)}
+          {difference === 0 ? "Matched" : formatDifference(difference)}
         </span>
       </div>
     </div>
@@ -948,11 +949,11 @@ function TaxCollectionColumn({
     vatEntered + municipalityEntered + serviceChargeEntered,
   );
   const totalDifference = round2(enteredTotal - expectedTotal);
-  const totalMatched = Math.abs(totalDifference) < 0.005;
+  const totalMatched = Math.abs(totalDifference) <= ROUNDING_TOLERANCE;
 
   const netPlusEntered = round2(netSales + enteredTotal);
   const grossDifference = round2(netPlusEntered - round2(venueRevenueGross));
-  const grossMatched = Math.abs(grossDifference) < 0.005;
+  const grossMatched = Math.abs(grossDifference) <= ROUNDING_TOLERANCE;
 
   return (
     <div className={salesFormColumnClassName("bg-white/80")}>
@@ -1034,7 +1035,7 @@ function TaxCollectionColumn({
             totalMatched ? "text-emerald-700" : "text-amber-700",
           )}
         >
-          {totalMatched ? "—" : formatDifference(totalDifference)}
+          {totalDifference === 0 ? "—" : formatDifference(totalDifference)}
         </span>
       </div>
       <p className="px-2 text-[10px] text-black/40">
@@ -1055,7 +1056,7 @@ function TaxCollectionColumn({
           Total Revenue (excl. gratuity)
         </span>
         <span className="tabular-nums font-semibold uppercase">
-          {grossMatched ? "Matched" : formatDifference(grossDifference)}
+          {grossDifference === 0 ? "Matched" : formatDifference(grossDifference)}
         </span>
       </div>
     </div>
