@@ -7,6 +7,7 @@ import {
   type ModuleStatus,
 } from "@/lib/modules-registry";
 import { createClient } from "@/lib/supabase/server";
+import { scopedPath } from "@/lib/venue/active-venue";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -63,6 +64,6 @@ export async function getAppModuleState(
 export async function assertModuleAccessible(moduleKey: string): Promise<void> {
   const state = await getAppModuleState(moduleKey);
   if (state !== "live") {
-    redirect("/modules");
+    redirect(await scopedPath("/modules"));
   }
 }

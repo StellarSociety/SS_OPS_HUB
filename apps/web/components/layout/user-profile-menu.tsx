@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useEffect, useRef, useState } from "react";
 import { Settings, User } from "lucide-react";
 import { signOut } from "@/lib/actions/auth";

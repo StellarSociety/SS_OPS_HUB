@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Bell, Check, CheckCheck } from "lucide-react";
 import {

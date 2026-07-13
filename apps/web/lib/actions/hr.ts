@@ -1,18 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
-import { parseDate, parseNumber, parseStaffCsv } from "@/lib/hr/import";
+import { resolveActiveVenue } from "@/lib/venue/active-venue";
+import { scopedHrefForVenue } from "@/lib/venue/scope-routing";
+import { parseDate, parseNumber, parseStaffCsv, type ImportStaffRow } from "@/lib/hr/import";
 import {
   canAccessStaff,
   canAdminLookups,
   canAdminStaff,
   canEditOwnStaff,
   canEditStaff,
+  canSubmitStaff,
   canViewStaff,
+  stripSensitiveStaffWrites,
 } from "@/lib/hr/permissions";
 import {
   listDepartments,
@@ -38,15 +40,7 @@ async function getAuthContext() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const venueSlug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!venueSlug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", venueSlug)
-    .single();
+  const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase
@@ -58,6 +52,26 @@ async function getAuthContext() {
 }
 
 export async function importStaffFromCsv(csvText: string) {
+  const rows = parseStaffCsv(csvText);
+  if (rows.length === 0) {
+    return { error: "No data rows found in CSV." };
+  }
+  return importStaffRows(rows);
+}
+
+/**
+ * Bulk import employee rows from the HR → Settings → Data Management Excel
+ * template. Rows are keyed by emp no (idempotent upsert) with lookups resolved
+ * by name. Shares the same core as the legacy CSV import.
+ */
+export async function importEmployeesFromRows(rows: ImportStaffRow[]) {
+  if (!rows.length) {
+    return { error: "No data rows found in the file." };
+  }
+  return importStaffRows(rows);
+}
+
+async function importStaffRows(rows: ImportStaffRow[]) {
   const { supabase, user, venue, permissions } = await getAuthContext();
 
   if (!canEditStaff(permissions, venue.id)) {
@@ -70,9 +84,8 @@ export async function importStaffFromCsv(csvText: string) {
     };
   }
 
-  const rows = parseStaffCsv(csvText);
   if (rows.length === 0) {
-    return { error: "No data rows found in CSV." };
+    return { error: "No data rows found." };
   }
 
   const [departments, positions, statuses, nationalities] = await Promise.all([
@@ -110,57 +123,80 @@ export async function importStaffFromCsv(csvText: string) {
       [firstName, lastName].filter(Boolean).join(" ") ||
       empNo;
 
-    const payload = {
+    // Only write columns that are present in the uploaded sheet so a partial
+    // import never blanks out fields it doesn't include (e.g. columns that were
+    // intentionally removed from the Excel template).
+    const has = (key: string) =>
+      Object.prototype.hasOwnProperty.call(row, key);
+    const nameProvided =
+      has("full_name") || has("first_name") || has("last_name");
+
+    const payload: Record<string, unknown> = {
       home_venue_id: venue.id,
       emp_no: empNo,
-      department_id: departmentId,
-      position_id: positionId,
-      employment_status_id: statusId,
-      nationality_id: nationalityId,
-      first_name: firstName,
-      last_name: lastName,
-      full_name: fullName,
-      contact_phone: row.contact_phone || null,
-      personal_email: row.personal_email || null,
-      work_email: row.work_email || null,
-      gender: row.gender || null,
-      civil_status: row.civil_status || null,
-      dob: parseDate(row.dob),
-      passport_no: row.passport_no || null,
-      passport_expiry: parseDate(row.passport_expiry),
-      eid_no: row.eid_no || null,
-      eid_expiry: parseDate(row.eid_expiry),
-      iban: row.iban || null,
-      swift_code: row.swift_code || null,
-      bank_name: row.bank_name || null,
-      joining_date: parseDate(row.joining_date),
-      termination_date: parseDate(row.termination_date),
-      unpaid_leave_days_total: parseNumber(row.unpaid_leave_days_total),
-      vacations_entitle: parseNumber(row.vacations_entitle),
-      vacations_balance: parseNumber(row.vacations_balance),
-      wage_package: parseNumber(row.wage_package),
-      company_accommodation: row.company_accommodation || null,
-      basic_salary_60: parseNumber(row.basic_salary_60),
-      accom_all_25: parseNumber(row.accom_all_25),
-      transp_all_15: parseNumber(row.transp_all_15),
-      fly_home_ticket_per_year: parseNumber(row.fly_home_ticket_per_year),
-      provisional_leave: parseNumber(row.provisional_leave),
-      provisional_eosb: parseNumber(row.provisional_eosb),
-      visa_expenses: parseNumber(row.visa_expenses),
-      visa_penalties_paid: parseNumber(row.visa_penalties_paid),
-      ohc_date: parseDate(row.ohc_date),
-      pic_date: parseDate(row.pic_date),
-      basic_food_safety_date: parseDate(row.basic_food_safety_date),
-      fire_safety_date: parseDate(row.fire_safety_date),
-      first_aid_date: parseDate(row.first_aid_date),
-      insurance_category: row.insurance_category || null,
-      medical_insurance_value: parseNumber(row.medical_insurance_value),
-      medical_insurance_issue_date: parseDate(row.medical_insurance_issue_date),
-      medical_insurance_expiry_date: parseDate(
-        row.medical_insurance_expiry_date,
-      ),
-      created_by: user.id,
     };
+
+    if (nameProvided) payload.full_name = fullName;
+    if (has("first_name")) payload.first_name = firstName;
+    if (has("last_name")) payload.last_name = lastName;
+    if (has("department")) payload.department_id = departmentId;
+    if (has("position")) payload.position_id = positionId;
+    if (has("status")) payload.employment_status_id = statusId;
+    if (has("nationality")) payload.nationality_id = nationalityId;
+
+    const TEXT_FIELDS = [
+      "contact_phone",
+      "personal_email",
+      "work_email",
+      "gender",
+      "civil_status",
+      "passport_no",
+      "eid_no",
+      "iban",
+      "swift_code",
+      "bank_name",
+      "company_accommodation",
+      "insurance_category",
+    ] as const;
+    const DATE_FIELDS = [
+      "dob",
+      "passport_expiry",
+      "eid_expiry",
+      "joining_date",
+      "termination_date",
+      "ohc_date",
+      "pic_date",
+      "basic_food_safety_date",
+      "fire_safety_date",
+      "first_aid_date",
+      "medical_insurance_issue_date",
+      "medical_insurance_expiry_date",
+    ] as const;
+    const NUMBER_FIELDS = [
+      "unpaid_leave_days_total",
+      "vacations_entitle",
+      "vacations_balance",
+      "wage_package",
+      "basic_salary_60",
+      "accom_all_25",
+      "transp_all_15",
+      "fly_home_ticket_per_year",
+      "provisional_leave",
+      "provisional_eosb",
+      "visa_expenses",
+      "visa_penalties_paid",
+      "medical_insurance_value",
+    ] as const;
+
+    for (const field of TEXT_FIELDS) {
+      if (has(field)) payload[field] = row[field] || null;
+    }
+    for (const field of DATE_FIELDS) {
+      if (has(field)) payload[field] = parseDate(row[field]);
+    }
+    for (const field of NUMBER_FIELDS) {
+      if (has(field)) payload[field] = parseNumber(row[field]);
+    }
 
     const { data: existing } = await service
       .from("staff")
@@ -191,7 +227,7 @@ export async function importStaffFromCsv(csvText: string) {
     } else {
       const { data: created, error } = await service
         .from("staff")
-        .insert(payload)
+        .insert({ full_name: fullName, ...payload, created_by: user.id })
         .select("id")
         .single();
       if (error) {
@@ -213,6 +249,8 @@ export async function importStaffFromCsv(csvText: string) {
 
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
+  revalidatePath("/hr/staff/data");
+  revalidatePath("/hr/settings/data-management/employees-details");
   revalidatePath("/dashboard");
 
   return {
@@ -242,7 +280,11 @@ export async function updateStaff(
     return { error: "You do not have permission to edit staff." };
   }
 
-  const updates = formDataToStaffPayload(formData);
+  const updates = stripSensitiveStaffWrites(
+    formDataToStaffPayload(formData),
+    permissions,
+    venue.id,
+  );
   const service = createServiceClient();
   const { error } = await service
     .from("staff")
@@ -266,6 +308,69 @@ export async function updateStaff(
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
   return { success: true };
+}
+
+export async function createStaff(formData: FormData) {
+  const { user, venue, permissions } = await getAuthContext();
+
+  if (!canSubmitStaff(permissions, venue.id)) {
+    return { error: "You do not have permission to add staff." };
+  }
+
+  if (venue.is_global) {
+    return { error: "Add venue staff at a specific venue, not Global." };
+  }
+
+  const empNo = String(formData.get("emp_no") ?? "").trim();
+  if (!empNo) return { error: "Employee number is required." };
+
+  const fullName = String(formData.get("full_name") ?? "").trim();
+  if (!fullName) return { error: "Full name is required." };
+
+  const service = createServiceClient();
+
+  const { data: existing } = await service
+    .from("staff")
+    .select("id")
+    .eq("home_venue_id", venue.id)
+    .eq("emp_no", empNo)
+    .maybeSingle();
+  if (existing) {
+    return { error: `Employee number "${empNo}" already exists.` };
+  }
+
+  const payload = {
+    ...formDataToStaffPayload(formData),
+    home_venue_id: venue.id,
+    emp_no: empNo,
+    full_name: fullName,
+    created_by: user.id,
+  };
+
+  const { data: created, error } = await service
+    .from("staff")
+    .insert(payload)
+    .select("id")
+    .single();
+
+  if (error) return { error: error.message };
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "create",
+    module_key: HR_MODULE_KEY,
+    entity: "staff",
+    entity_id: created.id,
+    venue_id: venue.id,
+    after: { emp_no: empNo, full_name: fullName, source: "manual" },
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/hr/staff");
+  revalidatePath("/hr/staff/data");
+  revalidatePath("/dashboard");
+
+  return { success: true, id: created.id as string };
 }
 
 export async function deleteStaff(staffId: string) {
@@ -300,7 +405,7 @@ export async function deleteStaff(staffId: string) {
 
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
-  redirect("/hr/staff");
+  redirect(scopedHrefForVenue(venue, "/hr/staff"));
 }
 
 export async function upsertDepartment(formData: FormData): Promise<void> {

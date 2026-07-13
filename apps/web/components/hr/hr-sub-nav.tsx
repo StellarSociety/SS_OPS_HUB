@@ -1,7 +1,7 @@
 "use client";
 
 import { LayoutDashboard, Settings, Upload, Users } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const links = [
@@ -12,7 +12,7 @@ const links = [
 ];
 
 export function HrSubNav() {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
 
   return (
     <nav className="flex flex-wrap gap-1 border-b border-black/10 pb-3">

@@ -1,9 +1,15 @@
 "use client";
 
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { motion } from "framer-motion";
+import { Lock } from "lucide-react";
 import { ModuleIcon } from "@/components/modules/module-icon";
 import type { ModuleIconKey } from "@/lib/module-icons";
+import {
+  ACCESS_DENIED_MESSAGE,
+  ACCESS_DENIED_TITLE,
+} from "@/lib/access/messages";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { AppModuleState } from "@/lib/modules-registry";
 
@@ -13,6 +19,7 @@ type ModuleTileProps = {
   status: AppModuleState;
   href?: string;
   clickable: boolean;
+  blockedReason?: "access" | null;
 };
 
 export function ModuleTile({
@@ -21,10 +28,12 @@ export function ModuleTile({
   status,
   href,
   clickable,
+  blockedReason,
 }: ModuleTileProps) {
   const isLive = status === "live" && clickable && href;
   const isComingSoon = status === "coming_soon";
   const isLocked = status === "visible_locked";
+  const isAccessBlocked = !isLive && blockedReason === "access";
 
   const inner = (
     <motion.div
@@ -33,7 +42,7 @@ export function ModuleTile({
       transition={{ type: "spring", stiffness: 460, damping: 22 }}
       className={cn(
         "group flex flex-col items-center gap-1.5 px-0.5 py-1 text-center",
-        isLive ? "cursor-pointer" : "cursor-default",
+        isLive || isAccessBlocked ? "cursor-pointer" : "cursor-default",
       )}
     >
       <motion.div
@@ -46,8 +55,17 @@ export function ModuleTile({
           className={cn(
             isComingSoon && "opacity-60",
             isLocked && "opacity-40 grayscale",
+            isAccessBlocked && "opacity-45 grayscale",
           )}
         />
+        {isAccessBlocked ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-black/10 bg-white/90 text-black/55 shadow-sm"
+          >
+            <Lock className="h-3 w-3" />
+          </span>
+        ) : null}
         {isComingSoon ? (
           <span
             aria-hidden
@@ -74,6 +92,24 @@ export function ModuleTile({
       <Link href={href} className="block">
         {inner}
       </Link>
+    );
+  }
+
+  if (isAccessBlocked) {
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          toast.alert({
+            title: ACCESS_DENIED_TITLE,
+            message: ACCESS_DENIED_MESSAGE,
+          })
+        }
+        aria-label={`${label} — access restricted`}
+        className="block w-full"
+      >
+        {inner}
+      </button>
     );
   }
 

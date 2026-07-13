@@ -1,4 +1,4 @@
-import { LookupEditor } from "@/components/hr/lookup-editor";
+import { LookupEditor, type LookupFieldConfig } from "@/components/hr/lookup-editor";
 import {
   deleteCertificationType,
   deleteCivilStatus,
@@ -86,30 +86,73 @@ export function PositionsSection({
   positions: Position[];
   departments: Department[];
 }) {
+  const departmentOptions = departments.map((d) => ({
+    value: d.id,
+    label: d.name,
+  }));
+  const departmentField: LookupFieldConfig = {
+    key: "department_id",
+    label: "Department",
+    type: "select",
+    required: true,
+    placeholder: "Department",
+    options: departmentOptions,
+  };
+
+  const positionsByDepartment = new Map<string, Position[]>();
+  for (const department of departments) {
+    positionsByDepartment.set(department.id, []);
+  }
+  const unassigned: Position[] = [];
+  for (const position of positions) {
+    const group = positionsByDepartment.get(position.department_id);
+    if (group) group.push(position);
+    else unassigned.push(position);
+  }
+
   return (
     <LookupSection
       title="Positions"
-      description="Drag to reorder, edit inline, reassign a department, or add a new position."
+      description="Positions are grouped by department. Drag to reorder within a department, edit inline, reassign a position to another department, or add a new one."
     >
-      <LookupEditor
-        items={positions}
-        namePlaceholder="Position name"
-        addLabel="Add position"
-        emptyLabel="No positions yet — add the first one below."
-        fields={[
-          {
-            key: "department_id",
-            label: "Department",
-            type: "select",
-            required: true,
-            placeholder: "Department",
-            options: departments.map((d) => ({ value: d.id, label: d.name })),
-          },
-        ]}
-        upsertAction={upsertPosition}
-        deleteAction={deletePosition}
-        reorderAction={reorderPositions}
-      />
+      <div className="space-y-6">
+        {departments.map((department) => (
+          <div key={department.id} className="space-y-2">
+            <h3 className="font-nav text-sm font-semibold uppercase tracking-[0.08em] text-[#3D421F]">
+              {department.name}
+            </h3>
+            <LookupEditor
+              items={positionsByDepartment.get(department.id) ?? []}
+              namePlaceholder="Position name"
+              addLabel="Add position"
+              emptyLabel={`No positions in ${department.name} yet — add the first one below.`}
+              fields={[departmentField]}
+              addDefaults={{ department_id: department.id }}
+              upsertAction={upsertPosition}
+              deleteAction={deletePosition}
+              reorderAction={reorderPositions}
+            />
+          </div>
+        ))}
+
+        {unassigned.length > 0 ? (
+          <div className="space-y-2">
+            <h3 className="font-nav text-sm font-semibold uppercase tracking-[0.08em] text-black/50">
+              Unassigned
+            </h3>
+            <LookupEditor
+              items={unassigned}
+              namePlaceholder="Position name"
+              addLabel="Add position"
+              emptyLabel="No unassigned positions."
+              fields={[departmentField]}
+              upsertAction={upsertPosition}
+              deleteAction={deletePosition}
+              reorderAction={reorderPositions}
+            />
+          </div>
+        ) : null}
+      </div>
     </LookupSection>
   );
 }
@@ -145,7 +188,7 @@ export function NationalitiesSection({
   return (
     <LookupSection
       title="Nationalities"
-      description="Drag to reorder, edit the fly-home ticket value inline, or add a new nationality."
+      description="Drag to reorder, edit the fly-home ticket value inline, or add a new nationality. The value in the Fly-home ticket column is the employee's annual Fly Ticket allowance benefit (in AED) for that nationality."
     >
       <LookupEditor
         items={nationalities}

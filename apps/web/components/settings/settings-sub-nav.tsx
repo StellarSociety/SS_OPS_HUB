@@ -1,7 +1,7 @@
 "use client";
 
 import { Blocks, LayoutGrid, Users } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const items = [
@@ -11,7 +11,7 @@ const items = [
 ];
 
 export function SettingsSubNav() {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
 
   return (
     <nav className="flex flex-wrap gap-2 border-b border-black/10 pb-3">

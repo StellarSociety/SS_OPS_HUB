@@ -8,7 +8,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
@@ -32,7 +32,7 @@ const tabs = [
 ] as const;
 
 export function SalesSettingsSubNav() {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
 
   return (
     <nav

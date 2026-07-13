@@ -1,7 +1,6 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
+import { resolveActiveVenue } from "@/lib/venue/active-venue";
 
 export async function getSalesPageContext() {
   const supabase = await createClient();
@@ -10,15 +9,7 @@ export async function getSalesPageContext() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!slug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", slug)
-    .single();
+  const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase

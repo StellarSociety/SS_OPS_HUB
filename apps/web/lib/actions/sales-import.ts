@@ -1,10 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import type { DailySalesImportPayload } from "@/lib/sales/daily-sales-import";
 import type { DiscountsImportPayload } from "@/lib/sales/discounts-import";
 import { isFutureSalesEntryDate } from "@/lib/sales/sales-entry-dates";
@@ -81,16 +80,7 @@ async function getSalesAuthContext() {
 
   if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const venueSlug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!venueSlug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", venueSlug)
-    .single();
-
+  const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase

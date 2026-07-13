@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { NotificationCenter } from "@/components/layout/notification-center";
 import {
   UserProfileMenu,
@@ -31,7 +31,7 @@ export function AppHeader({
   sidebarOpen = true,
   onToggleSidebar,
 }: AppHeaderProps) {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
   const moduleSidebar = getModuleSidebarForPath(pathname);
   const inModuleApp = Boolean(moduleSidebar);
   const ModuleIcon = moduleSidebar?.icon;
@@ -60,7 +60,7 @@ export function AppHeader({
   return (
     <header
       className={cn(
-        "grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-black/5 bg-white/60 px-4 backdrop-blur-md md:px-6",
+        "relative z-40 grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-black/5 bg-white/60 px-4 backdrop-blur-md md:px-6",
         SHELL_BAR_HEIGHT,
       )}
     >

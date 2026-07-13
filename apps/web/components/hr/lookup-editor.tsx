@@ -5,6 +5,13 @@ import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
+// The shared <Input> defaults to white text on a translucent dark background,
+// but lookup rows sit on a white surface. Override to dark, visible text so the
+// fields are actually editable/readable in this light context.
+const LIGHT_INPUT =
+  "border-black/15 bg-white text-black placeholder:text-black/40 focus-visible:ring-offset-white";
 
 export type LookupFieldConfig = {
   key: string;
@@ -32,6 +39,8 @@ type LookupEditorProps = {
   upsertAction: (formData: FormData) => Promise<void>;
   deleteAction: (id: string) => Promise<void>;
   reorderAction: (orderedIds: string[]) => Promise<void>;
+  /** Pre-filled values for the "add new" row (e.g. a fixed department). */
+  addDefaults?: Record<string, unknown>;
 };
 
 export function LookupEditor({
@@ -43,6 +52,7 @@ export function LookupEditor({
   upsertAction,
   deleteAction,
   reorderAction,
+  addDefaults,
 }: LookupEditorProps) {
   const [order, setOrder] = useState(items);
   const [, startTransition] = useTransition();
@@ -88,6 +98,7 @@ export function LookupEditor({
         addLabel={addLabel}
         nextSortOrder={order.length + 1}
         upsertAction={upsertAction}
+        addDefaults={addDefaults}
       />
     </div>
   );
@@ -136,7 +147,7 @@ function LookupRow({
           defaultValue={item.name}
           placeholder={namePlaceholder}
           required
-          className="h-9 min-w-[8rem] flex-1"
+          className={cn("h-9 min-w-[8rem] flex-1", LIGHT_INPUT)}
         />
         {fields.map((field) => (
           <FieldInput key={field.key} field={field} value={item[field.key]} />
@@ -172,12 +183,14 @@ function AddRow({
   addLabel,
   nextSortOrder,
   upsertAction,
+  addDefaults,
 }: {
   fields: LookupFieldConfig[];
   namePlaceholder: string;
   addLabel: string;
   nextSortOrder: number;
   upsertAction: (formData: FormData) => Promise<void>;
+  addDefaults?: Record<string, unknown>;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -195,10 +208,14 @@ function AddRow({
         name="name"
         placeholder={namePlaceholder}
         required
-        className="h-9 min-w-[8rem] flex-1"
+        className={cn("h-9 min-w-[8rem] flex-1", LIGHT_INPUT)}
       />
       {fields.map((field) => (
-        <FieldInput key={field.key} field={field} value="" />
+        <FieldInput
+          key={field.key}
+          field={field}
+          value={addDefaults?.[field.key] ?? ""}
+        />
       ))}
       <Button type="submit" size="sm">
         <Plus className="h-4 w-4" aria-hidden />
@@ -242,13 +259,13 @@ function FieldInput({
 
   return (
     <Input
-      name={field.key}
-      type={field.type}
-      defaultValue={stringValue}
-      placeholder={field.placeholder ?? field.label}
-      required={field.required}
-      className={field.className ?? "h-9 w-32"}
-      aria-label={field.label}
+        name={field.key}
+        type={field.type}
+        defaultValue={stringValue}
+        placeholder={field.placeholder ?? field.label}
+        required={field.required}
+        className={cn("h-9 w-32", LIGHT_INPUT, field.className)}
+        aria-label={field.label}
     />
   );
 }

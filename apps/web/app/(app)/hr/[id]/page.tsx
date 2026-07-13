@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { StaffDetailView } from "@/components/hr/staff-detail";
@@ -18,8 +18,7 @@ import {
   listPositions,
 } from "@/lib/hr/store";
 import { createClient } from "@/lib/supabase/server";
-import { cookies } from "next/headers";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import { StatusBadge } from "@/components/hr/status-badge";
 
 export default async function StaffDetailPage({
@@ -34,15 +33,7 @@ export default async function StaffDetailPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!slug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", slug)
-    .single();
+  const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase

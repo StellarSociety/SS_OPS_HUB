@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { canAccessModule } from "@/lib/module-access";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import {
   fetchAppModuleStateMap,
   resolveModuleState,
@@ -63,6 +62,8 @@ export function buildModuleGridItems(
       const hasAccess = admin || canAccessModule(permissions, mod.key, venueId);
       const settingsHref = MODULE_SETTINGS_ROUTES[mod.key];
       const href = isGlobal ? settingsHref : mod.href;
+      const openableIfPermitted =
+        state === "live" && Boolean(href) && (isGlobal || venueEnabled);
       return {
         key: mod.key,
         label: mod.label,
@@ -71,11 +72,11 @@ export function buildModuleGridItems(
         href,
         status: state,
         description: mod.description,
-        clickable:
-          state === "live" &&
-          Boolean(href) &&
-          (isGlobal || venueEnabled) &&
-          hasAccess,
+        clickable: openableIfPermitted && hasAccess,
+        // Live + enabled app the user simply isn't permitted to open.
+        blockedReason: (openableIfPermitted && !hasAccess
+          ? "access"
+          : null) as "access" | null,
       };
     })
     .filter((item) => item.status !== "hidden");
@@ -88,15 +89,7 @@ export async function loadModulesHubContext() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!slug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", slug)
-    .single();
+  const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
   const [{ data: permissions }, { data: venueModules }, appStateMap] =

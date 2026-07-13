@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { formatDateOnly } from "@/lib/hr/derived";

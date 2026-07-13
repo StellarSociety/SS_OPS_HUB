@@ -185,6 +185,60 @@ export async function getExpiryItems(
   return toHrExpiryWidgetItems(items);
 }
 
+/**
+ * Suggest the next employee number for a venue. Finds the highest numeric
+ * emp_no already in use and returns it + 1 (zero-padded to match the widest
+ * existing value). Falls back to "1" when there are no numeric emp numbers yet.
+ */
+export async function suggestNextEmpNo(
+  supabase: SupabaseClient,
+  homeVenueId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("staff")
+    .select("emp_no")
+    .eq("home_venue_id", homeVenueId);
+  if (error) throw error;
+
+  // Codes use an optional alphabetic prefix followed by a zero-padded number,
+  // e.g. "ORL0056". Group by prefix so the next value continues the same series
+  // ("ORL0057") and keeps the widest padding seen for that prefix.
+  const groups = new Map<
+    string,
+    { prefix: string; max: number; width: number }
+  >();
+  for (const row of data ?? []) {
+    const raw = String((row as { emp_no: string }).emp_no ?? "").trim();
+    const match = /^([A-Za-z]*)(\d+)$/.exec(raw);
+    if (!match) continue;
+    const prefix = match[1];
+    const digits = match[2];
+    const n = Number(digits);
+    const key = prefix.toUpperCase();
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { prefix, max: n, width: digits.length });
+    } else {
+      existing.width = Math.max(existing.width, digits.length);
+      if (n > existing.max) {
+        existing.max = n;
+        existing.prefix = prefix;
+      }
+    }
+  }
+
+  if (groups.size === 0) return "1";
+
+  // Continue the series whose highest number is largest (the active roster).
+  let best: { prefix: string; max: number; width: number } | null = null;
+  for (const info of groups.values()) {
+    if (!best || info.max > best.max) best = info;
+  }
+
+  const next = best!.max + 1;
+  return `${best!.prefix}${String(next).padStart(best!.width, "0")}`;
+}
+
 export function resolveLookupId<T extends { id: string; name: string }>(
   items: T[],
   name: string | undefined,

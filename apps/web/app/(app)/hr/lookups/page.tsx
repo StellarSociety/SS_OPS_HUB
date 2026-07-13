@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default function HrLookupsPage() {
-  redirect("/hr/settings");
+export default async function HrLookupsPage() {
+  redirect(await scopedPath("/hr/settings"));
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { salesSectionTabs } from "@/lib/sales-section-sub-nav";
 import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
@@ -8,7 +8,7 @@ import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 const tabs = salesSectionTabs("/sales/waiter");
 
 export function WaiterSalesSubNav() {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
 
   return (
     <nav

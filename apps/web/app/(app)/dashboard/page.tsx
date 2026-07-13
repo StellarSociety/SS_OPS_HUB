@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { DashboardModuleTabs } from "@/components/dashboard/dashboard-module-tabs";
 import { DashboardsPanel } from "@/components/dashboard/dashboards-panel";
@@ -13,7 +12,7 @@ import {
 import { canAccessSalesModule } from "@/lib/sales/permissions";
 import type { UserPermission } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import { resolveActiveVenue } from "@/lib/venue/active-venue";
 export default async function DashboardPage() {
   const supabase = await createClient();
   const {
@@ -21,15 +20,7 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!slug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", slug)
-    .single();
+  const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
   const [{ sections }, { data: permissions }] = await Promise.all([

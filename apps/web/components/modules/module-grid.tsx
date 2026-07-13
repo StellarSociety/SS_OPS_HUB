@@ -49,6 +49,7 @@ export function ModuleGrid({ modules, centered = false }: ModuleGridProps) {
             status={mod.status}
             href={mod.href}
             clickable={mod.clickable}
+            blockedReason={mod.blockedReason}
           />
         </motion.div>
       ))}

@@ -1,47 +1,47 @@
-import { StaffDirectory } from "@/components/hr/staff-directory";
-import { ModulePageTitle } from "@/components/layout/module-page-title";
-import { canAccessStaff } from "@/lib/hr/permissions";
+import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
+import { HrOverview } from "@/components/hr/hr-overview";
 import { getHrPageContext } from "@/lib/hr/page-context";
+import { buildHrOverviewStats } from "@/lib/hr/overview";
 import {
-  listDepartments,
-  listEmploymentStatuses,
+  getExpiryItems,
+  getHrVenueSetting,
   listStaffForVenue,
 } from "@/lib/hr/store";
+import {
+  DEFAULT_HR_EXPIRY_SETTINGS,
+  HR_SETTINGS_KEYS,
+} from "@/lib/hr/types";
 
-export default async function StaffDirectoryPage() {
-  const { supabase, venue, permissions } = await getHrPageContext();
+export default async function StaffInsightsPage() {
+  const { supabase, venue } = await getHrPageContext();
 
-  if (!canAccessStaff(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Human Resources for this venue.
-        </p>
-      </div>
-    );
-  }
+  const expirySettings = await getHrVenueSetting(
+    supabase,
+    venue.id,
+    HR_SETTINGS_KEYS.expiry,
+    DEFAULT_HR_EXPIRY_SETTINGS,
+  );
+  const leadDays = expirySettings.displayWindowDays;
 
-  const [staff, departments, statuses] = await Promise.all([
+  const [staff, expiryItems] = await Promise.all([
     listStaffForVenue(supabase, venue.id),
-    listDepartments(supabase, venue.id),
-    listEmploymentStatuses(supabase),
+    getExpiryItems(supabase, venue.id, leadDays, {
+      allVenues: venue.is_global,
+    }),
   ]);
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div>
-        <ModulePageTitle>Staff directory</ModulePageTitle>
-        <p className="mt-1 text-sm text-black/60">
-          {venue.is_global
-            ? "Group staff — corporate and multi-venue personnel"
-            : `${venue.name} venue staff roster`}
-        </p>
-      </div>
+  const stats = buildHrOverviewStats(staff, expiryItems);
 
-      <StaffDirectory
-        staff={staff}
-        departments={departments}
-        statuses={statuses}
+  return (
+    <div className="space-y-6">
+      <HrOverview stats={stats} />
+
+      <hr className="border-black/10" />
+
+      <ExpiryWidgets
+        items={expiryItems}
+        leadDays={leadDays}
+        title="Upcoming expiries"
       />
     </div>
   );

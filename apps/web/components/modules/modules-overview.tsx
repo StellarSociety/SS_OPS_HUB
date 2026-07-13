@@ -10,6 +10,9 @@ import type {
 export type ModuleGridItem = Omit<ModuleOverviewItem, "status"> & {
   status: AppModuleState;
   clickable: boolean;
+  /** Why the tile can't be opened, when it isn't clickable. "access" means the
+   * app is live and enabled but the user lacks permission. */
+  blockedReason?: "access" | null;
 };
 
 type ModulesOverviewProps = {

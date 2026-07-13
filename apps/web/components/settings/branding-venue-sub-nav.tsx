@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { cn } from "@/lib/utils";
 import type { Venue } from "@/lib/types/database";
 
@@ -10,7 +10,7 @@ type BrandingVenueSubNavProps = {
 };
 
 export function BrandingVenueSubNav({ venues }: BrandingVenueSubNavProps) {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
 
   return (
     <nav

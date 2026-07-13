@@ -1,8 +1,9 @@
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import {
   Bell,
   CalendarClock,
   ChevronRight,
+  Database,
   ListChecks,
   Wallet,
   type LucideIcon,
@@ -52,6 +53,18 @@ const sections: SettingsOverviewSection[] = [
         description:
           "Which HR events send emails and which roles receive them.",
         icon: Bell,
+      },
+    ],
+  },
+  {
+    title: "Data",
+    items: [
+      {
+        href: "/hr/settings/data-management",
+        title: "Data Management",
+        description:
+          "Bulk import and export employee details via Excel templates.",
+        icon: Database,
       },
     ],
   },

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default function HrEmploymentStatusRedirect() {
-  redirect("/hr/settings/lookups/employment-status");
+export default async function HrEmploymentStatusRedirect() {
+  redirect(await scopedPath("/hr/settings/lookups/employment-status"));
 }

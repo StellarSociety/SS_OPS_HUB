@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
   BookOpen,
   Building2,
@@ -37,7 +37,7 @@ const SIDEBAR_EXPANDED = "w-52";
 const SIDEBAR_COLLAPSED = "w-16";
 
 const hubNavItems = [
-  { label: "Dashboards", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Venue", href: "/dashboard", icon: LayoutDashboard },
 ] as const;
 
 const appsHubItem = {
@@ -93,6 +93,7 @@ function SidebarLink({
   collapsed,
   branded = false,
   compact = false,
+  comingSoon = false,
 }: {
   href: string;
   label: string;
@@ -102,9 +103,43 @@ function SidebarLink({
   collapsed: boolean;
   branded?: boolean;
   compact?: boolean;
+  comingSoon?: boolean;
 }) {
   const collapsedTitle = sublabel ? `${sublabel} ${label}` : label;
-  const { triggerProps, tooltip } = useNavTooltip(collapsedTitle, collapsed);
+  const { triggerProps, tooltip } = useNavTooltip(
+    comingSoon ? `${collapsedTitle} — coming soon` : collapsedTitle,
+    collapsed,
+  );
+
+  if (comingSoon) {
+    return (
+      <div
+        aria-disabled
+        title={`${label} — coming soon`}
+        className={cn(
+          "relative flex cursor-default select-none items-center rounded-lg text-sm text-black/40",
+          compact ? "py-1" : "py-2",
+          collapsed ? "justify-center px-2" : "gap-2.5 px-3",
+        )}
+      >
+        <Icon
+          className={cn(
+            "shrink-0 opacity-60",
+            collapsed ? "h-5 w-5" : "h-4 w-4",
+          )}
+        />
+        {!collapsed ? (
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        ) : null}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-[18deg] whitespace-nowrap rounded-[3px] border border-[#b23b2e]/70 px-1 py-0.5 text-[7px] font-medium uppercase leading-none tracking-[0.06em] text-[#b23b2e]"
+        >
+          Coming Soon
+        </span>
+      </div>
+    );
+  }
 
   if (branded) {
     return (
@@ -242,6 +277,7 @@ function ModuleSidebarItems({
                 icon={Icon}
                 active={active}
                 collapsed={collapsed}
+                comingSoon={item.comingSoon}
               />
               {item.dividerAfter ? (
                 <SidebarDivider collapsed={collapsed} />
@@ -277,6 +313,7 @@ function ModuleSidebarItems({
         icon={Icon}
         active={isModuleSidebarItemActive(pathname, item)}
         collapsed={collapsed}
+        comingSoon={item.comingSoon}
       />
     );
   };
@@ -311,7 +348,7 @@ export function AppSidebar({
   showSettings = false,
   open = true,
 }: AppSidebarProps) {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
   const collapsed = !open;
   const hasBrandAssets = hasVenueBrandAssets(venue);
   const moduleSidebar = getModuleSidebarForPath(pathname);
@@ -378,7 +415,7 @@ export function AppSidebar({
           <>
             <SidebarTopLink
               href="/dashboard"
-              label="Dashboards"
+              label="Venue"
               icon={LayoutDashboard}
               collapsed={collapsed}
             />
@@ -479,7 +516,20 @@ export function AppSidebar({
             />
           );
         })}
-        {(showSettings && venue.is_global) || moduleSidebar?.bottomItems?.length ? (
+        {!moduleSidebar && !venue.is_global ? (
+          <SidebarLink
+            href="/settings"
+            label="Settings"
+            sublabel="Venue"
+            icon={Settings}
+            active={pathname.startsWith("/settings")}
+            collapsed={collapsed}
+            branded
+          />
+        ) : null}
+        {(showSettings && venue.is_global) ||
+        moduleSidebar?.bottomItems?.length ||
+        (!moduleSidebar && !venue.is_global) ? (
           <SidebarDivider collapsed={collapsed} />
         ) : null}
         {footerNavItems.map((item) => (

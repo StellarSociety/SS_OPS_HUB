@@ -3,9 +3,10 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import { ACTIVE_SCOPE_COOKIE, ACTIVE_VENUE_COOKIE } from "@/lib/constants";
 import { canAccessGlobal } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
+import { GLOBAL_BASE, venueBase } from "@/lib/venue/scope-routing";
 
 export async function selectVenue(venueSlug: string) {
   const supabase = await createClient();
@@ -39,13 +40,21 @@ export async function selectVenue(venueSlug: string) {
   }
 
   const cookieStore = await cookies();
-  cookieStore.set(ACTIVE_VENUE_COOKIE, venue.slug, {
+  const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
-  });
+  };
+  // Remembered defaults for bare/entry URLs — not the source of truth for the
+  // active venue, which is derived per-request from the scoped URL.
+  cookieStore.set(ACTIVE_VENUE_COOKIE, venue.slug, cookieOptions);
+  cookieStore.set(
+    ACTIVE_SCOPE_COOKIE,
+    venue.is_global ? "global" : "venue",
+    cookieOptions,
+  );
 
   await writeAuditLog({
     actor_id: user.id,
@@ -57,11 +66,12 @@ export async function selectVenue(venueSlug: string) {
     after: { slug: venue.slug },
   });
 
-  redirect(`/dashboard?venue=${venue.slug}`);
+  redirect(venue.is_global ? GLOBAL_BASE : `${venueBase(venue.slug)}/dashboard`);
 }
 
 export async function clearVenueSelection() {
   const cookieStore = await cookies();
   cookieStore.delete(ACTIVE_VENUE_COOKIE);
+  cookieStore.delete(ACTIVE_SCOPE_COOKIE);
   redirect("/select-venue");
 }

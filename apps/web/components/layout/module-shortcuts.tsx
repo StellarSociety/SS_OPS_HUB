@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -13,6 +11,8 @@ import {
   type ModuleSidebarItem,
 } from "@/lib/module-sidebar";
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
+import { ScopedLink } from "@/components/layout/scoped-link";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
   subNavLabelClass,
   moduleBrandedNavLinkClass,
@@ -77,7 +77,7 @@ function ShortcutLink({
   const Icon = item.icon ?? fallbackIcon;
 
   return (
-    <Link href={item.href} className={shortcutBoxClass(active, branded, textOnly)}>
+    <ScopedLink href={item.href} className={shortcutBoxClass(active, branded, textOnly)}>
       <Icon
         className={cn(
           textOnly
@@ -99,7 +99,7 @@ function ShortcutLink({
         <span className="whitespace-nowrap">{item.label}</span>
       )}
       <NavigationPendingIndicator />
-    </Link>
+    </ScopedLink>
   );
 }
 
@@ -117,7 +117,7 @@ function CategorizedShortcuts({
   categories: ModuleSidebarCategory[];
   ariaLabel: string;
 }) {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
   const itemByHref = new Map(
     moduleSidebar.items.map((item) => [item.href, item]),
   );
@@ -199,7 +199,7 @@ export function ModuleShortcuts({
   basePath,
   ariaLabel,
 }: ModuleShortcutsProps) {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
   const moduleSidebar = getModuleSidebarForPath(basePath);
 
   if (!moduleSidebar) {

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Card } from "@/components/ui/card";
 
 export default function GlobalSettingsPage() {

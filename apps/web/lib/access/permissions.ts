@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
+import { scopedPath } from "@/lib/venue/active-venue";
 
 export async function requireAppAdmin() {
   const supabase = await createClient();
@@ -16,7 +17,7 @@ export async function requireAppAdmin() {
 
   const perms = (permissions ?? []) as UserPermission[];
   if (!isAppAdmin(perms)) {
-    redirect("/dashboard");
+    redirect(await scopedPath("/dashboard"));
   }
 
   return { supabase, user, permissions: perms };

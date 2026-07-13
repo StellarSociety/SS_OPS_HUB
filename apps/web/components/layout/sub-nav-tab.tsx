@@ -1,10 +1,10 @@
-import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
   pillSubNavLinkClass,
   segmentedSubNavLinkClass,
 } from "@/lib/sub-nav-ui";
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
+import { ScopedLink } from "@/components/layout/scoped-link";
 
 type SubNavTabProps = {
   href: string;
@@ -22,7 +22,7 @@ export function SubNavTab({
   variant = "segmented",
 }: SubNavTabProps) {
   return (
-    <Link
+    <ScopedLink
       href={href}
       className={
         variant === "segmented"
@@ -39,6 +39,6 @@ export function SubNavTab({
         {label}
       </span>
       <NavigationPendingIndicator />
-    </Link>
+    </ScopedLink>
   );
 }

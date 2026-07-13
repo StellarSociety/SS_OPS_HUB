@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default function SalesDataManagementPage() {
-  redirect("/sales/settings/data-management/daily-sales");
+export default async function SalesDataManagementPage() {
+  redirect(await scopedPath("/sales/settings/data-management/daily-sales"));
 }

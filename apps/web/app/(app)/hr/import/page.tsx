@@ -3,8 +3,7 @@ import { ImportStaffForm } from "@/components/hr/import-staff";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canEditStaff } from "@/lib/hr/permissions";
 import { createClient } from "@/lib/supabase/server";
-import { cookies } from "next/headers";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
+import { resolveActiveVenue } from "@/lib/venue/active-venue";
 
 export default async function HrImportPage() {
   const supabase = await createClient();
@@ -13,15 +12,7 @@ export default async function HrImportPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const cookieStore = await cookies();
-  const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
-  if (!slug) redirect("/select-venue");
-
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("*")
-    .eq("slug", slug)
-    .single();
+  const venue = await resolveActiveVenue(supabase);
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase

@@ -85,3 +85,48 @@ export function formatAed(amount: number | null | undefined): string {
     maximumFractionDigits: 2,
   }).format(amount);
 }
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+export type SalaryPercentages = {
+  basic: number;
+  accom: number;
+  transp: number;
+};
+
+export type SalaryBreakdown = {
+  basic: number | null;
+  accom: number | null;
+  transp: number | null;
+  /** What actually hits payroll: staff in company accommodation are paid the
+   *  basic portion only, otherwise the full wage package. */
+  salaryToPay: number | null;
+};
+
+/**
+ * Split a total wage package into its basic / accommodation / transport
+ * components and derive the payroll figure. Percentages default to the
+ * company standard 60 / 25 / 15 split but can be overridden per venue.
+ */
+export function computeSalaryBreakdown(
+  wagePackage: number | null | undefined,
+  inAccommodation: boolean,
+  pct: SalaryPercentages = { basic: 60, accom: 25, transp: 15 },
+): SalaryBreakdown {
+  if (wagePackage == null || Number.isNaN(wagePackage)) {
+    return { basic: null, accom: null, transp: null, salaryToPay: null };
+  }
+  const basic = round2((wagePackage * pct.basic) / 100);
+  const accom = round2((wagePackage * pct.accom) / 100);
+  const transp = round2((wagePackage * pct.transp) / 100);
+  const salaryToPay = inAccommodation ? basic : wagePackage;
+  return { basic, accom, transp, salaryToPay };
+}
+
+/** Treat a stored company_accommodation value as a boolean "in accommodation". */
+export function isInAccommodation(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return ["yes", "y", "true", "1"].includes(value.trim().toLowerCase());
+}

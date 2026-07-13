@@ -49,6 +49,29 @@ async function fetchStaffForVenue(
   return data ?? [];
 }
 
+/** Employment status name treated as "currently on-board" for HR widgets. */
+const ON_BOARD_STATUS_NAME = "ON Board";
+
+/**
+ * Like {@link fetchStaffForVenue} but restricted to staff whose employment
+ * status is "ON Board". Used by the HR expiry widgets so they only surface
+ * expiries for people who are actually on-board (excludes Hiring / OFF Board /
+ * OUT). Notifications keep using the unfiltered fetch.
+ */
+async function fetchOnBoardStaffForVenue(
+  supabase: SupabaseClient,
+  venueId: string,
+) {
+  const { data, error } = await supabase
+    .from("staff")
+    .select(`${STAFF_EXPIRY_SELECT}, employment_status:employment_statuses!inner(name)`)
+    .eq("home_venue_id", venueId)
+    .eq("employment_statuses.name", ON_BOARD_STATUS_NAME);
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 export const hrExpiryRule: NotificationRule = {
   key: "hr-expiry",
   moduleKey: "hr",
@@ -82,11 +105,11 @@ export async function getHrExpiryItems(
     if (venueError) throw venueError;
 
     const batches = await Promise.all(
-      (venues ?? []).map((v) => fetchStaffForVenue(supabase, v.id)),
+      (venues ?? []).map((v) => fetchOnBoardStaffForVenue(supabase, v.id)),
     );
     items = batches.flat();
   } else {
-    items = await fetchStaffForVenue(supabase, venueId);
+    items = await fetchOnBoardStaffForVenue(supabase, venueId);
   }
 
   return computeExpiryItems(items, hrExpiryRule.expiryFields, {

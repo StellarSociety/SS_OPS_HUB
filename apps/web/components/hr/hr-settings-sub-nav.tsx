@@ -1,7 +1,14 @@
 "use client";
 
-import { Bell, CalendarClock, LayoutGrid, ListChecks, Wallet } from "lucide-react";
-import { usePathname } from "next/navigation";
+import {
+  Bell,
+  CalendarClock,
+  Database,
+  LayoutGrid,
+  ListChecks,
+  Wallet,
+} from "lucide-react";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
@@ -31,10 +38,16 @@ const tabs = [
     icon: Bell,
     exact: false as const,
   },
+  {
+    href: "/hr/settings/data-management",
+    label: "Data Management",
+    icon: Database,
+    exact: false as const,
+  },
 ] as const;
 
 export function HrSettingsSubNav() {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
 
   return (
     <nav aria-label="Human Resources settings sections" className={segmentedSubNavShellClass}>

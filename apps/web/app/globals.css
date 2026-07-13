@@ -52,3 +52,43 @@ body {
 .sales-import-progress-indicator {
   animation: sales-import-progress 1.4s ease-in-out infinite;
 }
+
+/* -------------------------------------------------------------------------
+   Print — single-employee A4 export (see StaffPdfDocument)
+   The document lives off-screen on screen and becomes the only visible node
+   when printing, filling one A4 page with 1cm margins.
+   ------------------------------------------------------------------------- */
+.staff-print {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 190mm;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 1cm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .staff-print,
+  .staff-print * {
+    visibility: visible !important;
+  }
+
+  .staff-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}

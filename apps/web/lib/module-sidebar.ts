@@ -9,6 +9,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LineChart,
+  Megaphone,
   MessagesSquare,
   Percent,
   Receipt,
@@ -19,6 +20,7 @@ import {
   UserMinus,
   UserPlus,
   UserRound,
+  UserRoundSearch,
   Users,
   Wallet,
 } from "lucide-react";
@@ -31,6 +33,8 @@ export type ModuleSidebarItem = {
   exact?: boolean;
   /** Render a divider directly after this item to visually group the nav. */
   dividerAfter?: boolean;
+  /** Show a diagonal "coming soon" tag and disable navigation. */
+  comingSoon?: boolean;
 };
 
 /**
@@ -90,9 +94,15 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: Receipt,
         dividerAfter: true,
       },
-      { label: "Onboarding", href: "/hr/onboarding", icon: UserPlus },
+      {
+        label: "Hiring",
+        href: "/hr/hiring",
+        icon: UserRoundSearch,
+        comingSoon: true,
+      },
+      { label: "ON-Boarding", href: "/hr/onboarding", icon: UserPlus },
       { label: "Communications", href: "/hr/communications", icon: MessagesSquare },
-      { label: "Off boarding", href: "/hr/offboarding", icon: UserMinus },
+      { label: "OFF-Boarding", href: "/hr/offboarding", icon: UserMinus },
     ],
     bottomItems: [
       { label: "Settings", href: "/hr/settings", icon: Settings },
@@ -120,7 +130,12 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         key: "boarding",
         label: "Boarding",
         icon: UserPlus,
-        itemHrefs: ["/hr/onboarding", "/hr/communications", "/hr/offboarding"],
+        itemHrefs: [
+          "/hr/hiring",
+          "/hr/onboarding",
+          "/hr/communications",
+          "/hr/offboarding",
+        ],
       },
     ],
   },
@@ -139,6 +154,12 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: GitCompareArrows,
       },
       { label: "Discounts", href: "/sales/discounts", icon: Percent },
+      {
+        label: "TAX Collections",
+        href: "/sales/tax-collections",
+        icon: Megaphone,
+        comingSoon: true,
+      },
       { label: "Forecasts", href: "/sales/forecast", icon: LineChart },
       { label: "Daily Snap", href: "/sales/daily-snap", icon: Camera },
     ],

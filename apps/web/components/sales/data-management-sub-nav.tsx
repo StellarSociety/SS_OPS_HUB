@@ -1,7 +1,7 @@
 "use client";
 
 import { BarChart3, Percent, UserCheck } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const DEFAULT_BASE_PATH = "/sales/settings/data-management";
@@ -19,7 +19,7 @@ type Props = {
 };
 
 export function DataManagementSubNav({ basePath = DEFAULT_BASE_PATH }: Props) {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
   const tabs = tabsForBase(basePath);
 
   return (

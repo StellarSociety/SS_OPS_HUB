@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { saveVenueWaiterDailySalesEntry } from "@/lib/actions/sales";

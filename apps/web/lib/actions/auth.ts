@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 type AuthState = { error: string };
 
@@ -38,6 +39,26 @@ export async function signIn(
     return { error: "Your account has been deactivated." };
   }
 
+  const nowIso = new Date().toISOString();
+  try {
+    const service = createServiceClient();
+    await service
+      .from("profiles")
+      .update({ last_login_at: nowIso })
+      .eq("id", data.user.id);
+  } catch {
+    // best-effort — column may not be migrated yet
+  }
+
+  try {
+    await supabase.from("access_events").insert({
+      user_id: data.user.id,
+      event_type: "login",
+    });
+  } catch {
+    // best-effort
+  }
+
   await writeAuditLog({
     actor_id: data.user.id,
     action: "login",
@@ -56,6 +77,14 @@ export async function signOut() {
   } = await supabase.auth.getUser();
 
   if (user) {
+    try {
+      await supabase.from("access_events").insert({
+        user_id: user.id,
+        event_type: "logout",
+      });
+    } catch {
+      // best-effort
+    }
     await writeAuditLog({
       actor_id: user.id,
       action: "logout",
@@ -106,6 +135,24 @@ export async function updatePassword(formData: FormData) {
   }
 
   if (user) {
+    // Mark the invitation as accepted the first time a password is set.
+    try {
+      const service = createServiceClient();
+      const { data: profile } = await service
+        .from("profiles")
+        .select("invite_accepted_at")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (profile && !profile.invite_accepted_at) {
+        await service
+          .from("profiles")
+          .update({ invite_accepted_at: new Date().toISOString() })
+          .eq("id", user.id);
+      }
+    } catch {
+      // best-effort — column may not be migrated yet
+    }
+
     await writeAuditLog({
       actor_id: user.id,
       action: "update",

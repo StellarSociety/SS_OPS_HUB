@@ -3,6 +3,8 @@
 import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { FileDown, Plus, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useVenueScope } from "@/components/providers/venue-scope-provider";
+import { toScopedHref } from "@/lib/venue/scope-routing";
 import {
   removeVenueDailySnapDiscountLine,
   removeVenueDailySnapEvent,
@@ -748,6 +750,7 @@ export function DailySnapPanel({
 }: DailySnapPanelProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { scope, slug } = useVenueScope();
   const todayIso = getLocalTodayIsoDate();
   const selectedDate = searchParams.get("date") ?? todayIso;
   const datesWithEntries = useMemo(
@@ -842,7 +845,9 @@ export function DailySnapPanel({
     setIsFormOpen(false);
     const params = new URLSearchParams(searchParams.toString());
     params.set("date", isoDate);
-    router.push(`/sales/daily-snap?${params.toString()}`);
+    router.push(
+      toScopedHref(`/sales/daily-snap?${params.toString()}`, scope, slug),
+    );
   }
 
   function handleSaveNotes() {

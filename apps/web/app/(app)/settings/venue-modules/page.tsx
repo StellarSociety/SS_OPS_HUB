@@ -1,16 +1,15 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SettingsSubNav } from "@/components/settings/settings-sub-nav";
 import { VenueModulesPanel } from "@/components/settings/venue-modules-panel";
 import { listVenueModules, listVenues } from "@/lib/access/store";
-import { ACTIVE_VENUE_COOKIE } from "@/lib/constants";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getActiveScope } from "@/lib/venue/active-venue";
 
 export default async function SettingsVenueModulesPage() {
   const service = createServiceClient();
 
-  const cookieStore = await cookies();
-  const slug = cookieStore.get(ACTIVE_VENUE_COOKIE)?.value;
+  const active = await getActiveScope();
+  const slug = active?.scope === "venue" ? active.slug : null;
   if (!slug) redirect("/select-venue");
 
   const [venues, venueModules] = await Promise.all([

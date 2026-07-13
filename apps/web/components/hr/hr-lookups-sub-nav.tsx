@@ -10,7 +10,7 @@ import {
   UserCheck,
   VenusAndMars,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
 const tabs = [
@@ -37,7 +37,7 @@ const tabs = [
 ] as const;
 
 export function HrLookupsSubNav() {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
 
   return (
     <nav

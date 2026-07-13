@@ -142,7 +142,13 @@ export function canViewLookups(
   );
 }
 
-const SENSITIVE_FIELDS = [
+/**
+ * Staff columns governed by the `hr/salary` (Salary & sensitive data) grant.
+ * These are hidden from readers and never shipped to a client without the
+ * grant. Keep this list in sync with the compensation, expenses, bank,
+ * document and DOB fields displayed anywhere in the app.
+ */
+export const SENSITIVE_STAFF_FIELDS = [
   "dob",
   "passport_no",
   "passport_expiry",
@@ -172,10 +178,30 @@ export function maskSensitiveStaffFields<T extends Record<string, unknown>>(
   if (canViewSalary(permissions, venueId)) return staff;
 
   const masked = { ...staff };
-  for (const field of SENSITIVE_FIELDS) {
+  for (const field of SENSITIVE_STAFF_FIELDS) {
     if (field in masked) {
       (masked as Record<string, unknown>)[field] = null;
     }
   }
   return masked;
+}
+
+/**
+ * Drop sensitive/compensation fields from a staff write payload when the
+ * editor lacks the salary grant. Those fields are never rendered for such
+ * users, so a full payload would otherwise overwrite the stored values with
+ * null on save — silently wiping salary, bank and document data.
+ */
+export function stripSensitiveStaffWrites<T extends Record<string, unknown>>(
+  payload: T,
+  permissions: UserPermission[],
+  venueId: string,
+): T {
+  if (canViewSalary(permissions, venueId)) return payload;
+
+  const cleaned = { ...payload };
+  for (const field of SENSITIVE_STAFF_FIELDS) {
+    delete (cleaned as Record<string, unknown>)[field];
+  }
+  return cleaned;
 }

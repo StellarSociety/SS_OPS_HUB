@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { getModuleSidebarIconForPath } from "@/lib/module-sidebar";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +11,7 @@ type ModulePageTitleProps = {
 
 /** Page title that automatically prefixes the matching module sidebar symbol. */
 export function ModulePageTitle({ children, className }: ModulePageTitleProps) {
-  const pathname = usePathname();
+  const pathname = useRelativePathname();
   const Icon = getModuleSidebarIconForPath(pathname);
 
   return (
