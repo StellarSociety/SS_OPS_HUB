@@ -22,5 +22,5 @@ export async function getHrPageContext() {
     .select("*")
     .eq("user_id", user.id);
 
-  return { supabase, venue, permissions: permissions ?? [] };
+  return { supabase, user, venue, permissions: permissions ?? [] };
 }

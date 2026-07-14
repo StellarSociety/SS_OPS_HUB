@@ -21,6 +21,8 @@ import {
   listEmploymentStatuses,
   listNationalities,
   listPositions,
+  listScheduleDayLabels,
+  listStaffScheduleDays,
   resolveLookupId,
   resolvePositionId,
 } from "@/lib/hr/store";
@@ -30,6 +32,7 @@ import {
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
 } from "@/lib/hr/types";
+import { DEFAULT_SCHEDULE_DAY_LABELS, deriveScheduleLabelColors } from "@/lib/hr/schedules";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -454,6 +457,20 @@ export async function reorderEmploymentStatuses(
   await reorderLookup("employment_statuses", orderedIds);
 }
 
+export async function upsertWorkingStatus(formData: FormData): Promise<void> {
+  await upsertLookup("working_statuses", formData);
+}
+
+export async function deleteWorkingStatus(id: string): Promise<void> {
+  await deleteLookup("working_statuses", id);
+}
+
+export async function reorderWorkingStatuses(
+  orderedIds: string[],
+): Promise<void> {
+  await reorderLookup("working_statuses", orderedIds);
+}
+
 export async function reorderNationalities(orderedIds: string[]): Promise<void> {
   await reorderLookup("nationalities", orderedIds);
 }
@@ -518,6 +535,7 @@ type LookupTable =
   | "departments"
   | "positions"
   | "employment_statuses"
+  | "working_statuses"
   | "nationalities"
   | "civil_statuses"
   | "genders"
@@ -537,6 +555,7 @@ const LOOKUP_CONFIG: Record<LookupTable, LookupTableConfig> = {
   departments: { venueScoped: true },
   positions: { venueScoped: true, refFields: ["department_id"] },
   employment_statuses: {},
+  working_statuses: {},
   nationalities: { numericFields: ["fly_home_ticket_value"] },
   civil_statuses: {},
   genders: {},
@@ -815,4 +834,327 @@ export async function getHrAccess() {
     ),
     canAdminLookups: canAdminLookups(permissions, venue.id),
   };
+}
+
+export async function listScheduleDaysForRange(params: {
+  staffIds: string[];
+  fromDate: string;
+  toDate: string;
+}) {
+  const { supabase, venue, permissions } = await getAuthContext();
+  if (!canAccessStaff(permissions, venue.id)) {
+    return { error: "No access.", days: [] as const };
+  }
+
+  const days = await listStaffScheduleDays(supabase, venue.id, params);
+  return { days };
+}
+
+export async function upsertScheduleDay(params: {
+  staffId: string;
+  workDate: string;
+  labelCode: string | null;
+}) {
+  const { supabase, user, venue, permissions } = await getAuthContext();
+  if (!canEditStaff(permissions, venue.id)) {
+    return { error: "You do not have permission to edit schedules." };
+  }
+
+  const { staffId, workDate, labelCode } = params;
+  if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+    return { error: "Invalid schedule cell." };
+  }
+
+  const { data: staffRow, error: staffError } = await supabase
+    .from("staff")
+    .select("id, emp_no, home_venue_id, department_id")
+    .eq("id", staffId)
+    .eq("home_venue_id", venue.id)
+    .maybeSingle();
+
+  if (staffError || !staffRow) {
+    console.error("[hr] schedule staff lookup:", staffError?.message);
+    return { error: "Staff member not found for this venue." };
+  }
+
+  const empNo = (staffRow.emp_no as string)?.trim();
+  if (!empNo) {
+    return { error: "Staff member is missing Employee ID (emp_no)." };
+  }
+
+  if (labelCode === null) {
+    const { error } = await supabase
+      .from("hr_schedule_days")
+      .delete()
+      .eq("venue_id", venue.id)
+      .eq("staff_id", staffId)
+      .eq("work_date", workDate);
+
+    if (error) {
+      console.error("[hr] clear schedule day:", error.message);
+      return {
+        error:
+          "Could not clear this day. Apply the hr_schedule_days migration if needed.",
+      };
+    }
+
+    revalidatePath("/hr/schedules", "page");
+    return { ok: true as const };
+  }
+
+  const code = labelCode.trim().toUpperCase();
+  const labels = await listScheduleDayLabels(supabase);
+  const known =
+    labels?.some((label) => label.code === code) ||
+    (!labels &&
+      DEFAULT_SCHEDULE_DAY_LABELS.some((label) => label.code === code));
+
+  if (!known) {
+    return { error: "Unknown schedule label." };
+  }
+
+  const { error } = await supabase.from("hr_schedule_days").upsert(
+    {
+      venue_id: venue.id,
+      staff_id: staffId,
+      emp_no: empNo,
+      work_date: workDate,
+      label_code: code,
+      department_id: staffRow.department_id ?? null,
+      source: "manual",
+      updated_by: user.id,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "staff_id,work_date" },
+  );
+
+  if (error) {
+    console.error("[hr] upsert schedule day:", error.message);
+    return {
+      error:
+        "Could not save this day. Apply the hr_schedule_days migration if needed.",
+    };
+  }
+
+  revalidatePath("/hr/schedules", "page");
+  return { ok: true as const, labelCode: code, empNo };
+}
+
+/** Persist mixed draft changes (set label or clear) for many cells. */
+export async function saveScheduleDayChanges(params: {
+  changes: {
+    staffId: string;
+    workDate: string;
+    labelCode: string | null;
+  }[];
+}) {
+  const { supabase, user, venue, permissions } = await getAuthContext();
+  if (!canEditStaff(permissions, venue.id)) {
+    return { error: "You do not have permission to edit schedules." };
+  }
+
+  const changes = params.changes.filter(
+    (change) =>
+      change.staffId && /^\d{4}-\d{2}-\d{2}$/.test(change.workDate),
+  );
+  if (changes.length === 0) {
+    return { error: "No changes to save." };
+  }
+
+  const staffIds = [...new Set(changes.map((change) => change.staffId))];
+  const { data: staffRows, error: staffError } = await supabase
+    .from("staff")
+    .select("id, emp_no, department_id")
+    .eq("home_venue_id", venue.id)
+    .in("id", staffIds);
+
+  if (staffError || !staffRows?.length) {
+    console.error("[hr] save schedule staff lookup:", staffError?.message);
+    return { error: "Could not resolve selected staff." };
+  }
+
+  const staffById = new Map(
+    staffRows.map((row) => [row.id as string, row] as const),
+  );
+
+  const labels = await listScheduleDayLabels(supabase);
+  const knownCodes = new Set(
+    (labels ?? DEFAULT_SCHEDULE_DAY_LABELS).map((label) => label.code),
+  );
+
+  const toClear = changes.filter((change) => change.labelCode === null);
+  const toUpsert = changes.filter((change) => change.labelCode !== null);
+
+  if (toClear.length > 0) {
+    const results = await Promise.all(
+      toClear.map((change) =>
+        supabase
+          .from("hr_schedule_days")
+          .delete()
+          .eq("venue_id", venue.id)
+          .eq("staff_id", change.staffId)
+          .eq("work_date", change.workDate),
+      ),
+    );
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+      console.error("[hr] save clear schedule:", failed.error.message);
+      return { error: "Could not clear one or more days." };
+    }
+  }
+
+  if (toUpsert.length > 0) {
+    const rows = [];
+    for (const change of toUpsert) {
+      const code = change.labelCode!.trim().toUpperCase();
+      if (!knownCodes.has(code)) {
+        return { error: `Unknown schedule label: ${code}` };
+      }
+      const staffRow = staffById.get(change.staffId);
+      const empNo = (staffRow?.emp_no as string | undefined)?.trim();
+      if (!staffRow || !empNo) {
+        return { error: "One or more staff members are missing Employee ID." };
+      }
+      rows.push({
+        venue_id: venue.id,
+        staff_id: change.staffId,
+        emp_no: empNo,
+        work_date: change.workDate,
+        label_code: code,
+        department_id: staffRow.department_id ?? null,
+        source: "manual" as const,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    const { error } = await supabase
+      .from("hr_schedule_days")
+      .upsert(rows, { onConflict: "staff_id,work_date" });
+
+    if (error) {
+      console.error("[hr] save upsert schedule:", error.message);
+      return { error: "Could not save roster labels." };
+    }
+  }
+
+  revalidatePath("/hr/schedules", "page");
+  return { ok: true as const, count: changes.length };
+}
+
+/** @deprecated Prefer saveScheduleDayChanges for mixed drafts. */
+export async function upsertScheduleDaysBatch(params: {
+  cells: { staffId: string; workDate: string }[];
+  labelCode: string | null;
+}) {
+  return saveScheduleDayChanges({
+    changes: params.cells.map((cell) => ({
+      ...cell,
+      labelCode: params.labelCode,
+    })),
+  });
+}
+
+function normalizeHexColor(value: string | null | undefined, fallback: string) {
+  const raw = (value ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toLowerCase();
+  if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.toLowerCase()}`;
+  return fallback;
+}
+
+export async function upsertScheduleDayLabel(formData: FormData): Promise<void> {
+  const { user, venue, permissions } = await getAuthContext();
+  if (!canAdminLookups(permissions, venue.id)) return;
+
+  const id = (formData.get("id") as string | null) || null;
+  const code = ((formData.get("code") as string) || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "");
+  const abbreviation = ((formData.get("abbreviation") as string) || "").trim();
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!code || !abbreviation || !name) return;
+
+  const colors = deriveScheduleLabelColors(
+    normalizeHexColor(formData.get("bg_color") as string, "#e5e5e5"),
+  );
+
+  const payload = {
+    code,
+    abbreviation,
+    name,
+    bg_color: colors.bgColor,
+    text_color: colors.textColor,
+    border_color: colors.borderColor,
+    sort_order: Number(formData.get("sort_order") ?? 0),
+  };
+
+  const service = createServiceClient();
+  const { error } = id
+    ? await service.from("schedule_day_labels").update(payload).eq("id", id)
+    : await service.from("schedule_day_labels").insert(payload);
+
+  if (error) {
+    console.error("[hr] schedule_day_labels upsert failed:", error.message);
+    return;
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: id ? "update" : "create",
+    module_key: HR_MODULE_KEY,
+    entity: "schedule_day_labels",
+    entity_id: id ?? code,
+    venue_id: venue.id,
+    after: payload,
+  });
+
+  revalidatePath("/hr/settings", "layout");
+  revalidatePath("/hr/schedules", "page");
+}
+
+export async function deleteScheduleDayLabel(id: string): Promise<void> {
+  const { user, venue, permissions } = await getAuthContext();
+  if (!canAdminLookups(permissions, venue.id)) return;
+  if (!id) return;
+
+  const service = createServiceClient();
+  const { error } = await service.from("schedule_day_labels").delete().eq("id", id);
+  if (error) {
+    console.error("[hr] schedule_day_labels delete failed:", error.message);
+    return;
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "delete",
+    module_key: HR_MODULE_KEY,
+    entity: "schedule_day_labels",
+    entity_id: id,
+    venue_id: venue.id,
+  });
+
+  revalidatePath("/hr/settings", "layout");
+  revalidatePath("/hr/schedules", "page");
+}
+
+export async function reorderScheduleDayLabels(
+  orderedIds: string[],
+): Promise<void> {
+  const { venue, permissions } = await getAuthContext();
+  if (!canAdminLookups(permissions, venue.id)) return;
+  if (!orderedIds.length) return;
+
+  const service = createServiceClient();
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      service
+        .from("schedule_day_labels")
+        .update({ sort_order: index + 1 })
+        .eq("id", id),
+    ),
+  );
+
+  revalidatePath("/hr/settings", "layout");
+  revalidatePath("/hr/schedules", "page");
 }

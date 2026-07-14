@@ -40,6 +40,8 @@ export function AppHeader({
     : venue.is_global
       ? "All Venues Operational HUB"
       : `${venue.name} Operational HUB`;
+  /** Welcome pages move the hub title into the page hero. */
+  const hideTitle = pathname === "/hr" || pathname === "/dashboard";
 
   const sidebarToggle = onToggleSidebar ? (
     <button
@@ -74,7 +76,13 @@ export function AppHeader({
         </button>
         {sidebarToggle}
       </div>
-      <h1 className="flex min-w-0 items-center justify-center gap-2 px-4 text-center font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl">
+      <h1
+        className={cn(
+          "flex min-w-0 items-center justify-center gap-2 px-4 text-center font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl",
+          hideTitle && "invisible",
+        )}
+        aria-hidden={hideTitle || undefined}
+      >
         {ModuleIcon ? (
           <ModuleIcon
             className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"

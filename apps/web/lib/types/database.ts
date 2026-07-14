@@ -46,6 +46,40 @@ export type EmploymentStatus = {
   created_at: string;
 };
 
+export type WorkingStatus = {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+};
+
+export type ScheduleDayLabelRow = {
+  id: string;
+  code: string;
+  abbreviation: string;
+  name: string;
+  bg_color: string;
+  text_color: string;
+  border_color: string;
+  sort_order: number;
+  created_at: string;
+};
+
+export type HrScheduleDay = {
+  id: string;
+  venue_id: string;
+  staff_id: string;
+  emp_no: string;
+  work_date: string;
+  label_code: string;
+  department_id: string | null;
+  notes: string | null;
+  source: "manual" | "import" | "system";
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Nationality = {
   id: string;
   name: string;
@@ -77,6 +111,7 @@ export type Staff = {
   department_id: string | null;
   position_id: string | null;
   employment_status_id: string | null;
+  working_status_id: string | null;
   nationality_id: string | null;
   first_name: string | null;
   last_name: string | null;
@@ -168,6 +203,9 @@ export type Database = {
         };
       };
       employment_statuses: { Row: EmploymentStatus };
+      working_statuses: { Row: WorkingStatus };
+      schedule_day_labels: { Row: ScheduleDayLabelRow };
+      hr_schedule_days: { Row: HrScheduleDay };
       nationalities: { Row: Nationality };
       departments: { Row: Department };
       positions: { Row: Position };

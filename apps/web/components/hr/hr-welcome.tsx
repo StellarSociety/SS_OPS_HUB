@@ -1,12 +1,12 @@
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import type { Venue } from "@/lib/types/database";
 
-type DashboardWelcomeProps = {
+type HrWelcomeProps = {
   venue: Venue;
   userName?: string | null;
 };
 
-export function DashboardWelcome({ venue, userName }: DashboardWelcomeProps) {
+export function HrWelcome({ venue, userName }: HrWelcomeProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
   const hubTitle = venue.is_global
     ? "All Venues Operational HUB"
@@ -28,7 +28,9 @@ export function DashboardWelcome({ venue, userName }: DashboardWelcomeProps) {
       />
 
       <h1 className="font-serif text-3xl font-semibold tracking-tight text-[#3D421F] md:text-4xl">
-        {firstName ? `Welcome back, ${firstName}` : "Welcome to the Hub"}
+        {firstName
+          ? `Welcome back, ${firstName}`
+          : "Welcome to Human Resources"}
       </h1>
 
       <p className="font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl">
@@ -36,8 +38,8 @@ export function DashboardWelcome({ venue, userName }: DashboardWelcomeProps) {
       </p>
 
       <p className="max-w-xl text-sm text-black/55 md:text-base">
-        Your operations command center for {venue.name}. Pick a category below to
-        jump into revenue, people, and management apps.
+        Your people hub for {venue.name}. Pick an app below to manage staff,
+        directories, and compliance.
       </p>
     </div>
   );

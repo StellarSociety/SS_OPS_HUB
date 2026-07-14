@@ -4,6 +4,12 @@ export type EmploymentStatus = {
   sort_order: number;
 };
 
+export type WorkingStatus = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
 export type Nationality = {
   id: string;
   name: string;
@@ -60,6 +66,7 @@ export type Staff = {
   department_id: string | null;
   position_id: string | null;
   employment_status_id: string | null;
+  working_status_id: string | null;
   nationality_id: string | null;
   first_name: string | null;
   last_name: string | null;
@@ -110,6 +117,7 @@ export type StaffWithLookups = Staff & {
   department?: Department | null;
   position?: Position | null;
   employment_status?: EmploymentStatus | null;
+  working_status?: WorkingStatus | null;
   nationality?: Nationality | null;
 };
 

@@ -8,6 +8,7 @@ import {
   deleteInsuranceCategory,
   deleteNationality,
   deletePosition,
+  deleteWorkingStatus,
   reorderCertificationTypes,
   reorderCivilStatuses,
   reorderDepartments,
@@ -16,6 +17,7 @@ import {
   reorderInsuranceCategories,
   reorderNationalities,
   reorderPositions,
+  reorderWorkingStatuses,
   upsertCertificationType,
   upsertCivilStatus,
   upsertDepartment,
@@ -24,6 +26,7 @@ import {
   upsertInsuranceCategory,
   upsertNationality,
   upsertPosition,
+  upsertWorkingStatus,
 } from "@/lib/actions/hr";
 import type {
   CertificationType,
@@ -34,6 +37,7 @@ import type {
   InsuranceCategory,
   Nationality,
   Position,
+  WorkingStatus,
 } from "@/lib/hr/types";
 
 export function LookupSection({
@@ -175,6 +179,29 @@ export function EmploymentStatusSection({
         upsertAction={upsertEmploymentStatus}
         deleteAction={deleteEmploymentStatus}
         reorderAction={reorderEmploymentStatuses}
+      />
+    </LookupSection>
+  );
+}
+
+export function WorkingStatusSection({
+  statuses,
+}: {
+  statuses: WorkingStatus[];
+}) {
+  return (
+    <LookupSection
+      title="Working Status"
+      description="Tags used on the schedules roster (Active, leave, OFF-Boarding). Assignment rules come later — for now manage the list here."
+    >
+      <LookupEditor
+        items={statuses}
+        namePlaceholder="Working status"
+        addLabel="Add working status"
+        emptyLabel="No working statuses yet — add the first one below."
+        upsertAction={upsertWorkingStatus}
+        deleteAction={deleteWorkingStatus}
+        reorderAction={reorderWorkingStatuses}
       />
     </LookupSection>
   );

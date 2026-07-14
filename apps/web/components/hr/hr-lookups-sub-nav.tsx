@@ -3,10 +3,12 @@
 import {
   BriefcaseBusiness,
   Building2,
+  CalendarDays,
   Flag,
   GraduationCap,
   Heart,
   ShieldCheck,
+  Tags,
   UserCheck,
   VenusAndMars,
 } from "lucide-react";
@@ -20,6 +22,16 @@ const tabs = [
     href: "/hr/settings/lookups/employment-status",
     label: "Employment Status",
     icon: UserCheck,
+  },
+  {
+    href: "/hr/settings/lookups/working-status",
+    label: "Working Status",
+    icon: Tags,
+  },
+  {
+    href: "/hr/settings/lookups/schedule-labels",
+    label: "Schedule Labels",
+    icon: CalendarDays,
   },
   { href: "/hr/settings/lookups/nationalities", label: "Nationalities", icon: Flag },
   { href: "/hr/settings/lookups/civil-status", label: "Civil Status", icon: Heart },

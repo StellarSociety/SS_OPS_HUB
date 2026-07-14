@@ -34,6 +34,14 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+// Same tolerance as daily sales entry reconciliation boxes — absorb per-line
+// rounding drift so a couple of cents (e.g. ±0.01) still counts as balanced.
+const ROUNDING_TOLERANCE = 0.02;
+
+function isWithinRoundingTolerance(differenceGs: number): boolean {
+  return Math.abs(differenceGs) <= ROUNDING_TOLERANCE;
+}
+
 function buildForecastCard(input: {
   periodTargetGs: number;
   toDateActualGs: number;
@@ -499,9 +507,9 @@ export function buildDailySnapSnapshot(input: {
       waiterTotalSalesGs - tendersNetOfCcGratuityGs,
     ),
     isBalanced:
-      roundMoney(totalRevenueGs - waiterTotalSalesGs) === 0 &&
-      roundMoney(totalRevenueGs - tendersNetOfCcGratuityGs) === 0 &&
-      roundMoney(waiterTotalSalesGs - tendersNetOfCcGratuityGs) === 0,
+      isWithinRoundingTolerance(totalRevenueGs - waiterTotalSalesGs) &&
+      isWithinRoundingTolerance(totalRevenueGs - tendersNetOfCcGratuityGs) &&
+      isWithinRoundingTolerance(waiterTotalSalesGs - tendersNetOfCcGratuityGs),
     hasData:
       Boolean(dailyRecord) ||
       waiterRecordsForDate.length > 0 ||

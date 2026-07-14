@@ -1,21 +1,13 @@
-import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
 import { HrOverview } from "@/components/hr/hr-overview";
+import { HrWelcome } from "@/components/hr/hr-welcome";
 import { ModuleShortcuts } from "@/components/layout/module-shortcuts";
 import { canAccessStaff } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { buildHrOverviewStats } from "@/lib/hr/overview";
-import {
-  getExpiryItems,
-  getHrVenueSetting,
-  listStaffForVenue,
-} from "@/lib/hr/store";
-import {
-  DEFAULT_HR_EXPIRY_SETTINGS,
-  HR_SETTINGS_KEYS,
-} from "@/lib/hr/types";
+import { listStaffForVenue } from "@/lib/hr/store";
 
 export default async function HrOverviewPage() {
-  const { supabase, venue, permissions } = await getHrPageContext();
+  const { supabase, venue, permissions, user } = await getHrPageContext();
 
   if (!canAccessStaff(permissions, venue.id)) {
     return (
@@ -27,39 +19,24 @@ export default async function HrOverviewPage() {
     );
   }
 
-  const expirySettings = await getHrVenueSetting(
-    supabase,
-    venue.id,
-    HR_SETTINGS_KEYS.expiry,
-    DEFAULT_HR_EXPIRY_SETTINGS,
-  );
-  const leadDays = expirySettings.displayWindowDays;
-
-  const [staff, expiryItems] = await Promise.all([
+  const [{ data: profile }, staff] = await Promise.all([
+    supabase.from("profiles").select("full_name").eq("id", user.id).single(),
     listStaffForVenue(supabase, venue.id),
-    getExpiryItems(supabase, venue.id, leadDays, {
-      allVenues: venue.is_global,
-    }),
   ]);
 
-  const stats = buildHrOverviewStats(staff, expiryItems);
+  const userName = (profile?.full_name as string | null)?.trim() || null;
+  const stats = buildHrOverviewStats(staff, []);
 
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
+      <HrWelcome venue={venue} userName={userName} />
+
       <div>
         <ModuleShortcuts basePath="/hr" ariaLabel="Human Resources apps" />
         <hr className="mt-4 border-black/10" />
       </div>
 
       <HrOverview stats={stats} />
-
-      <hr className="border-black/10" />
-
-      <ExpiryWidgets
-        items={expiryItems}
-        leadDays={leadDays}
-        title="Upcoming expiries"
-      />
     </div>
   );
 }

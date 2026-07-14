@@ -111,6 +111,15 @@ export async function listEmploymentStatuses(supabase: SupabaseClient) {
   return data ?? [];
 }
 
+export async function listWorkingStatuses(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("working_statuses")
+    .select("*")
+    .order("sort_order");
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function listNationalities(supabase: SupabaseClient) {
   const { data, error } = await supabase
     .from("nationalities")
@@ -261,4 +270,56 @@ export function resolvePositionId(
     : positions;
   const match = pool.find((p) => p.name.toLowerCase() === normalized);
   return match?.id ?? null;
+}
+
+export async function listStaffScheduleDays(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts: { staffIds: string[]; fromDate: string; toDate: string },
+) {
+  if (opts.staffIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("hr_schedule_days")
+    .select("staff_id, emp_no, work_date, label_code")
+    .eq("venue_id", venueId)
+    .in("staff_id", opts.staffIds)
+    .gte("work_date", opts.fromDate)
+    .lte("work_date", opts.toDate);
+
+  if (error) {
+    // Table may not exist until the migration is applied.
+    console.error("[hr] listStaffScheduleDays:", error.message);
+    return [];
+  }
+
+  return (data ?? []) as {
+    staff_id: string;
+    emp_no: string;
+    work_date: string;
+    label_code: string;
+  }[];
+}
+
+export async function listScheduleDayLabels(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("schedule_day_labels")
+    .select("*")
+    .order("sort_order");
+
+  if (error) {
+    console.error("[hr] listScheduleDayLabels:", error.message);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    code: row.code as string,
+    abbreviation: row.abbreviation as string,
+    name: row.name as string,
+    bgColor: row.bg_color as string,
+    textColor: row.text_color as string,
+    borderColor: row.border_color as string,
+    sortOrder: row.sort_order as number,
+  }));
 }
