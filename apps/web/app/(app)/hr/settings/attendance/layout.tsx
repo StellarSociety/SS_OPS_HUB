@@ -10,8 +10,8 @@ export default function HrAttendanceSettingsLayout({
       <div>
         <h2 className="font-serif text-2xl text-[#3D421F]">Attendance</h2>
         <p className="mt-1 text-sm text-black/60">
-          Working status and schedule labels used on the roster, attendance, and
-          leave.
+          Working status, schedule labels, shift templates, and fingerprint
+          import rules used on the roster and attendance.
         </p>
       </div>
       <HrAttendanceSettingsSubNav />

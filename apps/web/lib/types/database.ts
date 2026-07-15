@@ -81,6 +81,43 @@ export type HrScheduleDay = {
   updated_at: string;
 };
 
+export type HrAttendanceDay = {
+  id: string;
+  venue_id: string;
+  staff_id: string | null;
+  emp_no: string;
+  work_date: string;
+  clock_in: string | null;
+  clock_out: string | null;
+  total_hours: number | null;
+  punch_count: number;
+  status:
+    | "complete"
+    | "missing_clock_in"
+    | "missing_clock_out"
+    | "incomplete"
+    | "no_punches";
+  approval_status: "pending" | "approved" | "rejected" | "flagged";
+  import_batch_id: string | null;
+  source: "manual" | "import" | "system";
+  notes: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type HrAttendanceImportBatch = {
+  id: string;
+  venue_id: string;
+  filename: string | null;
+  row_count: number;
+  day_count: number;
+  unmatched_emp_nos: string[];
+  imported_by: string | null;
+  imported_at: string;
+  notes: string | null;
+};
+
 export type HrShiftTemplate = {
   id: string;
   venue_id: string;
@@ -253,6 +290,8 @@ export type Database = {
       working_statuses: { Row: WorkingStatus };
       schedule_day_labels: { Row: ScheduleDayLabelRow };
       hr_schedule_days: { Row: HrScheduleDay };
+      hr_attendance_days: { Row: HrAttendanceDay };
+      hr_attendance_import_batches: { Row: HrAttendanceImportBatch };
       hr_shift_templates: { Row: HrShiftTemplate };
       hr_schedule_week_sections: { Row: HrScheduleWeekSection };
       hr_schedule_section_assignments: { Row: HrScheduleSectionAssignment };

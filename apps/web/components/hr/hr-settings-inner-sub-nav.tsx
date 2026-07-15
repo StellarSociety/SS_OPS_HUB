@@ -95,6 +95,11 @@ const ATTENDANCE_TABS: Tab[] = [
     label: "Shift Templates",
     icon: Clock3,
   },
+  {
+    href: `${HR_SETTINGS_ATTENDANCE_HREF}/shift-import-rules`,
+    label: "Shift Import Rules",
+    icon: CalendarClock,
+  },
 ];
 
 const NOTIFICATIONS_TABS: Tab[] = [

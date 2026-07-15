@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { FileDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { SchedulesWeekCalendar } from "@/components/hr/schedules-week-calendar";
@@ -78,17 +78,35 @@ export function SchedulesDepartmentTabs({
   const [publishDepartments, setPublishDepartments] =
     useState<SchedulesPublishDepartments>(DEFAULT_SCHEDULES_PUBLISH_DEPARTMENTS);
   const [exportError, setExportError] = useState<string | null>(null);
+  const unsavedGuardRef = useRef<(action: () => void) => void>((action) => {
+    action();
+  });
+  const registerUnsavedGuard = useCallback(
+    (guard: ((action: () => void) => void) | null) => {
+      unsavedGuardRef.current =
+        guard ??
+        ((action) => {
+          action();
+        });
+    },
+    [],
+  );
   const [exporting, startExport] = useTransition();
 
-  const allStaffIds = useMemo(() => {
-    const ids: string[] = [];
+  const allStaff = useMemo(() => {
+    const byId = new Map<string, ScheduleStaffRow>();
     for (const dept of SCHEDULE_DEPARTMENTS) {
       for (const member of staffByDepartment[dept.key] ?? []) {
-        ids.push(member.id);
+        byId.set(member.id, member);
       }
     }
-    return ids;
+    return [...byId.values()];
   }, [staffByDepartment]);
+
+  const allStaffIds = useMemo(
+    () => allStaff.map((member) => member.id),
+    [allStaff],
+  );
 
   // Warm section bands for every department so Sections view is instant.
   useEffect(() => {
@@ -118,6 +136,10 @@ export function SchedulesDepartmentTabs({
 
   function setView(dept: ScheduleDepartmentKey, view: ScheduleViewMode) {
     setViewByDept((current) => ({ ...current, [dept]: view }));
+  }
+
+  function selectDepartment(dept: ScheduleDepartmentKey) {
+    unsavedGuardRef.current(() => setActive(dept));
   }
 
   function openPublish() {
@@ -237,7 +259,7 @@ export function SchedulesDepartmentTabs({
                     id={`schedule-tab-${dept.key}`}
                     aria-selected={isActive}
                     aria-controls="schedule-panel-active"
-                    onClick={() => setActive(dept.key)}
+                    onClick={() => selectDepartment(dept.key)}
                     className={segmentedSubNavLinkClass(isActive)}
                   >
                     {dept.label}
@@ -292,12 +314,14 @@ export function SchedulesDepartmentTabs({
             departmentKey={active}
             staff={staffByDepartment[active] ?? []}
             loadStaffIds={allStaffIds}
+            attendanceStaff={allStaff}
             labels={labels}
             shiftTemplates={shiftTemplates}
             canEdit={canEdit}
             layout={view === "sections" ? "sections" : "flat"}
             weekOffset={weekOffset}
             onWeekOffsetChange={setWeekOffset}
+            onRegisterUnsavedGuard={registerUnsavedGuard}
           />
         </div>
       </Card>

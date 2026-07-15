@@ -32,6 +32,11 @@ import {
   listScheduleDayLabels,
   listShiftTemplates,
   listStaffScheduleDays,
+  listAttendanceDaysForStaff,
+  listAttendancePunchesForStaff,
+  countAttendanceForWeekRange,
+  getAttendanceCoverage,
+  getHrVenueSetting,
   listWeekSectionAssignments,
   listWeekSectionsRaw,
   findPreviousWeekStartWithSections,
@@ -41,6 +46,7 @@ import {
 import {
   DEFAULT_HR_EXPIRY_SETTINGS,
   DEFAULT_HR_SALARY_DEFAULTS,
+  DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
 } from "@/lib/hr/types";
@@ -1743,6 +1749,79 @@ export async function loadSchedulesWeekData(params: {
     weekStart,
   );
   return { days, sections };
+}
+
+/** Fingerprint clock-in/out for the schedule roster grid. */
+export async function loadSchedulesWeekAttendance(params: {
+  staffIds: string[];
+  empNos?: string[];
+  fromDate: string;
+  toDate: string;
+}) {
+  const { supabase, venue, permissions } = await getAuthContext();
+  if (!canAccessStaff(permissions, venue.id)) {
+    return {
+      error: "No access.",
+      days: [] as Awaited<ReturnType<typeof listAttendanceDaysForStaff>>,
+      punches: [] as Awaited<ReturnType<typeof listAttendancePunchesForStaff>>,
+      coverage: { minWorkDate: null, maxWorkDate: null },
+      weekTotals: { dayCount: 0, punchCount: 0 },
+      timezone: DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
+      overnightCutoffTime: DEFAULT_HR_ATTENDANCE_IMPORT_RULES.overnightCutoffTime,
+    };
+  }
+
+  const staffIds = [...new Set(params.staffIds.filter(Boolean))];
+  const empNos = [...new Set((params.empNos ?? []).map((e) => e.trim()).filter(Boolean))];
+  if (staffIds.length === 0 && empNos.length === 0) {
+    return {
+      days: [] as Awaited<ReturnType<typeof listAttendanceDaysForStaff>>,
+      punches: [] as Awaited<ReturnType<typeof listAttendancePunchesForStaff>>,
+      coverage: { minWorkDate: null, maxWorkDate: null },
+      weekTotals: { dayCount: 0, punchCount: 0 },
+      timezone: DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
+      overnightCutoffTime: DEFAULT_HR_ATTENDANCE_IMPORT_RULES.overnightCutoffTime,
+    };
+  }
+
+  const importRules = await getHrVenueSetting(
+    supabase,
+    venue.id,
+    HR_SETTINGS_KEYS.attendanceImportRules,
+    DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+  );
+
+  const [days, punches, coverage, weekTotals] = await Promise.all([
+    listAttendanceDaysForStaff(supabase, venue.id, {
+      staffIds,
+      empNos,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+    }),
+    listAttendancePunchesForStaff(supabase, venue.id, {
+      staffIds,
+      empNos,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+      timeZone: importRules.timezone,
+    }),
+    getAttendanceCoverage(supabase, venue.id),
+    countAttendanceForWeekRange(
+      supabase,
+      venue.id,
+      params.fromDate,
+      params.toDate,
+    ),
+  ]);
+
+  return {
+    days,
+    punches,
+    coverage,
+    weekTotals,
+    timezone: importRules.timezone,
+    overnightCutoffTime: importRules.overnightCutoffTime,
+  };
 }
 
 export async function renameWeekSection(params: {

@@ -5,8 +5,7 @@ import { canEditStaff } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
-  matchesScheduleDepartment,
-  SCHEDULE_DEPARTMENTS,
+  resolveScheduleDepartment,
   withFallbackScheduleLabelIds,
   type ScheduleDepartmentKey,
   type ScheduleStaffRow,
@@ -14,7 +13,7 @@ import {
 import { listScheduleDayLabels, listShiftTemplates, listStaffForVenue } from "@/lib/hr/store";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 
-const ON_BOARD_STATUS_NAME = "ON Board";
+const SCHEDULE_ELIGIBLE_STATUS_NAMES = new Set(["ON Board", "OFF Board"]);
 const DEFAULT_WORKING_STATUS = "Active";
 const MISSING_POSITION_SORT = Number.MAX_SAFE_INTEGER;
 
@@ -87,32 +86,26 @@ export default async function SchedulesPage() {
       : withFallbackScheduleLabelIds(DEFAULT_SCHEDULE_DAY_LABELS);
   const shiftTemplates = shiftTemplatesFromDb ?? [];
 
-  const onBoard = staff.filter(
-    (member) => member.employment_status?.name === ON_BOARD_STATUS_NAME,
+  const scheduleStaff = staff.filter((member) =>
+    SCHEDULE_ELIGIBLE_STATUS_NAMES.has(member.employment_status?.name ?? ""),
   );
   const workingStatusById = await loadWorkingStatusByStaffId(
     supabase,
-    onBoard.map((member) => member.id),
+    scheduleStaff.map((member) => member.id),
   );
 
   const staffByDepartment = emptyStaffByDepartment();
 
-  for (const member of onBoard) {
-    for (const dept of SCHEDULE_DEPARTMENTS) {
-      if (!matchesScheduleDepartment(member.department?.name, dept.key)) {
-        continue;
-      }
-      staffByDepartment[dept.key].push({
-        id: member.id,
-        fullName: member.full_name,
-        empNo: member.emp_no,
-        position: member.position?.name ?? null,
-        positionSortOrder:
-          member.position?.sort_order ?? MISSING_POSITION_SORT,
-        workingStatus:
-          workingStatusById.get(member.id) ?? DEFAULT_WORKING_STATUS,
-      });
-    }
+  for (const member of scheduleStaff) {
+    const deptKey = resolveScheduleDepartment(member.department?.name);
+    staffByDepartment[deptKey].push({
+      id: member.id,
+      fullName: member.full_name,
+      empNo: member.emp_no,
+      position: member.position?.name ?? null,
+      positionSortOrder: member.position?.sort_order ?? MISSING_POSITION_SORT,
+      workingStatus: workingStatusById.get(member.id) ?? DEFAULT_WORKING_STATUS,
+    });
   }
 
   for (const key of Object.keys(staffByDepartment) as ScheduleDepartmentKey[]) {

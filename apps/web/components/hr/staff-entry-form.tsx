@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
+import { DateInput } from "@/components/ui/date-input";
 import { StaffProfilePhotoEditor } from "@/components/hr/staff-profile-photo-editor";
 import { getProbationScheduleTallies } from "@/lib/actions/hr";
 import {
@@ -367,14 +368,14 @@ export function StaffEntryForm({
         </select>
       </Field>
       <Field label="Date of birth" htmlFor="dob">
-        <input
+        <DateInput
           id="dob"
           name="dob"
-          type="date"
           value={value.dob}
-          onChange={set("dob")}
+          onChange={(iso) => onChange({ dob: iso })}
           disabled={readOnly}
-          className={fieldClass}
+          className="w-full"
+          inputClassName={fieldClass}
         />
       </Field>
       <Field label="Nationality" htmlFor="nationality_id">
@@ -490,14 +491,14 @@ export function StaffEntryForm({
         </select>
       </Field>
       <Field label="Joining date" htmlFor="joining_date">
-        <input
+        <DateInput
           id="joining_date"
           name="joining_date"
-          type="date"
           value={value.joining_date}
-          onChange={set("joining_date")}
+          onChange={(iso) => onChange({ joining_date: iso })}
           disabled={readOnly}
-          className={fieldClass}
+          className="w-full"
+          inputClassName={fieldClass}
         />
       </Field>
       <Field label="Contract type" htmlFor="contract_kind">
@@ -599,14 +600,14 @@ export function StaffEntryForm({
         </select>
       </Field>
       <Field label="Visa expiry" htmlFor="visa_expiry">
-        <input
+        <DateInput
           id="visa_expiry"
           name="visa_expiry"
-          type="date"
           value={value.visa_expiry}
-          onChange={set("visa_expiry")}
+          onChange={(iso) => onChange({ visa_expiry: iso })}
           disabled={readOnly}
-          className={fieldClass}
+          className="w-full"
+          inputClassName={fieldClass}
         />
       </Field>
     </SectionCard>
@@ -788,14 +789,14 @@ export function StaffEntryForm({
         />
       </Field>
       <Field label="Passport expiry" htmlFor="passport_expiry">
-        <input
+        <DateInput
           id="passport_expiry"
           name="passport_expiry"
-          type="date"
           value={value.passport_expiry}
-          onChange={set("passport_expiry")}
+          onChange={(iso) => onChange({ passport_expiry: iso })}
           disabled={readOnly}
-          className={fieldClass}
+          className="w-full"
+          inputClassName={fieldClass}
         />
       </Field>
       <Field label="EID no." htmlFor="eid_no">
@@ -809,14 +810,14 @@ export function StaffEntryForm({
         />
       </Field>
       <Field label="EID expiry" htmlFor="eid_expiry">
-        <input
+        <DateInput
           id="eid_expiry"
           name="eid_expiry"
-          type="date"
           value={value.eid_expiry}
-          onChange={set("eid_expiry")}
+          onChange={(iso) => onChange({ eid_expiry: iso })}
           disabled={readOnly}
-          className={fieldClass}
+          className="w-full"
+          inputClassName={fieldClass}
         />
       </Field>
     </SectionCard>

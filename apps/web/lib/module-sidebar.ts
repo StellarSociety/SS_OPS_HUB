@@ -118,7 +118,13 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         key: "attendance",
         label: "Attendance",
         icon: CalendarCheck,
-        itemHrefs: ["/hr/schedules", "/hr/attendance", "/hr/leave"],
+        itemHrefs: [
+          "/hr/schedules",
+          "/hr/attendance",
+          "/hr/attendance/insights",
+          "/hr/attendance/approvals",
+          "/hr/leave",
+        ],
       },
       {
         key: "pay",

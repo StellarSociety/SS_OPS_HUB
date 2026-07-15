@@ -14,9 +14,11 @@ import { RosterLabelsDialog } from "@/components/hr/roster-labels-dialog";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useUnsavedChangesGuard } from "@/components/use-unsaved-changes-guard";
 import {
   addWeekSection,
   deleteWeekSection,
+  loadSchedulesWeekAttendance,
   loadSchedulesWeekData,
   listWeekSections,
   moveStaffToSection,
@@ -25,7 +27,9 @@ import {
   saveScheduleDayChanges,
 } from "@/lib/actions/hr";
 import {
+  buildRosterAttendanceMap,
   cellValuesEqual,
+  formatAttendanceRange,
   formatShiftRangeLabel,
   getScheduleDayLabel,
   getShiftTemplate,
@@ -34,6 +38,7 @@ import {
   formatWeekRangeLabel,
   scheduleCellKey,
   scheduleDayLabelStyle,
+  type ScheduleAttendanceCell,
   type ScheduleCellValue,
   type ScheduleDayLabel,
   type ScheduleDepartmentKey,
@@ -69,6 +74,15 @@ type SchedulesWeekCalendarProps = {
    * Pass every department’s IDs so one request warms the shared week cache.
    */
   loadStaffIds?: string[];
+  /**
+   * All on-board staff used to load fingerprint attendance (defaults to `staff`).
+   * Pass every department so punch times are not limited to the active tab.
+   */
+  attendanceStaff?: ScheduleStaffRow[];
+  /** Lets the parent guard department/tab switches while drafts are open. */
+  onRegisterUnsavedGuard?: (
+    guardAction: ((action: () => void) => void) | null,
+  ) => void;
 };
 
 type SelectedCell = {
@@ -142,6 +156,47 @@ function cellPresentation(
   };
 }
 
+function cellActualPunchLine(
+  attendance: ScheduleAttendanceCell | null,
+): string | null {
+  if (!attendance) return null;
+  return formatAttendanceRange(attendance.clockIn, attendance.clockOut);
+}
+
+function formatCoverageDate(isoDate: string): string {
+  const [y, m, d] = isoDate.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return isoDate.slice(0, 10);
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${d} ${months[m - 1] ?? ""} ${y}`;
+}
+
+function attendanceHintForWeek(
+  fromDate: string,
+  rangeLabel: string,
+  coverage: { minWorkDate: string | null; maxWorkDate: string | null },
+  weekTotals: { dayCount: number; punchCount: number },
+): string {
+  const { minWorkDate, maxWorkDate } = coverage;
+  if (weekTotals.dayCount > 0 || weekTotals.punchCount > 0) {
+    return `Fingerprint records exist for the week of ${rangeLabel} (${weekTotals.dayCount} work days, ${weekTotals.punchCount} punches) but none match the staff shown on this roster. Check employee IDs (ORL####) on Attendance → Records.`;
+  }
+  if (!maxWorkDate) {
+    return "No fingerprint data imported yet. Export InOutData from the device and import on Attendance → Records.";
+  }
+  if (fromDate > maxWorkDate) {
+    return `No punch data for the week of ${rangeLabel} has been imported yet (last import runs through ${formatCoverageDate(maxWorkDate)}). Export a fresh InOutData file from the fingerprint device — include dates through this week — then import on Attendance → Records.`;
+  }
+  if (minWorkDate && maxWorkDate) {
+    return `No punch times for the week of ${rangeLabel}. Imported records cover ${formatCoverageDate(minWorkDate)}–${formatCoverageDate(maxWorkDate)}.`;
+  }
+  return `No punch times for the week of ${rangeLabel}.`;
+}
+
+const SHOW_PUNCH_TIMES_STORAGE_KEY = "hr-schedules-show-punch-times";
+
 export function SchedulesWeekCalendar({
   departmentLabel,
   staff,
@@ -153,6 +208,8 @@ export function SchedulesWeekCalendar({
   weekOffset: weekOffsetProp,
   onWeekOffsetChange,
   loadStaffIds,
+  attendanceStaff: attendanceStaffProp,
+  onRegisterUnsavedGuard,
 }: SchedulesWeekCalendarProps) {
   const sectionsMode = layout === "sections" && Boolean(departmentKey);
   const [weekOffsetState, setWeekOffsetState] = useState(0);
@@ -163,7 +220,14 @@ export function SchedulesWeekCalendar({
     onWeekOffsetChange?.(value);
     if (weekOffsetProp === undefined) setWeekOffsetState(value);
   }
+  const saveDraftsRef = useRef<() => Promise<boolean>>(async () => true);
   const [saved, setSaved] = useState<Record<string, ScheduleCellValue>>({});
+  const [attendance, setAttendance] = useState<
+    Record<string, ScheduleAttendanceCell>
+  >({});
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceHint, setAttendanceHint] = useState<string | null>(null);
+  const [showPunchTimes, setShowPunchTimes] = useState(true);
   const [drafts, setDrafts] = useState<DraftMap>({});
   const [labelsDialogOpen, setLabelsDialogOpen] = useState(false);
   const [selected, setSelected] = useState<Map<string, SelectedCell>>(
@@ -205,15 +269,26 @@ export function SchedulesWeekCalendar({
     [weekOffset],
   );
   const days = useMemo(() => getWeekDayColumns(monday), [monday]);
+  const weekDateKeys = useMemo(() => days.map((day) => day.key), [days]);
   const rangeLabel = formatWeekRangeLabel(monday);
   const fromDate = days[0]?.key ?? "";
   const toDate = days[6]?.key ?? "";
   const weekStart = fromDate;
   const displayStaffIdsKey = staff.map((s) => s.id).join(",");
+  const staffEmpKey = useMemo(
+    () => staff.map((member) => `${member.id}:${member.empNo}`).join("|"),
+    [staff],
+  );
   const fetchStaffIds = useMemo(() => {
     if (loadStaffIds && loadStaffIds.length > 0) return loadStaffIds;
     return staff.map((member) => member.id);
   }, [loadStaffIds, staff]);
+  const attendanceStaff = attendanceStaffProp ?? staff;
+  const attendanceStaffKey = useMemo(
+    () =>
+      attendanceStaff.map((member) => `${member.id}:${member.empNo}`).join("|"),
+    [attendanceStaff],
+  );
   const fetchStaffIdsKey = fetchStaffIds.join(",");
   const staffById = useMemo(() => {
     const map = new Map<string, ScheduleStaffRow>();
@@ -227,6 +302,17 @@ export function SchedulesWeekCalendar({
   const selectedCount = selected.size;
   const draftEntries = useMemo(() => Object.entries(drafts), [drafts]);
   const dirtyCount = draftEntries.length;
+  const isDirty = canEdit && dirtyCount > 0;
+  const { guardAction, unsavedDialog } = useUnsavedChangesGuard({
+    isDirty,
+    onSaveRef: saveDraftsRef,
+  });
+
+  useEffect(() => {
+    if (!onRegisterUnsavedGuard) return;
+    onRegisterUnsavedGuard(guardAction);
+    return () => onRegisterUnsavedGuard(null);
+  }, [guardAction, onRegisterUnsavedGuard]);
 
   const displayAssignments = useMemo(() => {
     const next: Record<string, ScheduleCellValue | null> = { ...saved };
@@ -285,6 +371,7 @@ export function SchedulesWeekCalendar({
   });
 
   const loadWeek = useEffectEvent(async () => {
+    const gen = ++loadGenRef.current;
     const staffIds = fetchStaffIds;
     const displayIds = displayStaffIdsKey
       ? displayStaffIdsKey.split(",").filter(Boolean)
@@ -295,128 +382,218 @@ export function SchedulesWeekCalendar({
         ? scheduleSectionsCacheKey(departmentKey, weekStart)
         : null;
 
-    const cachedDays = getCachedScheduleDaysForStaff(weekKey, displayIds);
-    if (cachedDays) {
-      setSaved(cachedDays);
-      setLoading(false);
-    }
+    try {
+      const cachedDays = getCachedScheduleDaysForStaff(weekKey, displayIds);
+      if (cachedDays) {
+        setSaved(cachedDays);
+        setLoading(false);
+      }
 
-    if (sectionsKey) {
-      const cachedSections = getCachedScheduleSections(sectionsKey);
-      if (cachedSections) setSections(cachedSections);
-    }
+      if (sectionsKey) {
+        const cachedSections = getCachedScheduleSections(sectionsKey);
+        if (cachedSections) setSections(cachedSections);
+      }
 
-    if (!fromDate || !toDate) {
-      setSaved({});
-      setLoading(false);
-      return;
-    }
+      if (!fromDate || !toDate) {
+        setSaved({});
+        setLoading(false);
+        return;
+      }
 
-    if (displayIds.length === 0) {
-      setSaved({});
-      setLoading(false);
-      if (sectionsKey && !getCachedScheduleSections(sectionsKey)) {
+      if (displayIds.length === 0) {
+        setSaved({});
+        setLoading(false);
+        if (sectionsKey && !getCachedScheduleSections(sectionsKey)) {
+          await loadSections();
+        }
+        return;
+      }
+
+      const needDays = !getCachedScheduleDaysForStaff(weekKey, staffIds);
+      const needSections = Boolean(
+        sectionsKey && !getCachedScheduleSections(sectionsKey),
+      );
+
+      if (!needDays && !needSections) {
+        const fresh = getCachedScheduleDaysForStaff(weekKey, displayIds);
+        if (fresh) setSaved(fresh);
+        setLoading(false);
+        return;
+      }
+
+      if (needDays && !cachedDays) setLoading(true);
+
+      function cellsFromDays(
+        days: {
+          staff_id: string;
+          work_date: string;
+          label_code: string;
+          shift_template_id: string | null;
+        }[],
+      ) {
+        const next: Record<string, ScheduleCellValue> = {};
+        for (const day of days) {
+          if (!knownCodes.has(day.label_code) && day.label_code !== "LP") continue;
+          const code = day.label_code === "LP" ? "AL" : day.label_code;
+          if (!knownCodes.has(code)) continue;
+          next[scheduleCellKey(day.staff_id, day.work_date)] = {
+            labelCode: code,
+            shiftTemplateId:
+              code === "SHIFT" ? (day.shift_template_id ?? null) : null,
+          };
+        }
+        return next;
+      }
+
+      if (needDays && needSections) {
+        const result = await loadSchedulesWeekData({
+          staffIds,
+          fromDate,
+          toDate,
+          departmentKey,
+          weekStart,
+          includeSections: true,
+        });
+
+        if (gen !== loadGenRef.current) return;
+
+        if (result.error) {
+          setError(result.error);
+          setLoading(false);
+          return;
+        }
+
+        const next = cellsFromDays(result.days ?? []);
+        mergeCachedScheduleDays(weekKey, staffIds, next);
+        setSaved(getCachedScheduleDaysForStaff(weekKey, displayIds) ?? next);
+
+        const nextSections = result.sections ?? [];
+        if (sectionsKey) setCachedScheduleSections(sectionsKey, nextSections);
+        setSections(nextSections);
+        setLoading(false);
+        return;
+      }
+
+      if (needDays) {
+        const result = await loadSchedulesWeekData({
+          staffIds,
+          fromDate,
+          toDate,
+          includeSections: false,
+        });
+
+        if (gen !== loadGenRef.current) return;
+
+        if (result.error) {
+          setError(result.error);
+          setLoading(false);
+          return;
+        }
+
+        const next = cellsFromDays(result.days ?? []);
+        mergeCachedScheduleDays(weekKey, staffIds, next);
+        setSaved(getCachedScheduleDaysForStaff(weekKey, displayIds) ?? next);
+        setLoading(false);
+      } else {
+        const fresh = getCachedScheduleDaysForStaff(weekKey, displayIds);
+        if (fresh) setSaved(fresh);
+        setLoading(false);
+      }
+
+      if (needSections) {
         await loadSections();
       }
-      return;
-    }
-
-    const needDays = !getCachedScheduleDaysForStaff(weekKey, staffIds);
-    const needSections = Boolean(
-      sectionsKey && !getCachedScheduleSections(sectionsKey),
-    );
-
-    if (!needDays && !needSections) {
-      const fresh = getCachedScheduleDaysForStaff(weekKey, displayIds);
-      if (fresh) setSaved(fresh);
-      setLoading(false);
-      return;
-    }
-
-    const gen = ++loadGenRef.current;
-    if (needDays && !cachedDays) setLoading(true);
-
-    function cellsFromDays(
-      days: {
-        staff_id: string;
-        work_date: string;
-        label_code: string;
-        shift_template_id: string | null;
-      }[],
-    ) {
-      const next: Record<string, ScheduleCellValue> = {};
-      for (const day of days) {
-        if (!knownCodes.has(day.label_code) && day.label_code !== "LP") continue;
-        const code = day.label_code === "LP" ? "AL" : day.label_code;
-        if (!knownCodes.has(code)) continue;
-        next[scheduleCellKey(day.staff_id, day.work_date)] = {
-          labelCode: code,
-          shiftTemplateId:
-            code === "SHIFT" ? (day.shift_template_id ?? null) : null,
-        };
-      }
-      return next;
-    }
-
-    if (needDays && needSections) {
-      const result = await loadSchedulesWeekData({
-        staffIds,
-        fromDate,
-        toDate,
-        departmentKey,
-        weekStart,
-        includeSections: true,
-      });
-
-      if (gen !== loadGenRef.current) return;
-
-      if (result.error) {
-        setError(result.error);
-        setLoading(false);
-        return;
-      }
-
-      const next = cellsFromDays(result.days ?? []);
-      mergeCachedScheduleDays(weekKey, staffIds, next);
-      setSaved(getCachedScheduleDaysForStaff(weekKey, displayIds) ?? next);
-
-      const nextSections = result.sections ?? [];
-      if (sectionsKey) setCachedScheduleSections(sectionsKey, nextSections);
-      setSections(nextSections);
-      setLoading(false);
-      return;
-    }
-
-    if (needDays) {
-      const result = await loadSchedulesWeekData({
-        staffIds,
-        fromDate,
-        toDate,
-        includeSections: false,
-      });
-
-      if (gen !== loadGenRef.current) return;
-
-      if (result.error) {
-        setError(result.error);
-        setLoading(false);
-        return;
-      }
-
-      const next = cellsFromDays(result.days ?? []);
-      mergeCachedScheduleDays(weekKey, staffIds, next);
-      setSaved(getCachedScheduleDaysForStaff(weekKey, displayIds) ?? next);
-      setLoading(false);
-    } else {
-      const fresh = getCachedScheduleDaysForStaff(weekKey, displayIds);
-      if (fresh) setSaved(fresh);
-      setLoading(false);
-    }
-
-    if (needSections) {
-      await loadSections();
+    } finally {
+      /* attendance loaded in dedicated effect */
     }
   });
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SHOW_PUNCH_TIMES_STORAGE_KEY) === "0") {
+        setShowPunchTimes(false);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAttendanceForWeek() {
+      if (!fromDate || !toDate || staff.length === 0) {
+        if (!cancelled) {
+          setAttendance({});
+          setAttendanceHint(null);
+          setAttendanceLoading(false);
+        }
+        return;
+      }
+
+      setAttendanceLoading(true);
+      const result = await loadSchedulesWeekAttendance({
+        staffIds: attendanceStaff.map((member) => member.id),
+        empNos: attendanceStaff.map((member) => member.empNo),
+        fromDate,
+        toDate,
+      });
+
+      if (cancelled) return;
+
+      if (result.error) {
+        setAttendance({});
+        setAttendanceHint(
+          "Could not load punch times for this week. Try refreshing the page.",
+        );
+        setAttendanceLoading(false);
+        return;
+      }
+
+      const map = buildRosterAttendanceMap(
+        {
+          days: result.days ?? [],
+          punches: result.punches ?? [],
+        },
+        staff,
+        weekDateKeys,
+        result.timezone,
+        result.overnightCutoffTime ?? "05:00",
+      );
+      setAttendance(map);
+      setAttendanceLoading(false);
+
+      if (Object.keys(map).length === 0) {
+        setAttendanceHint(
+          attendanceHintForWeek(
+            fromDate,
+            rangeLabel,
+            result.coverage ?? {
+              minWorkDate: null,
+              maxWorkDate: null,
+            },
+            result.weekTotals ?? { dayCount: 0, punchCount: 0 },
+          ),
+        );
+      } else {
+        setAttendanceHint(null);
+      }
+    }
+
+    void loadAttendanceForWeek();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    fromDate,
+    toDate,
+    staffEmpKey,
+    attendanceStaffKey,
+    rangeLabel,
+    staff,
+    attendanceStaff,
+    weekDateKeys,
+  ]);
 
   useEffect(() => {
     void loadWeek();
@@ -633,8 +810,8 @@ export function SchedulesWeekCalendar({
     setError(null);
   }
 
-  function saveDrafts() {
-    if (!canEdit || dirtyCount === 0) return;
+  async function saveDrafts(): Promise<boolean> {
+    if (!canEdit || dirtyCount === 0) return true;
 
     const changes = draftEntries.map(([key, value]) => {
       const [staffId, dateKey] = key.split(":");
@@ -645,36 +822,38 @@ export function SchedulesWeekCalendar({
         shiftTemplateId: value?.shiftTemplateId ?? null,
       };
     });
+    const entriesSnapshot = draftEntries;
 
     setPending(true);
     setError(null);
 
-    startTransition(async () => {
-      const result = await saveScheduleDayChanges({ changes });
-      setPending(false);
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
+    const result = await saveScheduleDayChanges({ changes });
+    setPending(false);
+    if (result.error) {
+      setError(result.error);
+      return false;
+    }
 
-      setSaved((current) => {
-        const next = { ...current };
-        const patch: Record<string, ScheduleCellValue | null> = {};
-        for (const [key, value] of draftEntries) {
-          if (value) next[key] = value;
-          else delete next[key];
-          patch[key] = value;
-        }
-        patchCachedScheduleDays(
-          scheduleWeekDaysCacheKey(fromDate, toDate),
-          patch,
-        );
-        return next;
-      });
-      setDrafts({});
-      setSelected(new Map());
+    setSaved((current) => {
+      const next = { ...current };
+      const patch: Record<string, ScheduleCellValue | null> = {};
+      for (const [key, value] of entriesSnapshot) {
+        if (value) next[key] = value;
+        else delete next[key];
+        patch[key] = value;
+      }
+      patchCachedScheduleDays(
+        scheduleWeekDaysCacheKey(fromDate, toDate),
+        patch,
+      );
+      return next;
     });
+    setDrafts({});
+    setSelected(new Map());
+    return true;
   }
+
+  saveDraftsRef.current = saveDrafts;
 
   function applyLocalStaffPlacement(
     staffId: string,
@@ -1411,6 +1590,11 @@ export function SchedulesWeekCalendar({
             shiftTemplates,
             value,
           );
+          const attendanceCell = attendance[key] ?? null;
+          const punchLine = showPunchTimes
+            ? cellActualPunchLine(attendanceCell)
+            : null;
+          const attendanceOnly = Boolean(!presentation && punchLine);
           const isSelected = selected.has(key);
           const isDraft = Object.prototype.hasOwnProperty.call(drafts, key);
           const isDropTarget = dropTargetKey === key;
@@ -1421,7 +1605,7 @@ export function SchedulesWeekCalendar({
             <td
               key={day.key}
               className={cn(
-                "relative h-12 w-[94px] border-l border-black/5 px-1 align-middle",
+                "relative min-h-[3.25rem] w-[94px] border-l border-black/5 px-1 py-0.5 align-middle",
                 day.isToday && "bg-[var(--venue-primary)]/5",
               )}
               onDragOver={(event) => {
@@ -1480,18 +1664,22 @@ export function SchedulesWeekCalendar({
                 draggable={canDragLabel}
                 title={
                   presentation
-                    ? `${presentation.abbreviation} — ${presentation.name}${isDraft ? " (unsaved)" : ""}${canDragLabel ? " · drag to move" : ""}`
-                    : canEdit
-                      ? isDraft
-                        ? "Cleared (unsaved)"
-                        : "Select day"
-                      : undefined
+                    ? `${presentation.abbreviation} — ${presentation.name}${punchLine ? ` · In/out: ${punchLine}` : ""}${isDraft ? " (unsaved)" : ""}${canDragLabel ? " · drag to move" : ""}`
+                    : punchLine
+                      ? `In/out: ${punchLine}`
+                      : canEdit
+                        ? isDraft
+                          ? "Cleared (unsaved)"
+                          : "Select day"
+                        : undefined
                 }
                 aria-pressed={isSelected}
                 aria-label={
                   presentation
-                    ? `${member.fullName} ${day.dayLabel}: ${presentation.name}`
-                    : `${member.fullName} ${day.dayLabel}: empty`
+                    ? `${member.fullName} ${day.dayLabel}: ${presentation.name}${punchLine ? `, in/out ${punchLine}` : ""}`
+                    : punchLine
+                      ? `${member.fullName} ${day.dayLabel}: in/out ${punchLine}`
+                      : `${member.fullName} ${day.dayLabel}: empty`
                 }
                 onMouseDown={(event) => {
                   if (!canEdit || pending) return;
@@ -1543,10 +1731,12 @@ export function SchedulesWeekCalendar({
                   }, 0);
                 }}
                 className={cn(
-                  "flex h-9 w-full items-center justify-center rounded-md border text-[11px] font-semibold uppercase tracking-wide transition-colors",
+                  "flex min-h-9 w-full flex-col items-center justify-center gap-0 rounded-md border px-0.5 py-0.5 text-[11px] font-semibold uppercase leading-tight tracking-wide transition-colors",
                   presentation
                     ? "border"
-                    : "border-dashed border-black/15 bg-transparent text-black/25",
+                    : attendanceOnly
+                      ? "border border-black/15 bg-white/90 text-[#3D421F]"
+                      : "border-dashed border-black/15 bg-transparent text-black/25",
                   canEdit &&
                     "hover:border-[var(--venue-primary)]/40 hover:bg-white/80",
                   canDragLabel && "cursor-grab active:cursor-grabbing",
@@ -1564,7 +1754,21 @@ export function SchedulesWeekCalendar({
                 )}
                 style={presentation ? presentation.style : undefined}
               >
-                {presentation?.abbreviation ?? "·"}
+                {presentation?.abbreviation ?? null}
+                {punchLine ? (
+                  <span
+                    className={cn(
+                      "font-normal normal-case tracking-normal text-[#1a1a1a]",
+                      presentation
+                        ? "mt-0.5 text-[9px] font-semibold"
+                        : "text-[10px] font-semibold",
+                    )}
+                  >
+                    {punchLine}
+                  </span>
+                ) : !presentation ? (
+                  "·"
+                ) : null}
               </button>
             </td>
           );
@@ -1600,13 +1804,41 @@ export function SchedulesWeekCalendar({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-black/55">
-          {departmentLabel} {sectionsMode ? "sections" : "roster"} · week of{" "}
-          <span className="font-medium text-[#3D421F]">{rangeLabel}</span>
-          {loading ? (
-            <span className="ml-2 text-xs text-black/40">Loading…</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <p className="text-sm text-black/55">
+            {departmentLabel} {sectionsMode ? "sections" : "roster"} · week of{" "}
+            <span className="font-medium text-[#3D421F]">{rangeLabel}</span>
+            {loading ? (
+              <span className="ml-2 text-xs text-black/40">Loading…</span>
+            ) : null}
+          </p>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#3D421F]">
+            <input
+              type="checkbox"
+              checked={showPunchTimes}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setShowPunchTimes(next);
+                try {
+                  localStorage.setItem(
+                    SHOW_PUNCH_TIMES_STORAGE_KEY,
+                    next ? "1" : "0",
+                  );
+                } catch {
+                  /* ignore */
+                }
+              }}
+              className="h-3.5 w-3.5 rounded border-black/20 accent-[var(--venue-primary)]"
+            />
+            Show punch in/out times
+            {attendanceLoading ? (
+              <span className="text-black/40">(loading…)</span>
+            ) : null}
+          </label>
+          {showPunchTimes && attendanceHint ? (
+            <p className="text-xs text-amber-800/80">{attendanceHint}</p>
           ) : null}
-        </p>
+        </div>
         <div className="flex items-center gap-1">
           {!canEdit ? (
             <button
@@ -1619,7 +1851,7 @@ export function SchedulesWeekCalendar({
           ) : null}
           <button
             type="button"
-            onClick={() => setWeekOffset((o) => o - 1)}
+            onClick={() => guardAction(() => setWeekOffset((o) => o - 1))}
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-black/10 bg-white/70 text-[#3D421F] transition-colors hover:bg-white"
             aria-label="Previous week"
           >
@@ -1627,7 +1859,7 @@ export function SchedulesWeekCalendar({
           </button>
           <button
             type="button"
-            onClick={() => setWeekOffset(0)}
+            onClick={() => guardAction(() => setWeekOffset(0))}
             disabled={weekOffset === 0}
             className={cn(
               "h-9 rounded-lg border px-3 text-xs font-medium uppercase tracking-wide transition-colors",
@@ -1640,7 +1872,7 @@ export function SchedulesWeekCalendar({
           </button>
           <button
             type="button"
-            onClick={() => setWeekOffset((o) => o + 1)}
+            onClick={() => guardAction(() => setWeekOffset((o) => o + 1))}
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-black/10 bg-white/70 text-[#3D421F] transition-colors hover:bg-white"
             aria-label="Next week"
           >
@@ -1767,7 +1999,9 @@ export function SchedulesWeekCalendar({
               type="button"
               size="sm"
               disabled={pending || dirtyCount === 0}
-              onClick={saveDrafts}
+              onClick={() => {
+                void saveDrafts();
+              }}
               className="h-8 w-full"
             >
               {pending ? "Saving…" : "Save"}
@@ -1965,6 +2199,7 @@ export function SchedulesWeekCalendar({
         labels={labels}
         onClose={() => setLabelsDialogOpen(false)}
       />
+      {unsavedDialog}
     </div>
   );
 }

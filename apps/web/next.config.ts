@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    serverActions: {
+      // InOutData.xls exports can be ~1 MB; parse on server from uploaded file.
+      bodySizeLimit: "10mb",
+    },
+  },
 };
 
 export default nextConfig;

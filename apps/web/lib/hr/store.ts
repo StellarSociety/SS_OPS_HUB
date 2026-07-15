@@ -438,3 +438,237 @@ export async function findPreviousWeekStartWithSections(
 
   return (data?.[0]?.week_start as string | undefined) ?? null;
 }
+
+export async function listAttendanceDays(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts: { fromDate: string; toDate: string; limit?: number },
+) {
+  const { data, error } = await supabase
+    .from("hr_attendance_days")
+    .select("*")
+    .eq("venue_id", venueId)
+    .gte("work_date", opts.fromDate)
+    .lte("work_date", opts.toDate)
+    .order("work_date", { ascending: false })
+    .order("emp_no")
+    .limit(opts.limit ?? 500);
+
+  if (error) {
+    console.error("[hr] listAttendanceDays:", error.message);
+    return [];
+  }
+
+  return (data ?? []) as import("@/lib/types/database").HrAttendanceDay[];
+}
+
+export async function listAttendanceDaysForStaff(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts: {
+    staffIds: string[];
+    empNos?: string[];
+    fromDate: string;
+    toDate: string;
+  },
+) {
+  if (opts.staffIds.length === 0 && !(opts.empNos?.length ?? 0)) return [];
+
+  const staffIdSet = new Set(opts.staffIds);
+  const empNoSet = new Set(
+    (opts.empNos ?? []).map((empNo) => empNo.trim().toLowerCase()).filter(Boolean),
+  );
+
+  const { data, error } = await supabase
+    .from("hr_attendance_days")
+    .select("staff_id, emp_no, work_date, clock_in, clock_out, status")
+    .eq("venue_id", venueId)
+    .gte("work_date", opts.fromDate)
+    .lte("work_date", opts.toDate)
+    .order("work_date");
+
+  if (error) {
+    console.error("[hr] listAttendanceDaysForStaff:", error.message);
+    return [];
+  }
+
+  return (data ?? []).filter((row) => {
+    if (row.staff_id && staffIdSet.has(row.staff_id as string)) return true;
+    const emp = String(row.emp_no ?? "")
+      .trim()
+      .toLowerCase();
+    return emp.length > 0 && empNoSet.has(emp);
+  }) as {
+    staff_id: string | null;
+    emp_no: string;
+    work_date: string;
+    clock_in: string | null;
+    clock_out: string | null;
+    status: string;
+  }[];
+}
+
+export async function listAttendancePunchesForStaff(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts: {
+    staffIds: string[];
+    empNos?: string[];
+    fromDate: string;
+    toDate: string;
+    /** IANA timezone for expanding the punch_at window (overnight edges). */
+    timeZone?: string;
+  },
+) {
+  if (opts.staffIds.length === 0 && !(opts.empNos?.length ?? 0)) return [];
+
+  const staffIdSet = new Set(opts.staffIds);
+  const empNoSet = new Set(
+    (opts.empNos ?? []).map((empNo) => empNo.trim().toLowerCase()).filter(Boolean),
+  );
+
+  function shiftDateKey(dateKey: string, deltaDays: number): string {
+    const d = new Date(`${dateKey}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + deltaDays);
+    return d.toISOString().slice(0, 10);
+  }
+
+  const fromExpanded = shiftDateKey(opts.fromDate, -1);
+  const toExpanded = shiftDateKey(opts.toDate, 1);
+  const startIso = `${fromExpanded}T00:00:00+04:00`;
+  const endIso = `${toExpanded}T23:59:59+04:00`;
+
+  const { data, error } = await supabase
+    .from("hr_attendance_punches")
+    .select("staff_id, emp_no, punch_at, work_date")
+    .eq("venue_id", venueId)
+    .gte("punch_at", startIso)
+    .lte("punch_at", endIso)
+    .order("punch_at");
+
+  if (error) {
+    console.error("[hr] listAttendancePunchesForStaff:", error.message);
+    return [];
+  }
+
+  return (data ?? []).filter((row) => {
+    if (row.staff_id && staffIdSet.has(row.staff_id as string)) return true;
+    const emp = String(row.emp_no ?? "")
+      .trim()
+      .toLowerCase();
+    return emp.length > 0 && empNoSet.has(emp);
+  }) as {
+    staff_id: string | null;
+    emp_no: string;
+    punch_at: string;
+    work_date: string | null;
+  }[];
+}
+
+export async function countAttendanceForWeekRange(
+  supabase: SupabaseClient,
+  venueId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<{ dayCount: number; punchCount: number }> {
+  const [daysResult, punchesResult] = await Promise.all([
+    supabase
+      .from("hr_attendance_days")
+      .select("*", { count: "exact", head: true })
+      .eq("venue_id", venueId)
+      .gte("work_date", fromDate)
+      .lte("work_date", toDate),
+    supabase
+      .from("hr_attendance_punches")
+      .select("*", { count: "exact", head: true })
+      .eq("venue_id", venueId)
+      .gte("punch_at", `${fromDate}T00:00:00+04:00`)
+      .lte("punch_at", `${toDate}T23:59:59+04:00`),
+  ]);
+
+  return {
+    dayCount: daysResult.count ?? 0,
+    punchCount: punchesResult.count ?? 0,
+  };
+}
+
+export async function getAttendanceCoverage(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<{ minWorkDate: string | null; maxWorkDate: string | null }> {
+  const [minResult, maxResult] = await Promise.all([
+    supabase
+      .from("hr_attendance_days")
+      .select("work_date")
+      .eq("venue_id", venueId)
+      .order("work_date", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("hr_attendance_days")
+      .select("work_date")
+      .eq("venue_id", venueId)
+      .order("work_date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (minResult.error || maxResult.error) {
+    return { minWorkDate: null, maxWorkDate: null };
+  }
+
+  return {
+    minWorkDate: minResult.data?.work_date
+      ? String(minResult.data.work_date).slice(0, 10)
+      : null,
+    maxWorkDate: maxResult.data?.work_date
+      ? String(maxResult.data.work_date).slice(0, 10)
+      : null,
+  };
+}
+
+export async function listAttendanceImportBatches(
+  supabase: SupabaseClient,
+  venueId: string,
+  limit = 10,
+) {
+  const { data, error } = await supabase
+    .from("hr_attendance_import_batches")
+    .select("*")
+    .eq("venue_id", venueId)
+    .order("imported_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("[hr] listAttendanceImportBatches:", error.message);
+    return [];
+  }
+
+  return (data ?? []) as import("@/lib/types/database").HrAttendanceImportBatch[];
+}
+
+export async function listScheduleDaysByDateRange(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts: { fromDate: string; toDate: string },
+) {
+  const { data, error } = await supabase
+    .from("hr_schedule_days")
+    .select("staff_id, emp_no, work_date, label_code, shift_template_id")
+    .eq("venue_id", venueId)
+    .gte("work_date", opts.fromDate)
+    .lte("work_date", opts.toDate);
+
+  if (error) {
+    console.error("[hr] listScheduleDaysByDateRange:", error.message);
+    return [];
+  }
+
+  return (data ?? []) as {
+    staff_id: string;
+    emp_no: string;
+    work_date: string;
+    label_code: string;
+    shift_template_id: string | null;
+  }[];
+}

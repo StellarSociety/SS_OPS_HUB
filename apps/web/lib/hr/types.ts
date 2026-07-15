@@ -168,6 +168,7 @@ export const HR_SETTINGS_KEYS = {
   expiry: "expiry",
   salaryDefaults: "salary_defaults",
   notifications: "notifications",
+  attendanceImportRules: "attendance_import_rules",
 } as const;
 
 export type HrExpirySettings = {
@@ -216,4 +217,26 @@ export const DEFAULT_HR_NOTIFICATION_SETTINGS: HrNotificationSettings = {
   newStaffEnabled: true,
   terminationEnabled: true,
   recipientRoles: ["hr_manager"],
+};
+
+/**
+ * Rules for pairing fingerprint punches into work-day clock in/out.
+ * Stored in hr_venue_settings under key attendance_import_rules.
+ */
+export type HrAttendanceImportRules = {
+  /**
+   * Local time (HH:mm). Punches strictly before this on calendar day D are
+   * attributed to work date D−1 (typical overnight clock-outs, e.g. 01:00 → previous day).
+   */
+  overnightCutoffTime: string;
+  /** Soft cap when computing hours; punches beyond this gap are still stored but flagged. */
+  maxShiftHours: number;
+  /** IANA timezone used when interpreting device wall-clock as timestamptz. */
+  timezone: string;
+};
+
+export const DEFAULT_HR_ATTENDANCE_IMPORT_RULES: HrAttendanceImportRules = {
+  overnightCutoffTime: "05:00",
+  maxShiftHours: 16,
+  timezone: "Asia/Dubai",
 };

@@ -14,6 +14,10 @@ export const SCHEDULE_DEPARTMENTS = [
   {
     key: "floor",
     label: "Floor",
+    /**
+     * Explicit floor departments. Anyone not in kitchen/bar also lands here
+     * via `resolveScheduleDepartment` (catch-all).
+     */
     departmentNames: ["F&B Service"],
   },
 ] as const;
@@ -171,6 +175,237 @@ export function formatShiftClock(time: string): string {
 
 export function formatShiftRangeLabel(startTime: string, endTime: string): string {
   return `${formatShiftClock(startTime)} – ${formatShiftClock(endTime)}`;
+}
+
+/** Actual fingerprint clock-in/out for roster cells (from `hr_attendance_days`). */
+export type ScheduleAttendanceCell = {
+  clockIn: string | null;
+  clockOut: string | null;
+  status: string;
+};
+
+export function formatAttendanceClock(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const formatted = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Dubai",
+  });
+  return formatted.replace(/\s/g, "").toLowerCase();
+}
+
+export function formatAttendanceRange(
+  clockIn: string | null | undefined,
+  clockOut: string | null | undefined,
+): string | null {
+  const inLabel = formatAttendanceClock(clockIn);
+  const outLabel = formatAttendanceClock(clockOut);
+  if (inLabel && outLabel) return `${inLabel} – ${outLabel}`;
+  if (inLabel) return `${inLabel} – —`;
+  if (outLabel) return `— – ${outLabel}`;
+  return null;
+}
+
+/** YYYY-MM-DD for an ISO timestamp in a venue timezone. */
+export function calendarDateKeyInTimezone(
+  iso: string,
+  timeZone = "Asia/Dubai",
+): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+export type RosterAttendanceSource = {
+  days: {
+    staff_id: string | null;
+    emp_no: string;
+    work_date: string;
+    clock_in: string | null;
+    clock_out: string | null;
+    status: string;
+  }[];
+  punches: {
+    staff_id: string | null;
+    emp_no: string;
+    punch_at: string;
+    /** Import work day (may be previous calendar day for overnight outs). */
+    work_date?: string | null;
+  }[];
+};
+
+function parseCutoffHourMinute(overnightCutoffTime: string): {
+  hour: number;
+  minute: number;
+} {
+  const match = overnightCutoffTime.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return { hour: 5, minute: 0 };
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) {
+    return { hour: 5, minute: 0 };
+  }
+  return { hour, minute };
+}
+
+/**
+ * Resolve fingerprint punch → roster work day using the same overnight rule as import:
+ * punches before the cutoff (default 05:00 venue-local) belong to the previous work day.
+ */
+export function workDateForPunchAt(
+  punchAtIso: string,
+  timeZone = "Asia/Dubai",
+  overnightCutoffTime = "05:00",
+): string {
+  const calendarDate = calendarDateKeyInTimezone(punchAtIso, timeZone);
+  if (!calendarDate) return "";
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(new Date(punchAtIso));
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const cutoff = parseCutoffHourMinute(overnightCutoffTime);
+  const punchMinutes = hour * 60 + minute;
+  const cutoffMinutes = cutoff.hour * 60 + cutoff.minute;
+
+  if (punchMinutes >= cutoffMinutes) return calendarDate;
+
+  const d = new Date(`${calendarDate}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Map roster cells to punch in/out for the visible week.
+ * Prefers imported work-day records, then pairs raw punches by **work date**
+ * (overnight outs before the cutoff stay on the previous day — never as a phantom clock-in).
+ */
+export function buildRosterAttendanceMap(
+  source: RosterAttendanceSource,
+  rosterStaff: ScheduleStaffRow[],
+  weekDateKeys: string[],
+  timeZone = "Asia/Dubai",
+  overnightCutoffTime = "05:00",
+): Record<string, ScheduleAttendanceCell> {
+  const staffIdByEmp = new Map(
+    rosterStaff.map((member) => [member.empNo.trim().toLowerCase(), member.id]),
+  );
+  const weekSet = new Set(weekDateKeys);
+  const map: Record<string, ScheduleAttendanceCell> = {};
+  const usedPunchTimes = new Set<string>();
+
+  function resolveStaffId(
+    staffId: string | null | undefined,
+    empNo: string | null | undefined,
+  ): string | null {
+    if (staffId) return staffId;
+    const emp = String(empNo ?? "")
+      .trim()
+      .toLowerCase();
+    if (!emp) return null;
+    return staffIdByEmp.get(emp) ?? null;
+  }
+
+  for (const row of source.days) {
+    const workDate = String(row.work_date).slice(0, 10);
+    if (!weekSet.has(workDate)) continue;
+    const staffId = resolveStaffId(row.staff_id, row.emp_no);
+    if (!staffId) continue;
+    map[scheduleCellKey(staffId, workDate)] = {
+      clockIn: row.clock_in,
+      clockOut: row.clock_out,
+      status: row.status,
+    };
+    if (row.clock_in) usedPunchTimes.add(`${staffId}|${row.clock_in}`);
+    if (row.clock_out) usedPunchTimes.add(`${staffId}|${row.clock_out}`);
+  }
+
+  type PunchGroup = { staffId: string; workDate: string; times: string[] };
+  const groups = new Map<string, PunchGroup>();
+
+  for (const punch of source.punches) {
+    const staffId = resolveStaffId(punch.staff_id, punch.emp_no);
+    if (!staffId) continue;
+    if (usedPunchTimes.has(`${staffId}|${punch.punch_at}`)) continue;
+
+    const workDate =
+      (punch.work_date ? String(punch.work_date).slice(0, 10) : "") ||
+      workDateForPunchAt(punch.punch_at, timeZone, overnightCutoffTime);
+    if (!workDate || !weekSet.has(workDate)) continue;
+
+    const key = `${staffId}:${workDate}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { staffId, workDate, times: [] };
+      groups.set(key, group);
+    }
+    group.times.push(punch.punch_at);
+  }
+
+  const cutoff = parseCutoffHourMinute(overnightCutoffTime);
+  const cutoffMinutes = cutoff.hour * 60 + cutoff.minute;
+
+  for (const group of groups.values()) {
+    const cellKey = scheduleCellKey(group.staffId, group.workDate);
+    if (map[cellKey]?.clockIn || map[cellKey]?.clockOut) continue;
+
+    const sorted = [...group.times].sort(
+      (a, b) => new Date(a).getTime() - new Date(b).getTime(),
+    );
+    if (sorted.length === 0) continue;
+
+    if (sorted.length >= 2) {
+      const clockIn = sorted[0]!;
+      const clockOut = sorted[sorted.length - 1]!;
+      map[cellKey] = {
+        clockIn,
+        clockOut: clockOut !== clockIn ? clockOut : null,
+        status: "complete",
+      };
+      continue;
+    }
+
+    // Single punch: before overnight cutoff → clock out only (belongs to this work day
+    // as an early morning out); otherwise → clock in only (missing out).
+    const only = sorted[0]!;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    }).formatToParts(new Date(only));
+    const h = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+    const m = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+    const isEarlyMorning = h * 60 + m < cutoffMinutes;
+
+    if (isEarlyMorning) {
+      map[cellKey] = {
+        clockIn: null,
+        clockOut: only,
+        status: "missing_clock_in",
+      };
+    } else {
+      map[cellKey] = {
+        clockIn: only,
+        clockOut: null,
+        status: "missing_clock_out",
+      };
+    }
+  }
+
+  return map;
 }
 
 export function getShiftTemplate(
@@ -465,8 +700,26 @@ export function matchesScheduleDepartment(
   departmentName: string | null | undefined,
   key: ScheduleDepartmentKey,
 ): boolean {
-  const names = SCHEDULE_DEPARTMENTS.find((d) => d.key === key)?.departmentNames;
-  if (!names || !departmentName) return false;
-  const normalized = departmentName.trim().toLowerCase();
-  return names.some((name) => name.toLowerCase() === normalized);
+  return resolveScheduleDepartment(departmentName) === key;
+}
+
+/**
+ * Map an HR department name to a schedule tab.
+ * Kitchen = Culinary, Bar = Beverages; everyone else (incl. unset) → Floor.
+ */
+export function resolveScheduleDepartment(
+  departmentName: string | null | undefined,
+): ScheduleDepartmentKey {
+  const normalized = departmentName?.trim().toLowerCase() ?? "";
+  if (normalized) {
+    for (const dept of SCHEDULE_DEPARTMENTS) {
+      if (dept.key === "floor") continue;
+      if (
+        dept.departmentNames.some((name) => name.toLowerCase() === normalized)
+      ) {
+        return dept.key;
+      }
+    }
+  }
+  return "floor";
 }
