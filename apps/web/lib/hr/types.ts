@@ -86,6 +86,12 @@ export type Staff = {
   bank_name: string | null;
   joining_date: string | null;
   termination_date: string | null;
+  contract_kind: string | null;
+  visa_status: string | null;
+  visa_expiry: string | null;
+  probation_duration_value: number | null;
+  probation_duration_unit: string | null;
+  probation_status: string | null;
   unpaid_leave_days_total: number | null;
   vacations_entitle: number | null;
   vacations_balance: number | null;
@@ -108,6 +114,7 @@ export type Staff = {
   medical_insurance_value: number | null;
   medical_insurance_issue_date: string | null;
   medical_insurance_expiry_date: string | null;
+  photo_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -141,6 +148,7 @@ export const HR_FEATURES = {
 export const EXPIRY_FIELDS = [
   { field: "passport_expiry", label: "Passport" },
   { field: "eid_expiry", label: "Emirates ID" },
+  { field: "visa_expiry", label: "Visa" },
   { field: "medical_insurance_expiry_date", label: "Medical insurance" },
   { field: "ohc_date", label: "OHC training", renewalMonths: 12 },
   { field: "pic_date", label: "PIC training", renewalMonths: 12 },

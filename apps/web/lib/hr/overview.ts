@@ -22,11 +22,50 @@ export type HrOverviewStats = {
 
 const UNASSIGNED = "Unassigned";
 const UNSPECIFIED = "Unspecified";
+const OTHER = "Other";
 /** Matches employment_statuses seed / StatusBadge — currently employed. */
 const ON_BOARD_STATUS_NAME = "ON Board";
 
 function isOnBoard(member: StaffWithLookups): boolean {
   return member.employment_status?.name === ON_BOARD_STATUS_NAME;
+}
+
+/** Largest-remainder rounding so integer percents always sum to 100 (or 0). */
+function assignPercents(counts: number[], total: number): number[] {
+  if (total <= 0 || counts.length === 0) {
+    return counts.map(() => 0);
+  }
+
+  const exact = counts.map((count) => (count / total) * 100);
+  const floored = exact.map((value) => Math.floor(value));
+  let remaining = 100 - floored.reduce((sum, value) => sum + value, 0);
+
+  const byFraction = exact
+    .map((value, index) => ({ index, fraction: value - floored[index]! }))
+    .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+
+  const percents = [...floored];
+  for (const { index } of byFraction) {
+    if (remaining <= 0) break;
+    percents[index] = (percents[index] ?? 0) + 1;
+    remaining -= 1;
+  }
+  return percents;
+}
+
+function withPercents(
+  rows: { label: string; count: number }[],
+  total: number,
+): HrBreakdownRow[] {
+  const percents = assignPercents(
+    rows.map((row) => row.count),
+    total,
+  );
+  return rows.map((row, index) => ({
+    label: row.label,
+    count: row.count,
+    percent: percents[index] ?? 0,
+  }));
 }
 
 function tallyBy(
@@ -39,11 +78,26 @@ function tallyBy(
     const key = keyOf(member);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  return Array.from(counts, ([label, count]) => ({
-    label,
-    count,
-    percent: total > 0 ? Math.round((count / total) * 100) : 0,
-  })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const rows = Array.from(counts, ([label, count]) => ({ label, count })).sort(
+    (a, b) => b.count - a.count || a.label.localeCompare(b.label),
+  );
+  return withPercents(rows, total);
+}
+
+/** Keep the top N rows and roll the rest into Other so shares still sum to 100%. */
+function takeTopWithOther(
+  rows: HrBreakdownRow[],
+  limit: number,
+  total: number,
+): HrBreakdownRow[] {
+  if (rows.length <= limit) return rows;
+
+  const top = rows.slice(0, limit).map(({ label, count }) => ({ label, count }));
+  const otherCount = rows
+    .slice(limit)
+    .reduce((sum, row) => sum + row.count, 0);
+
+  return withPercents([...top, { label: OTHER, count: otherCount }], total);
 }
 
 /** A staff member is treated as active when they have no termination date set. */
@@ -69,10 +123,14 @@ export function buildHrOverviewStats(
     staff,
     (member) => member.employment_status?.name ?? UNSPECIFIED,
   );
-  const byNationality = tallyBy(
-    onBoardStaff,
-    (member) => member.nationality?.name ?? UNSPECIFIED,
-  ).slice(0, topNationalities);
+  const byNationality = takeTopWithOther(
+    tallyBy(
+      onBoardStaff,
+      (member) => member.nationality?.name ?? UNSPECIFIED,
+    ),
+    topNationalities,
+    onBoardStaff.length,
+  );
 
   const overdue = expiryItems.filter((item) => item.daysUntil < 0).length;
 

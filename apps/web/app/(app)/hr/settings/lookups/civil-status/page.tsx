@@ -1,10 +1,6 @@
-import { CivilStatusSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listCivilStatuses } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrCivilStatusSettingsPage() {
-  const { supabase } = await getHrPageContext();
-  const civilStatuses = await listCivilStatuses(supabase);
-
-  return <CivilStatusSection civilStatuses={civilStatuses} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/staff-details/civil-status"));
 }

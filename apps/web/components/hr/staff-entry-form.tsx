@@ -1,9 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { computeSalaryBreakdown, formatAed } from "@/lib/hr/derived";
+import { StaffProfilePhotoEditor } from "@/components/hr/staff-profile-photo-editor";
+import { getProbationScheduleTallies } from "@/lib/actions/hr";
+import {
+  computeSalaryBreakdown,
+  formatAed,
+  formatDateOnly,
+} from "@/lib/hr/derived";
 import type { SalaryPercentages } from "@/lib/hr/derived";
+import {
+  computeProbation,
+  durationExceedsLegalMax,
+  EMPTY_PROBATION_TALLIES,
+  PROBATION_MAX_MONTHS,
+  type ProbationScheduleTallies,
+} from "@/lib/hr/probation";
 import type { StaffFormState } from "@/lib/hr/staff-form";
 import type {
   CivilStatus,
@@ -13,6 +26,7 @@ import type {
   Nationality,
   Position,
 } from "@/lib/hr/types";
+import { cn } from "@/lib/utils";
 
 export const STAFF_ENTRY_FORM_ID = "staff-entry-form";
 
@@ -20,8 +34,13 @@ type StaffEntryFormProps = {
   value: StaffFormState;
   onChange: (patch: Partial<StaffFormState>) => void;
   onSubmit: (formData: FormData) => void;
+  onPhotoFileChange: (file: File | null) => void;
+  photoCleared: boolean;
+  onPhotoClearedChange: (cleared: boolean) => void;
   readOnly: boolean;
   lockEmpNo: boolean;
+  /** When set, roster leave/work tallies are loaded for the probation window. */
+  staffId?: string | null;
   departments: Department[];
   positions: Position[];
   statuses: EmploymentStatus[];
@@ -41,16 +60,18 @@ const readonlyFieldClass =
 function SectionCard({
   title,
   children,
+  contentClassName,
 }: {
   title: string;
   children: React.ReactNode;
+  contentClassName?: string;
 }) {
   return (
     <Card className="flex flex-col p-5">
       <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-[#3D421F]">
         {title}
       </h3>
-      <div className="space-y-4">{children}</div>
+      <div className={cn(contentClassName ?? "space-y-4")}>{children}</div>
     </Card>
   );
 }
@@ -77,12 +98,35 @@ function Field({
   );
 }
 
+function Metric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+}) {
+  return (
+    <div className="rounded-lg border border-black/5 bg-white/50 px-3 py-2">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-black/40">
+        {label}
+      </p>
+      <p className="mt-0.5 text-sm font-medium text-[#3D421F]">
+        {value == null || value === "" ? "—" : value}
+      </p>
+    </div>
+  );
+}
+
 export function StaffEntryForm({
   value,
   onChange,
   onSubmit,
+  onPhotoFileChange,
+  photoCleared,
+  onPhotoClearedChange,
   readOnly,
   lockEmpNo,
+  staffId = null,
   departments,
   positions,
   statuses,
@@ -92,6 +136,9 @@ export function StaffEntryForm({
   salaryPct,
   canViewSalary,
 }: StaffEntryFormProps) {
+  const [scheduleTallies, setScheduleTallies] =
+    useState<ProbationScheduleTallies>(EMPTY_PROBATION_TALLIES);
+
   const set =
     (field: keyof StaffFormState) =>
     (
@@ -124,6 +171,80 @@ export function StaffEntryForm({
         : positions,
     [positions, value.department_id],
   );
+
+  const probation = useMemo(
+    () =>
+      computeProbation({
+        joiningDate: value.joining_date,
+        durationValue: value.probation_duration_value,
+        durationUnit: value.probation_duration_unit,
+        probationStatus: value.probation_status,
+        tallies: scheduleTallies,
+      }),
+    [
+      value.joining_date,
+      value.probation_duration_value,
+      value.probation_duration_unit,
+      value.probation_status,
+      scheduleTallies,
+    ],
+  );
+
+  const probationExceedsMax = durationExceedsLegalMax(
+    value.joining_date,
+    value.probation_duration_value
+      ? Number(value.probation_duration_value)
+      : null,
+    value.probation_duration_unit === "days" ||
+      value.probation_duration_unit === "months"
+      ? value.probation_duration_unit
+      : null,
+  );
+
+  const probationSummary = useMemo(() => {
+    if (!probation.legalEndDate) return null;
+    const endLabel = formatDateOnly(probation.legalEndDate);
+    if (probation.status === "Expired") {
+      return `Probation Period Expired ${endLabel}`;
+    }
+    if (probation.status === "Confirmed") {
+      return `Confirmed · ended ${endLabel}`;
+    }
+    if (probation.status === "Terminated") {
+      return `Terminated · end date ${endLabel}`;
+    }
+    const remaining = probation.remainingDays ?? 0;
+    return `Last day ${endLabel} · ${remaining} day${remaining === 1 ? "" : "s"} remaining`;
+  }, [
+    probation.legalEndDate,
+    probation.remainingDays,
+    probation.status,
+  ]);
+
+  useEffect(() => {
+    if (
+      !staffId ||
+      !probation.commencementDate ||
+      !probation.legalEndDate
+    ) {
+      setScheduleTallies(EMPTY_PROBATION_TALLIES);
+      return;
+    }
+
+    let cancelled = false;
+    void getProbationScheduleTallies({
+      staffId,
+      fromDate: probation.commencementDate,
+      toDate: probation.legalEndDate,
+    }).then((result) => {
+      if (cancelled || !result.tallies) return;
+      setScheduleTallies(result.tallies);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [staffId, probation.commencementDate, probation.legalEndDate]);
 
   const inAccommodation = value.company_accommodation.toLowerCase() === "yes";
   const wageNumber =
@@ -379,11 +500,194 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
+      <Field label="Contract type" htmlFor="contract_kind">
+        <select
+          id="contract_kind"
+          name="contract_kind"
+          value={value.contract_kind}
+          onChange={set("contract_kind")}
+          disabled={readOnly}
+          className={fieldClass}
+        >
+          <option value="">—</option>
+          <option value="Full-time">Full-time</option>
+          <option value="Part-time">Part-time</option>
+          <option value="Freelancing">Freelancing</option>
+        </select>
+      </Field>
+      <Field
+        label="Probation duration"
+        htmlFor="probation_duration_value"
+        hint={`Configurable, maximum ${PROBATION_MAX_MONTHS} calendar months. Leave and absence do not extend the end date.`}
+      >
+        <div className="flex gap-2">
+          <input
+            id="probation_duration_value"
+            name="probation_duration_value"
+            type="number"
+            min="1"
+            max={
+              value.probation_duration_unit === "months"
+                ? PROBATION_MAX_MONTHS
+                : undefined
+            }
+            step="1"
+            inputMode="numeric"
+            value={value.probation_duration_value}
+            onChange={set("probation_duration_value")}
+            disabled={readOnly}
+            className={cn(fieldClass, "flex-1")}
+            placeholder="e.g. 3"
+          />
+          <select
+            id="probation_duration_unit"
+            name="probation_duration_unit"
+            value={value.probation_duration_unit || "months"}
+            onChange={set("probation_duration_unit")}
+            disabled={readOnly}
+            className={cn(fieldClass, "w-[7.5rem] shrink-0")}
+          >
+            <option value="days">Days</option>
+            <option value="months">Months</option>
+          </select>
+        </div>
+        {probationExceedsMax ? (
+          <p className="mt-1 text-[11px] text-red-700/80">
+            Duration exceeds the {PROBATION_MAX_MONTHS}-month legal maximum from
+            the commencement date.
+          </p>
+        ) : null}
+      </Field>
+      <div>
+        <p className={labelClass}>Probation period</p>
+        <div
+          className={cn(
+            readonlyFieldClass,
+            "flex items-center leading-snug",
+            probation.status === "Pending" &&
+              "border-amber-200 bg-amber-50 text-amber-800",
+            probation.status === "Expired" &&
+              "border-red-200 bg-red-50 text-red-800/85",
+          )}
+          aria-live="polite"
+        >
+          {probationSummary == null ? (
+            <span className="text-black/40">—</span>
+          ) : (
+            <span className="truncate">{probationSummary}</span>
+          )}
+        </div>
+        <input
+          type="hidden"
+          name="probation_status"
+          value={probation.status ?? ""}
+        />
+      </div>
+      <Field label="Visa status" htmlFor="visa_status">
+        <select
+          id="visa_status"
+          name="visa_status"
+          value={value.visa_status}
+          onChange={set("visa_status")}
+          disabled={readOnly}
+          className={fieldClass}
+        >
+          <option value="">—</option>
+          <option value="Visa Self Owned">Visa Self Owned</option>
+          <option value="Visa Provided">Visa Provided</option>
+          <option value="Visa Pending">Visa Pending</option>
+        </select>
+      </Field>
+      <Field label="Visa expiry" htmlFor="visa_expiry">
+        <input
+          id="visa_expiry"
+          name="visa_expiry"
+          type="date"
+          value={value.visa_expiry}
+          onChange={set("visa_expiry")}
+          disabled={readOnly}
+          className={fieldClass}
+        />
+      </Field>
+    </SectionCard>
+  );
+
+  const probationCard = (
+    <SectionCard
+      title="Probation period calculation"
+      contentClassName="space-y-4"
+    >
+      <p className="text-xs leading-relaxed text-black/50">
+        Calculated from employment commencement and contractual probation
+        duration. End date uses consecutive calendar time and is never paused
+        by leave or absence. Leave days are recorded separately from the
+        roster for attendance during probation.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <Metric
+          label="Employment commencement"
+          value={formatDateOnly(probation.commencementDate)}
+        />
+        <Metric
+          label="Contractual probation duration"
+          value={probation.durationLabel}
+        />
+        <Metric
+          label="Legal probation end date"
+          value={formatDateOnly(probation.legalEndDate)}
+        />
+        <Metric
+          label="Remaining probation days"
+          value={
+            probation.legalEndDate == null
+              ? null
+              : probation.status === "Pending"
+                ? probation.remainingDays
+                : 0
+          }
+        />
+        <Metric
+          label="Total calendar days elapsed"
+          value={probation.calendarDaysElapsed}
+        />
+        <Metric
+          label="Scheduled working days"
+          value={probation.scheduledWorkingDays}
+        />
+        <Metric label="Actual days worked" value={probation.actualDaysWorked} />
+        <Metric label="Unpaid-leave days" value={probation.unpaidLeaveDays} />
+        <Metric label="Sick-leave days" value={probation.sickLeaveDays} />
+        <Metric
+          label="Authorised absence days"
+          value={probation.authorisedAbsenceDays}
+        />
+        <Metric
+          label="Unauthorised absence days"
+          value={probation.unauthorisedAbsenceDays}
+        />
+        <Metric label="Other leave days" value={probation.otherLeaveDays} />
+        <Metric label="Probation status" value={probation.status} />
+      </div>
+      {probation.clampedToLegalMax ? (
+        <p className="text-[11px] text-amber-800/80">
+          Contractual duration exceeds the legal maximum — end date is clamped
+          to {PROBATION_MAX_MONTHS} calendar months from commencement.
+        </p>
+      ) : null}
+      {!staffId ? (
+        <p className="text-[11px] text-black/35">
+          Roster tallies (worked / leave days) appear after the employee is
+          saved and scheduled.
+        </p>
+      ) : null}
     </SectionCard>
   );
 
   const compensationCard = canViewSalary ? (
-    <SectionCard title="Compensation">
+    <SectionCard
+      title="Compensation"
+      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+    >
       <Field label="Company accommodation" htmlFor="company_accommodation">
         <select
           id="company_accommodation"
@@ -469,7 +773,10 @@ export function StaffEntryForm({
   ) : null;
 
   const documentsCard = (
-    <SectionCard title="Documents">
+    <SectionCard
+      title="Documents"
+      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
+    >
       <Field label="Passport no." htmlFor="passport_no">
         <input
           id="passport_no"
@@ -516,7 +823,10 @@ export function StaffEntryForm({
   );
 
   const bankCard = (
-    <SectionCard title="Bank details">
+    <SectionCard
+      title="Bank details"
+      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+    >
       <Field label="IBAN" htmlFor="iban">
         <input
           id="iban"
@@ -550,25 +860,45 @@ export function StaffEntryForm({
     </SectionCard>
   );
 
+  const photoCard = (
+    <SectionCard title="Profile photo">
+      <StaffProfilePhotoEditor
+        photoUrl={value.photo_url}
+        onPhotoUrlChange={(url) => {
+          onChange({ photo_url: url });
+          if (url) onPhotoClearedChange(false);
+        }}
+        onPhotoFileChange={onPhotoFileChange}
+        onCleared={() => {
+          onPhotoClearedChange(true);
+          onChange({ photo_url: "" });
+          onPhotoFileChange(null);
+        }}
+        readOnly={readOnly}
+      />
+      {photoCleared ? <input type="hidden" name="photo_clear" value="1" /> : null}
+    </SectionCard>
+  );
+
   return (
     <form
       id={STAFF_ENTRY_FORM_ID}
       onSubmit={handleSubmit}
       onKeyDown={handleKeyDown}
-      className="grid items-start gap-4 md:grid-cols-2 lg:grid-cols-3"
+      className="space-y-4"
     >
-      <div className="space-y-4">
-        {identityCard}
-        {contactCard}
+      <div className="grid items-start gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-4">{identityCard}</div>
+        <div className="space-y-4">{rolesCard}</div>
+        <div className="space-y-4">
+          {photoCard}
+          {contactCard}
+        </div>
       </div>
-      <div className="space-y-4">
-        {rolesCard}
-        {compensationCard}
-      </div>
-      <div className="space-y-4">
-        {documentsCard}
-        {bankCard}
-      </div>
+      {probationCard}
+      {documentsCard}
+      {bankCard}
+      {compensationCard}
     </form>
   );
 }

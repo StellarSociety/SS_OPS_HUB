@@ -1,10 +1,6 @@
-import { NationalitiesSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listNationalities } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrNationalitiesSettingsPage() {
-  const { supabase } = await getHrPageContext();
-  const nationalities = await listNationalities(supabase);
-
-  return <NationalitiesSection nationalities={nationalities} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/staff-details/nationalities"));
 }

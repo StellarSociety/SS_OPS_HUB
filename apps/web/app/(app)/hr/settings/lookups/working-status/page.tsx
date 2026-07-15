@@ -1,10 +1,6 @@
-import { WorkingStatusSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listWorkingStatuses } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrWorkingStatusSettingsPage() {
-  const { supabase } = await getHrPageContext();
-  const statuses = await listWorkingStatuses(supabase);
-
-  return <WorkingStatusSection statuses={statuses} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/attendance/working-status"));
 }

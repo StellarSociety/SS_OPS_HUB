@@ -1,5 +1,6 @@
 import { SchedulesDepartmentTabs } from "@/components/hr/schedules-department-tabs";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildExportUserLabel } from "@/lib/exports/user-label";
 import { canEditStaff } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
@@ -10,7 +11,8 @@ import {
   type ScheduleDepartmentKey,
   type ScheduleStaffRow,
 } from "@/lib/hr/schedules";
-import { listScheduleDayLabels, listStaffForVenue } from "@/lib/hr/store";
+import { listScheduleDayLabels, listShiftTemplates, listStaffForVenue } from "@/lib/hr/store";
+import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 const ON_BOARD_STATUS_NAME = "ON Board";
 const DEFAULT_WORKING_STATUS = "Active";
@@ -62,16 +64,28 @@ async function loadWorkingStatusByStaffId(
 }
 
 export default async function SchedulesPage() {
-  const { supabase, venue, permissions } = await getHrPageContext();
-  const [staff, labelsFromDb] = await Promise.all([
-    listStaffForVenue(supabase, venue.id),
-    listScheduleDayLabels(supabase),
-  ]);
+  const { supabase, user, venue, permissions } = await getHrPageContext();
+  const [staff, labelsFromDb, shiftTemplatesFromDb, profileResult] =
+    await Promise.all([
+      listStaffForVenue(supabase, venue.id),
+      listScheduleDayLabels(supabase),
+      listShiftTemplates(supabase, venue.id),
+      supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", user.id)
+        .single(),
+    ]);
   const canEdit = canEditStaff(permissions, venue.id);
+  const userDisplayName = buildExportUserLabel(
+    profileResult.data?.full_name,
+    profileResult.data?.email ?? user.email,
+  );
   const labels =
     labelsFromDb && labelsFromDb.length > 0
       ? labelsFromDb
       : withFallbackScheduleLabelIds(DEFAULT_SCHEDULE_DAY_LABELS);
+  const shiftTemplates = shiftTemplatesFromDb ?? [];
 
   const onBoard = staff.filter(
     (member) => member.employment_status?.name === ON_BOARD_STATUS_NAME,
@@ -109,7 +123,11 @@ export default async function SchedulesPage() {
     <SchedulesDepartmentTabs
       staffByDepartment={staffByDepartment}
       labels={labels}
+      shiftTemplates={shiftTemplates}
       canEdit={canEdit}
+      venueName={venue.name}
+      venueLogoUrl={getVenueLogoUrl(venue)}
+      userDisplayName={userDisplayName}
     />
   );
 }

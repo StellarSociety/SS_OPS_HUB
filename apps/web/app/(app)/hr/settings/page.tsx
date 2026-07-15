@@ -1,5 +1,7 @@
-import { HrSettingsOverview } from "@/components/hr/hr-settings-overview";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
+import { HR_SETTINGS_DEFAULT_HREF } from "@/lib/hr/settings-nav";
 
-export default function HrSettingsPage() {
-  return <HrSettingsOverview />;
+export default async function HrSettingsPage() {
+  redirect(await scopedPath(HR_SETTINGS_DEFAULT_HREF));
 }

@@ -1,4 +1,8 @@
 import { isInAccommodation } from "./derived";
+import {
+  DEFAULT_PROBATION_DURATION_UNIT,
+  DEFAULT_PROBATION_DURATION_VALUE,
+} from "./probation";
 import type { StaffWithLookups } from "./types";
 
 /**
@@ -29,8 +33,16 @@ export type StaffFormState = {
   position_id: string;
   employment_status_id: string;
   joining_date: string;
+  contract_kind: string;
+  visa_status: string;
+  visa_expiry: string;
+  probation_duration_value: string;
+  probation_duration_unit: string;
+  probation_status: string;
   company_accommodation: string;
   wage_package: string;
+  /** Public URL of the cropped passport-ratio staff photo. */
+  photo_url: string;
 };
 
 const str = (v: unknown): string => (v == null ? "" : String(v));
@@ -59,8 +71,15 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     position_id: "",
     employment_status_id: "",
     joining_date: "",
+    contract_kind: "",
+    visa_status: "",
+    visa_expiry: "",
+    probation_duration_value: String(DEFAULT_PROBATION_DURATION_VALUE),
+    probation_duration_unit: DEFAULT_PROBATION_DURATION_UNIT,
+    probation_status: "",
     company_accommodation: "No",
     wage_package: "",
+    photo_url: "",
   };
 }
 
@@ -88,9 +107,17 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     position_id: str(s.position_id),
     employment_status_id: str(s.employment_status_id),
     joining_date: str(s.joining_date),
+    contract_kind: str(s.contract_kind),
+    visa_status: str(s.visa_status),
+    visa_expiry: str(s.visa_expiry),
+    probation_duration_value: str(s.probation_duration_value) || String(DEFAULT_PROBATION_DURATION_VALUE),
+    probation_duration_unit:
+      str(s.probation_duration_unit) || DEFAULT_PROBATION_DURATION_UNIT,
+    probation_status: str(s.probation_status),
     company_accommodation: isInAccommodation(s.company_accommodation)
       ? "Yes"
       : "No",
     wage_package: str(s.wage_package),
+    photo_url: str(s.photo_url),
   };
 }

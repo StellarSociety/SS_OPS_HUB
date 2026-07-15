@@ -6,6 +6,7 @@ import {
   formatDateOnly,
 } from "@/lib/hr/derived";
 import type { SalaryPercentages } from "@/lib/hr/derived";
+import { computeProbation } from "@/lib/hr/probation";
 import type { StaffFormState } from "@/lib/hr/staff-form";
 import type {
   CivilStatus,
@@ -157,6 +158,42 @@ export function StaffPdfDocument({
               <Row
                 label="Joining date"
                 value={formatDateOnly(value.joining_date)}
+              />
+              <Row label="Contract type" value={dash(value.contract_kind)} />
+              <Row label="Visa status" value={dash(value.visa_status)} />
+              <Row
+                label="Visa expiry"
+                value={formatDateOnly(value.visa_expiry)}
+              />
+              <Row
+                label="Probation duration"
+                value={
+                  value.probation_duration_value
+                    ? `${value.probation_duration_value} ${
+                        value.probation_duration_unit === "days"
+                          ? "days"
+                          : "months"
+                      }`
+                    : "—"
+                }
+              />
+              <Row
+                label="Probation period"
+                value={(() => {
+                  const calc = computeProbation({
+                    joiningDate: value.joining_date,
+                    durationValue: value.probation_duration_value,
+                    durationUnit: value.probation_duration_unit,
+                    probationStatus: value.probation_status,
+                  });
+                  if (!calc.legalEndDate) return "—";
+                  const end = formatDateOnly(calc.legalEndDate);
+                  if (calc.status === "Expired") {
+                    return `Probation Period Expired ${end}`;
+                  }
+                  const remaining = calc.remainingDays ?? 0;
+                  return `Last day ${end} · ${remaining} day${remaining === 1 ? "" : "s"} remaining`;
+                })()}
               />
             </Section>
 

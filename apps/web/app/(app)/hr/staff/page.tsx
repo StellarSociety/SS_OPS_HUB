@@ -1,7 +1,9 @@
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
 import { HrOverview } from "@/components/hr/hr-overview";
+import { ProbationWidgets } from "@/components/hr/probation-widgets";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { buildHrOverviewStats } from "@/lib/hr/overview";
+import { listOnProbationItems } from "@/lib/hr/probation";
 import {
   getExpiryItems,
   getHrVenueSetting,
@@ -31,6 +33,7 @@ export default async function StaffInsightsPage() {
   ]);
 
   const stats = buildHrOverviewStats(staff, expiryItems);
+  const onProbation = listOnProbationItems(staff);
 
   return (
     <div className="space-y-6">
@@ -43,6 +46,8 @@ export default async function StaffInsightsPage() {
         leadDays={leadDays}
         title="Upcoming expiries"
       />
+
+      <ProbationWidgets items={onProbation} title="On probation" />
     </div>
   );
 }

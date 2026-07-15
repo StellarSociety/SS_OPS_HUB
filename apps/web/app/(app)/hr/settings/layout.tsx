@@ -25,8 +25,8 @@ export default async function HrSettingsLayout({
       <div>
         <ModulePageTitle>Human Resources Settings</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
-          Configuration for {venue.name} — lookups, expiry reminders, salary
-          defaults, and notifications.
+          Configuration for {venue.name} — organised by Staff Details,
+          Attendance, Pay, Boarding, Notifications, and Data Management.
         </p>
         <hr className="mt-4 border-black/10" />
       </div>

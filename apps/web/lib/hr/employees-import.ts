@@ -49,6 +49,27 @@ export const EMPLOYEE_IMPORT_COLUMNS: EmployeeImportColumn[] = [
   { key: "swift_code", label: "Swift code", type: "text", value: (s) => s.swift_code },
   { key: "bank_name", label: "Bank name", type: "text", value: (s) => s.bank_name },
   { key: "joining_date", label: "Joining date", type: "date", value: (s) => s.joining_date },
+  { key: "contract_kind", label: "Contract type", type: "text", value: (s) => s.contract_kind },
+  { key: "visa_status", label: "Visa status", type: "text", value: (s) => s.visa_status },
+  { key: "visa_expiry", label: "Visa expiry", type: "date", value: (s) => s.visa_expiry },
+  {
+    key: "probation_duration_value",
+    label: "Probation duration",
+    type: "number",
+    value: (s) => s.probation_duration_value,
+  },
+  {
+    key: "probation_duration_unit",
+    label: "Probation unit",
+    type: "text",
+    value: (s) => s.probation_duration_unit,
+  },
+  {
+    key: "probation_status",
+    label: "Probation status",
+    type: "text",
+    value: (s) => s.probation_status,
+  },
   { key: "termination_date", label: "Termination date", type: "date", value: (s) => s.termination_date },
   {
     key: "unpaid_leave_days_total",

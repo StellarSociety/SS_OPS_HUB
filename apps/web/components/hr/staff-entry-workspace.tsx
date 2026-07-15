@@ -87,6 +87,8 @@ export function StaffEntryWorkspace({
   const [value, setValue] = useState<StaffFormState>(() =>
     emptyStaffForm(suggestedEmpNo),
   );
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoCleared, setPhotoCleared] = useState(false);
 
   const readOnly = loadedStaffId != null && !editing;
 
@@ -94,6 +96,8 @@ export function StaffEntryWorkspace({
     setValue(emptyStaffForm(suggestedEmpNo));
     setLoadedStaffId(null);
     setEditing(true);
+    setPhotoFile(null);
+    setPhotoCleared(false);
     setView("form");
   }
 
@@ -101,11 +105,14 @@ export function StaffEntryWorkspace({
     setValue(staffToForm(selected));
     setLoadedStaffId(selected.id);
     setEditing(false);
+    setPhotoFile(null);
+    setPhotoCleared(false);
     setView("form");
     setSearchOpen(false);
   }
 
   async function handleSubmit(formData: FormData) {
+    if (photoFile) formData.set("photo", photoFile);
     setSaving(true);
     if (loadedStaffId) {
       const result = await updateStaff(loadedStaffId, formData);
@@ -115,9 +122,8 @@ export function StaffEntryWorkspace({
         return;
       }
       toast.saved("Employee updated.");
-      // Stay in edit mode after saving so the form doesn't snap back to
-      // read-only. The user leaves edit mode explicitly via "Done" or by
-      // loading another record from search.
+      setPhotoFile(null);
+      setPhotoCleared(false);
       router.refresh();
       return;
     }
@@ -146,18 +152,11 @@ export function StaffEntryWorkspace({
 
           <button
             type="button"
-            onClick={() => {
-              setView("hiring");
-              setLoadedStaffId(null);
-            }}
-            className={cn(modeButtonClass(view === "hiring"), "relative")}
-            title="Coming soon"
+            onClick={() => setSearchOpen(true)}
+            className={modeButtonClass(false)}
           >
-            <FilePlus2 className="h-4 w-4" />
-            Add from hiring form
-            <span className="rounded-full bg-black/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-black/45">
-              Soon
-            </span>
+            <Search className="h-4 w-4" />
+            Search employee
           </button>
 
           <button
@@ -171,11 +170,18 @@ export function StaffEntryWorkspace({
 
           <button
             type="button"
-            onClick={() => setSearchOpen(true)}
-            className={modeButtonClass(false)}
+            onClick={() => {
+              setView("hiring");
+              setLoadedStaffId(null);
+            }}
+            className={cn(modeButtonClass(view === "hiring"), "relative")}
+            title="Coming soon"
           >
-            <Search className="h-4 w-4" />
-            Search employee
+            <FilePlus2 className="h-4 w-4" />
+            Add from hiring form
+            <span className="rounded-full bg-black/5 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-black/45">
+              Soon
+            </span>
           </button>
 
           {showForm ? (
@@ -233,8 +239,12 @@ export function StaffEntryWorkspace({
             value={value}
             onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
             onSubmit={handleSubmit}
+            onPhotoFileChange={setPhotoFile}
+            photoCleared={photoCleared}
+            onPhotoClearedChange={setPhotoCleared}
             readOnly={readOnly}
             lockEmpNo={loadedStaffId != null}
+            staffId={loadedStaffId}
             departments={departments}
             positions={positions}
             statuses={statuses}

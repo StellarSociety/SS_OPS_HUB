@@ -281,7 +281,7 @@ export async function listStaffScheduleDays(
 
   const { data, error } = await supabase
     .from("hr_schedule_days")
-    .select("staff_id, emp_no, work_date, label_code")
+    .select("staff_id, emp_no, work_date, label_code, shift_template_id")
     .eq("venue_id", venueId)
     .in("staff_id", opts.staffIds)
     .gte("work_date", opts.fromDate)
@@ -298,7 +298,45 @@ export async function listStaffScheduleDays(
     emp_no: string;
     work_date: string;
     label_code: string;
+    shift_template_id: string | null;
   }[];
+}
+
+export async function listShiftTemplates(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts?: { includeInactive?: boolean },
+) {
+  let query = supabase
+    .from("hr_shift_templates")
+    .select("*")
+    .eq("venue_id", venueId)
+    .order("sort_order");
+
+  if (!opts?.includeInactive) {
+    query = query.eq("is_active", true);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[hr] listShiftTemplates:", error.message);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    name: row.name as string,
+    abbreviation: row.abbreviation as string,
+    startTime: String(row.start_time).slice(0, 5),
+    endTime: String(row.end_time).slice(0, 5),
+    spansMidnight: Boolean(row.spans_midnight),
+    bgColor: row.bg_color as string,
+    textColor: row.text_color as string,
+    borderColor: row.border_color as string,
+    sortOrder: row.sort_order as number,
+    isActive: row.is_active !== false,
+  }));
 }
 
 export async function listScheduleDayLabels(supabase: SupabaseClient) {
@@ -322,4 +360,81 @@ export async function listScheduleDayLabels(supabase: SupabaseClient) {
     borderColor: row.border_color as string,
     sortOrder: row.sort_order as number,
   }));
+}
+
+export async function listWeekSectionsRaw(
+  supabase: SupabaseClient,
+  venueId: string,
+  departmentKey: string,
+  weekStart: string,
+) {
+  const { data, error } = await supabase
+    .from("hr_schedule_week_sections")
+    .select("id, name, sort_order")
+    .eq("venue_id", venueId)
+    .eq("department_key", departmentKey)
+    .eq("week_start", weekStart)
+    .order("sort_order");
+
+  if (error) {
+    console.error("[hr] listWeekSectionsRaw:", error.message);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    name: row.name as string,
+    sortOrder: row.sort_order as number,
+  }));
+}
+
+export async function listWeekSectionAssignments(
+  supabase: SupabaseClient,
+  venueId: string,
+  departmentKey: string,
+  weekStart: string,
+) {
+  const { data, error } = await supabase
+    .from("hr_schedule_section_assignments")
+    .select("id, section_id, staff_id, sort_order")
+    .eq("venue_id", venueId)
+    .eq("department_key", departmentKey)
+    .eq("week_start", weekStart)
+    .order("sort_order");
+
+  if (error) {
+    console.error("[hr] listWeekSectionAssignments:", error.message);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    sectionId: row.section_id as string,
+    staffId: row.staff_id as string,
+    sortOrder: (row.sort_order as number) ?? 0,
+  }));
+}
+
+/** Most recent week_start before `beforeWeekStart` that has sections for this dept. */
+export async function findPreviousWeekStartWithSections(
+  supabase: SupabaseClient,
+  venueId: string,
+  departmentKey: string,
+  beforeWeekStart: string,
+) {
+  const { data, error } = await supabase
+    .from("hr_schedule_week_sections")
+    .select("week_start")
+    .eq("venue_id", venueId)
+    .eq("department_key", departmentKey)
+    .lt("week_start", beforeWeekStart)
+    .order("week_start", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("[hr] findPreviousWeekStartWithSections:", error.message);
+    return null;
+  }
+
+  return (data?.[0]?.week_start as string | undefined) ?? null;
 }

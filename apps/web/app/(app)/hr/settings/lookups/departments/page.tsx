@@ -1,10 +1,6 @@
-import { DepartmentsSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listDepartments } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrDepartmentsSettingsPage() {
-  const { supabase, venue } = await getHrPageContext();
-  const departments = await listDepartments(supabase, venue.id);
-
-  return <DepartmentsSection departments={departments} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/staff-details/departments"));
 }

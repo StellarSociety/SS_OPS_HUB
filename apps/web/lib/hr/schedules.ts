@@ -21,6 +21,31 @@ export const SCHEDULE_DEPARTMENTS = [
 export type ScheduleDepartmentKey =
   (typeof SCHEDULE_DEPARTMENTS)[number]["key"];
 
+/** Built-in station names when a department has no prior week to copy. */
+export const DEFAULT_SCHEDULE_SECTIONS: Record<
+  ScheduleDepartmentKey,
+  string[]
+> = {
+  kitchen: [
+    "Pass",
+    "Raw bar",
+    "Salads",
+    "Pans",
+    "Grill",
+    "Desserts",
+    "Prep",
+  ],
+  bar: ["Main Bar", "Lounge Bar"],
+  floor: ["Reception", "Dining", "Lounge", "Terrace", "Others"],
+};
+
+export type ScheduleWeekSection = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  staffIds: string[];
+};
+
 export type ScheduleStaffRow = {
   id: string;
   fullName: string;
@@ -43,6 +68,130 @@ export type ScheduleDayLabel = {
   borderColor: string;
   sortOrder: number;
 };
+
+/** Venue-scoped working shift time range (stored in `hr_shift_templates`). */
+export type ShiftTemplate = {
+  id: string;
+  name: string;
+  abbreviation: string;
+  /** `HH:MM` 24h */
+  startTime: string;
+  /** `HH:MM` 24h */
+  endTime: string;
+  spansMidnight: boolean;
+  bgColor: string;
+  textColor: string;
+  borderColor: string;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+/** One roster cell: day label plus optional shift template when working. */
+export type ScheduleCellValue = {
+  labelCode: string;
+  shiftTemplateId: string | null;
+};
+
+export const DEFAULT_SHIFT_TEMPLATES: Omit<ShiftTemplate, "id">[] = [
+  {
+    name: "11AM – 10PM",
+    abbreviation: "11–10",
+    startTime: "11:00",
+    endTime: "22:00",
+    spansMidnight: false,
+    bgColor: "#d1fae5",
+    textColor: "#065f46",
+    borderColor: "#a7f3d0",
+    sortOrder: 1,
+    isActive: true,
+  },
+  {
+    name: "12PM – 11PM",
+    abbreviation: "12–11",
+    startTime: "12:00",
+    endTime: "23:00",
+    spansMidnight: false,
+    bgColor: "#d1fae5",
+    textColor: "#065f46",
+    borderColor: "#a7f3d0",
+    sortOrder: 2,
+    isActive: true,
+  },
+  {
+    name: "2PM – 12AM",
+    abbreviation: "2–12",
+    startTime: "14:00",
+    endTime: "00:00",
+    spansMidnight: true,
+    bgColor: "#d1fae5",
+    textColor: "#065f46",
+    borderColor: "#a7f3d0",
+    sortOrder: 3,
+    isActive: true,
+  },
+  {
+    name: "4PM – 2AM",
+    abbreviation: "4–2",
+    startTime: "16:00",
+    endTime: "02:00",
+    spansMidnight: true,
+    bgColor: "#d1fae5",
+    textColor: "#065f46",
+    borderColor: "#a7f3d0",
+    sortOrder: 4,
+    isActive: true,
+  },
+];
+
+/** Normalize DB `HH:MM:SS` / `HH:MM` to `HH:MM`. */
+export function normalizeShiftTime(value: string | null | undefined): string {
+  const raw = (value ?? "").trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return "00:00";
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
+export function shiftSpansMidnight(startTime: string, endTime: string): boolean {
+  const start = normalizeShiftTime(startTime);
+  const end = normalizeShiftTime(endTime);
+  return end <= start;
+}
+
+/** Format `HH:MM` as 11AM / 12PM / 12AM. */
+export function formatShiftClock(time: string): string {
+  const [hRaw, mRaw] = normalizeShiftTime(time).split(":");
+  let hour = Number(hRaw);
+  const minutes = Number(mRaw);
+  if (!Number.isFinite(hour) || !Number.isFinite(minutes)) return time;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  hour = hour % 12;
+  if (hour === 0) hour = 12;
+  return minutes === 0 ? `${hour}${suffix}` : `${hour}:${String(minutes).padStart(2, "0")}${suffix}`;
+}
+
+export function formatShiftRangeLabel(startTime: string, endTime: string): string {
+  return `${formatShiftClock(startTime)} – ${formatShiftClock(endTime)}`;
+}
+
+export function getShiftTemplate(
+  templates: ShiftTemplate[],
+  id: string | null | undefined,
+) {
+  if (!id) return null;
+  return templates.find((template) => template.id === id) ?? null;
+}
+
+export function cellValuesEqual(
+  a: ScheduleCellValue | null | undefined,
+  b: ScheduleCellValue | null | undefined,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.labelCode === b.labelCode &&
+    (a.shiftTemplateId ?? null) === (b.shiftTemplateId ?? null)
+  );
+}
 
 /** Seed / offline fallback when the lookup table is not available yet. */
 export const DEFAULT_SCHEDULE_DAY_LABELS: Omit<ScheduleDayLabel, "id">[] = [

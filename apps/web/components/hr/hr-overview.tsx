@@ -7,6 +7,24 @@ type HrOverviewProps = {
   stats: HrOverviewStats;
 };
 
+function CountPercent({
+  count,
+  percent,
+}: {
+  count: number;
+  percent: number;
+}) {
+  return (
+    <span className="grid w-[4.75rem] shrink-0 grid-cols-[1fr_auto_2.25rem] items-baseline gap-x-1 text-xs tabular-nums text-[#3D421F]">
+      <span className="text-right font-semibold">{count}</span>
+      <span className="text-black/30" aria-hidden>
+        |
+      </span>
+      <span className="text-right text-black/45">{percent}%</span>
+    </span>
+  );
+}
+
 function BreakdownCard({
   icon: Icon,
   title,
@@ -20,17 +38,17 @@ function BreakdownCard({
 }) {
   const max = Math.max(...rows.map((row) => row.count), 1);
   const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const totalPercent = rows.reduce((sum, row) => sum + row.percent, 0);
+  const totalPercent = total > 0 ? 100 : 0;
 
   return (
-    <Card className="flex h-full flex-col p-4">
+    <Card className="flex h-full min-h-[17.5rem] flex-col p-4">
       <div className="flex items-center gap-1.5">
         <Icon className="h-4 w-4 shrink-0 text-[#3D421F]/70" aria-hidden />
         <h3 className="font-serif text-base text-[#3D421F]">{title}</h3>
       </div>
-      <hr className="mt-2 border-t-2 border-black/15" />
+      <hr className="mt-2 shrink-0 border-t-2 border-black/15" />
       {rows.length > 0 ? (
-        <div className="mt-3 space-y-2.5">
+        <div className="mt-3 flex min-h-0 flex-1 flex-col justify-between">
           {rows.map((row) => (
             <div key={row.label} className="flex items-center gap-3">
               <span className="w-28 shrink-0 truncate text-xs font-medium text-black/60">
@@ -42,21 +60,15 @@ function BreakdownCard({
                   style={{ width: `${(row.count / max) * 100}%` }}
                 />
               </div>
-              <span className="w-20 shrink-0 text-right text-xs tabular-nums text-[#3D421F]">
-                <span className="font-semibold">{row.count}</span>
-                <span className="ml-1 text-black/45">{row.percent}%</span>
-              </span>
+              <CountPercent count={row.count} percent={row.percent} />
             </div>
           ))}
-          <div className="flex items-center gap-3 border-t border-black/10 pt-2.5">
+          <div className="flex items-center gap-3 border-t border-black/10 pt-2">
             <span className="w-28 shrink-0 text-xs font-semibold text-[#3D421F]">
               Total
             </span>
             <div className="min-w-0 flex-1" />
-            <span className="w-20 shrink-0 text-right text-xs tabular-nums text-[#3D421F]">
-              <span className="font-semibold">{total}</span>
-              <span className="ml-1 text-black/45">{totalPercent}%</span>
-            </span>
+            <CountPercent count={total} percent={totalPercent} />
           </div>
         </div>
       ) : (

@@ -72,10 +72,50 @@ export type HrScheduleDay = {
   emp_no: string;
   work_date: string;
   label_code: string;
+  shift_template_id: string | null;
   department_id: string | null;
   notes: string | null;
   source: "manual" | "import" | "system";
   updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type HrShiftTemplate = {
+  id: string;
+  venue_id: string;
+  name: string;
+  abbreviation: string;
+  start_time: string;
+  end_time: string;
+  spans_midnight: boolean;
+  bg_color: string;
+  text_color: string;
+  border_color: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type HrScheduleWeekSection = {
+  id: string;
+  venue_id: string;
+  department_key: "kitchen" | "bar" | "floor";
+  week_start: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type HrScheduleSectionAssignment = {
+  id: string;
+  venue_id: string;
+  department_key: "kitchen" | "bar" | "floor";
+  week_start: string;
+  section_id: string;
+  staff_id: string;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 };
@@ -131,6 +171,12 @@ export type Staff = {
   bank_name: string | null;
   joining_date: string | null;
   termination_date: string | null;
+  contract_kind: string | null;
+  visa_status: string | null;
+  visa_expiry: string | null;
+  probation_duration_value: number | null;
+  probation_duration_unit: string | null;
+  probation_status: string | null;
   unpaid_leave_days_total: number | null;
   vacations_entitle: number | null;
   vacations_balance: number | null;
@@ -153,6 +199,7 @@ export type Staff = {
   medical_insurance_value: number | null;
   medical_insurance_issue_date: string | null;
   medical_insurance_expiry_date: string | null;
+  photo_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -206,6 +253,9 @@ export type Database = {
       working_statuses: { Row: WorkingStatus };
       schedule_day_labels: { Row: ScheduleDayLabelRow };
       hr_schedule_days: { Row: HrScheduleDay };
+      hr_shift_templates: { Row: HrShiftTemplate };
+      hr_schedule_week_sections: { Row: HrScheduleWeekSection };
+      hr_schedule_section_assignments: { Row: HrScheduleSectionAssignment };
       nationalities: { Row: Nationality };
       departments: { Row: Department };
       positions: { Row: Position };

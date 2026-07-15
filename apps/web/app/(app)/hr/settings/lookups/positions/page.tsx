@@ -1,13 +1,6 @@
-import { PositionsSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listDepartments, listPositions } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrPositionsSettingsPage() {
-  const { supabase, venue } = await getHrPageContext();
-  const [departments, positions] = await Promise.all([
-    listDepartments(supabase, venue.id),
-    listPositions(supabase, venue.id),
-  ]);
-
-  return <PositionsSection positions={positions} departments={departments} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/staff-details/positions"));
 }

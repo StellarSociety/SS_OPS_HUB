@@ -1,10 +1,6 @@
-import { CertificationTypesSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listCertificationTypes } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrCertificationsSettingsPage() {
-  const { supabase } = await getHrPageContext();
-  const certifications = await listCertificationTypes(supabase);
-
-  return <CertificationTypesSection certifications={certifications} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/staff-details/certifications"));
 }

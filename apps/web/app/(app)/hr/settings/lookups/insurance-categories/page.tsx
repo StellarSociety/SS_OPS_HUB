@@ -1,10 +1,6 @@
-import { InsuranceCategoriesSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listInsuranceCategories } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrInsuranceCategoriesSettingsPage() {
-  const { supabase } = await getHrPageContext();
-  const categories = await listInsuranceCategories(supabase);
-
-  return <InsuranceCategoriesSection categories={categories} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/staff-details/insurance-categories"));
 }

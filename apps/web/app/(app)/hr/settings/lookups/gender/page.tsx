@@ -1,10 +1,6 @@
-import { GenderSection } from "@/components/hr/lookup-sections";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { listGenders } from "@/lib/hr/store";
+import { redirect } from "next/navigation";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrGenderSettingsPage() {
-  const { supabase } = await getHrPageContext();
-  const genders = await listGenders(supabase);
-
-  return <GenderSection genders={genders} />;
+export default async function HrSettingsLegacyRedirectPage() {
+  redirect(await scopedPath("/hr/settings/staff-details/gender"));
 }

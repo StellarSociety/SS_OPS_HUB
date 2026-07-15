@@ -11,12 +11,19 @@ import {
   maskSensitiveStaffFields,
 } from "@/lib/hr/permissions";
 import {
+  getHrVenueSetting,
   getStaffById,
+  listCivilStatuses,
   listDepartments,
   listEmploymentStatuses,
+  listGenders,
   listNationalities,
   listPositions,
 } from "@/lib/hr/store";
+import {
+  DEFAULT_HR_SALARY_DEFAULTS,
+  HR_SETTINGS_KEYS,
+} from "@/lib/hr/types";
 import { createClient } from "@/lib/supabase/server";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import { StatusBadge } from "@/components/hr/status-badge";
@@ -47,23 +54,37 @@ export default async function StaffDetailPage({
   }
 
   const staffRaw = await getStaffById(supabase, id, venue.id);
-  if (
-    !canViewStaff(perms, venue.id) &&
-    staffRaw.created_by !== user.id
-  ) {
+  if (!canViewStaff(perms, venue.id) && staffRaw.created_by !== user.id) {
     redirect("/hr/staff");
   }
   const staff = maskSensitiveStaffFields(staffRaw, perms, venue.id);
+  const showSalary = canViewSalary(perms, venue.id);
 
-  const [departments, positions, statuses, nationalities] = await Promise.all([
+  const [
+    departments,
+    positions,
+    statuses,
+    nationalities,
+    genders,
+    civilStatuses,
+    salaryDefaults,
+  ] = await Promise.all([
     listDepartments(supabase, venue.id),
     listPositions(supabase, venue.id),
     listEmploymentStatuses(supabase),
     listNationalities(supabase),
+    listGenders(supabase),
+    listCivilStatuses(supabase),
+    getHrVenueSetting(
+      supabase,
+      venue.id,
+      HR_SETTINGS_KEYS.salaryDefaults,
+      DEFAULT_HR_SALARY_DEFAULTS,
+    ),
   ]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
       <Link
         href="/hr/staff"
         className="inline-flex items-center gap-1 text-sm text-black/50 hover:text-[#3D421F]"
@@ -86,8 +107,16 @@ export default async function StaffDetailPage({
         positions={positions}
         statuses={statuses}
         nationalities={nationalities}
+        genders={genders}
+        civilStatuses={civilStatuses}
+        salaryPct={{
+          basic: salaryDefaults.basicPct,
+          accom: salaryDefaults.accomPct,
+          transp: salaryDefaults.transpPct,
+        }}
         canEdit={canEditOwnStaff(perms, venue.id, staffRaw.created_by, user.id)}
-        canViewSalary={canViewSalary(perms, venue.id)}
+        canViewSalary={showSalary}
+        venueName={venue.name}
       />
     </div>
   );
