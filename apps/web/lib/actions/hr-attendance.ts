@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
+import { saveScheduleDayChanges } from "@/lib/actions/hr";
 import {
   assignWorkDate,
   civilPartsToIso,
@@ -303,6 +304,7 @@ export async function importAttendanceFromParsed(
   });
 
   revalidatePath("/hr/attendance", "layout");
+  revalidatePath("/hr/settings/data-management", "layout");
 
   return {
     inserted: dayRows.length,
@@ -343,4 +345,50 @@ export async function updateAttendanceApproval(params: {
 
   revalidatePath("/hr/attendance", "layout");
   return { ok: true as const };
+}
+
+export type ValidationRosterLabelCode =
+  | "ABS"
+  | "PH"
+  | "AL"
+  | "SL"
+  | "SH"
+  | "UPL";
+
+/** Map validation action codes to schedule_day_labels.code. */
+function scheduleLabelForValidation(
+  code: ValidationRosterLabelCode,
+): string {
+  return code === "SH" ? "SHIFT" : code;
+}
+
+/**
+ * Persist one or more validation roster edits (SH / ABS / PH / AL / SL / UPL).
+ * SH = shift for payroll (roster SHIFT) — does not invent or change hours.
+ */
+export async function saveValidationRosterDays(params: {
+  changes: {
+    staffId: string;
+    workDate: string;
+    labelCode: ValidationRosterLabelCode;
+  }[];
+}) {
+  if (params.changes.length === 0) {
+    return { error: "No changes to save." };
+  }
+
+  const result = await saveScheduleDayChanges({
+    changes: params.changes.map((change) => ({
+      staffId: change.staffId,
+      workDate: change.workDate,
+      labelCode: scheduleLabelForValidation(change.labelCode),
+      shiftTemplateId: null,
+    })),
+  });
+
+  if ("ok" in result && result.ok) {
+    revalidatePath("/hr/attendance", "layout");
+    revalidatePath("/hr/schedules", "page");
+  }
+  return result;
 }

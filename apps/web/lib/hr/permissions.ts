@@ -73,6 +73,22 @@ export function canAccessStaff(
   return hasHrFeatureAccess(permissions, HR_FEATURES.staff, venueId);
 }
 
+/** Can enter the schedules feature (independent of Staff directory). */
+export function canAccessSchedules(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasHrFeatureAccess(permissions, HR_FEATURES.schedules, venueId);
+}
+
+/** Can edit schedule roster cells and week sections. */
+export function canEditSchedules(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasHrPermission(permissions, HR_FEATURES.schedules, "edit", venueId);
+}
+
 /** Can read all staff rows (view/edit/admin ladder). */
 export function canViewStaff(
   permissions: UserPermission[],

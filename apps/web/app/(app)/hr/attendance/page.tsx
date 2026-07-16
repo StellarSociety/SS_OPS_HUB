@@ -1,77 +1,93 @@
-import { AttendanceImportPanel } from "@/components/hr/attendance-import-panel";
 import { AttendanceRecordsTable } from "@/components/hr/attendance-records-table";
-import { canEditStaff } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
-  getHrVenueSetting,
+  getAttendanceCoverage,
   listAttendanceDays,
-  listAttendanceImportBatches,
+  listDepartments,
   listStaffForVenue,
 } from "@/lib/hr/store";
-import {
-  DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
-  HR_SETTINGS_KEYS,
-  type HrAttendanceImportRules,
-} from "@/lib/hr/types";
 
-function daysAgoIso(days: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
+/** Inclusive YYYY-MM-DD range for the current local calendar month. */
+function currentMonthRange(): { fromDate: string; toDate: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fromDate = `${y}-${pad(m + 1)}-01`;
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const toDate = `${y}-${pad(m + 1)}-${pad(lastDay)}`;
+  return { fromDate, toDate };
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+function monthLabel(fromDate: string): string {
+  const [y, m] = fromDate.split("-").map(Number);
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleString(undefined, { month: "long", year: "numeric" });
 }
 
 export default async function AttendanceRecordsPage() {
-  const { supabase, venue, permissions } = await getHrPageContext();
-  const canEdit = canEditStaff(permissions, venue.id);
-  const fromDate = daysAgoIso(45);
-  const toDate = todayIso();
+  const { supabase, venue } = await getHrPageContext();
+  const month = currentMonthRange();
 
-  const [days, staff, batches, importRules] = await Promise.all([
-    listAttendanceDays(supabase, venue.id, { fromDate, toDate, limit: 400 }),
+  const [coverage, staff, departments] = await Promise.all([
+    getAttendanceCoverage(supabase, venue.id),
     listStaffForVenue(supabase, venue.id),
-    listAttendanceImportBatches(supabase, venue.id, 5),
-    getHrVenueSetting<HrAttendanceImportRules>(
-      supabase,
-      venue.id,
-      HR_SETTINGS_KEYS.attendanceImportRules,
-      DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
-    ),
+    listDepartments(supabase, venue.id),
   ]);
 
-  const staffByEmp: Record<string, { emp_no: string; full_name: string }> = {};
+  // Load full history so week/day filters can reach older records.
+  const loadFrom = coverage.minWorkDate ?? month.fromDate;
+  const loadTo = coverage.maxWorkDate ?? month.toDate;
+  const days = await listAttendanceDays(supabase, venue.id, {
+    fromDate: loadFrom,
+    toDate: loadTo,
+    limit: 10000,
+  });
+
+  const staffByEmp: Record<
+    string,
+    {
+      emp_no: string;
+      full_name: string;
+      department_id: string | null;
+      department_name: string | null;
+    }
+  > = {};
   for (const s of staff) {
     staffByEmp[s.emp_no.trim().toLowerCase()] = {
       emp_no: s.emp_no,
       full_name: s.full_name,
+      department_id: s.department_id,
+      department_name: s.department?.name ?? null,
     };
   }
 
+  const departmentOptions = departments.map((d) => ({
+    id: d.id,
+    name: d.name,
+  }));
+
   return (
     <div className="space-y-6">
-      <AttendanceImportPanel canEdit={canEdit} importRules={importRules} />
-
       <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="font-serif text-lg text-[#3D421F]">Recent records</h2>
-            <p className="text-sm text-black/55">
-              Work days from {fromDate} to {toDate} (per employee: clock in,
-              clock out, hours).
-            </p>
-          </div>
-          {batches[0] ? (
-            <p className="text-xs text-black/45">
-              Last import: {batches[0].filename ?? "file"} ·{" "}
-              {batches[0].day_count} days ·{" "}
-              {new Date(batches[0].imported_at).toLocaleString()}
-            </p>
-          ) : null}
+        <div>
+          <h2 className="font-serif text-lg text-[#3D421F]">Recent records</h2>
+          <p className="text-sm text-black/55">
+            Showing {monthLabel(month.fromDate)} by default — use Weeks or Days
+            to browse earlier records
+            {coverage.minWorkDate && coverage.maxWorkDate
+              ? ` (${coverage.minWorkDate} → ${coverage.maxWorkDate})`
+              : ""}
+            .
+          </p>
         </div>
-        <AttendanceRecordsTable days={days} staffByEmp={staffByEmp} />
+        <AttendanceRecordsTable
+          days={days}
+          staffByEmp={staffByEmp}
+          departments={departmentOptions}
+          defaultDayStart={month.fromDate}
+          defaultDayEnd={month.toDate}
+        />
       </section>
     </div>
   );

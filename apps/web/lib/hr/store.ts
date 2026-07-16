@@ -281,7 +281,7 @@ export async function listStaffScheduleDays(
 
   const { data, error } = await supabase
     .from("hr_schedule_days")
-    .select("staff_id, emp_no, work_date, label_code, shift_template_id")
+    .select("id, staff_id, emp_no, work_date, label_code, shift_template_id")
     .eq("venue_id", venueId)
     .in("staff_id", opts.staffIds)
     .gte("work_date", opts.fromDate)
@@ -362,6 +362,43 @@ export async function listScheduleDayLabels(supabase: SupabaseClient) {
   }));
 }
 
+export async function listPublicHolidays(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts?: { year?: number; fromDate?: string; toDate?: string },
+) {
+  let query = supabase
+    .from("hr_public_holidays")
+    .select("id, holiday_date, name")
+    .eq("venue_id", venueId)
+    .order("holiday_date");
+
+  if (opts?.year != null) {
+    query = query
+      .gte("holiday_date", `${opts.year}-01-01`)
+      .lte("holiday_date", `${opts.year}-12-31`);
+  }
+  if (opts?.fromDate) {
+    query = query.gte("holiday_date", opts.fromDate);
+  }
+  if (opts?.toDate) {
+    query = query.lte("holiday_date", opts.toDate);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[hr] listPublicHolidays:", error.message);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    holidayDate: row.holiday_date as string,
+    name: row.name as string,
+  }));
+}
+
 export async function listWeekSectionsRaw(
   supabase: SupabaseClient,
   venueId: string,
@@ -439,27 +476,75 @@ export async function findPreviousWeekStartWithSections(
   return (data?.[0]?.week_start as string | undefined) ?? null;
 }
 
+/** Distinct week_starts after `afterWeekStart` that already have sections for this dept. */
+export async function listFutureWeekStartsWithSections(
+  supabase: SupabaseClient,
+  venueId: string,
+  departmentKey: string,
+  afterWeekStart: string,
+) {
+  const { data, error } = await supabase
+    .from("hr_schedule_week_sections")
+    .select("week_start")
+    .eq("venue_id", venueId)
+    .eq("department_key", departmentKey)
+    .gt("week_start", afterWeekStart)
+    .order("week_start", { ascending: true });
+
+  if (error) {
+    console.error("[hr] listFutureWeekStartsWithSections:", error.message);
+    return [] as string[];
+  }
+
+  const seen = new Set<string>();
+  const weeks: string[] = [];
+  for (const row of data ?? []) {
+    const week = row.week_start as string;
+    if (!week || seen.has(week)) continue;
+    seen.add(week);
+    weeks.push(week);
+  }
+  return weeks;
+}
+
 export async function listAttendanceDays(
   supabase: SupabaseClient,
   venueId: string,
   opts: { fromDate: string; toDate: string; limit?: number },
 ) {
-  const { data, error } = await supabase
-    .from("hr_attendance_days")
-    .select("*")
-    .eq("venue_id", venueId)
-    .gte("work_date", opts.fromDate)
-    .lte("work_date", opts.toDate)
-    .order("work_date", { ascending: false })
-    .order("emp_no")
-    .limit(opts.limit ?? 500);
+  const maxRows = opts.limit ?? 500;
+  // PostgREST max-rows (often 1000) silently caps a single response even when
+  // .limit() is higher — page with .range() until we hit maxRows or exhaust.
+  const pageSize = Math.min(1000, maxRows);
+  const rows: import("@/lib/types/database").HrAttendanceDay[] = [];
+  let from = 0;
 
-  if (error) {
-    console.error("[hr] listAttendanceDays:", error.message);
-    return [];
+  while (rows.length < maxRows) {
+    const take = Math.min(pageSize, maxRows - rows.length);
+    const to = from + take - 1;
+    const { data, error } = await supabase
+      .from("hr_attendance_days")
+      .select("*")
+      .eq("venue_id", venueId)
+      .gte("work_date", opts.fromDate)
+      .lte("work_date", opts.toDate)
+      .order("work_date", { ascending: false })
+      .order("emp_no")
+      .range(from, to);
+
+    if (error) {
+      console.error("[hr] listAttendanceDays:", error.message);
+      return rows;
+    }
+
+    const page = (data ??
+      []) as import("@/lib/types/database").HrAttendanceDay[];
+    rows.push(...page);
+    if (page.length < take) break;
+    from += take;
   }
 
-  return (data ?? []) as import("@/lib/types/database").HrAttendanceDay[];
+  return rows;
 }
 
 export async function listAttendanceDaysForStaff(
@@ -592,11 +677,67 @@ export async function countAttendanceForWeekRange(
   };
 }
 
+export type AttendanceCoverage = {
+  minWorkDate: string | null;
+  maxWorkDate: string | null;
+  /** Distinct calendar dates that have at least one attendance day row. */
+  distinctDayCount: number;
+  /** Total employee × work-date rows. */
+  recordCount: number;
+};
+
+/** Page through all work_dates (PostgREST caps a single response at ~1000 rows). */
+async function collectDistinctAttendanceWorkDates(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts?: { importBatchIds?: string[] },
+): Promise<{ dates: Set<string>; error: string | null }> {
+  const pageSize = 1000;
+  const dates = new Set<string>();
+  let from = 0;
+
+  for (;;) {
+    let query = supabase
+      .from("hr_attendance_days")
+      .select("work_date")
+      .eq("venue_id", venueId)
+      .range(from, from + pageSize - 1);
+
+    if (opts?.importBatchIds?.length) {
+      query = query.in("import_batch_id", opts.importBatchIds);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      return { dates, error: error.message };
+    }
+
+    for (const row of data ?? []) {
+      const d = row.work_date ? String(row.work_date).slice(0, 10) : "";
+      if (d) dates.add(d);
+    }
+
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { dates, error: null };
+}
+
 export async function getAttendanceCoverage(
   supabase: SupabaseClient,
   venueId: string,
-): Promise<{ minWorkDate: string | null; maxWorkDate: string | null }> {
-  const [minResult, maxResult] = await Promise.all([
+): Promise<AttendanceCoverage> {
+  const empty: AttendanceCoverage = {
+    minWorkDate: null,
+    maxWorkDate: null,
+    distinctDayCount: 0,
+    recordCount: 0,
+  };
+
+  // Min/max via ordered single-row reads — do not rely on an unbounded select
+  // (PostgREST silently truncates to ~1000 rows, which skews coverage).
+  const [minRes, maxRes, countRes, distinctRes] = await Promise.all([
     supabase
       .from("hr_attendance_days")
       .select("work_date")
@@ -611,27 +752,53 @@ export async function getAttendanceCoverage(
       .order("work_date", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("hr_attendance_days")
+      .select("*", { count: "exact", head: true })
+      .eq("venue_id", venueId),
+    collectDistinctAttendanceWorkDates(supabase, venueId),
   ]);
 
-  if (minResult.error || maxResult.error) {
-    return { minWorkDate: null, maxWorkDate: null };
+  if (minRes.error || maxRes.error || countRes.error || distinctRes.error) {
+    console.error(
+      "[hr] getAttendanceCoverage:",
+      minRes.error?.message ??
+        maxRes.error?.message ??
+        countRes.error?.message ??
+        distinctRes.error,
+    );
+    return empty;
   }
 
+  const minWorkDate = minRes.data?.work_date
+    ? String(minRes.data.work_date).slice(0, 10)
+    : null;
+  const maxWorkDate = maxRes.data?.work_date
+    ? String(maxRes.data.work_date).slice(0, 10)
+    : null;
+
+  if (!minWorkDate || !maxWorkDate) return empty;
+
   return {
-    minWorkDate: minResult.data?.work_date
-      ? String(minResult.data.work_date).slice(0, 10)
-      : null,
-    maxWorkDate: maxResult.data?.work_date
-      ? String(maxResult.data.work_date).slice(0, 10)
-      : null,
+    minWorkDate,
+    maxWorkDate,
+    distinctDayCount: distinctRes.dates.size,
+    recordCount: countRes.count ?? 0,
   };
 }
+
+export type AttendanceImportBatchSummary =
+  import("@/lib/types/database").HrAttendanceImportBatch & {
+    minWorkDate: string | null;
+    maxWorkDate: string | null;
+    distinctDayCount: number;
+  };
 
 export async function listAttendanceImportBatches(
   supabase: SupabaseClient,
   venueId: string,
   limit = 10,
-) {
+): Promise<AttendanceImportBatchSummary[]> {
   const { data, error } = await supabase
     .from("hr_attendance_import_batches")
     .select("*")
@@ -644,7 +811,67 @@ export async function listAttendanceImportBatches(
     return [];
   }
 
-  return (data ?? []) as import("@/lib/types/database").HrAttendanceImportBatch[];
+  const batches = (data ??
+    []) as import("@/lib/types/database").HrAttendanceImportBatch[];
+
+  if (batches.length === 0) return [];
+
+  const batchIds = batches.map((b) => b.id);
+  // Page through rows — a single select is capped at ~1000 by PostgREST.
+  const pageSize = 1000;
+  const byBatch = new Map<string, Set<string>>();
+  let from = 0;
+  for (;;) {
+    const { data: dayRows, error: daysError } = await supabase
+      .from("hr_attendance_days")
+      .select("import_batch_id, work_date")
+      .eq("venue_id", venueId)
+      .in("import_batch_id", batchIds)
+      .range(from, from + pageSize - 1);
+
+    if (daysError) {
+      console.error(
+        "[hr] listAttendanceImportBatches dates:",
+        daysError.message,
+      );
+      break;
+    }
+
+    for (const row of dayRows ?? []) {
+      const id = row.import_batch_id as string | null;
+      if (!id) continue;
+      const d = row.work_date ? String(row.work_date).slice(0, 10) : "";
+      if (!d) continue;
+      let set = byBatch.get(id);
+      if (!set) {
+        set = new Set();
+        byBatch.set(id, set);
+      }
+      set.add(d);
+    }
+
+    if (!dayRows || dayRows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return batches.map((batch) => {
+    const dates = byBatch.get(batch.id);
+    if (!dates || dates.size === 0) {
+      return {
+        ...batch,
+        minWorkDate: null,
+        maxWorkDate: null,
+        distinctDayCount: 0,
+      };
+    }
+    const sorted = [...dates].sort();
+    return {
+      ...batch,
+      minWorkDate: sorted[0] ?? null,
+      maxWorkDate: sorted[sorted.length - 1] ?? null,
+      distinctDayCount: dates.size,
+    };
+  });
 }
 
 export async function listScheduleDaysByDateRange(

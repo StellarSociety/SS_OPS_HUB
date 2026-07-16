@@ -75,3 +75,21 @@ export function setCachedScheduleSections(
 ) {
   sectionsCache.set(key, sections);
 }
+
+/** Drop cached section boards for weeks after `weekStart` so they re-fetch the propagated layout. */
+export function clearCachedScheduleSectionsAfter(
+  departmentKey: string,
+  weekStart: string,
+) {
+  const prefix = `sections:${departmentKey}:`;
+  for (const key of [...sectionsCache.keys()]) {
+    if (!key.startsWith(prefix)) continue;
+    const cachedWeek = key.slice(prefix.length);
+    if (cachedWeek > weekStart) sectionsCache.delete(key);
+  }
+}
+
+/** Drop all cached roster day cells (e.g. after validation marks a leave/absence). */
+export function clearAllCachedScheduleDays() {
+  weekDaysCache.clear();
+}

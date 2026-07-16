@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireAppAdmin } from "@/lib/access/permissions";
 import { writeAuditLog } from "@/lib/audit";
+import {
+  convertImageToWebp,
+  shouldSkipWebpConversion,
+} from "@/lib/storage/convert-to-webp";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   BRAND_ASSET_MAX_BYTES,
@@ -65,10 +69,8 @@ function extensionForFile(file: File): string {
   }
 }
 
-function contentTypeForBrandFile(file: File): string {
-  if (file.type && ALLOWED_MIME_TYPES.has(file.type)) return file.type;
-
-  switch (extensionForFile(file)) {
+function contentTypeForExtension(extension: string): string {
+  switch (extension) {
     case "png":
       return "image/png";
     case "jpg":
@@ -82,10 +84,6 @@ function contentTypeForBrandFile(file: File): string {
     default:
       return "application/octet-stream";
   }
-}
-
-function isPngFile(file: File): boolean {
-  return file.type === "image/png" || extensionForFile(file) === "png";
 }
 
 function isAllowedBrandFile(file: File): boolean {
@@ -198,18 +196,48 @@ export async function uploadVenueBrandAsset(formData: FormData) {
   if (venueError || !venue) return { error: "Venue not found." };
   if (venue.is_global) return { error: "Global view branding cannot be edited here." };
 
-  const extension = extensionForFile(file);
-  const storagePath = `${venueId}/${assetType}.${extension}`;
+  const sourceExtension = extensionForFile(file);
   const bytes = Buffer.from(await file.arrayBuffer());
 
-  if (isPngFile(file) && !isValidPngBuffer(bytes)) {
-    return { error: "Invalid PNG file. Transparency and metadata are preserved only for valid PNG uploads." };
+  if (sourceExtension === "png" && !isValidPngBuffer(bytes)) {
+    return {
+      error:
+        "Invalid PNG file. Transparency and metadata are preserved only for valid PNG uploads.",
+    };
   }
+
+  let uploadBytes: Buffer = bytes;
+  let extension = sourceExtension;
+  let contentType = contentTypeForExtension(sourceExtension);
+
+  // Raster images → WebP; SVG/ICO stay as-is.
+  if (!shouldSkipWebpConversion(file.type, sourceExtension)) {
+    try {
+      const webp = await convertImageToWebp(bytes);
+      uploadBytes = Buffer.from(webp.buffer);
+      extension = webp.extension;
+      contentType = webp.contentType;
+    } catch {
+      return { error: "Could not convert image to WebP." };
+    }
+  }
+
+  const storagePath = `${venueId}/${assetType}.${extension}`;
+
+  // Drop legacy format siblings for this asset key.
+  await service.storage.from(BRANDING_BUCKET).remove([
+    `${venueId}/${assetType}.png`,
+    `${venueId}/${assetType}.jpg`,
+    `${venueId}/${assetType}.jpeg`,
+    `${venueId}/${assetType}.webp`,
+    `${venueId}/${assetType}.svg`,
+    `${venueId}/${assetType}.ico`,
+  ]);
 
   const { error: uploadError } = await service.storage
     .from(BRANDING_BUCKET)
-    .upload(storagePath, bytes, {
-      contentType: contentTypeForBrandFile(file),
+    .upload(storagePath, uploadBytes, {
+      contentType,
       upsert: true,
       cacheControl: "31536000",
     });
@@ -274,9 +302,17 @@ export async function removeVenueBrandAsset(input: {
   const previousUrl = venue[column as keyof typeof venue] as string | null;
   const storagePath = storagePathFromBrandAssetUrl(previousUrl);
 
-  if (storagePath) {
-    await service.storage.from(BRANDING_BUCKET).remove([storagePath]);
-  }
+  const paths = new Set<string>([
+    `${input.venueId}/${input.assetType}.png`,
+    `${input.venueId}/${input.assetType}.jpg`,
+    `${input.venueId}/${input.assetType}.jpeg`,
+    `${input.venueId}/${input.assetType}.webp`,
+    `${input.venueId}/${input.assetType}.svg`,
+    `${input.venueId}/${input.assetType}.ico`,
+  ]);
+  if (storagePath) paths.add(storagePath);
+
+  await service.storage.from(BRANDING_BUCKET).remove([...paths]);
 
   const { data: updated, error } = await service
     .from("venues")

@@ -10,18 +10,46 @@ import {
   type SalesImportResult,
 } from "@/components/sales/sales-import-result-dialog";
 import { importAttendanceFromFile } from "@/lib/actions/hr-attendance";
-import type { HrAttendanceImportRules } from "@/lib/hr/types";
-import { ScopedLink } from "@/components/layout/scoped-link";
 
 const lightOutlineButtonClass =
   "border-black/10 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary)]/30";
 
-type Props = {
-  canEdit: boolean;
-  importRules: HrAttendanceImportRules;
+type CoverageSummary = {
+  minWorkDate: string | null;
+  maxWorkDate: string | null;
+  distinctDayCount: number;
+  recordCount: number;
 };
 
-export function AttendanceImportPanel({ canEdit, importRules }: Props) {
+type ImportBatchRow = {
+  id: string;
+  filename: string | null;
+  row_count: number;
+  day_count: number;
+  imported_at: string;
+  minWorkDate: string | null;
+  maxWorkDate: string | null;
+  distinctDayCount: number;
+};
+
+type Props = {
+  canEdit: boolean;
+  coverage: CoverageSummary;
+  batches: ImportBatchRow[];
+};
+
+function formatImportWhen(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+export function AttendanceImportPanel({
+  canEdit,
+  coverage,
+  batches,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,14 +58,12 @@ export function AttendanceImportPanel({ canEdit, importRules }: Props) {
   );
   const [result, setResult] = useState<SalesImportResult | null>(null);
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
-  const [summary, setSummary] = useState<string | null>(null);
 
   async function handleImport(file: File) {
     if (!canEdit) return;
     setLoading(true);
     setImportStage("reading");
     setResult(null);
-    setSummary(null);
     setResultDialogOpen(false);
 
     try {
@@ -56,12 +82,6 @@ export function AttendanceImportPanel({ canEdit, importRules }: Props) {
           total: importResult.total,
           errors: importResult.errors,
         });
-        const unmatched = importResult.unmatchedEmpNos ?? [];
-        setSummary(
-          unmatched.length
-            ? `${importResult.punchCount} punches → ${importResult.total} work days. Unmatched emp nos: ${unmatched.slice(0, 12).join(", ")}${unmatched.length > 12 ? "…" : ""}`
-            : `${importResult.punchCount} punches paired into ${importResult.total} work days (overnight cutoff ${importRules.overnightCutoffTime}).`,
-        );
       } else {
         setResult({ error: "Import failed." });
       }
@@ -79,88 +99,153 @@ export function AttendanceImportPanel({ canEdit, importRules }: Props) {
     }
   }
 
-  return (
-    <Card className="p-5">
-      <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">Import attendance</h2>
-        <p className="mt-1 max-w-2xl text-sm text-black/55">
-          Upload the fingerprint machine <strong>InOutData</strong> export (.xls).
-          The file is read on the server — column <strong>C</strong> = employee ID,
-          column <strong>D</strong> = punch timestamp. Punches are paired using
-          the overnight cutoff ({importRules.overnightCutoffTime}) from{" "}
-          <ScopedLink
-            href="/hr/settings/attendance/shift-import-rules"
-            className="underline underline-offset-2 hover:text-[#3D421F]"
-          >
-            Settings → Attendance → Shift import rules
-          </ScopedLink>
-          .
-        </p>
-      </div>
+  const hasCoverage =
+    coverage.minWorkDate != null && coverage.maxWorkDate != null;
 
-      <div className="mt-4">
-        {!canEdit ? (
-          <p className="text-sm text-black/60">
-            View-only access. Ask an admin for edit permission to import.
+  return (
+    <div className="space-y-4">
+      <Card className="p-5">
+        <div>
+          <h2 className="font-serif text-lg text-[#3D421F]">Import attendance</h2>
+        </div>
+
+        <div className="mt-4">
+          {!canEdit ? (
+            <p className="text-sm text-black/60">
+              View-only access. Ask an admin for edit permission to import.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center justify-start gap-3">
+                <input
+                  ref={inputRef}
+                  id="attendance-inout-import-file"
+                  type="file"
+                  accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="sr-only"
+                  disabled={loading}
+                  onChange={(event) => {
+                    setSelectedFile(event.target.files?.[0] ?? null);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={lightOutlineButtonClass}
+                  disabled={loading}
+                  onClick={() => inputRef.current?.click()}
+                >
+                  Choose file
+                </Button>
+                <span className="max-w-xs truncate text-sm text-black/50">
+                  {selectedFile?.name ?? "No file chosen"}
+                </span>
+                <Button
+                  type="button"
+                  disabled={loading || !selectedFile}
+                  onClick={() => {
+                    if (selectedFile) void handleImport(selectedFile);
+                  }}
+                >
+                  <Upload className="h-4 w-4" />
+                  {loading ? "Importing…" : "Import"}
+                </Button>
+              </div>
+              {loading && importStage ? (
+                <SalesImportProgressBar
+                  label={
+                    importStage === "reading"
+                      ? "Uploading InOutData file…"
+                      : "Parsing and saving attendance…"
+                  }
+                />
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <SalesImportResultDialog
+          open={resultDialogOpen}
+          result={result}
+          onClose={() => {
+            setResultDialogOpen(false);
+            if (result && result.inserted != null) {
+              window.location.reload();
+            }
+          }}
+        />
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="font-serif text-lg text-[#3D421F]">Imported records</h2>
+
+        {hasCoverage ? (
+          <p className="mt-2 text-sm text-black/60">
+            Dates with records:{" "}
+            <span className="text-[#3D421F]">
+              {coverage.minWorkDate} → {coverage.maxWorkDate}
+            </span>
+            {" · "}
+            {coverage.distinctDayCount.toLocaleString()} calendar{" "}
+            {coverage.distinctDayCount === 1 ? "day" : "days"}
+            {" · "}
+            {coverage.recordCount.toLocaleString()} employee-day{" "}
+            {coverage.recordCount === 1 ? "record" : "records"}
           </p>
         ) : (
-          <>
-            <div className="flex flex-wrap items-center justify-start gap-3">
-              <input
-                ref={inputRef}
-                id="attendance-inout-import-file"
-                type="file"
-                accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="sr-only"
-                disabled={loading}
-                onChange={(event) => {
-                  setSelectedFile(event.target.files?.[0] ?? null);
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className={lightOutlineButtonClass}
-                disabled={loading}
-                onClick={() => inputRef.current?.click()}
-              >
-                Choose file
-              </Button>
-              <span className="max-w-xs truncate text-sm text-black/50">
-                {selectedFile?.name ?? "No file chosen"}
-              </span>
-              <Button
-                type="button"
-                disabled={loading || !selectedFile}
-                onClick={() => {
-                  if (selectedFile) void handleImport(selectedFile);
-                }}
-              >
-                <Upload className="h-4 w-4" />
-                {loading ? "Importing…" : "Import"}
-              </Button>
-            </div>
-            {loading && importStage ? (
-              <SalesImportProgressBar
-                label={
-                  importStage === "reading"
-                    ? "Uploading InOutData file…"
-                    : "Parsing and saving attendance…"
-                }
-              />
-            ) : null}
-            {summary ? (
-              <p className="mt-3 text-xs text-black/55">{summary}</p>
-            ) : null}
-          </>
+          <p className="mt-2 text-sm text-black/55">
+            No attendance records imported yet.
+          </p>
         )}
-      </div>
 
-      <SalesImportResultDialog
-        open={resultDialogOpen}
-        result={result}
-        onClose={() => setResultDialogOpen(false)}
-      />
-    </Card>
+        {batches.length > 0 ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-black/10 text-xs uppercase tracking-wide text-black/45">
+                  <th className="py-2 pr-3 font-medium">File</th>
+                  <th className="py-2 pr-3 font-medium">Imported</th>
+                  <th className="py-2 pr-3 font-medium">Dates</th>
+                  <th className="py-2 pr-3 font-medium">Calendar days</th>
+                  <th className="py-2 pr-3 font-medium">Punches</th>
+                  <th className="py-2 font-medium">Employee-day records</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((batch) => (
+                  <tr
+                    key={batch.id}
+                    className="border-b border-black/5 text-black/70"
+                  >
+                    <td className="py-2.5 pr-3 text-[#3D421F]">
+                      {batch.filename ?? "—"}
+                    </td>
+                    <td className="py-2.5 pr-3 whitespace-nowrap">
+                      {formatImportWhen(batch.imported_at)}
+                    </td>
+                    <td className="py-2.5 pr-3 whitespace-nowrap">
+                      {batch.minWorkDate && batch.maxWorkDate
+                        ? `${batch.minWorkDate} → ${batch.maxWorkDate}`
+                        : "—"}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {batch.distinctDayCount > 0
+                        ? batch.distinctDayCount.toLocaleString()
+                        : "—"}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {batch.row_count.toLocaleString()}
+                    </td>
+                    <td className="py-2.5">
+                      {batch.day_count.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </Card>
+    </div>
   );
 }

@@ -13,6 +13,10 @@ import {
   isInAccommodation,
 } from "@/lib/hr/derived";
 import type { SalaryPercentages } from "@/lib/hr/derived";
+import {
+  employmentStatusSurfaceClass,
+  findStatusNameById,
+} from "@/lib/hr/employment-status";
 import type {
   Department,
   EmploymentStatus,
@@ -247,7 +251,6 @@ export function StaffDatabase({
         key: "passport_no",
         label: "Passport no.",
         kind: "text",
-        salary: true,
         sortValue: (s) => s.passport_no ?? "",
         text: (s) => s.passport_no ?? "",
         render: (s) => s.passport_no ?? "—",
@@ -256,7 +259,6 @@ export function StaffDatabase({
         key: "passport_expiry",
         label: "Passport expiry",
         kind: "date",
-        salary: true,
         sortValue: (s) => dateSort(s.passport_expiry),
         text: (s) => formatDateOnly(s.passport_expiry),
         render: (s) => formatDateOnly(s.passport_expiry),
@@ -265,7 +267,6 @@ export function StaffDatabase({
         key: "eid_no",
         label: "EID no.",
         kind: "text",
-        salary: true,
         sortValue: (s) => s.eid_no ?? "",
         text: (s) => s.eid_no ?? "",
         render: (s) => s.eid_no ?? "—",
@@ -274,7 +275,6 @@ export function StaffDatabase({
         key: "eid_expiry",
         label: "EID expiry",
         kind: "date",
-        salary: true,
         sortValue: (s) => dateSort(s.eid_expiry),
         text: (s) => formatDateOnly(s.eid_expiry),
         render: (s) => formatDateOnly(s.eid_expiry),
@@ -283,7 +283,6 @@ export function StaffDatabase({
         key: "iban",
         label: "IBAN",
         kind: "text",
-        salary: true,
         sortValue: (s) => s.iban ?? "",
         text: (s) => s.iban ?? "",
         render: (s) => s.iban ?? "—",
@@ -292,7 +291,6 @@ export function StaffDatabase({
         key: "swift_code",
         label: "Swift code",
         kind: "text",
-        salary: true,
         sortValue: (s) => s.swift_code ?? "",
         text: (s) => s.swift_code ?? "",
         render: (s) => s.swift_code ?? "—",
@@ -301,7 +299,6 @@ export function StaffDatabase({
         key: "bank_name",
         label: "Bank name",
         kind: "text",
-        salary: true,
         sortValue: (s) => s.bank_name ?? "",
         text: (s) => s.bank_name ?? "",
         render: (s) => s.bank_name ?? "—",
@@ -321,6 +318,83 @@ export function StaffDatabase({
         sortValue: (s) => dateSort(s.joining_date),
         text: (s) => formatDateOnly(s.joining_date),
         render: (s) => formatDateOnly(s.joining_date),
+      },
+      {
+        key: "termination_date",
+        label: "Termination date",
+        kind: "date",
+        sortValue: (s) => dateSort(s.termination_date),
+        text: (s) => formatDateOnly(s.termination_date),
+        render: (s) => formatDateOnly(s.termination_date),
+      },
+      {
+        key: "contract_kind",
+        label: "Contract type",
+        kind: "text",
+        sortValue: (s) => s.contract_kind ?? "",
+        text: (s) => s.contract_kind ?? "",
+        render: (s) => s.contract_kind ?? "—",
+      },
+      {
+        key: "visa_status",
+        label: "Visa status",
+        kind: "text",
+        sortValue: (s) => s.visa_status ?? "",
+        text: (s) => s.visa_status ?? "",
+        render: (s) => s.visa_status ?? "—",
+      },
+      {
+        key: "visa_expiry",
+        label: "Visa expiry",
+        kind: "date",
+        sortValue: (s) => dateSort(s.visa_expiry),
+        text: (s) => formatDateOnly(s.visa_expiry),
+        render: (s) => formatDateOnly(s.visa_expiry),
+      },
+      {
+        key: "probation_duration",
+        label: "Probation duration",
+        kind: "text",
+        sortValue: (s) => {
+          if (s.probation_duration_value == null) return null;
+          const unit = s.probation_duration_unit === "days" ? 1 : 30;
+          return s.probation_duration_value * unit;
+        },
+        text: (s) => {
+          if (s.probation_duration_value == null) return "";
+          const unit = s.probation_duration_unit?.trim() || "";
+          return `${s.probation_duration_value}${unit ? ` ${unit}` : ""}`;
+        },
+        render: (s) => {
+          if (s.probation_duration_value == null) return "—";
+          const unit = s.probation_duration_unit?.trim() || "";
+          return `${s.probation_duration_value}${unit ? ` ${unit}` : ""}`;
+        },
+      },
+      {
+        key: "probation_status",
+        label: "Probation status",
+        kind: "text",
+        sortValue: (s) => s.probation_status ?? "",
+        text: (s) => s.probation_status ?? "",
+        render: (s) => s.probation_status ?? "—",
+      },
+      {
+        key: "photo",
+        label: "Photo",
+        kind: "text",
+        sortValue: (s) => (s.photo_url ? 1 : 0),
+        text: (s) => (s.photo_url ? "Yes" : ""),
+        render: (s) =>
+          s.photo_url ? (
+            <img
+              src={s.photo_url}
+              alt=""
+              className="h-8 w-6 rounded object-cover"
+            />
+          ) : (
+            "—"
+          ),
       },
       {
         key: "company_accommodation",
@@ -572,7 +646,13 @@ export function StaffDatabase({
             <select
               value={statusId}
               onChange={(e) => setStatusId(e.target.value)}
-              className={cn(filterFieldClass, statusId && "pr-14")}
+              className={cn(
+                filterFieldClass,
+                statusId && "pr-14",
+                employmentStatusSurfaceClass(
+                  findStatusNameById(statuses, statusId),
+                ),
+              )}
             >
               <option value="">All statuses</option>
               {statuses.map((s) => (

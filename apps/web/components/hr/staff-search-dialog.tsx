@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { StatusBadge } from "@/components/hr/status-badge";
+import { employmentStatusSurfaceClass } from "@/lib/hr/employment-status";
 import type {
   Department,
   EmploymentStatus,
@@ -11,8 +12,8 @@ import type {
 } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
-/** Status selected by default when the dialog opens. */
-const DEFAULT_STATUS_NAME = "ON Board";
+/** Statuses selected by default when the dialog opens. */
+const DEFAULT_STATUS_NAMES = new Set(["on board", "off board"]);
 
 type StaffSearchDialogProps = {
   open: boolean;
@@ -48,17 +49,43 @@ export function StaffSearchDialog({
   positions,
   statuses,
 }: StaffSearchDialogProps) {
-  const defaultStatusIds = useMemo(() => {
-    const match = statuses.find(
-      (s) => s.name.toLowerCase() === DEFAULT_STATUS_NAME.toLowerCase(),
-    );
-    return new Set<string>(match ? [match.id] : []);
-  }, [statuses]);
+  const defaultStatusIds = useMemo(
+    () =>
+      new Set(
+        statuses
+          .filter((s) => DEFAULT_STATUS_NAMES.has(s.name.toLowerCase()))
+          .map((s) => s.id),
+      ),
+    [statuses],
+  );
 
   const [name, setName] = useState("");
   const [deptIds, setDeptIds] = useState<Set<string>>(new Set());
   const [posIds, setPosIds] = useState<Set<string>>(new Set());
-  const [statusIds, setStatusIds] = useState<Set<string>>(defaultStatusIds);
+  const [statusIds, setStatusIds] = useState<Set<string>>(() => new Set());
+  const wasOpenRef = useRef(false);
+  const defaultsReadyRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      wasOpenRef.current = false;
+      defaultsReadyRef.current = false;
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      setName("");
+      setDeptIds(new Set());
+      setPosIds(new Set());
+      setStatusIds(new Set(defaultStatusIds));
+      defaultsReadyRef.current = defaultStatusIds.size > 0;
+    } else if (!defaultsReadyRef.current && defaultStatusIds.size > 0) {
+      setStatusIds(new Set(defaultStatusIds));
+      defaultsReadyRef.current = true;
+    }
+
+    wasOpenRef.current = true;
+  }, [open, defaultStatusIds]);
 
   useEffect(() => {
     if (!open) return;
@@ -73,7 +100,7 @@ export function StaffSearchDialog({
     () =>
       deptIds.size
         ? positions.filter((p) => deptIds.has(p.department_id))
-        : positions,
+        : [],
     [positions, deptIds],
   );
 
@@ -137,8 +164,8 @@ export function StaffSearchDialog({
         </div>
 
         {/* Filters */}
-        <div className="space-y-4 border-b border-black/10 px-5 py-4">
-          <div className="relative">
+        <div className="space-y-4 border-b border-black/10 px-5 py-4 text-center">
+          <div className="relative text-left">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/40" />
             <input
               autoFocus
@@ -153,7 +180,7 @@ export function StaffSearchDialog({
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/45">
               Department
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
               {departments.map((d) => (
                 <button
                   key={d.id}
@@ -162,7 +189,10 @@ export function StaffSearchDialog({
                     setDeptIds((s) => toggle(s, d.id));
                     setPosIds(new Set());
                   }}
-                  className={chipClass(deptIds.has(d.id))}
+                  className={cn(
+                    chipClass(deptIds.has(d.id)),
+                    "py-1.5 uppercase text-black hover:text-black",
+                  )}
                 >
                   {d.name}
                 </button>
@@ -170,39 +200,51 @@ export function StaffSearchDialog({
             </div>
           </div>
 
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/45">
-              Position
-            </p>
-            <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto">
-              {visiblePositions.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setPosIds((s) => toggle(s, p.id))}
-                  className={chipClass(posIds.has(p.id))}
-                >
-                  {p.name}
-                </button>
-              ))}
+          {deptIds.size > 0 ? (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/45">
+                Position
+              </p>
+              <div className="flex max-h-24 flex-wrap justify-center gap-2 overflow-y-auto">
+                {visiblePositions.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setPosIds((s) => toggle(s, p.id))}
+                    className={chipClass(posIds.has(p.id))}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/45">
               Status
             </p>
-            <div className="flex flex-wrap gap-2">
-              {statuses.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setStatusIds((prev) => toggle(prev, s.id))}
-                  className={chipClass(statusIds.has(s.id))}
-                >
-                  {s.name}
-                </button>
-              ))}
+            <div className="flex flex-wrap justify-center gap-2">
+              {statuses.map((s) => {
+                const active = statusIds.has(s.id);
+                const tone = employmentStatusSurfaceClass(s.name);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setStatusIds((prev) => toggle(prev, s.id))}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                      tone
+                        ? cn(tone, !active && "opacity-45 hover:opacity-80")
+                        : chipClass(active),
+                      active && tone && "ring-2 ring-black/10",
+                    )}
+                  >
+                    {s.name}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

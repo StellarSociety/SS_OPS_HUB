@@ -10,7 +10,8 @@ export default function HrDataManagementLayout({
       <div>
         <h2 className="font-serif text-2xl text-[#3D421F]">Data Management</h2>
         <p className="mt-1 text-sm text-black/60">
-          Bulk import and export employee data via Excel templates.
+          Bulk import and export employee and attendance data via Excel
+          templates.
         </p>
       </div>
       <HrDataManagementSubNav />

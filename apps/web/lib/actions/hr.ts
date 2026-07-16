@@ -15,10 +15,12 @@ import {
 } from "@/lib/hr/probation";
 import { parseDate, parseNumber, parseStaffCsv, type ImportStaffRow } from "@/lib/hr/import";
 import {
+  canAccessSchedules,
   canAccessStaff,
   canAdminLookups,
   canAdminStaff,
   canEditOwnStaff,
+  canEditSchedules,
   canEditStaff,
   canSubmitStaff,
   canViewStaff,
@@ -31,6 +33,7 @@ import {
   listPositions,
   listScheduleDayLabels,
   listShiftTemplates,
+  listPublicHolidays,
   listStaffScheduleDays,
   listAttendanceDaysForStaff,
   listAttendancePunchesForStaff,
@@ -40,6 +43,7 @@ import {
   listWeekSectionAssignments,
   listWeekSectionsRaw,
   findPreviousWeekStartWithSections,
+  listFutureWeekStartsWithSections,
   resolveLookupId,
   resolvePositionId,
 } from "@/lib/hr/store";
@@ -62,6 +66,10 @@ import {
 } from "@/lib/hr/schedules";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import {
+  convertImageToWebp,
+  isRasterImageMime,
+} from "@/lib/storage/convert-to-webp";
 
 async function getAuthContext() {
   const supabase = await createClient();
@@ -949,8 +957,26 @@ function formDataToStaffPayload(formData: FormData) {
 }
 
 const STAFF_PHOTOS_BUCKET = "staff-photos";
-/** Cropped passport JPEGs are small; keep a hard ceiling for safety. */
+/** Cropped passport photos are small; keep a hard ceiling for safety. */
 const STAFF_PHOTO_MAX_BYTES = 512 * 1024;
+/** Uncropped source kept for re-framing after save (resized server-side). */
+const STAFF_PHOTO_SOURCE_MAX_BYTES = 8 * 1024 * 1024;
+const STAFF_PHOTO_SOURCE_MAX_EDGE = 1600;
+
+function staffPhotoObjectPaths(venueId: string, staffId: string) {
+  return {
+    crop: `${venueId}/${staffId}.webp`,
+    source: `${venueId}/${staffId}-source.webp`,
+    legacy: [
+      `${venueId}/${staffId}.jpg`,
+      `${venueId}/${staffId}.jpeg`,
+      `${venueId}/${staffId}.png`,
+      `${venueId}/${staffId}-source.jpg`,
+      `${venueId}/${staffId}-source.jpeg`,
+      `${venueId}/${staffId}-source.png`,
+    ],
+  };
+}
 
 async function resolveStaffPhotoUpdate({
   service,
@@ -967,34 +993,36 @@ async function resolveStaffPhotoUpdate({
 }): Promise<{ photo_url?: string | null; error?: string }> {
   const clear = String(formData.get("photo_clear") ?? "") === "1";
   const photo = formData.get("photo");
+  const photoSource = formData.get("photo_source");
+  const paths = staffPhotoObjectPaths(venueId, staffId);
 
   if (photo instanceof File && photo.size > 0) {
     if (photo.size > STAFF_PHOTO_MAX_BYTES) {
       return { error: "Staff photo must be 512 KB or smaller." };
     }
-    // Client always crops to JPEG; reject anything else.
-    if (photo.type !== "image/jpeg") {
-      return { error: "Staff photo must be a cropped JPEG." };
+    if (!isRasterImageMime(photo.type)) {
+      return { error: "Staff photo must be a PNG, JPEG, or WebP image." };
     }
 
-    // One canonical object per staff member — public URL only in the DB.
-    const storagePath = `${venueId}/${staffId}.jpg`;
+    // Canonical cropped WebP per staff member — public URL only in the DB.
     const bytes = Buffer.from(await photo.arrayBuffer());
+
+    let webp: Awaited<ReturnType<typeof convertImageToWebp>>;
+    try {
+      webp = await convertImageToWebp(bytes);
+    } catch {
+      return { error: "Could not convert staff photo to WebP." };
+    }
 
     // Remove any older format variants so storage stays lean.
     await service.storage
       .from(STAFF_PHOTOS_BUCKET)
-      .remove([
-        storagePath,
-        `${venueId}/${staffId}.png`,
-        `${venueId}/${staffId}.webp`,
-        `${venueId}/${staffId}.jpeg`,
-      ]);
+      .remove([paths.crop, ...paths.legacy]);
 
     const { error: uploadError } = await service.storage
       .from(STAFF_PHOTOS_BUCKET)
-      .upload(storagePath, bytes, {
-        contentType: "image/jpeg",
+      .upload(paths.crop, webp.buffer, {
+        contentType: webp.contentType,
         upsert: true,
         cacheControl: "31536000",
       });
@@ -1006,26 +1034,57 @@ async function resolveStaffPhotoUpdate({
       };
     }
 
+    // Optional uncropped original — enables Adjust after the form is saved.
+    if (photoSource instanceof File && photoSource.size > 0) {
+      if (photoSource.size > STAFF_PHOTO_SOURCE_MAX_BYTES) {
+        return { error: "Staff photo source must be 8 MB or smaller." };
+      }
+      if (!isRasterImageMime(photoSource.type)) {
+        return { error: "Staff photo source must be a PNG, JPEG, or WebP image." };
+      }
+      try {
+        const sourceWebp = await convertImageToWebp(
+          Buffer.from(await photoSource.arrayBuffer()),
+          {
+            maxWidth: STAFF_PHOTO_SOURCE_MAX_EDGE,
+            maxHeight: STAFF_PHOTO_SOURCE_MAX_EDGE,
+          },
+        );
+        await service.storage
+          .from(STAFF_PHOTOS_BUCKET)
+          .upload(paths.source, sourceWebp.buffer, {
+            contentType: sourceWebp.contentType,
+            upsert: true,
+            cacheControl: "31536000",
+          });
+      } catch {
+        return { error: "Could not store staff photo source for re-editing." };
+      }
+    }
+
     const { data: publicData } = service.storage
       .from(STAFF_PHOTOS_BUCKET)
-      .getPublicUrl(storagePath);
+      .getPublicUrl(paths.crop);
 
     // Persist only the public HTTPS URL on staff.photo_url (not binary).
     return { photo_url: `${publicData.publicUrl}?v=${Date.now()}` };
   }
 
   if (clear) {
-    const paths = new Set<string>([
-      `${venueId}/${staffId}.jpg`,
-      `${venueId}/${staffId}.png`,
-      `${venueId}/${staffId}.webp`,
-      `${venueId}/${staffId}.jpeg`,
+    const toRemove = new Set<string>([
+      paths.crop,
+      paths.source,
+      ...paths.legacy,
     ]);
     if (previousUrl) {
       const match = previousUrl.match(/\/staff-photos\/([^?]+)/);
-      if (match?.[1]) paths.add(decodeURIComponent(match[1]));
+      if (match?.[1]) {
+        const objectPath = decodeURIComponent(match[1]);
+        toRemove.add(objectPath);
+        toRemove.add(objectPath.replace(/(\.[a-z0-9]+)$/i, "-source$1"));
+      }
     }
-    await service.storage.from(STAFF_PHOTOS_BUCKET).remove([...paths]);
+    await service.storage.from(STAFF_PHOTOS_BUCKET).remove([...toRemove]);
     return { photo_url: null };
   }
 
@@ -1056,7 +1115,7 @@ export async function listScheduleDaysForRange(params: {
   toDate: string;
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canAccessStaff(permissions, venue.id)) {
+  if (!canAccessSchedules(permissions, venue.id)) {
     return { error: "No access.", days: [] as const };
   }
 
@@ -1117,7 +1176,7 @@ export async function saveScheduleDayChanges(params: {
   }[];
 }) {
   const { supabase, user, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit schedules." };
   }
 
@@ -1494,6 +1553,103 @@ export async function ensureDefaultShiftTemplates(): Promise<void> {
   revalidatePath("/hr/schedules", "page");
 }
 
+export async function upsertPublicHoliday(formData: FormData): Promise<void> {
+  const { user, venue, permissions } = await getAuthContext();
+  if (!canAdminLookups(permissions, venue.id)) return;
+
+  const id = (formData.get("id") as string | null) || null;
+  const holidayDate = ((formData.get("holiday_date") as string) || "").trim();
+  const name = ((formData.get("name") as string) || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(holidayDate) || !name) return;
+
+  const payload = {
+    venue_id: venue.id,
+    holiday_date: holidayDate,
+    name,
+    updated_at: new Date().toISOString(),
+  };
+
+  const service = createServiceClient();
+  const { error } = id
+    ? await service
+        .from("hr_public_holidays")
+        .update(payload)
+        .eq("id", id)
+        .eq("venue_id", venue.id)
+    : await service.from("hr_public_holidays").upsert(payload, {
+        onConflict: "venue_id,holiday_date",
+      });
+
+  if (error) {
+    console.error("[hr] hr_public_holidays upsert failed:", error.message);
+    return;
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: id ? "update" : "create",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_public_holidays",
+    entity_id: id ?? holidayDate,
+    venue_id: venue.id,
+    after: payload,
+  });
+
+  revalidatePath("/hr/settings", "layout");
+  revalidatePath("/hr/schedules", "page");
+}
+
+export async function deletePublicHoliday(id: string): Promise<void> {
+  const { user, venue, permissions } = await getAuthContext();
+  if (!canAdminLookups(permissions, venue.id)) return;
+  if (!id) return;
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hr_public_holidays")
+    .delete()
+    .eq("id", id)
+    .eq("venue_id", venue.id);
+
+  if (error) {
+    console.error("[hr] hr_public_holidays delete failed:", error.message);
+    return;
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "delete",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_public_holidays",
+    entity_id: id,
+    venue_id: venue.id,
+  });
+
+  revalidatePath("/hr/settings", "layout");
+  revalidatePath("/hr/schedules", "page");
+}
+
+/** Client-safe list of public holiday dates for a date range (schedules highlight). */
+export async function listPublicHolidaysForRange(params: {
+  fromDate: string;
+  toDate: string;
+}) {
+  const { supabase, venue, permissions } = await getAuthContext();
+  if (
+    !canAccessSchedules(permissions, venue.id) &&
+    !canAdminLookups(permissions, venue.id)
+  ) {
+    return { error: "No access.", holidays: [] as const };
+  }
+
+  const holidays = await listPublicHolidays(supabase, venue.id, {
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
+
+  return { holidays: holidays ?? [] };
+}
+
 const DEPARTMENT_KEYS = new Set(["kitchen", "bar", "floor"]);
 
 function isDepartmentKey(value: string): value is ScheduleDepartmentKey {
@@ -1532,6 +1688,148 @@ async function loadWeekSectionsPayload(
   }));
 }
 
+type WeekSectionSnapshot = {
+  id: string;
+  name: string;
+  sortOrder: number;
+};
+
+type WeekAssignmentSnapshot = {
+  sectionId: string;
+  staffId: string;
+  sortOrder: number;
+};
+
+/** Copy section names/order + staff placements from one week onto another. */
+async function copyWeekSectionsSnapshot(params: {
+  venueId: string;
+  departmentKey: ScheduleDepartmentKey;
+  fromWeekStart: string;
+  toWeekStart: string;
+  replace?: boolean;
+}) {
+  const {
+    venueId,
+    departmentKey,
+    fromWeekStart,
+    toWeekStart,
+    replace = false,
+  } = params;
+  const service = createServiceClient();
+  const now = new Date().toISOString();
+
+  const [sourceSections, sourceAssignments] = await Promise.all([
+    listWeekSectionsRaw(service, venueId, departmentKey, fromWeekStart),
+    listWeekSectionAssignments(service, venueId, departmentKey, fromWeekStart),
+  ]);
+
+  // Null means the read failed; empty array is a valid "clear future weeks" snapshot.
+  if (sourceSections === null) return false;
+
+  if (replace) {
+    const { error: deleteError } = await service
+      .from("hr_schedule_week_sections")
+      .delete()
+      .eq("venue_id", venueId)
+      .eq("department_key", departmentKey)
+      .eq("week_start", toWeekStart);
+    if (deleteError) {
+      console.error("[hr] replace week sections:", deleteError.message);
+      return false;
+    }
+  }
+
+  if (sourceSections.length === 0) {
+    return replace;
+  }
+
+  const { data: inserted, error } = await service
+    .from("hr_schedule_week_sections")
+    .insert(
+      sourceSections.map((section: WeekSectionSnapshot) => ({
+        venue_id: venueId,
+        department_key: departmentKey,
+        week_start: toWeekStart,
+        name: section.name,
+        sort_order: section.sortOrder,
+        updated_at: now,
+      })),
+    )
+    .select("id, name, sort_order");
+
+  if (error || !inserted) {
+    console.error("[hr] copy week sections:", error?.message);
+    return false;
+  }
+
+  const oldIdByName = new Map(
+    sourceSections.map((section) => [section.name, section.id] as const),
+  );
+  const newIdByOldId = new Map<string, string>();
+  for (const row of inserted) {
+    const oldId = oldIdByName.get(row.name as string);
+    if (oldId) newIdByOldId.set(oldId, row.id as string);
+  }
+
+  const assignmentRows = ((sourceAssignments ?? []) as WeekAssignmentSnapshot[])
+    .map((assignment) => {
+      const sectionId = newIdByOldId.get(assignment.sectionId);
+      if (!sectionId) return null;
+      return {
+        venue_id: venueId,
+        department_key: departmentKey,
+        week_start: toWeekStart,
+        section_id: sectionId,
+        staff_id: assignment.staffId,
+        sort_order: assignment.sortOrder ?? 0,
+        updated_at: now,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  if (assignmentRows.length > 0) {
+    const { error: assignError } = await service
+      .from("hr_schedule_section_assignments")
+      .insert(assignmentRows);
+    if (assignError) {
+      console.error("[hr] copy week assignments:", assignError.message);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Push the edited week's section board (order + staff) onto every already-seeded
+ * upcoming week so changes stick forward until someone edits a later week.
+ */
+async function propagateWeekSectionsForward(params: {
+  venueId: string;
+  departmentKey: ScheduleDepartmentKey;
+  sourceWeekStart: string;
+}) {
+  const { venueId, departmentKey, sourceWeekStart } = params;
+  const service = createServiceClient();
+  const futureWeeks = await listFutureWeekStartsWithSections(
+    service,
+    venueId,
+    departmentKey,
+    sourceWeekStart,
+  );
+  if (futureWeeks.length === 0) return;
+
+  for (const toWeekStart of futureWeeks) {
+    await copyWeekSectionsSnapshot({
+      venueId,
+      departmentKey,
+      fromWeekStart: sourceWeekStart,
+      toWeekStart,
+      replace: true,
+    });
+  }
+}
+
 async function seedWeekFromPreviousOrDefaults(params: {
   venueId: string;
   departmentKey: ScheduleDepartmentKey;
@@ -1555,71 +1853,17 @@ async function seedWeekFromPreviousOrDefaults(params: {
     weekStart,
   );
 
-  const now = new Date().toISOString();
-
   if (previousWeek) {
-    const [prevSections, prevAssignments] = await Promise.all([
-      listWeekSectionsRaw(service, venueId, departmentKey, previousWeek),
-      listWeekSectionAssignments(service, venueId, departmentKey, previousWeek),
-    ]);
-
-    if (prevSections && prevSections.length > 0) {
-      const { data: inserted, error } = await service
-        .from("hr_schedule_week_sections")
-        .insert(
-          prevSections.map((section) => ({
-            venue_id: venueId,
-            department_key: departmentKey,
-            week_start: weekStart,
-            name: section.name,
-            sort_order: section.sortOrder,
-            updated_at: now,
-          })),
-        )
-        .select("id, name, sort_order");
-
-      if (error || !inserted) {
-        console.error("[hr] copy week sections:", error?.message);
-        return;
-      }
-
-      const oldIdByName = new Map(
-        prevSections.map((section) => [section.name, section.id] as const),
-      );
-      const newIdByOldId = new Map<string, string>();
-      for (const row of inserted) {
-        const oldId = oldIdByName.get(row.name as string);
-        if (oldId) newIdByOldId.set(oldId, row.id as string);
-      }
-
-      const assignmentRows = (prevAssignments ?? [])
-        .map((assignment) => {
-          const sectionId = newIdByOldId.get(assignment.sectionId);
-          if (!sectionId) return null;
-          return {
-            venue_id: venueId,
-            department_key: departmentKey,
-            week_start: weekStart,
-            section_id: sectionId,
-            staff_id: assignment.staffId,
-            sort_order: assignment.sortOrder ?? 0,
-            updated_at: now,
-          };
-        })
-        .filter((row): row is NonNullable<typeof row> => row !== null);
-
-      if (assignmentRows.length > 0) {
-        const { error: assignError } = await service
-          .from("hr_schedule_section_assignments")
-          .insert(assignmentRows);
-        if (assignError) {
-          console.error("[hr] copy week assignments:", assignError.message);
-        }
-      }
-      return;
-    }
+    const copied = await copyWeekSectionsSnapshot({
+      venueId,
+      departmentKey,
+      fromWeekStart: previousWeek,
+      toWeekStart: weekStart,
+    });
+    if (copied) return;
   }
 
+  const now = new Date().toISOString();
   const defaults = DEFAULT_SCHEDULE_SECTIONS[departmentKey];
   const { error } = await service.from("hr_schedule_week_sections").insert(
     defaults.map((name, index) => ({
@@ -1642,7 +1886,7 @@ export async function listWeekSections(params: {
   weekStart: string;
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canAccessStaff(permissions, venue.id)) {
+  if (!canAccessSchedules(permissions, venue.id)) {
     return { error: "No access.", sections: [] as ScheduleWeekSection[] };
   }
   if (!isDepartmentKey(params.departmentKey) || !isWeekStart(params.weekStart)) {
@@ -1691,7 +1935,7 @@ export async function loadSchedulesWeekData(params: {
   includeSections?: boolean;
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canAccessStaff(permissions, venue.id)) {
+  if (!canAccessSchedules(permissions, venue.id)) {
     return {
       error: "No access.",
       days: [] as Awaited<ReturnType<typeof listStaffScheduleDays>>,
@@ -1759,7 +2003,7 @@ export async function loadSchedulesWeekAttendance(params: {
   toDate: string;
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canAccessStaff(permissions, venue.id)) {
+  if (!canAccessSchedules(permissions, venue.id)) {
     return {
       error: "No access.",
       days: [] as Awaited<ReturnType<typeof listAttendanceDaysForStaff>>,
@@ -1829,13 +2073,24 @@ export async function renameWeekSection(params: {
   name: string;
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit sections." };
   }
 
   const name = params.name.trim();
   if (!params.sectionId || !name) {
     return { error: "Section name is required." };
+  }
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("hr_schedule_week_sections")
+    .select("department_key, week_start")
+    .eq("id", params.sectionId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (lookupError || !existing) {
+    return { error: "Section not found." };
   }
 
   const { error } = await supabase
@@ -1854,6 +2109,14 @@ export async function renameWeekSection(params: {
     };
   }
 
+  if (isDepartmentKey(existing.department_key as string)) {
+    await propagateWeekSectionsForward({
+      venueId: venue.id,
+      departmentKey: existing.department_key as ScheduleDepartmentKey,
+      sourceWeekStart: existing.week_start as string,
+    });
+  }
+
   revalidatePath("/hr/schedules", "page");
   return { ok: true as const };
 }
@@ -1864,7 +2127,7 @@ export async function addWeekSection(params: {
   name: string;
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit sections." };
   }
   if (!isDepartmentKey(params.departmentKey) || !isWeekStart(params.weekStart)) {
@@ -1905,6 +2168,12 @@ export async function addWeekSection(params: {
     };
   }
 
+  await propagateWeekSectionsForward({
+    venueId: venue.id,
+    departmentKey: params.departmentKey,
+    sourceWeekStart: params.weekStart,
+  });
+
   revalidatePath("/hr/schedules", "page");
   return {
     ok: true as const,
@@ -1919,10 +2188,21 @@ export async function addWeekSection(params: {
 
 export async function deleteWeekSection(params: { sectionId: string }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit sections." };
   }
   if (!params.sectionId) return { error: "Missing section." };
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("hr_schedule_week_sections")
+    .select("department_key, week_start")
+    .eq("id", params.sectionId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (lookupError || !existing) {
+    return { error: "Section not found." };
+  }
 
   const { error } = await supabase
     .from("hr_schedule_week_sections")
@@ -1935,6 +2215,14 @@ export async function deleteWeekSection(params: { sectionId: string }) {
     return { error: "Could not delete section." };
   }
 
+  if (isDepartmentKey(existing.department_key as string)) {
+    await propagateWeekSectionsForward({
+      venueId: venue.id,
+      departmentKey: existing.department_key as ScheduleDepartmentKey,
+      sourceWeekStart: existing.week_start as string,
+    });
+  }
+
   revalidatePath("/hr/schedules", "page");
   return { ok: true as const };
 }
@@ -1945,7 +2233,7 @@ export async function reorderWeekSections(params: {
   orderedIds: string[];
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit sections." };
   }
   if (
@@ -1974,6 +2262,12 @@ export async function reorderWeekSections(params: {
     return { error: "Could not reorder sections." };
   }
 
+  await propagateWeekSectionsForward({
+    venueId: venue.id,
+    departmentKey: params.departmentKey,
+    sourceWeekStart: params.weekStart,
+  });
+
   revalidatePath("/hr/schedules", "page");
   return { ok: true as const };
 }
@@ -1987,7 +2281,7 @@ export async function moveStaffToSection(params: {
   orderedStaffIds?: string[];
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit sections." };
   }
   if (
@@ -2014,6 +2308,13 @@ export async function moveStaffToSection(params: {
       console.error("[hr] unassign section staff:", error.message);
       return { error: "Could not move staff." };
     }
+
+    await propagateWeekSectionsForward({
+      venueId: venue.id,
+      departmentKey,
+      sourceWeekStart: weekStart,
+    });
+
     revalidatePath("/hr/schedules", "page");
     return { ok: true as const };
   }
@@ -2090,6 +2391,12 @@ export async function moveStaffToSection(params: {
     return { error: "Could not reorder staff." };
   }
 
+  await propagateWeekSectionsForward({
+    venueId: venue.id,
+    departmentKey,
+    sourceWeekStart: weekStart,
+  });
+
   revalidatePath("/hr/schedules", "page");
   return { ok: true as const };
 }
@@ -2102,7 +2409,7 @@ export async function reorderSectionStaff(params: {
   orderedStaffIds: string[];
 }) {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit sections." };
   }
   if (
@@ -2133,6 +2440,12 @@ export async function reorderSectionStaff(params: {
     console.error("[hr] reorderSectionStaff:", failed.error.message);
     return { error: "Could not reorder staff." };
   }
+
+  await propagateWeekSectionsForward({
+    venueId: venue.id,
+    departmentKey: params.departmentKey,
+    sourceWeekStart: params.weekStart,
+  });
 
   revalidatePath("/hr/schedules", "page");
   return { ok: true as const };

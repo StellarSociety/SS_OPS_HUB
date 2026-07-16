@@ -4,16 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronsUpDown, ImagePlus, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** ICAO passport photo aspect (~35×45 mm). Compact JPEG for storage. */
+/** ICAO passport photo aspect (~35×45 mm). Client crops; server stores WebP. */
 export const PASSPORT_RATIO = 7 / 9;
 const OUTPUT_WIDTH = 420;
 const OUTPUT_HEIGHT = Math.round(OUTPUT_WIDTH / PASSPORT_RATIO);
-const JPEG_QUALITY = 0.82;
+const WEBP_QUALITY = 0.82;
 
 type StaffProfilePhotoEditorProps = {
   photoUrl: string;
   onPhotoUrlChange: (url: string) => void;
   onPhotoFileChange: (file: File | null) => void;
+  /** Uncropped original — kept so framing can be re-edited after save. */
+  onSourceFileChange?: (file: File | null) => void;
   onCleared: () => void;
   readOnly?: boolean;
   className?: string;
@@ -33,10 +35,30 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** Sibling object used for re-framing after the cropped photo is saved. */
+export function staffPhotoSourceUrl(photoUrl: string): string | null {
+  try {
+    const url = new URL(photoUrl);
+    const next = url.pathname.replace(
+      /(\.[a-z0-9]+)$/i,
+      (_match, ext: string) => {
+        if (/-source\./i.test(url.pathname)) return ext;
+        return `-source${ext}`;
+      },
+    );
+    if (next === url.pathname) return null;
+    url.pathname = next;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function StaffProfilePhotoEditor({
   photoUrl,
   onPhotoUrlChange,
   onPhotoFileChange,
+  onSourceFileChange,
   onCleared,
   readOnly = false,
   className,
@@ -51,16 +73,20 @@ export function StaffProfilePhotoEditor({
   const [zoom, setZoom] = useState(1);
   const [offsetX, setOffsetX] = useState(0);
   const [offsetY, setOffsetY] = useState(0);
-  const [optionsOpen, setOptionsOpen] = useState(true);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [adjustLoading, setAdjustLoading] = useState(false);
   const dragRef = useRef<{
     startX: number;
     startY: number;
     originX: number;
     originY: number;
   } | null>(null);
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+  const prevPhotoUrlRef = useRef(photoUrl);
 
   const hasSource = Boolean(sourceUrl);
   const displayUrl = sourceUrl ?? (photoUrl || null);
+  const canAdjust = Boolean(displayUrl) && !readOnly;
 
   useEffect(() => {
     const el = frameRef.current;
@@ -78,16 +104,59 @@ export function StaffProfilePhotoEditor({
   }, []);
 
   useEffect(() => {
+    const urls = objectUrlsRef.current;
     return () => {
-      if (sourceUrl?.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
     };
-  }, [sourceUrl]);
+  }, []);
+
+  function trackObjectUrl(url: string) {
+    objectUrlsRef.current.add(url);
+    return url;
+  }
+
+  function revokeTracked(url: string | null) {
+    if (!url || !url.startsWith("blob:")) return;
+    if (objectUrlsRef.current.delete(url)) URL.revokeObjectURL(url);
+  }
 
   function resetCrop() {
     setZoom(1);
     setOffsetX(0);
     setOffsetY(0);
   }
+
+  function endAdjustSession() {
+    revokeTracked(sourceUrl);
+    setSourceUrl(null);
+    setNaturalSize(null);
+    resetCrop();
+    setOptionsOpen(false);
+    setAdjustLoading(false);
+  }
+
+  // Leave the framing session when the form becomes read-only (Done / cancel).
+  useEffect(() => {
+    if (!readOnly) return;
+    endAdjustSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly]);
+
+  // After save/refresh, parent swaps the blob preview for the persisted HTTPS URL.
+  useEffect(() => {
+    const prev = prevPhotoUrlRef.current;
+    prevPhotoUrlRef.current = photoUrl;
+    if (
+      prev.startsWith("blob:") &&
+      Boolean(photoUrl) &&
+      !photoUrl.startsWith("blob:") &&
+      sourceUrl
+    ) {
+      endAdjustSession();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photoUrl]);
 
   function transformForFrame(frameW: number, frameH: number) {
     if (!naturalSize) {
@@ -128,11 +197,18 @@ export function StaffProfilePhotoEditor({
     ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
     ctx.drawImage(img, left, top, displayW, displayH);
 
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY),
-    );
+    const blob =
+      (await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/webp", WEBP_QUALITY),
+      )) ??
+      (await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", WEBP_QUALITY),
+      ));
     if (!blob) return null;
-    return new File([blob], "staff-photo.jpg", { type: "image/jpeg" });
+    const isWebp = blob.type === "image/webp";
+    return new File([blob], isWebp ? "staff-photo.webp" : "staff-photo.jpg", {
+      type: isWebp ? "image/webp" : "image/jpeg",
+    });
   }
 
   useEffect(() => {
@@ -142,7 +218,7 @@ export function StaffProfilePhotoEditor({
       void exportCropped().then((file) => {
         if (!cancelled && file) {
           onPhotoFileChange(file);
-          const preview = URL.createObjectURL(file);
+          const preview = trackObjectUrl(URL.createObjectURL(file));
           onPhotoUrlChange(preview);
         }
       });
@@ -156,23 +232,65 @@ export function StaffProfilePhotoEditor({
 
   function handleFile(file: File | null) {
     if (!file || !file.type.startsWith("image/")) return;
-    const url = URL.createObjectURL(file);
-    if (sourceUrl?.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
+    const url = trackObjectUrl(URL.createObjectURL(file));
+    revokeTracked(sourceUrl);
     setSourceUrl(url);
     setNaturalSize(null);
     resetCrop();
     setOptionsOpen(true);
     onPhotoFileChange(null);
+    onSourceFileChange?.(file);
   }
 
   function clearPhoto() {
-    if (sourceUrl?.startsWith("blob:")) URL.revokeObjectURL(sourceUrl);
+    revokeTracked(sourceUrl);
     setSourceUrl(null);
     setNaturalSize(null);
     resetCrop();
     setOptionsOpen(false);
     onCleared();
+    onSourceFileChange?.(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function beginAdjust() {
+    if (readOnly) return;
+    if (hasSource) {
+      setOptionsOpen((open) => !open);
+      return;
+    }
+    if (!photoUrl) return;
+
+    setAdjustLoading(true);
+    const candidates = [staffPhotoSourceUrl(photoUrl), photoUrl].filter(
+      (u): u is string => Boolean(u),
+    );
+    let loaded: string | null = null;
+    let size: { w: number; h: number } | null = null;
+    for (const candidate of candidates) {
+      try {
+        const img = await loadImage(candidate);
+        loaded = candidate;
+        size = { w: img.naturalWidth, h: img.naturalHeight };
+        break;
+      } catch {
+        /* try next */
+      }
+    }
+    setAdjustLoading(false);
+    if (!loaded || !size) return;
+
+    setSourceUrl(loaded);
+    setNaturalSize(size);
+    // Already-cropped passport images fill the frame at zoom 1; nudge zoom so
+    // pan sliders/drag are immediately useful when no separate source exists.
+    const isLikelyCropped =
+      Math.abs(size.w / size.h - PASSPORT_RATIO) < 0.04 &&
+      loaded === photoUrl;
+    setZoom(isLikelyCropped ? 1.2 : 1);
+    setOffsetX(0);
+    setOffsetY(0);
+    setOptionsOpen(true);
   }
 
   function onPointerDown(e: React.PointerEvent) {
@@ -236,6 +354,7 @@ export function StaffProfilePhotoEditor({
               src={hasSource ? sourceUrl! : displayUrl}
               alt="Staff profile"
               draggable={false}
+              crossOrigin="anonymous"
               className={cn(
                 "pointer-events-none absolute left-1/2 top-1/2 max-w-none select-none",
                 !hasSource &&
@@ -299,11 +418,12 @@ export function StaffProfilePhotoEditor({
                 Remove
               </button>
             ) : null}
-            {hasSource && !readOnly ? (
+            {canAdjust ? (
               <button
                 type="button"
                 aria-expanded={optionsOpen}
-                onClick={() => setOptionsOpen((open) => !open)}
+                disabled={adjustLoading}
+                onClick={() => void beginAdjust()}
                 className={cn(
                   btnClass,
                   optionsOpen
@@ -312,7 +432,7 @@ export function StaffProfilePhotoEditor({
                 )}
               >
                 <ChevronsUpDown className="h-3.5 w-3.5 shrink-0" />
-                Adjust
+                {adjustLoading ? "Loading…" : "Adjust"}
               </button>
             ) : null}
             <input
@@ -353,16 +473,16 @@ export function StaffProfilePhotoEditor({
               />
               <p className="text-right text-[10px] leading-snug text-black/45">
                 Drag the preview or use the sliders to choose what stays visible
-                in the frame.
+                in the frame. Save to keep the new crop.
               </p>
             </div>
-          ) : !hasSource ? (
+          ) : !displayUrl ? (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
               Upload a clear headshot. Passport ratio (35×45).
             </p>
           ) : (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
-              Drag the preview, or open Adjust for sliders.
+              Open Adjust to reposition, or Replace to pick a new photo.
             </p>
           )}
         </div>

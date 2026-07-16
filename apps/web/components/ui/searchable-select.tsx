@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +38,12 @@ export function SearchableSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPos, setPanelPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
 
   const selected = options.find((o) => o.value === value);
 
@@ -40,19 +53,50 @@ export function SearchableSelect({
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, query]);
 
+  function updatePanelPos() {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.max(rect.width, 220);
+    const left = Math.min(
+      Math.max(8, rect.left),
+      window.innerWidth - width - 8,
+    );
+    setPanelPos({ top: rect.bottom + 4, left, width });
+  }
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelPos(null);
+      return;
+    }
+    updatePanelPos();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (
+        containerRef.current?.contains(target) ||
+        panelRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
+    const onReposition = () => updatePanelPos();
     document.addEventListener("mousedown", onPointer);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
     return () => {
       document.removeEventListener("mousedown", onPointer);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
     };
   }, [open]);
 
@@ -99,58 +143,69 @@ export function SearchableSelect({
         <ChevronDown className="h-4 w-4 shrink-0 text-black/40" />
       </button>
 
-      {open ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 overflow-hidden rounded-md border border-black/10 bg-white shadow-lg">
-          <div className="relative border-b border-black/5 p-2">
-            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-black/40" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="h-9 w-full rounded-md border border-black/10 bg-white pl-9 pr-3 text-sm text-[#3D421F] outline-none focus:border-[var(--venue-primary)]/50"
-            />
-          </div>
-          <ul
-            role="listbox"
-            className="max-h-60 overflow-y-auto py-1 text-sm"
-          >
-            <li>
-              <button
-                type="button"
-                onClick={() => select("")}
-                className={cn(
-                  "flex w-full items-center px-3 py-2 text-left transition-colors hover:bg-[var(--venue-secondary)]/40",
-                  value === "" && "font-medium text-[#3D421F]",
-                )}
+      {open && panelPos
+        ? createPortal(
+            <div
+              ref={panelRef}
+              className="fixed z-[250] overflow-hidden rounded-md border border-black/10 bg-white shadow-lg"
+              style={{
+                top: panelPos.top,
+                left: panelPos.left,
+                width: panelPos.width,
+              }}
+            >
+              <div className="relative border-b border-black/5 p-2">
+                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-black/40" />
+                <input
+                  autoFocus
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  className="h-9 w-full rounded-md border border-black/10 bg-white pl-9 pr-3 text-sm text-[#3D421F] outline-none focus:border-[var(--venue-primary)]/50"
+                />
+              </div>
+              <ul
+                role="listbox"
+                className="max-h-60 overflow-y-auto py-1 text-sm"
               >
-                {placeholder}
-              </button>
-            </li>
-            {filtered.map((o) => (
-              <li key={o.value}>
-                <button
-                  type="button"
-                  onClick={() => select(o.value)}
-                  className={cn(
-                    "flex w-full items-center px-3 py-2 text-left transition-colors hover:bg-[var(--venue-secondary)]/40",
-                    value === o.value
-                      ? "bg-[var(--venue-secondary)]/30 font-medium text-[#3D421F]"
-                      : "text-black/70",
-                  )}
-                >
-                  {o.label}
-                </button>
-              </li>
-            ))}
-            {filtered.length === 0 ? (
-              <li className="px-3 py-3 text-center text-xs text-black/45">
-                No matches.
-              </li>
-            ) : null}
-          </ul>
-        </div>
-      ) : null}
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => select("")}
+                    className={cn(
+                      "flex w-full items-center px-3 py-2 text-left transition-colors hover:bg-[var(--venue-secondary)]/40",
+                      value === "" && "font-medium text-[#3D421F]",
+                    )}
+                  >
+                    {placeholder}
+                  </button>
+                </li>
+                {filtered.map((o) => (
+                  <li key={o.value}>
+                    <button
+                      type="button"
+                      onClick={() => select(o.value)}
+                      className={cn(
+                        "flex w-full items-center px-3 py-2 text-left transition-colors hover:bg-[var(--venue-secondary)]/40",
+                        value === o.value
+                          ? "bg-[var(--venue-secondary)]/30 font-medium text-[#3D421F]"
+                          : "text-black/70",
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  </li>
+                ))}
+                {filtered.length === 0 ? (
+                  <li className="px-3 py-3 text-center text-xs text-black/45">
+                    No matches.
+                  </li>
+                ) : null}
+              </ul>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

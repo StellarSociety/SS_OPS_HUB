@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { DateInput } from "@/components/ui/date-input";
 import { StaffProfilePhotoEditor } from "@/components/hr/staff-profile-photo-editor";
-import { getProbationScheduleTallies } from "@/lib/actions/hr";
 import {
   computeSalaryBreakdown,
   formatAed,
@@ -12,11 +12,15 @@ import {
 } from "@/lib/hr/derived";
 import type { SalaryPercentages } from "@/lib/hr/derived";
 import {
+  findStatusIdByName,
+  findStatusNameById,
+  employmentStatusSurfaceClass,
+  suggestEmploymentStatusName,
+} from "@/lib/hr/employment-status";
+import {
   computeProbation,
   durationExceedsLegalMax,
-  EMPTY_PROBATION_TALLIES,
   PROBATION_MAX_MONTHS,
-  type ProbationScheduleTallies,
 } from "@/lib/hr/probation";
 import type { StaffFormState } from "@/lib/hr/staff-form";
 import type {
@@ -36,12 +40,11 @@ type StaffEntryFormProps = {
   onChange: (patch: Partial<StaffFormState>) => void;
   onSubmit: (formData: FormData) => void;
   onPhotoFileChange: (file: File | null) => void;
+  onPhotoSourceFileChange?: (file: File | null) => void;
   photoCleared: boolean;
   onPhotoClearedChange: (cleared: boolean) => void;
   readOnly: boolean;
   lockEmpNo: boolean;
-  /** When set, roster leave/work tallies are loaded for the probation window. */
-  staffId?: string | null;
   departments: Department[];
   positions: Position[];
   statuses: EmploymentStatus[];
@@ -99,35 +102,16 @@ function Field({
   );
 }
 
-function Metric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number | null | undefined;
-}) {
-  return (
-    <div className="rounded-lg border border-black/5 bg-white/50 px-3 py-2">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-black/40">
-        {label}
-      </p>
-      <p className="mt-0.5 text-sm font-medium text-[#3D421F]">
-        {value == null || value === "" ? "—" : value}
-      </p>
-    </div>
-  );
-}
-
 export function StaffEntryForm({
   value,
   onChange,
   onSubmit,
   onPhotoFileChange,
+  onPhotoSourceFileChange,
   photoCleared,
   onPhotoClearedChange,
   readOnly,
   lockEmpNo,
-  staffId = null,
   departments,
   positions,
   statuses,
@@ -137,8 +121,14 @@ export function StaffEntryForm({
   salaryPct,
   canViewSalary,
 }: StaffEntryFormProps) {
-  const [scheduleTallies, setScheduleTallies] =
-    useState<ProbationScheduleTallies>(EMPTY_PROBATION_TALLIES);
+  const [autoEmploymentStatus, setAutoEmploymentStatus] = useState(true);
+  const [autoStatusHelpOpen, setAutoStatusHelpOpen] = useState(false);
+  const prevAutoRef = useRef(false);
+  const prevDatesRef = useRef({
+    joining: value.joining_date,
+    termination: value.termination_date,
+  });
+  const didInitStatusRef = useRef(false);
 
   const set =
     (field: keyof StaffFormState) =>
@@ -180,14 +170,14 @@ export function StaffEntryForm({
         durationValue: value.probation_duration_value,
         durationUnit: value.probation_duration_unit,
         probationStatus: value.probation_status,
-        tallies: scheduleTallies,
+        terminationDate: value.termination_date,
       }),
     [
       value.joining_date,
       value.probation_duration_value,
       value.probation_duration_unit,
       value.probation_status,
-      scheduleTallies,
+      value.termination_date,
     ],
   );
 
@@ -223,29 +213,48 @@ export function StaffEntryForm({
   ]);
 
   useEffect(() => {
-    if (
-      !staffId ||
-      !probation.commencementDate ||
-      !probation.legalEndDate
-    ) {
-      setScheduleTallies(EMPTY_PROBATION_TALLIES);
+    if (!autoEmploymentStatus || readOnly) {
+      prevAutoRef.current = autoEmploymentStatus;
+      prevDatesRef.current = {
+        joining: value.joining_date,
+        termination: value.termination_date,
+      };
       return;
     }
 
-    let cancelled = false;
-    void getProbationScheduleTallies({
-      staffId,
-      fromDate: probation.commencementDate,
-      toDate: probation.legalEndDate,
-    }).then((result) => {
-      if (cancelled || !result.tallies) return;
-      setScheduleTallies(result.tallies);
-    });
+    const datesChanged =
+      prevDatesRef.current.joining !== value.joining_date ||
+      prevDatesRef.current.termination !== value.termination_date;
+    const autoJustEnabled = !prevAutoRef.current && autoEmploymentStatus;
+    const firstSync = !didInitStatusRef.current;
 
-    return () => {
-      cancelled = true;
+    prevAutoRef.current = autoEmploymentStatus;
+    prevDatesRef.current = {
+      joining: value.joining_date,
+      termination: value.termination_date,
     };
-  }, [staffId, probation.commencementDate, probation.legalEndDate]);
+
+    if (!firstSync && !datesChanged && !autoJustEnabled) return;
+
+    const suggested = suggestEmploymentStatusName({
+      joiningDate: value.joining_date,
+      terminationDate: value.termination_date,
+    });
+    const nextId = findStatusIdByName(statuses, suggested);
+    if (!nextId) return;
+
+    didInitStatusRef.current = true;
+    if (nextId === value.employment_status_id) return;
+    onChange({ employment_status_id: nextId });
+  }, [
+    autoEmploymentStatus,
+    readOnly,
+    value.joining_date,
+    value.termination_date,
+    value.employment_status_id,
+    statuses,
+    onChange,
+  ]);
 
   const inAccommodation = value.company_accommodation.toLowerCase() === "yes";
   const wageNumber =
@@ -473,6 +482,74 @@ export function StaffEntryForm({
           ))}
         </select>
       </Field>
+      <hr className="border-black/10" />
+      <div className="rounded-lg border border-black/10 bg-white/70 px-3 py-2.5 text-left">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setAutoStatusHelpOpen((o) => !o)}
+            aria-expanded={autoStatusHelpOpen}
+            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          >
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 text-black/40 transition-transform",
+                autoStatusHelpOpen && "rotate-180",
+              )}
+            />
+            <span className="text-xs font-semibold text-[#3D421F]">
+              Auto employment status
+            </span>
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoEmploymentStatus}
+            aria-label="Auto employment status"
+            disabled={readOnly}
+            onClick={() => setAutoEmploymentStatus((v) => !v)}
+            className={cn(
+              "relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50",
+              autoEmploymentStatus
+                ? "bg-[var(--venue-primary,#818a40)]"
+                : "bg-black/20",
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                autoEmploymentStatus ? "left-[22px]" : "left-0.5",
+              )}
+            />
+          </button>
+        </div>
+        {autoStatusHelpOpen ? (
+          <div className="mt-2 space-y-1.5 border-t border-black/5 pt-2">
+            <ul className="space-y-0.5 text-[11px] leading-snug text-black/50">
+              <li>
+                <span className="font-medium text-black/65">Hiring</span> — no
+                joining date
+              </li>
+              <li>
+                <span className="font-medium text-black/65">ON Board</span> —
+                joining date set
+              </li>
+              <li>
+                <span className="font-medium text-black/65">OFF Board</span> —
+                termination date set (same month)
+              </li>
+              <li>
+                <span className="font-medium text-black/65">OUT</span> — from the
+                month after termination
+              </li>
+            </ul>
+            <p className="text-[11px] text-black/40">
+              Status can still be changed manually. Auto re-applies when joining
+              or termination dates change.
+            </p>
+          </div>
+        ) : null}
+      </div>
       <Field label="Employment Status" htmlFor="employment_status_id">
         <select
           id="employment_status_id"
@@ -480,7 +557,12 @@ export function StaffEntryForm({
           value={value.employment_status_id}
           onChange={set("employment_status_id")}
           disabled={readOnly}
-          className={fieldClass}
+          className={cn(
+            fieldClass,
+            employmentStatusSurfaceClass(
+              findStatusNameById(statuses, value.employment_status_id),
+            ),
+          )}
         >
           <option value="">—</option>
           {statuses.map((s) => (
@@ -490,6 +572,40 @@ export function StaffEntryForm({
           ))}
         </select>
       </Field>
+      <Field label="Visa status" htmlFor="visa_status">
+        <select
+          id="visa_status"
+          name="visa_status"
+          value={value.visa_status}
+          onChange={set("visa_status")}
+          disabled={readOnly}
+          className={fieldClass}
+        >
+          <option value="">—</option>
+          <option value="Visa Self Owned">Visa Self Owned</option>
+          <option value="Visa Provided">Visa Provided</option>
+          <option value="Visa Pending">Visa Pending</option>
+        </select>
+      </Field>
+      <Field label="Visa expiry" htmlFor="visa_expiry">
+        <DateInput
+          id="visa_expiry"
+          name="visa_expiry"
+          value={value.visa_expiry}
+          onChange={(iso) => onChange({ visa_expiry: iso })}
+          disabled={readOnly}
+          className="w-full"
+          inputClassName={fieldClass}
+        />
+      </Field>
+    </SectionCard>
+  );
+
+  const employmentCard = (
+    <SectionCard
+      title="Employment"
+      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+    >
       <Field label="Joining date" htmlFor="joining_date">
         <DateInput
           id="joining_date"
@@ -515,6 +631,17 @@ export function StaffEntryForm({
           <option value="Part-time">Part-time</option>
           <option value="Freelancing">Freelancing</option>
         </select>
+      </Field>
+      <Field label="Termination date" htmlFor="termination_date">
+        <DateInput
+          id="termination_date"
+          name="termination_date"
+          value={value.termination_date}
+          onChange={(iso) => onChange({ termination_date: iso })}
+          disabled={readOnly}
+          className="w-full"
+          inputClassName={fieldClass}
+        />
       </Field>
       <Field
         label="Probation duration"
@@ -584,103 +711,6 @@ export function StaffEntryForm({
           value={probation.status ?? ""}
         />
       </div>
-      <Field label="Visa status" htmlFor="visa_status">
-        <select
-          id="visa_status"
-          name="visa_status"
-          value={value.visa_status}
-          onChange={set("visa_status")}
-          disabled={readOnly}
-          className={fieldClass}
-        >
-          <option value="">—</option>
-          <option value="Visa Self Owned">Visa Self Owned</option>
-          <option value="Visa Provided">Visa Provided</option>
-          <option value="Visa Pending">Visa Pending</option>
-        </select>
-      </Field>
-      <Field label="Visa expiry" htmlFor="visa_expiry">
-        <DateInput
-          id="visa_expiry"
-          name="visa_expiry"
-          value={value.visa_expiry}
-          onChange={(iso) => onChange({ visa_expiry: iso })}
-          disabled={readOnly}
-          className="w-full"
-          inputClassName={fieldClass}
-        />
-      </Field>
-    </SectionCard>
-  );
-
-  const probationCard = (
-    <SectionCard
-      title="Probation period calculation"
-      contentClassName="space-y-4"
-    >
-      <p className="text-xs leading-relaxed text-black/50">
-        Calculated from employment commencement and contractual probation
-        duration. End date uses consecutive calendar time and is never paused
-        by leave or absence. Leave days are recorded separately from the
-        roster for attendance during probation.
-      </p>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <Metric
-          label="Employment commencement"
-          value={formatDateOnly(probation.commencementDate)}
-        />
-        <Metric
-          label="Contractual probation duration"
-          value={probation.durationLabel}
-        />
-        <Metric
-          label="Legal probation end date"
-          value={formatDateOnly(probation.legalEndDate)}
-        />
-        <Metric
-          label="Remaining probation days"
-          value={
-            probation.legalEndDate == null
-              ? null
-              : probation.status === "Pending"
-                ? probation.remainingDays
-                : 0
-          }
-        />
-        <Metric
-          label="Total calendar days elapsed"
-          value={probation.calendarDaysElapsed}
-        />
-        <Metric
-          label="Scheduled working days"
-          value={probation.scheduledWorkingDays}
-        />
-        <Metric label="Actual days worked" value={probation.actualDaysWorked} />
-        <Metric label="Unpaid-leave days" value={probation.unpaidLeaveDays} />
-        <Metric label="Sick-leave days" value={probation.sickLeaveDays} />
-        <Metric
-          label="Authorised absence days"
-          value={probation.authorisedAbsenceDays}
-        />
-        <Metric
-          label="Unauthorised absence days"
-          value={probation.unauthorisedAbsenceDays}
-        />
-        <Metric label="Other leave days" value={probation.otherLeaveDays} />
-        <Metric label="Probation status" value={probation.status} />
-      </div>
-      {probation.clampedToLegalMax ? (
-        <p className="text-[11px] text-amber-800/80">
-          Contractual duration exceeds the legal maximum — end date is clamped
-          to {PROBATION_MAX_MONTHS} calendar months from commencement.
-        </p>
-      ) : null}
-      {!staffId ? (
-        <p className="text-[11px] text-black/35">
-          Roster tallies (worked / leave days) appear after the employee is
-          saved and scheduled.
-        </p>
-      ) : null}
     </SectionCard>
   );
 
@@ -870,10 +900,12 @@ export function StaffEntryForm({
           if (url) onPhotoClearedChange(false);
         }}
         onPhotoFileChange={onPhotoFileChange}
+        onSourceFileChange={onPhotoSourceFileChange}
         onCleared={() => {
           onPhotoClearedChange(true);
           onChange({ photo_url: "" });
           onPhotoFileChange(null);
+          onPhotoSourceFileChange?.(null);
         }}
         readOnly={readOnly}
       />
@@ -896,7 +928,7 @@ export function StaffEntryForm({
           {contactCard}
         </div>
       </div>
-      {probationCard}
+      {employmentCard}
       {documentsCard}
       {bankCard}
       {compensationCard}

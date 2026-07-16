@@ -72,8 +72,8 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       { label: "Staff directory", href: "/hr/staff", icon: Users },
       { label: "Insurance", href: "/hr/insurance", icon: ShieldCheck },
       {
-        label: "Training",
-        href: "/hr/training",
+        label: "Certifications",
+        href: "/hr/certifications",
         icon: GraduationCap,
         dividerAfter: true,
       },
@@ -112,7 +112,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         key: "staff-details",
         label: "Staff Details",
         icon: UserRound,
-        itemHrefs: ["/hr/staff", "/hr/insurance", "/hr/training"],
+        itemHrefs: ["/hr/staff", "/hr/insurance", "/hr/certifications"],
       },
       {
         key: "attendance",
@@ -120,9 +120,9 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: CalendarCheck,
         itemHrefs: [
           "/hr/schedules",
-          "/hr/attendance",
           "/hr/attendance/insights",
-          "/hr/attendance/approvals",
+          "/hr/attendance",
+          "/hr/attendance/validation",
           "/hr/leave",
         ],
       },

@@ -12,6 +12,7 @@ import {
 import type { Venue } from "@/lib/types/database";
 import { Card } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { StatusBadge } from "@/components/hr/status-badge";
 import { UserActivityDialog } from "@/components/settings/user-activity-dialog";
 import { cn } from "@/lib/utils";
 
@@ -362,7 +363,7 @@ export function UsersList({ users, venues }: UsersListProps) {
                     )}
                   </td>
                   <td className="truncate px-4 py-3 text-black/70">
-                    {u.staff?.employment_status?.name ?? "—"}
+                    <StatusBadge status={u.staff?.employment_status?.name} />
                   </td>
                   <td className="px-4 py-3">
                     <InviteStatusBadge user={u} />
@@ -403,7 +404,9 @@ export function UsersList({ users, venues }: UsersListProps) {
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-black/40">Employment status</dt>
-                  <dd>{u.staff?.employment_status?.name ?? "—"}</dd>
+                  <dd>
+                    <StatusBadge status={u.staff?.employment_status?.name} />
+                  </dd>
                 </div>
               </dl>
             </Link>

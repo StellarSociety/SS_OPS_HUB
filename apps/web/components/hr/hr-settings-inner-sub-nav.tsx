@@ -91,6 +91,11 @@ const ATTENDANCE_TABS: Tab[] = [
     icon: CalendarDays,
   },
   {
+    href: `${HR_SETTINGS_ATTENDANCE_HREF}/public-holidays`,
+    label: "Public Holidays",
+    icon: Flag,
+  },
+  {
     href: `${HR_SETTINGS_ATTENDANCE_HREF}/shift-templates`,
     label: "Shift Templates",
     icon: Clock3,
@@ -99,6 +104,11 @@ const ATTENDANCE_TABS: Tab[] = [
     href: `${HR_SETTINGS_ATTENDANCE_HREF}/shift-import-rules`,
     label: "Shift Import Rules",
     icon: CalendarClock,
+  },
+  {
+    href: `${HR_SETTINGS_ATTENDANCE_HREF}/schedule-approval`,
+    label: "Schedule Approval",
+    icon: ShieldCheck,
   },
 ];
 

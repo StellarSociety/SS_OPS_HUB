@@ -9,8 +9,9 @@ import {
   useState,
   useTransition,
 } from "react";
-import { ChevronLeft, ChevronRight, Eraser, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Eraser, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import { RosterLabelsDialog } from "@/components/hr/roster-labels-dialog";
+import { SchedulesWeekNav } from "@/components/hr/schedules-week-nav";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ import {
   type ShiftTemplate,
 } from "@/lib/hr/schedules";
 import {
+  clearCachedScheduleSectionsAfter,
   getCachedScheduleDaysForStaff,
   getCachedScheduleSections,
   mergeCachedScheduleDays,
@@ -62,6 +64,8 @@ type SchedulesWeekCalendarProps = {
   staff: ScheduleStaffRow[];
   labels: ScheduleDayLabel[];
   shiftTemplates: ShiftTemplate[];
+  /** Map of YYYY-MM-DD → holiday name for purple column highlight. */
+  publicHolidayByDate?: ReadonlyMap<string, string>;
   canEdit?: boolean;
   /** Flat roster list, or group staff under weekly section bands. */
   layout?: "flat" | "sections";
@@ -83,6 +87,8 @@ type SchedulesWeekCalendarProps = {
   onRegisterUnsavedGuard?: (
     guardAction: ((action: () => void) => void) | null,
   ) => void;
+  /** Hide built-in week controls when the parent renders them elsewhere. */
+  hideWeekNavigation?: boolean;
 };
 
 type SelectedCell = {
@@ -184,10 +190,10 @@ function attendanceHintForWeek(
     return `Fingerprint records exist for the week of ${rangeLabel} (${weekTotals.dayCount} work days, ${weekTotals.punchCount} punches) but none match the staff shown on this roster. Check employee IDs (ORL####) on Attendance → Records.`;
   }
   if (!maxWorkDate) {
-    return "No fingerprint data imported yet. Export InOutData from the device and import on Attendance → Records.";
+    return "No fingerprint data imported yet. Export InOutData from the device and import under Settings → Data Management → Attendance.";
   }
   if (fromDate > maxWorkDate) {
-    return `No punch data for the week of ${rangeLabel} has been imported yet (last import runs through ${formatCoverageDate(maxWorkDate)}). Export a fresh InOutData file from the fingerprint device — include dates through this week — then import on Attendance → Records.`;
+    return `No punch data for the week of ${rangeLabel} has been imported yet (last import runs through ${formatCoverageDate(maxWorkDate)}). Export a fresh InOutData file from the fingerprint device — include dates through this week — then import under Settings → Data Management → Attendance.`;
   }
   if (minWorkDate && maxWorkDate) {
     return `No punch times for the week of ${rangeLabel}. Imported records cover ${formatCoverageDate(minWorkDate)}–${formatCoverageDate(maxWorkDate)}.`;
@@ -202,6 +208,7 @@ export function SchedulesWeekCalendar({
   staff,
   labels,
   shiftTemplates = [],
+  publicHolidayByDate,
   canEdit = false,
   layout = "flat",
   departmentKey,
@@ -210,6 +217,7 @@ export function SchedulesWeekCalendar({
   loadStaffIds,
   attendanceStaff: attendanceStaffProp,
   onRegisterUnsavedGuard,
+  hideWeekNavigation = false,
 }: SchedulesWeekCalendarProps) {
   const sectionsMode = layout === "sections" && Boolean(departmentKey);
   const [weekOffsetState, setWeekOffsetState] = useState(0);
@@ -268,7 +276,10 @@ export function SchedulesWeekCalendar({
     () => getMondayForWeekOffset(weekOffset),
     [weekOffset],
   );
-  const days = useMemo(() => getWeekDayColumns(monday), [monday]);
+  const days = useMemo(
+    () => getWeekDayColumns(monday, publicHolidayByDate),
+    [monday, publicHolidayByDate],
+  );
   const weekDateKeys = useMemo(() => days.map((day) => day.key), [days]);
   const rangeLabel = formatWeekRangeLabel(monday);
   const fromDate = days[0]?.key ?? "";
@@ -945,7 +956,9 @@ export function SchedulesWeekCalendar({
       if (result.error) {
         setSections(previous);
         setError(result.error);
+        return;
       }
+      clearCachedScheduleSectionsAfter(departmentKey, weekStart);
     });
   }
 
@@ -998,7 +1011,9 @@ export function SchedulesWeekCalendar({
         if (result.error) {
           setSections(previous);
           setError(result.error);
+          return;
         }
+        clearCachedScheduleSectionsAfter(departmentKey, weekStart);
       });
       return;
     }
@@ -1036,7 +1051,9 @@ export function SchedulesWeekCalendar({
       if (result.error) {
         setSections(previous);
         setError(result.error);
+        return;
       }
+      clearCachedScheduleSectionsAfter(departmentKey, weekStart);
     });
   }
 
@@ -1100,7 +1117,9 @@ export function SchedulesWeekCalendar({
       if (result.error) {
         setSections(previous);
         setError(result.error);
+        return;
       }
+      clearCachedScheduleSectionsAfter(departmentKey, weekStart);
     });
   }
 
@@ -1122,6 +1141,10 @@ export function SchedulesWeekCalendar({
       if (result.error) {
         setSections(previous);
         setError(result.error);
+        return;
+      }
+      if (departmentKey && weekStart) {
+        clearCachedScheduleSectionsAfter(departmentKey, weekStart);
       }
     });
   }
@@ -1148,6 +1171,7 @@ export function SchedulesWeekCalendar({
       if (result.section) {
         setSections((current) => [...current, result.section!]);
       }
+      clearCachedScheduleSectionsAfter(departmentKey, weekStart);
     });
   }
 
@@ -1166,6 +1190,10 @@ export function SchedulesWeekCalendar({
       if (result.error) {
         setSections(previous);
         setError(result.error);
+        return;
+      }
+      if (departmentKey && weekStart) {
+        clearCachedScheduleSectionsAfter(departmentKey, weekStart);
       }
     });
   }
@@ -1606,7 +1634,9 @@ export function SchedulesWeekCalendar({
               key={day.key}
               className={cn(
                 "relative min-h-[3.25rem] w-[94px] border-l border-black/5 px-1 py-0.5 align-middle",
-                day.isToday && "bg-[var(--venue-primary)]/5",
+                day.isPublicHoliday
+                  ? "bg-[#ede9fe]/45"
+                  : day.isToday && "bg-[var(--venue-primary)]/5",
               )}
               onDragOver={(event) => {
                 if (
@@ -1849,35 +1879,13 @@ export function SchedulesWeekCalendar({
               Roster labels
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => guardAction(() => setWeekOffset((o) => o - 1))}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-black/10 bg-white/70 text-[#3D421F] transition-colors hover:bg-white"
-            aria-label="Previous week"
-          >
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={() => guardAction(() => setWeekOffset(0))}
-            disabled={weekOffset === 0}
-            className={cn(
-              "h-9 rounded-lg border px-3 text-xs font-medium uppercase tracking-wide transition-colors",
-              weekOffset === 0
-                ? "cursor-default border-transparent text-black/35"
-                : "border-black/10 bg-white/70 text-[#3D421F] hover:bg-white",
-            )}
-          >
-            This week
-          </button>
-          <button
-            type="button"
-            onClick={() => guardAction(() => setWeekOffset((o) => o + 1))}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-black/10 bg-white/70 text-[#3D421F] transition-colors hover:bg-white"
-            aria-label="Next week"
-          >
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </button>
+          {!hideWeekNavigation ? (
+            <SchedulesWeekNav
+              weekOffset={weekOffset}
+              onWeekOffsetChange={(offset) => setWeekOffset(offset)}
+              guardAction={guardAction}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -2122,15 +2130,27 @@ export function SchedulesWeekCalendar({
                 <th
                   key={day.key}
                   scope="col"
+                  title={
+                    day.isPublicHoliday
+                      ? (day.publicHolidayName ?? "Public holiday")
+                      : undefined
+                  }
                   className={cn(
                     "w-[94px] border-b border-black/10 px-2 py-2.5 text-center font-medium",
-                    day.isToday
-                      ? "bg-[var(--venue-primary)]/15 text-[#3D421F]"
-                      : "text-black/60",
+                    day.isPublicHoliday
+                      ? "bg-[#ede9fe] text-[#5b21b6]"
+                      : day.isToday
+                        ? "bg-[var(--venue-primary)]/15 text-[#3D421F]"
+                        : "text-black/60",
                   )}
                 >
                   <span className="block text-[10px] font-semibold uppercase tracking-[0.08em]">
                     {day.weekdayLabel}
+                    {day.isPublicHoliday ? (
+                      <span className="ml-1 normal-case tracking-normal">
+                        · PH
+                      </span>
+                    ) : null}
                   </span>
                   <span className="mt-0.5 block text-xs tabular-nums">
                     {day.dayLabel}

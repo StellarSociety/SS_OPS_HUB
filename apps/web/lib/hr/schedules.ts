@@ -59,6 +59,10 @@ export type ScheduleStaffRow = {
   positionSortOrder: number;
   /** Working Status lookup tag (defaults to Active). */
   workingStatus: string;
+  /** Employment start (`YYYY-MM-DD`); required to appear on any week. */
+  joiningDate: string | null;
+  /** Employment end (`YYYY-MM-DD`); null = still employed. */
+  terminationDate: string | null;
 };
 
 /** Editable day-cell label (stored in `schedule_day_labels`). */
@@ -652,24 +656,68 @@ export function getMondayForWeekOffset(weekOffset: number): Date {
   return monday;
 }
 
+/** Week offset (from this week) whose Monday is the week containing `date`. */
+export function weekOffsetFromDate(date: Date): number {
+  const target = getWeekMonday(date);
+  const current = getWeekMonday();
+  return Math.round(
+    (target.getTime() - current.getTime()) / (7 * 24 * 60 * 60 * 1000),
+  );
+}
+
+/**
+ * ISO-8601 week number for a local date (weeks Mon–Sun; week 1 has the first Thursday).
+ */
+export function getIsoWeekNumber(date: Date): number {
+  const utc = new Date(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
+  );
+  const dayNum = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  return Math.ceil(
+    ((utc.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7,
+  );
+}
+
 export type WeekDayColumn = {
   key: string;
   weekdayLabel: string;
   dayLabel: string;
   isToday: boolean;
+  isPublicHoliday: boolean;
+  publicHolidayName: string | null;
 };
 
-export function getWeekDayColumns(monday: Date): WeekDayColumn[] {
+/** Matches schedule day label `PH` colours for calendar column highlight. */
+export const PUBLIC_HOLIDAY_COLUMN = {
+  bg: "#ede9fe",
+  text: "#5b21b6",
+  border: "#ddd6fe",
+} as const;
+
+export function getWeekDayColumns(
+  monday: Date,
+  publicHolidays?: ReadonlyMap<string, string> | ReadonlySet<string>,
+): WeekDayColumn[] {
   const todayKey = toDateKey(startOfLocalDay(new Date()));
   return WEEKDAY_LABELS.map((weekdayLabel, index) => {
     const day = new Date(monday);
     day.setDate(monday.getDate() + index);
     const key = toDateKey(day);
+    const holidayName =
+      publicHolidays instanceof Map
+        ? (publicHolidays.get(key) ?? null)
+        : publicHolidays?.has(key)
+          ? "Public holiday"
+          : null;
     return {
       key,
       weekdayLabel,
       dayLabel: `${day.getDate()} ${MONTHS_SHORT[day.getMonth()]}`,
       isToday: key === todayKey,
+      isPublicHoliday: holidayName != null,
+      publicHolidayName: holidayName,
     };
   });
 }
@@ -694,6 +742,45 @@ function toDateKey(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+/** ISO date key (YYYY-MM-DD) for a local calendar day — used as schedule week_start. */
+export function weekStartKeyFromDate(monday: Date): string {
+  return toDateKey(monday);
+}
+
+const ISO_DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * True when the staff member’s employment window overlaps the Mon–Sun week.
+ * Hidden before joining and after termination (inclusive on both dates).
+ */
+export function isStaffEmployedDuringWeek(
+  member: Pick<ScheduleStaffRow, "joiningDate" | "terminationDate">,
+  weekMonday: Date,
+): boolean {
+  const joining = member.joiningDate?.trim() ?? "";
+  if (!ISO_DATE_KEY.test(joining)) return false;
+
+  const mondayKey = weekStartKeyFromDate(weekMonday);
+  const sunday = new Date(weekMonday);
+  sunday.setDate(weekMonday.getDate() + 6);
+  const sundayKey = weekStartKeyFromDate(sunday);
+
+  if (joining > sundayKey) return false;
+
+  const termination = member.terminationDate?.trim() ?? "";
+  if (ISO_DATE_KEY.test(termination) && termination < mondayKey) return false;
+
+  return true;
+}
+
+/** Roster rows visible for the given week (joining → termination). */
+export function filterStaffForWeek(
+  staff: ScheduleStaffRow[],
+  weekMonday: Date,
+): ScheduleStaffRow[] {
+  return staff.filter((member) => isStaffEmployedDuringWeek(member, weekMonday));
 }
 
 export function matchesScheduleDepartment(

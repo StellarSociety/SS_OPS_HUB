@@ -55,12 +55,16 @@ export type ExportSchedulesPdfOptions = {
   blocks: SchedulesPdfDepartmentBlock[];
   labels: ScheduleDayLabel[];
   shiftTemplates: ShiftTemplate[];
+  /** Optional YYYY-MM-DD → name map for purple PH column headers. */
+  publicHolidayByDate?: ReadonlyMap<string, string>;
   exportedAt: Date;
   userDisplayName: string;
 };
 
 const BRAND_DARK: [number, number, number] = [61, 66, 31];
 const HEADER_BG: [number, number, number] = [240, 243, 221];
+const PH_HEADER_BG: [number, number, number] = [237, 233, 254];
+const PH_HEADER_TEXT: [number, number, number] = [91, 33, 182];
 const SECTION_BAND_BG: [number, number, number] = [226, 232, 200];
 const DEPT_BAND_BG: [number, number, number] = [61, 66, 31];
 const STAFF_META_BG: [number, number, number] = [248, 249, 244];
@@ -69,6 +73,7 @@ const FOOTER_TEXT: [number, number, number] = [110, 110, 110];
 const RULE_COLOR: [number, number, number] = [61, 66, 31];
 const DAY_COL_COUNT = 7;
 const META_COL_COUNT = 2; // Staff + Position
+const PH_BODY_BG: [number, number, number] = [245, 243, 255];
 
 function sanitizeFilenamePart(value: string): string {
   return value
@@ -687,6 +692,19 @@ function renderPdf(
     head,
     body,
     didParseCell(data) {
+      if (data.section === "head") {
+        const dayIndex = data.column.index - META_COL_COUNT;
+        if (
+          dayIndex >= 0 &&
+          dayIndex < days.length &&
+          days[dayIndex]?.isPublicHoliday
+        ) {
+          data.cell.styles.fillColor = PH_HEADER_BG;
+          data.cell.styles.textColor = PH_HEADER_TEXT;
+        }
+        return;
+      }
+
       if (data.section !== "body") return;
       const rowMeta = meta[data.row.index];
       if (!rowMeta) return;
@@ -728,7 +746,9 @@ function renderPdf(
       const dayIndex = data.column.index - META_COL_COUNT;
       const presentation = rowMeta.presentationByDay[dayIndex];
       if (!presentation) {
-        data.cell.styles.fillColor = EMPTY_CELL_BG;
+        data.cell.styles.fillColor = days[dayIndex]?.isPublicHoliday
+          ? PH_BODY_BG
+          : EMPTY_CELL_BG;
         data.cell.styles.textColor = [160, 160, 160];
         return;
       }
@@ -781,7 +801,7 @@ export async function exportSchedulesPdf(
   }
 
   const monday = getMondayForWeekOffset(options.weekOffset);
-  const days = getWeekDayColumns(monday);
+  const days = getWeekDayColumns(monday, options.publicHolidayByDate);
   const weekLabel = formatWeekRangeLabel(monday);
   const logo = options.venueLogoUrl
     ? await loadPdfLogoAsset(options.venueLogoUrl)

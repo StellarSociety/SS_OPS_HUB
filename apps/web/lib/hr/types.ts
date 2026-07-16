@@ -10,6 +10,13 @@ export type WorkingStatus = {
   sort_order: number;
 };
 
+/** Venue public holiday date used on schedules. */
+export type PublicHoliday = {
+  id: string;
+  holidayDate: string;
+  name: string;
+};
+
 export type Nationality = {
   id: string;
   name: string;
@@ -141,6 +148,7 @@ export type ExpiryItem = {
 export const HR_MODULE_KEY = "hr" as const;
 export const HR_FEATURES = {
   staff: "staff",
+  schedules: "schedules",
   lookups: "lookups",
   salary: "salary",
 } as const;
@@ -169,7 +177,33 @@ export const HR_SETTINGS_KEYS = {
   salaryDefaults: "salary_defaults",
   notifications: "notifications",
   attendanceImportRules: "attendance_import_rules",
+  scheduleApproval: "schedule_approval",
 } as const;
+
+export type HrScheduleApprovalSettings = {
+  /** Hub user ids allowed to be selected as schedule approvers. */
+  approverUserIds: string[];
+};
+
+export const DEFAULT_HR_SCHEDULE_APPROVAL_SETTINGS: HrScheduleApprovalSettings =
+  {
+    approverUserIds: [],
+  };
+
+export type ScheduleApprovalStatus = "pending" | "approved" | "cancelled";
+
+export type ScheduleApprovalRequest = {
+  id: string;
+  venue_id: string;
+  week_start: string;
+  status: ScheduleApprovalStatus;
+  requested_by: string;
+  requested_at: string;
+  approver_user_ids: string[];
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  note: string | null;
+};
 
 export type HrExpirySettings = {
   /** How far ahead expiring items are surfaced in the HR dashboard widgets. */

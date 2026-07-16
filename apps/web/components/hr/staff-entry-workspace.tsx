@@ -88,6 +88,7 @@ export function StaffEntryWorkspace({
     emptyStaffForm(suggestedEmpNo),
   );
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoSourceFile, setPhotoSourceFile] = useState<File | null>(null);
   const [photoCleared, setPhotoCleared] = useState(false);
 
   const readOnly = loadedStaffId != null && !editing;
@@ -97,6 +98,7 @@ export function StaffEntryWorkspace({
     setLoadedStaffId(null);
     setEditing(true);
     setPhotoFile(null);
+    setPhotoSourceFile(null);
     setPhotoCleared(false);
     setView("form");
   }
@@ -106,6 +108,7 @@ export function StaffEntryWorkspace({
     setLoadedStaffId(selected.id);
     setEditing(false);
     setPhotoFile(null);
+    setPhotoSourceFile(null);
     setPhotoCleared(false);
     setView("form");
     setSearchOpen(false);
@@ -113,6 +116,7 @@ export function StaffEntryWorkspace({
 
   async function handleSubmit(formData: FormData) {
     if (photoFile) formData.set("photo", photoFile);
+    if (photoSourceFile) formData.set("photo_source", photoSourceFile);
     setSaving(true);
     if (loadedStaffId) {
       const result = await updateStaff(loadedStaffId, formData);
@@ -123,6 +127,7 @@ export function StaffEntryWorkspace({
       }
       toast.saved("Employee updated.");
       setPhotoFile(null);
+      setPhotoSourceFile(null);
       setPhotoCleared(false);
       router.refresh();
       return;
@@ -240,11 +245,11 @@ export function StaffEntryWorkspace({
             onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
             onSubmit={handleSubmit}
             onPhotoFileChange={setPhotoFile}
+            onPhotoSourceFileChange={setPhotoSourceFile}
             photoCleared={photoCleared}
             onPhotoClearedChange={setPhotoCleared}
             readOnly={readOnly}
             lockEmpNo={loadedStaffId != null}
-            staffId={loadedStaffId}
             departments={departments}
             positions={positions}
             statuses={statuses}

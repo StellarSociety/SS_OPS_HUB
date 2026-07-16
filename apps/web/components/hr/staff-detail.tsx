@@ -54,11 +54,13 @@ export function StaffDetailView({
   const [saving, setSaving] = useState(false);
   const [value, setValue] = useState<StaffFormState>(() => staffToForm(staff));
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoSourceFile, setPhotoSourceFile] = useState<File | null>(null);
   const [photoCleared, setPhotoCleared] = useState(false);
 
   useEffect(() => {
     setValue(staffToForm(staff));
     setPhotoFile(null);
+    setPhotoSourceFile(null);
     setPhotoCleared(false);
   }, [staff]);
 
@@ -66,6 +68,7 @@ export function StaffDetailView({
 
   async function handleSubmit(formData: FormData) {
     if (photoFile) formData.set("photo", photoFile);
+    if (photoSourceFile) formData.set("photo_source", photoSourceFile);
     setSaving(true);
     const result = await updateStaff(staff.id, formData);
     setSaving(false);
@@ -75,6 +78,7 @@ export function StaffDetailView({
     }
     toast.saved("Staff details saved.");
     setPhotoFile(null);
+    setPhotoSourceFile(null);
     setPhotoCleared(false);
     router.refresh();
   }
@@ -108,6 +112,7 @@ export function StaffDetailView({
                 onClick={() => {
                   setValue(staffToForm(staff));
                   setPhotoFile(null);
+                  setPhotoSourceFile(null);
                   setPhotoCleared(false);
                   setEditing(false);
                 }}
@@ -134,11 +139,11 @@ export function StaffDetailView({
         onChange={(patch) => setValue((current) => ({ ...current, ...patch }))}
         onSubmit={handleSubmit}
         onPhotoFileChange={setPhotoFile}
+        onPhotoSourceFileChange={setPhotoSourceFile}
         photoCleared={photoCleared}
         onPhotoClearedChange={setPhotoCleared}
         readOnly={readOnly}
         lockEmpNo
-        staffId={staff.id}
         departments={departments}
         positions={positions}
         statuses={statuses}

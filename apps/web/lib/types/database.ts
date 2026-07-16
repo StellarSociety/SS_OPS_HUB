@@ -134,6 +134,15 @@ export type HrShiftTemplate = {
   created_at: string;
 };
 
+export type HrPublicHoliday = {
+  id: string;
+  venue_id: string;
+  holiday_date: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type HrScheduleWeekSection = {
   id: string;
   venue_id: string;
@@ -293,6 +302,7 @@ export type Database = {
       hr_attendance_days: { Row: HrAttendanceDay };
       hr_attendance_import_batches: { Row: HrAttendanceImportBatch };
       hr_shift_templates: { Row: HrShiftTemplate };
+      hr_public_holidays: { Row: HrPublicHoliday };
       hr_schedule_week_sections: { Row: HrScheduleWeekSection };
       hr_schedule_section_assignments: { Row: HrScheduleSectionAssignment };
       nationalities: { Row: Nationality };

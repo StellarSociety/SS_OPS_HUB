@@ -1,15 +1,31 @@
 "use client";
 
-import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import {
+  AttendanceDayRangePicker,
+  AttendanceMultiWeekPicker,
+  mondayKeyForWorkDate,
+} from "@/components/hr/attendance-date-filters";
 import type { HrAttendanceDay } from "@/lib/types/database";
-import { Search, X } from "lucide-react";
+import { ChevronDown, ChevronsUpDown, ChevronUp, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
-type StaffName = { emp_no: string; full_name: string };
+type StaffLookup = {
+  emp_no: string;
+  full_name: string;
+  department_id: string | null;
+  department_name: string | null;
+};
+
+type DepartmentOption = { id: string; name: string };
 
 type Props = {
   days: HrAttendanceDay[];
-  staffByEmp: Record<string, StaffName>;
+  staffByEmp: Record<string, StaffLookup>;
+  departments: DepartmentOption[];
+  /** Inclusive default day range (typically current month). */
+  defaultDayStart?: string;
+  defaultDayEnd?: string;
 };
 
 const ATTENDANCE_STATUSES: HrAttendanceDay["status"][] = [
@@ -19,9 +35,6 @@ const ATTENDANCE_STATUSES: HrAttendanceDay["status"][] = [
   "incomplete",
   "no_punches",
 ];
-
-const selectClass =
-  "h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F]";
 
 function formatTime(iso: string | null): string {
   if (!iso) return "—";
@@ -61,16 +74,67 @@ function statusClass(status: HrAttendanceDay["status"]): string {
   }
 }
 
-export function AttendanceRecordsTable({ days, staffByEmp }: Props) {
-  const [search, setSearch] = useState("");
+type SortKey =
+  | "work_date"
+  | "emp_no"
+  | "name"
+  | "department"
+  | "clock_in"
+  | "clock_out"
+  | "hours"
+  | "status";
+
+type SortDir = "asc" | "desc";
+
+const SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [
+  { key: "work_date", label: "Date" },
+  { key: "emp_no", label: "Emp no" },
+  { key: "name", label: "Name" },
+  { key: "department", label: "Department" },
+  { key: "clock_in", label: "Clock in" },
+  { key: "clock_out", label: "Clock out" },
+  { key: "hours", label: "Hours" },
+  { key: "status", label: "Status" },
+];
+
+function compareNullableString(a: string | null, b: string | null): number {
+  const left = (a ?? "").trim().toLowerCase();
+  const right = (b ?? "").trim().toLowerCase();
+  if (!left && right) return 1;
+  if (left && !right) return -1;
+  return left.localeCompare(right);
+}
+
+function compareNullableNumber(a: number | null, b: number | null): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a - b;
+}
+
+export function AttendanceRecordsTable({
+  days,
+  staffByEmp,
+  departments,
+  defaultDayStart = "",
+  defaultDayEnd = "",
+}: Props) {
   const [empNo, setEmpNo] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [status, setStatus] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [selectedWeekKeys, setSelectedWeekKeys] = useState<string[]>([]);
+  const [dayStart, setDayStart] = useState(defaultDayStart);
+  const [dayEnd, setDayEnd] = useState(defaultDayEnd);
+  const [sortKey, setSortKey] = useState<SortKey>("work_date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const employees = useMemo(() => {
     const seen = new Set<string>();
-    const list: { empNo: string; fullName: string }[] = [];
+    const list: {
+      empNo: string;
+      fullName: string;
+      departmentId: string | null;
+    }[] = [];
     for (const day of days) {
       const key = day.emp_no.trim().toLowerCase();
       if (seen.has(key)) continue;
@@ -79,48 +143,180 @@ export function AttendanceRecordsTable({ days, staffByEmp }: Props) {
       list.push({
         empNo: day.emp_no,
         fullName: staff?.full_name ?? day.emp_no,
+        departmentId: staff?.department_id ?? null,
       });
     }
     return list.sort((a, b) => a.fullName.localeCompare(b.fullName));
   }, [days, staffByEmp]);
 
+  const employeeOptions = useMemo(() => {
+    const pool = departmentId
+      ? employees.filter((e) => e.departmentId === departmentId)
+      : employees;
+    return pool.map((employee) => ({
+      value: employee.empNo,
+      label: `${employee.fullName} (${employee.empNo})`,
+    }));
+  }, [employees, departmentId]);
+
+  const departmentOptions = useMemo(
+    () =>
+      departments.map((d) => ({
+        value: d.id,
+        label: d.name,
+      })),
+    [departments],
+  );
+
+  const statusOptions = useMemo(
+    () =>
+      ATTENDANCE_STATUSES.map((value) => ({
+        value,
+        label: statusLabel(value),
+      })),
+    [],
+  );
+
+  const weekKeySet = useMemo(
+    () => new Set(selectedWeekKeys),
+    [selectedWeekKeys],
+  );
+  const hasWeekFilter = selectedWeekKeys.length > 0;
+  const hasDayRange = Boolean(dayStart && dayEnd);
+  const rangeStart =
+    dayStart && dayEnd
+      ? dayStart <= dayEnd
+        ? dayStart
+        : dayEnd
+      : "";
+  const rangeEnd =
+    dayStart && dayEnd
+      ? dayStart <= dayEnd
+        ? dayEnd
+        : dayStart
+      : "";
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return days.filter((day) => {
       const staff = staffByEmp[day.emp_no.trim().toLowerCase()];
-      const fullName = staff?.full_name ?? "";
 
       if (empNo && day.emp_no !== empNo) return false;
+      if (departmentId && staff?.department_id !== departmentId) return false;
       if (status && day.status !== status) return false;
-      if (fromDate && day.work_date < fromDate) return false;
-      if (toDate && day.work_date > toDate) return false;
-      if (!q) return true;
 
-      return (
-        day.work_date.includes(q) ||
-        day.emp_no.toLowerCase().includes(q) ||
-        fullName.toLowerCase().includes(q) ||
-        statusLabel(day.status).toLowerCase().includes(q)
-      );
+      if (hasWeekFilter || hasDayRange) {
+        const mondayKey = mondayKeyForWorkDate(day.work_date);
+        const inWeek = Boolean(mondayKey && weekKeySet.has(mondayKey));
+        const inDays =
+          hasDayRange &&
+          day.work_date >= rangeStart &&
+          day.work_date <= rangeEnd;
+        const matchesWeek = hasWeekFilter && inWeek;
+        const matchesDays = hasDayRange && inDays;
+        // Separate filter tools: match if the day hits any active tool.
+        if (!matchesWeek && !matchesDays) return false;
+      }
+
+      return true;
     });
-  }, [days, staffByEmp, search, empNo, status, fromDate, toDate]);
+  }, [
+    days,
+    staffByEmp,
+    empNo,
+    departmentId,
+    status,
+    hasWeekFilter,
+    hasDayRange,
+    weekKeySet,
+    rangeStart,
+    rangeEnd,
+  ]);
 
-  const hasFilters = Boolean(search || empNo || status || fromDate || toDate);
+  const sorted = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const staffA = staffByEmp[a.emp_no.trim().toLowerCase()];
+      const staffB = staffByEmp[b.emp_no.trim().toLowerCase()];
+      let cmp = 0;
+      switch (sortKey) {
+        case "work_date":
+          cmp = a.work_date.localeCompare(b.work_date);
+          break;
+        case "emp_no":
+          cmp = a.emp_no.localeCompare(b.emp_no, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          });
+          break;
+        case "name":
+          cmp = compareNullableString(
+            staffA?.full_name ?? null,
+            staffB?.full_name ?? null,
+          );
+          break;
+        case "department":
+          cmp = compareNullableString(
+            staffA?.department_name ?? null,
+            staffB?.department_name ?? null,
+          );
+          break;
+        case "clock_in":
+          cmp = compareNullableString(a.clock_in, b.clock_in);
+          break;
+        case "clock_out":
+          cmp = compareNullableString(a.clock_out, b.clock_out);
+          break;
+        case "hours":
+          cmp = compareNullableNumber(
+            a.total_hours == null ? null : Number(a.total_hours),
+            b.total_hours == null ? null : Number(b.total_hours),
+          );
+          break;
+        case "status":
+          cmp = statusLabel(a.status).localeCompare(statusLabel(b.status));
+          break;
+      }
+      if (cmp !== 0) return cmp * dir;
+      // Stable secondary: date desc, then emp no.
+      const byDate = b.work_date.localeCompare(a.work_date);
+      if (byDate !== 0) return byDate;
+      return a.emp_no.localeCompare(b.emp_no, undefined, { numeric: true });
+    });
+  }, [filtered, staffByEmp, sortKey, sortDir]);
+
+  const hasActiveFilters = Boolean(
+    empNo ||
+      departmentId ||
+      status ||
+      selectedWeekKeys.length ||
+      dayStart ||
+      dayEnd,
+  );
 
   function clearFilters() {
-    setSearch("");
     setEmpNo("");
+    setDepartmentId("");
     setStatus("");
-    setFromDate("");
-    setToDate("");
+    setSelectedWeekKeys([]);
+    setDayStart("");
+    setDayEnd("");
+  }
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "work_date" || key === "hours" ? "desc" : "asc");
+    }
   }
 
   if (!days.length) {
     return (
       <div className="rounded-xl border border-dashed border-black/15 bg-white/40 px-5 py-10 text-center">
         <p className="text-sm text-black/55">
-          No attendance records yet. Import an InOutData file from the fingerprint
-          machine to get started.
+          No attendance records yet. Import an InOutData file under Settings →
+          Data Management → Attendance to get started.
         </p>
       </div>
     );
@@ -128,72 +324,82 @@ export function AttendanceRecordsTable({ days, staffByEmp }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/40" />
-          <Input
-            placeholder="Search date, name, emp no, status…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+      <div className="flex items-end gap-3">
+        <div className="flex min-w-[12rem] flex-1 flex-col gap-1">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+            Employee
+          </span>
+          <SearchableSelect
+            value={empNo}
+            onChange={setEmpNo}
+            options={employeeOptions}
+            placeholder="All employees"
+            searchPlaceholder="Search employee…"
           />
         </div>
-        <select
-          value={empNo}
-          onChange={(e) => setEmpNo(e.target.value)}
-          className={selectClass}
-          aria-label="Filter by employee"
-        >
-          <option value="">All employees</option>
-          {employees.map((employee) => (
-            <option key={employee.empNo} value={employee.empNo}>
-              {employee.fullName} ({employee.empNo})
-            </option>
-          ))}
-        </select>
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className={selectClass}
-          aria-label="Filter by status"
-        >
-          <option value="">All statuses</option>
-          {ATTENDANCE_STATUSES.map((value) => (
-            <option key={value} value={value}>
-              {statusLabel(value)}
-            </option>
-          ))}
-        </select>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex flex-col gap-1 text-xs text-black/50">
-            From
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className={selectClass}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-black/50">
-            To
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className={selectClass}
-            />
-          </label>
+        <div className="flex min-w-[10rem] w-[12rem] shrink-0 flex-col gap-1">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+            Department
+          </span>
+          <SearchableSelect
+            value={departmentId}
+            onChange={(next) => {
+              setDepartmentId(next);
+              if (next && empNo) {
+                const selected = employees.find((e) => e.empNo === empNo);
+                if (selected && selected.departmentId !== next) {
+                  setEmpNo("");
+                }
+              }
+            }}
+            options={departmentOptions}
+            placeholder="All departments"
+            searchPlaceholder="Search department…"
+          />
         </div>
-        {hasFilters ? (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="inline-flex h-10 items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 text-sm text-black/60 hover:bg-black/[0.02]"
-          >
-            <X className="h-3.5 w-3.5" />
-            Clear filters
-          </button>
-        ) : null}
+        <div className="flex w-[11rem] shrink-0 flex-col gap-1">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+            Status
+          </span>
+          <SearchableSelect
+            value={status}
+            onChange={setStatus}
+            options={statusOptions}
+            placeholder="All statuses"
+            searchPlaceholder="Search status…"
+          />
+        </div>
+        <AttendanceMultiWeekPicker
+          selectedWeekKeys={selectedWeekKeys}
+          onChange={(keys) => {
+            setSelectedWeekKeys(keys);
+            // Weeks and days are alternate period tools — using one clears the other.
+            if (keys.length > 0) {
+              setDayStart("");
+              setDayEnd("");
+            }
+          }}
+        />
+        <AttendanceDayRangePicker
+          startDate={dayStart}
+          endDate={dayEnd}
+          onChange={({ startDate, endDate }) => {
+            setDayStart(startDate);
+            setDayEnd(endDate);
+            if (startDate || endDate) {
+              setSelectedWeekKeys([]);
+            }
+          }}
+        />
+        <button
+          type="button"
+          onClick={clearFilters}
+          disabled={!hasActiveFilters}
+          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 text-sm text-black/60 hover:bg-black/[0.02] disabled:pointer-events-none disabled:opacity-40"
+        >
+          <X className="h-3.5 w-3.5" />
+          Clear filters
+        </button>
       </div>
 
       <p className="text-sm text-black/50">
@@ -209,17 +415,39 @@ export function AttendanceRecordsTable({ days, staffByEmp }: Props) {
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-black/10 bg-black/[0.03] text-xs uppercase tracking-wide text-black/45">
               <tr>
-                <th className="px-3 py-2.5 font-medium">Date</th>
-                <th className="px-3 py-2.5 font-medium">Emp no</th>
-                <th className="px-3 py-2.5 font-medium">Name</th>
-                <th className="px-3 py-2.5 font-medium">Clock in</th>
-                <th className="px-3 py-2.5 font-medium">Clock out</th>
-                <th className="px-3 py-2.5 font-medium">Hours</th>
-                <th className="px-3 py-2.5 font-medium">Status</th>
+                {SORTABLE_COLUMNS.map((col) => {
+                  const active = sortKey === col.key;
+                  return (
+                    <th key={col.key} className="px-3 py-2.5 font-medium" aria-sort={
+                      active
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }>
+                      <button
+                        type="button"
+                        onClick={() => toggleSort(col.key)}
+                        className="flex w-full items-center gap-1 whitespace-nowrap text-xs font-medium uppercase tracking-wide text-black/45 transition-colors hover:text-[#3D421F]"
+                      >
+                        {col.label}
+                        {active ? (
+                          sortDir === "asc" ? (
+                            <ChevronUp className="h-3.5 w-3.5 text-[var(--venue-primary)]" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5 text-[var(--venue-primary)]" />
+                          )
+                        ) : (
+                          <ChevronsUpDown className="h-3.5 w-3.5 text-black/25" />
+                        )}
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((day) => {
+              {sorted.map((day) => {
                 const staff = staffByEmp[day.emp_no.trim().toLowerCase()];
                 return (
                   <tr
@@ -234,6 +462,9 @@ export function AttendanceRecordsTable({ days, staffByEmp }: Props) {
                     </td>
                     <td className="px-3 py-2 text-black/70">
                       {staff?.full_name ?? "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-black/70">
+                      {staff?.department_name ?? "—"}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
                       {formatTime(day.clock_in)}

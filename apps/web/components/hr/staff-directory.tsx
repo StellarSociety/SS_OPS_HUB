@@ -6,11 +6,16 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { formatDateOnly } from "@/lib/hr/derived";
+import {
+  employmentStatusSurfaceClass,
+  findStatusNameById,
+} from "@/lib/hr/employment-status";
 import type {
   Department,
   EmploymentStatus,
   StaffWithLookups,
 } from "@/lib/hr/types";
+import { cn } from "@/lib/utils";
 
 type StaffDirectoryProps = {
   staff: StaffWithLookups[];
@@ -68,7 +73,10 @@ export function StaffDirectory({
         <select
           value={statusId}
           onChange={(e) => setStatusId(e.target.value)}
-          className="h-10 rounded-md border border-black/10 bg-white px-3 text-sm"
+          className={cn(
+            "h-10 rounded-md border border-black/10 bg-white px-3 text-sm",
+            employmentStatusSurfaceClass(findStatusNameById(statuses, statusId)),
+          )}
         >
           <option value="">All statuses</option>
           {statuses.map((s) => (

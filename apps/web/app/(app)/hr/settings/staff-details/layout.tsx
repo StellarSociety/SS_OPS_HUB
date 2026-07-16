@@ -11,7 +11,7 @@ export default function HrStaffDetailsSettingsLayout({
         <h2 className="font-serif text-2xl text-[#3D421F]">Staff Details</h2>
         <p className="mt-1 text-sm text-black/60">
           Profile lookups and salary defaults used across the staff directory,
-          insurance, and training.
+          insurance, and certifications.
         </p>
       </div>
       <HrStaffDetailsSubNav />
