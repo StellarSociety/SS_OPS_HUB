@@ -559,12 +559,16 @@ export async function listAttendanceDaysForStaff(
 ) {
   if (opts.staffIds.length === 0 && !(opts.empNos?.length ?? 0)) return [];
 
-  const staffIdSet = new Set(opts.staffIds);
-  const empNoSet = new Set(
-    (opts.empNos ?? []).map((empNo) => empNo.trim().toLowerCase()).filter(Boolean),
-  );
+  const staffIds = [...new Set(opts.staffIds.filter(Boolean))];
+  const empNos = [
+    ...new Set(
+      (opts.empNos ?? []).map((empNo) => empNo.trim()).filter(Boolean),
+    ),
+  ];
+  const staffIdSet = new Set(staffIds);
+  const empNoSet = new Set(empNos.map((empNo) => empNo.toLowerCase()));
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("hr_attendance_days")
     .select("staff_id, emp_no, work_date, clock_in, clock_out, status")
     .eq("venue_id", venueId)
@@ -572,11 +576,24 @@ export async function listAttendanceDaysForStaff(
     .lte("work_date", opts.toDate)
     .order("work_date");
 
+  if (staffIds.length > 0 && empNos.length > 0) {
+    query = query.or(
+      `staff_id.in.(${staffIds.join(",")}),emp_no.in.(${empNos.join(",")})`,
+    );
+  } else if (staffIds.length > 0) {
+    query = query.in("staff_id", staffIds);
+  } else {
+    query = query.in("emp_no", empNos);
+  }
+
+  const { data, error } = await query;
+
   if (error) {
     console.error("[hr] listAttendanceDaysForStaff:", error.message);
     return [];
   }
 
+  // Keep a defensive client filter in case PostgREST OR matching is loose.
   return (data ?? []).filter((row) => {
     if (row.staff_id && staffIdSet.has(row.staff_id as string)) return true;
     const emp = String(row.emp_no ?? "")
@@ -607,10 +624,14 @@ export async function listAttendancePunchesForStaff(
 ) {
   if (opts.staffIds.length === 0 && !(opts.empNos?.length ?? 0)) return [];
 
-  const staffIdSet = new Set(opts.staffIds);
-  const empNoSet = new Set(
-    (opts.empNos ?? []).map((empNo) => empNo.trim().toLowerCase()).filter(Boolean),
-  );
+  const staffIds = [...new Set(opts.staffIds.filter(Boolean))];
+  const empNos = [
+    ...new Set(
+      (opts.empNos ?? []).map((empNo) => empNo.trim()).filter(Boolean),
+    ),
+  ];
+  const staffIdSet = new Set(staffIds);
+  const empNoSet = new Set(empNos.map((empNo) => empNo.toLowerCase()));
 
   function shiftDateKey(dateKey: string, deltaDays: number): string {
     const d = new Date(`${dateKey}T12:00:00Z`);
@@ -623,13 +644,25 @@ export async function listAttendancePunchesForStaff(
   const startIso = `${fromExpanded}T00:00:00+04:00`;
   const endIso = `${toExpanded}T23:59:59+04:00`;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("hr_attendance_punches")
     .select("staff_id, emp_no, punch_at, work_date")
     .eq("venue_id", venueId)
     .gte("punch_at", startIso)
     .lte("punch_at", endIso)
     .order("punch_at");
+
+  if (staffIds.length > 0 && empNos.length > 0) {
+    query = query.or(
+      `staff_id.in.(${staffIds.join(",")}),emp_no.in.(${empNos.join(",")})`,
+    );
+  } else if (staffIds.length > 0) {
+    query = query.in("staff_id", staffIds);
+  } else {
+    query = query.in("emp_no", empNos);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error("[hr] listAttendancePunchesForStaff:", error.message);
@@ -724,20 +757,12 @@ async function collectDistinctAttendanceWorkDates(
   return { dates, error: null };
 }
 
-export async function getAttendanceCoverage(
+/** Cheap min/max only — used by Schedules punch hints (avoids paging all history). */
+export async function getAttendanceDateBounds(
   supabase: SupabaseClient,
   venueId: string,
-): Promise<AttendanceCoverage> {
-  const empty: AttendanceCoverage = {
-    minWorkDate: null,
-    maxWorkDate: null,
-    distinctDayCount: 0,
-    recordCount: 0,
-  };
-
-  // Min/max via ordered single-row reads — do not rely on an unbounded select
-  // (PostgREST silently truncates to ~1000 rows, which skews coverage).
-  const [minRes, maxRes, countRes, distinctRes] = await Promise.all([
+): Promise<{ minWorkDate: string | null; maxWorkDate: string | null }> {
+  const [minRes, maxRes] = await Promise.all([
     supabase
       .from("hr_attendance_days")
       .select("work_date")
@@ -752,6 +777,41 @@ export async function getAttendanceCoverage(
       .order("work_date", { ascending: false })
       .limit(1)
       .maybeSingle(),
+  ]);
+
+  if (minRes.error || maxRes.error) {
+    console.error(
+      "[hr] getAttendanceDateBounds:",
+      minRes.error?.message ?? maxRes.error?.message,
+    );
+    return { minWorkDate: null, maxWorkDate: null };
+  }
+
+  return {
+    minWorkDate: minRes.data?.work_date
+      ? String(minRes.data.work_date).slice(0, 10)
+      : null,
+    maxWorkDate: maxRes.data?.work_date
+      ? String(maxRes.data.work_date).slice(0, 10)
+      : null,
+  };
+}
+
+export async function getAttendanceCoverage(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<AttendanceCoverage> {
+  const empty: AttendanceCoverage = {
+    minWorkDate: null,
+    maxWorkDate: null,
+    distinctDayCount: 0,
+    recordCount: 0,
+  };
+
+  // Min/max via ordered single-row reads — do not rely on an unbounded select
+  // (PostgREST silently truncates to ~1000 rows, which skews coverage).
+  const [bounds, countRes, distinctRes] = await Promise.all([
+    getAttendanceDateBounds(supabase, venueId),
     supabase
       .from("hr_attendance_days")
       .select("*", { count: "exact", head: true })
@@ -759,24 +819,15 @@ export async function getAttendanceCoverage(
     collectDistinctAttendanceWorkDates(supabase, venueId),
   ]);
 
-  if (minRes.error || maxRes.error || countRes.error || distinctRes.error) {
+  if (countRes.error || distinctRes.error) {
     console.error(
       "[hr] getAttendanceCoverage:",
-      minRes.error?.message ??
-        maxRes.error?.message ??
-        countRes.error?.message ??
-        distinctRes.error,
+      countRes.error?.message ?? distinctRes.error,
     );
     return empty;
   }
 
-  const minWorkDate = minRes.data?.work_date
-    ? String(minRes.data.work_date).slice(0, 10)
-    : null;
-  const maxWorkDate = maxRes.data?.work_date
-    ? String(maxRes.data.work_date).slice(0, 10)
-    : null;
-
+  const { minWorkDate, maxWorkDate } = bounds;
   if (!minWorkDate || !maxWorkDate) return empty;
 
   return {

@@ -1,4 +1,5 @@
 import type {
+  ScheduleAttendanceCell,
   ScheduleCellValue,
   ScheduleWeekSection,
 } from "@/lib/hr/schedules";
@@ -92,4 +93,34 @@ export function clearCachedScheduleSectionsAfter(
 /** Drop all cached roster day cells (e.g. after validation marks a leave/absence). */
 export function clearAllCachedScheduleDays() {
   weekDaysCache.clear();
+}
+
+type WeekAttendanceEntry = {
+  map: Record<string, ScheduleAttendanceCell>;
+  hint: string | null;
+};
+
+const weekAttendanceCache = new Map<string, WeekAttendanceEntry>();
+
+export function scheduleWeekAttendanceCacheKey(
+  fromDate: string,
+  toDate: string,
+  staffKey: string,
+) {
+  return `attendance:${fromDate}:${toDate}:${staffKey}`;
+}
+
+export function getCachedScheduleAttendance(key: string) {
+  return weekAttendanceCache.get(key) ?? null;
+}
+
+export function setCachedScheduleAttendance(
+  key: string,
+  entry: WeekAttendanceEntry,
+) {
+  weekAttendanceCache.set(key, entry);
+}
+
+export function clearCachedScheduleAttendance() {
+  weekAttendanceCache.clear();
 }

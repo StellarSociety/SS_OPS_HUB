@@ -49,12 +49,15 @@ import {
 } from "@/lib/hr/schedules";
 import {
   clearCachedScheduleSectionsAfter,
+  getCachedScheduleAttendance,
   getCachedScheduleDaysForStaff,
   getCachedScheduleSections,
   mergeCachedScheduleDays,
   patchCachedScheduleDays,
   scheduleSectionsCacheKey,
+  scheduleWeekAttendanceCacheKey,
   scheduleWeekDaysCacheKey,
+  setCachedScheduleAttendance,
   setCachedScheduleSections,
 } from "@/lib/hr/schedules-client-cache";
 import { cn } from "@/lib/utils";
@@ -529,54 +532,57 @@ export function SchedulesWeekCalendar({
     }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAttendanceForWeek() {
-      if (!fromDate || !toDate || staff.length === 0) {
-        if (!cancelled) {
-          setAttendance({});
-          setAttendanceHint(null);
-          setAttendanceLoading(false);
-        }
-        return;
-      }
-
-      setAttendanceLoading(true);
-      const result = await loadSchedulesWeekAttendance({
-        staffIds: attendanceStaff.map((member) => member.id),
-        empNos: attendanceStaff.map((member) => member.empNo),
-        fromDate,
-        toDate,
-      });
-
-      if (cancelled) return;
-
-      if (result.error) {
-        setAttendance({});
-        setAttendanceHint(
-          "Could not load punch times for this week. Try refreshing the page.",
-        );
-        setAttendanceLoading(false);
-        return;
-      }
-
-      const map = buildRosterAttendanceMap(
-        {
-          days: result.days ?? [],
-          punches: result.punches ?? [],
-        },
-        staff,
-        weekDateKeys,
-        result.timezone,
-        result.overnightCutoffTime ?? "05:00",
-      );
-      setAttendance(map);
+  const loadAttendanceForWeek = useEffectEvent(async () => {
+    if (!fromDate || !toDate || staff.length === 0) {
+      setAttendance({});
+      setAttendanceHint(null);
       setAttendanceLoading(false);
+      return;
+    }
 
-      if (Object.keys(map).length === 0) {
-        setAttendanceHint(
-          attendanceHintForWeek(
+    const cacheKey = scheduleWeekAttendanceCacheKey(
+      fromDate,
+      toDate,
+      attendanceStaffKey,
+    );
+    const cached = getCachedScheduleAttendance(cacheKey);
+    if (cached) {
+      setAttendance(cached.map);
+      setAttendanceHint(cached.hint);
+      setAttendanceLoading(false);
+      return;
+    }
+
+    setAttendanceLoading(true);
+    const result = await loadSchedulesWeekAttendance({
+      staffIds: attendanceStaff.map((member) => member.id),
+      empNos: attendanceStaff.map((member) => member.empNo),
+      fromDate,
+      toDate,
+    });
+
+    if (result.error) {
+      setAttendance({});
+      setAttendanceHint(
+        "Could not load punch times for this week. Try refreshing the page.",
+      );
+      setAttendanceLoading(false);
+      return;
+    }
+
+    const map = buildRosterAttendanceMap(
+      {
+        days: result.days ?? [],
+        punches: result.punches ?? [],
+      },
+      staff,
+      weekDateKeys,
+      result.timezone,
+      result.overnightCutoffTime ?? "05:00",
+    );
+    const hint =
+      Object.keys(map).length === 0
+        ? attendanceHintForWeek(
             fromDate,
             rangeLabel,
             result.coverage ?? {
@@ -584,27 +590,18 @@ export function SchedulesWeekCalendar({
               maxWorkDate: null,
             },
             result.weekTotals ?? { dayCount: 0, punchCount: 0 },
-          ),
-        );
-      } else {
-        setAttendanceHint(null);
-      }
-    }
+          )
+        : null;
 
+    setCachedScheduleAttendance(cacheKey, { map, hint });
+    setAttendance(map);
+    setAttendanceHint(hint);
+    setAttendanceLoading(false);
+  });
+
+  useEffect(() => {
     void loadAttendanceForWeek();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    fromDate,
-    toDate,
-    staffEmpKey,
-    attendanceStaffKey,
-    rangeLabel,
-    staff,
-    attendanceStaff,
-    weekDateKeys,
-  ]);
+  }, [fromDate, toDate, staffEmpKey, attendanceStaffKey]);
 
   useEffect(() => {
     void loadWeek();

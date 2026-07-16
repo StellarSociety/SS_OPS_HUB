@@ -81,7 +81,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       { label: "Attendance", href: "/hr/attendance", icon: CalendarCheck },
       {
         label: "Leave",
-        href: "/hr/leave",
+        href: "/hr/attendance/leave",
         icon: CalendarOff,
         dividerAfter: true,
       },
@@ -123,7 +123,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
           "/hr/attendance/insights",
           "/hr/attendance",
           "/hr/attendance/validation",
-          "/hr/leave",
+          "/hr/attendance/leave",
         ],
       },
       {

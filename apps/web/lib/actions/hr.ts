@@ -31,14 +31,12 @@ import {
   listEmploymentStatuses,
   listNationalities,
   listPositions,
-  listScheduleDayLabels,
-  listShiftTemplates,
   listPublicHolidays,
   listStaffScheduleDays,
   listAttendanceDaysForStaff,
   listAttendancePunchesForStaff,
   countAttendanceForWeekRange,
-  getAttendanceCoverage,
+  getAttendanceDateBounds,
   getHrVenueSetting,
   listWeekSectionAssignments,
   listWeekSectionsRaw,
@@ -1189,43 +1187,72 @@ export async function saveScheduleDayChanges(params: {
   }
 
   const staffIds = [...new Set(changes.map((change) => change.staffId))];
-  const { data: staffRows, error: staffError } = await supabase
-    .from("staff")
-    .select("id, emp_no, department_id")
-    .eq("home_venue_id", venue.id)
-    .in("id", staffIds);
+  const needsTemplateCheck = changes.some(
+    (change) =>
+      (change.labelCode ?? "").trim().toUpperCase() === "SHIFT" &&
+      Boolean(change.shiftTemplateId),
+  );
 
-  if (staffError || !staffRows?.length) {
-    console.error("[hr] save schedule staff lookup:", staffError?.message);
+  // One round-trip for staff + label codes (+ templates only when needed).
+  const [staffResult, labelsResult, templatesResult] = await Promise.all([
+    supabase
+      .from("staff")
+      .select("id, emp_no, department_id")
+      .eq("home_venue_id", venue.id)
+      .in("id", staffIds),
+    supabase.from("schedule_day_labels").select("code"),
+    needsTemplateCheck
+      ? supabase
+          .from("hr_shift_templates")
+          .select("id")
+          .eq("venue_id", venue.id)
+      : Promise.resolve({ data: [] as { id: string }[], error: null }),
+  ]);
+
+  if (staffResult.error || !staffResult.data?.length) {
+    console.error("[hr] save schedule staff lookup:", staffResult.error?.message);
     return { error: "Could not resolve selected staff." };
   }
 
   const staffById = new Map(
-    staffRows.map((row) => [row.id as string, row] as const),
+    staffResult.data.map((row) => [row.id as string, row] as const),
   );
 
-  const labels = await listScheduleDayLabels(supabase);
   const knownCodes = new Set(
-    (labels ?? DEFAULT_SCHEDULE_DAY_LABELS).map((label) => label.code),
+    (
+      labelsResult.data?.map((row) => row.code as string) ??
+      DEFAULT_SCHEDULE_DAY_LABELS.map((label) => label.code)
+    ).map((code) => code.toUpperCase()),
   );
+  if (labelsResult.error || knownCodes.size === 0) {
+    for (const label of DEFAULT_SCHEDULE_DAY_LABELS) {
+      knownCodes.add(label.code);
+    }
+  }
 
-  const templates = await listShiftTemplates(supabase, venue.id, {
-    includeInactive: true,
-  });
-  const knownTemplateIds = new Set((templates ?? []).map((t) => t.id));
+  const knownTemplateIds = new Set(
+    (templatesResult.data ?? []).map((row) => row.id as string),
+  );
 
   const toClear = changes.filter((change) => change.labelCode === null);
   const toUpsert = changes.filter((change) => change.labelCode !== null);
 
+  // Batch clears per staff (one delete per person, not per cell).
   if (toClear.length > 0) {
+    const datesByStaff = new Map<string, string[]>();
+    for (const change of toClear) {
+      const dates = datesByStaff.get(change.staffId) ?? [];
+      dates.push(change.workDate);
+      datesByStaff.set(change.staffId, dates);
+    }
     const results = await Promise.all(
-      toClear.map((change) =>
+      [...datesByStaff.entries()].map(([staffId, dates]) =>
         supabase
           .from("hr_schedule_days")
           .delete()
           .eq("venue_id", venue.id)
-          .eq("staff_id", change.staffId)
-          .eq("work_date", change.workDate),
+          .eq("staff_id", staffId)
+          .in("work_date", dates),
       ),
     );
     const failed = results.find((result) => result.error);
@@ -1237,6 +1264,7 @@ export async function saveScheduleDayChanges(params: {
 
   if (toUpsert.length > 0) {
     const rows = [];
+    const now = new Date().toISOString();
     for (const change of toUpsert) {
       const code = change.labelCode!.trim().toUpperCase();
       if (!knownCodes.has(code)) {
@@ -1264,7 +1292,7 @@ export async function saveScheduleDayChanges(params: {
         department_id: staffRow.department_id ?? null,
         source: "manual" as const,
         updated_by: user.id,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       });
     }
 
@@ -1278,7 +1306,8 @@ export async function saveScheduleDayChanges(params: {
     }
   }
 
-  revalidatePath("/hr/schedules", "page");
+  // Client already patches the session cache — skip revalidatePath so save
+  // does not remount the page and re-fetch ~10s of punch coverage.
   return { ok: true as const, count: changes.length };
 }
 
@@ -2035,6 +2064,7 @@ export async function loadSchedulesWeekAttendance(params: {
     DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
   );
 
+  // Use date bounds only — full coverage pages every historical day (~10s).
   const [days, punches, coverage, weekTotals] = await Promise.all([
     listAttendanceDaysForStaff(supabase, venue.id, {
       staffIds,
@@ -2049,7 +2079,7 @@ export async function loadSchedulesWeekAttendance(params: {
       toDate: params.toDate,
       timeZone: importRules.timezone,
     }),
-    getAttendanceCoverage(supabase, venue.id),
+    getAttendanceDateBounds(supabase, venue.id),
     countAttendanceForWeekRange(
       supabase,
       venue.id,

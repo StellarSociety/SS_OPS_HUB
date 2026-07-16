@@ -154,7 +154,7 @@ export const moduleCatalog: ModuleDef[] = [
         label: "Attendance validation",
         href: "/hr/attendance/validation",
       },
-      { key: "leave", label: "Leave", href: "/hr/leave" },
+      { key: "leave", label: "Leave", href: "/hr/attendance/leave" },
       { key: "payroll", label: "Payroll", href: "/hr/payroll" },
       { key: "benefits", label: "Benefits", href: "/hr/benefits" },
       { key: "payslips", label: "Payslips", href: "/hr/payslips" },

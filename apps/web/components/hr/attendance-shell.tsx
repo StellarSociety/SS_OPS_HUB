@@ -2,6 +2,7 @@
 
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { AttendanceSubNav } from "@/components/hr/attendance-sub-nav";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 
 type AttendanceShellProps = {
   venueSubtitle: string;
@@ -12,6 +13,13 @@ export function AttendanceShell({
   venueSubtitle,
   children,
 }: AttendanceShellProps) {
+  const pathname = useRelativePathname();
+  const isLeaveModule = pathname.startsWith("/hr/attendance/leave");
+
+  if (isLeaveModule) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
       <div>

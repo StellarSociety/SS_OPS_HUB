@@ -4,8 +4,10 @@ import {
   Bell,
   BriefcaseBusiness,
   Building2,
+  CalendarCheck,
   CalendarClock,
   CalendarDays,
+  CalendarOff,
   Clock3,
   Flag,
   GraduationCap,
@@ -20,7 +22,10 @@ import {
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import {
+  HR_SETTINGS_ATTENDANCE_ATTENDANCE_HREF,
   HR_SETTINGS_ATTENDANCE_HREF,
+  HR_SETTINGS_ATTENDANCE_LEAVE_HREF,
+  HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
   HR_SETTINGS_NOTIFICATIONS_HREF,
   HR_SETTINGS_STAFF_DETAILS_HREF,
 } from "@/lib/hr/settings-nav";
@@ -30,6 +35,8 @@ type Tab = {
   label: string;
   icon: LucideIcon;
 };
+
+type AttendanceCategory = "schedules" | "attendance" | "leave";
 
 const STAFF_DETAILS_TABS: Tab[] = [
   {
@@ -79,7 +86,7 @@ const STAFF_DETAILS_TABS: Tab[] = [
   },
 ];
 
-const ATTENDANCE_TABS: Tab[] = [
+const SCHEDULES_PAGE_TABS: Tab[] = [
   {
     href: `${HR_SETTINGS_ATTENDANCE_HREF}/working-status`,
     label: "Working Status",
@@ -89,11 +96,6 @@ const ATTENDANCE_TABS: Tab[] = [
     href: `${HR_SETTINGS_ATTENDANCE_HREF}/schedule-labels`,
     label: "Schedule Labels",
     icon: CalendarDays,
-  },
-  {
-    href: `${HR_SETTINGS_ATTENDANCE_HREF}/public-holidays`,
-    label: "Public Holidays",
-    icon: Flag,
   },
   {
     href: `${HR_SETTINGS_ATTENDANCE_HREF}/shift-templates`,
@@ -112,6 +114,46 @@ const ATTENDANCE_TABS: Tab[] = [
   },
 ];
 
+const ATTENDANCE_PAGE_TABS: Tab[] = [
+  {
+    href: `${HR_SETTINGS_ATTENDANCE_HREF}/public-holidays`,
+    label: "Public Holidays",
+    icon: Flag,
+  },
+];
+
+const ATTENDANCE_CATEGORY_TABS: Array<
+  Tab & { key: AttendanceCategory; matchHrefs: readonly string[] }
+> = [
+  {
+    key: "schedules",
+    href: HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
+    label: "Schedules",
+    icon: CalendarDays,
+    matchHrefs: SCHEDULES_PAGE_TABS.map((tab) => tab.href),
+  },
+  {
+    key: "attendance",
+    href: HR_SETTINGS_ATTENDANCE_ATTENDANCE_HREF,
+    label: "Attendance",
+    icon: CalendarCheck,
+    matchHrefs: ATTENDANCE_PAGE_TABS.map((tab) => tab.href),
+  },
+  {
+    key: "leave",
+    href: HR_SETTINGS_ATTENDANCE_LEAVE_HREF,
+    label: "Leave",
+    icon: CalendarOff,
+    matchHrefs: [HR_SETTINGS_ATTENDANCE_LEAVE_HREF],
+  },
+];
+
+const PAGE_TABS_BY_CATEGORY: Record<AttendanceCategory, readonly Tab[]> = {
+  schedules: SCHEDULES_PAGE_TABS,
+  attendance: ATTENDANCE_PAGE_TABS,
+  leave: [],
+};
+
 const NOTIFICATIONS_TABS: Tab[] = [
   {
     href: HR_SETTINGS_NOTIFICATIONS_HREF,
@@ -124,6 +166,11 @@ const NOTIFICATIONS_TABS: Tab[] = [
     icon: CalendarClock,
   },
 ];
+
+function pathMatchesTab(pathname: string, href: string, exact = false) {
+  if (exact) return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function InnerSubNav({
   tabs,
@@ -143,9 +190,7 @@ function InnerSubNav({
       className="flex flex-wrap gap-1 rounded-lg border border-black/10 bg-white/50 p-1.5"
     >
       {tabs.map((tab) => {
-        const active = exact.has(tab.href)
-          ? pathname === tab.href
-          : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+        const active = pathMatchesTab(pathname, tab.href, exact.has(tab.href));
 
         return (
           <SubNavTab
@@ -169,8 +214,39 @@ export function HrStaffDetailsSubNav() {
 }
 
 export function HrAttendanceSettingsSubNav() {
+  const pathname = useRelativePathname();
+
+  const activeCategory =
+    ATTENDANCE_CATEGORY_TABS.find((tab) =>
+      tab.matchHrefs.some((href) => pathMatchesTab(pathname, href)),
+    )?.key ?? "schedules";
+
+  const pageTabs = PAGE_TABS_BY_CATEGORY[activeCategory];
+
   return (
-    <InnerSubNav tabs={ATTENDANCE_TABS} ariaLabel="Attendance settings" />
+    <div className="space-y-3">
+      <nav
+        aria-label="Attendance settings categories"
+        className="flex flex-wrap gap-1 rounded-lg border border-black/10 bg-white/50 p-1.5"
+      >
+        {ATTENDANCE_CATEGORY_TABS.map((tab) => (
+          <SubNavTab
+            key={tab.key}
+            href={tab.href}
+            label={tab.label}
+            icon={tab.icon}
+            active={tab.key === activeCategory}
+            variant="pill"
+          />
+        ))}
+      </nav>
+      {pageTabs.length > 0 ? (
+        <InnerSubNav
+          tabs={pageTabs}
+          ariaLabel={`${activeCategory} settings`}
+        />
+      ) : null}
+    </div>
   );
 }
 
