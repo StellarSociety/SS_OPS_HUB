@@ -6,7 +6,6 @@ import {
   AttendanceMultiWeekPicker,
   mondayKeyForWorkDate,
   monthKeyForWorkDate,
-  monthKeyFromDate,
 } from "@/components/hr/attendance-date-filters";
 import type { HrAttendanceDay } from "@/lib/types/database";
 import { X } from "lucide-react";
@@ -22,8 +21,10 @@ type StaffLookup = {
 type Props = {
   days: HrAttendanceDay[];
   staffByEmp: Record<string, StaffLookup>;
-  /** Default selected month key (YYYY-MM), typically current month. */
-  defaultMonthKey?: string;
+  /** Default selected month keys (YYYY-MM), typically from URL. */
+  defaultMonthKeys?: string[];
+  /** When true, month picker is rendered by the parent (URL-driven). */
+  monthPickerInParent?: boolean;
 };
 
 type StaffInsightRow = {
@@ -61,26 +62,30 @@ function punchPctClass(pct: number): string {
 export function AttendanceInsightsPanel({
   days,
   staffByEmp,
-  defaultMonthKey,
+  defaultMonthKeys,
+  monthPickerInParent = false,
 }: Props) {
   const [dayStart, setDayStart] = useState("");
   const [dayEnd, setDayEnd] = useState("");
   const [selectedWeekKeys, setSelectedWeekKeys] = useState<string[]>([]);
   const [selectedMonthKeys, setSelectedMonthKeys] = useState<string[]>(() =>
-    defaultMonthKey ? [defaultMonthKey] : [monthKeyFromDate(new Date())],
+    defaultMonthKeys?.length ? defaultMonthKeys : [],
   );
 
   const weekKeySet = useMemo(
     () => new Set(selectedWeekKeys),
     [selectedWeekKeys],
   );
+  const effectiveMonthKeys = monthPickerInParent
+    ? (defaultMonthKeys ?? [])
+    : selectedMonthKeys;
   const monthKeySet = useMemo(
-    () => new Set(selectedMonthKeys),
-    [selectedMonthKeys],
+    () => new Set(effectiveMonthKeys),
+    [effectiveMonthKeys],
   );
 
   const hasWeekFilter = selectedWeekKeys.length > 0;
-  const hasMonthFilter = selectedMonthKeys.length > 0;
+  const hasMonthFilter = effectiveMonthKeys.length > 0;
   const hasDayRange = Boolean(dayStart && dayEnd);
   const rangeStart =
     dayStart && dayEnd
@@ -96,23 +101,25 @@ export function AttendanceInsightsPanel({
       : "";
 
   const filteredDays = useMemo(() => {
-    const anyPeriod = hasWeekFilter || hasDayRange || hasMonthFilter;
-    if (!anyPeriod) return days;
-
     return days.filter((day) => {
-      const mondayKey = mondayKeyForWorkDate(day.work_date);
-      const monthKey = monthKeyForWorkDate(day.work_date);
-      const inWeek = Boolean(mondayKey && weekKeySet.has(mondayKey));
-      const inMonth = Boolean(monthKey && monthKeySet.has(monthKey));
-      const inDays =
-        hasDayRange &&
-        day.work_date >= rangeStart &&
-        day.work_date <= rangeEnd;
+      if (hasMonthFilter) {
+        const monthKey = monthKeyForWorkDate(day.work_date);
+        if (!monthKey || !monthKeySet.has(monthKey)) return false;
+      }
 
-      const matchesWeek = hasWeekFilter && inWeek;
-      const matchesDays = hasDayRange && inDays;
-      const matchesMonth = hasMonthFilter && inMonth;
-      return matchesWeek || matchesDays || matchesMonth;
+      if (hasWeekFilter || hasDayRange) {
+        const mondayKey = mondayKeyForWorkDate(day.work_date);
+        const inWeek = Boolean(mondayKey && weekKeySet.has(mondayKey));
+        const inDays =
+          hasDayRange &&
+          day.work_date >= rangeStart &&
+          day.work_date <= rangeEnd;
+        const matchesWeek = hasWeekFilter && inWeek;
+        const matchesDays = hasDayRange && inDays;
+        if (!matchesWeek && !matchesDays) return false;
+      }
+
+      return true;
     });
   }, [
     days,
@@ -199,22 +206,25 @@ export function AttendanceInsightsPanel({
   const totalHours = groups.reduce((sum, g) => sum + g.totalHours, 0);
 
   const hasActiveFilters = Boolean(
-    dayStart || dayEnd || selectedWeekKeys.length || selectedMonthKeys.length,
+    dayStart ||
+      dayEnd ||
+      selectedWeekKeys.length ||
+      (!monthPickerInParent && selectedMonthKeys.length),
   );
 
   function clearFilters() {
     setDayStart("");
     setDayEnd("");
     setSelectedWeekKeys([]);
-    setSelectedMonthKeys([]);
+    if (!monthPickerInParent) setSelectedMonthKeys([]);
   }
 
   if (!days.length) {
     return (
       <div className="rounded-xl border border-dashed border-black/15 bg-white/40 px-5 py-10 text-center">
         <p className="text-sm text-black/55">
-          No attendance records yet. Import an InOutData file under Settings →
-          Data Management → Attendance to get started.
+          No attendance records for this month. Import an InOutData file under
+          Settings → Data Management → Attendance, or pick another month.
         </p>
       </div>
     );
@@ -235,10 +245,12 @@ export function AttendanceInsightsPanel({
           selectedWeekKeys={selectedWeekKeys}
           onChange={setSelectedWeekKeys}
         />
-        <AttendanceMultiMonthPicker
-          selectedMonthKeys={selectedMonthKeys}
-          onChange={setSelectedMonthKeys}
-        />
+        {!monthPickerInParent ? (
+          <AttendanceMultiMonthPicker
+            selectedMonthKeys={selectedMonthKeys}
+            onChange={setSelectedMonthKeys}
+          />
+        ) : null}
         <button
           type="button"
           onClick={clearFilters}

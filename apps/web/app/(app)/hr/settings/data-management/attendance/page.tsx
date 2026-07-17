@@ -4,15 +4,17 @@ import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   getAttendanceCoverage,
   listAttendanceImportBatches,
+  listAttendanceMonths,
 } from "@/lib/hr/store";
 
 export default async function AttendanceDataManagementPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
   const canEdit = canEditStaff(permissions, venue.id);
 
-  const [coverage, batches] = await Promise.all([
+  const [coverage, batches, months] = await Promise.all([
     getAttendanceCoverage(supabase, venue.id),
     listAttendanceImportBatches(supabase, venue.id, 25),
+    listAttendanceMonths(supabase, venue.id),
   ]);
 
   return (
@@ -20,6 +22,7 @@ export default async function AttendanceDataManagementPage() {
       canEdit={canEdit}
       coverage={coverage}
       batches={batches}
+      months={months}
     />
   );
 }

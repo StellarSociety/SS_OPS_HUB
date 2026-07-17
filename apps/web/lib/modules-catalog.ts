@@ -170,6 +170,13 @@ export const moduleCatalog: ModuleDef[] = [
           "Compensation (wage package, accommodation, basic/allowances, salary to pay, fly-home ticket), expenses & EOSB, medical insurance value, bank details, passport/EID and date of birth.",
         sensitive: true,
       },
+      {
+        key: "schedule_approval",
+        label: "Schedule Approval",
+        description:
+          "Can be selected as a weekly schedule approver. Approvers revise the roster and confirm publish so Editors can download the schedule PDF.",
+        sensitive: true,
+      },
       { key: "settings", label: "Settings", href: "/hr/settings", settings: true },
     ],
   },

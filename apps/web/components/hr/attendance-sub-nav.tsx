@@ -2,7 +2,6 @@
 
 import {
   CalendarCheck,
-  CalendarOff,
   ClipboardCheck,
   LineChart,
 } from "lucide-react";
@@ -27,12 +26,6 @@ const TABS = [
     label: "Validation",
     icon: ClipboardCheck,
     exact: true,
-  },
-  {
-    href: "/hr/attendance/leave",
-    label: "Leave",
-    icon: CalendarOff,
-    exact: false,
   },
 ] as const;
 

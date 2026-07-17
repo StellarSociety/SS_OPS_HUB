@@ -6,7 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { listUsers } from "@/lib/access/store";
 import {
   canAdminLookups,
-  canEditSchedules,
+  canApproveSchedules,
   canAccessSchedules,
 } from "@/lib/hr/permissions";
 import { getHrVenueSetting } from "@/lib/hr/store";
@@ -51,7 +51,7 @@ function normalizeWeekStart(weekStart: string): string | null {
   return trimmed;
 }
 
-/** Active hub users with schedules edit+ for the venue (approver pool candidates). */
+/** Active hub users with the Schedule Approval sensitive grant (approver pool candidates). */
 export async function listScheduleApproverCandidates(): Promise<{
   candidates?: ScheduleApproverCandidate[];
   error?: string;
@@ -70,7 +70,7 @@ export async function listScheduleApproverCandidates(): Promise<{
           ...p,
           user_id: u.id,
         }));
-        return canEditSchedules(perms, venue.id);
+        return canApproveSchedules(perms, venue.id);
       })
       .map((u) => ({
         id: u.id,
@@ -285,6 +285,9 @@ export async function approveScheduleWeek(params: {
   const { user, venue, permissions } = await getAuthContext();
   if (!canAccessSchedules(permissions, venue.id)) {
     return { error: "You do not have access to schedules." };
+  }
+  if (!canApproveSchedules(permissions, venue.id)) {
+    return { error: "You do not have Schedule Approval access." };
   }
 
   const week = normalizeWeekStart(params.weekStart);

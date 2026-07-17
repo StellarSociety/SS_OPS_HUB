@@ -141,6 +141,19 @@ export function canViewSalary(
   return hasHrPermission(permissions, HR_FEATURES.salary, "view", venueId);
 }
 
+/** Layer 4 — can act as / be selected as a weekly schedule approver. */
+export function canApproveSchedules(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasHrPermission(
+    permissions,
+    HR_FEATURES.scheduleApproval,
+    "view",
+    venueId,
+  );
+}
+
 export function canAdminLookups(
   permissions: UserPermission[],
   venueId: string,

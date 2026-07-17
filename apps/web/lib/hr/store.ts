@@ -510,7 +510,13 @@ export async function listFutureWeekStartsWithSections(
 export async function listAttendanceDays(
   supabase: SupabaseClient,
   venueId: string,
-  opts: { fromDate: string; toDate: string; limit?: number },
+  opts: {
+    fromDate: string;
+    toDate: string;
+    limit?: number;
+    /** When true, only rows approved on Validation (payroll / leave safe). */
+    approvedOnly?: boolean;
+  },
 ) {
   const maxRows = opts.limit ?? 500;
   // PostgREST max-rows (often 1000) silently caps a single response even when
@@ -522,7 +528,7 @@ export async function listAttendanceDays(
   while (rows.length < maxRows) {
     const take = Math.min(pageSize, maxRows - rows.length);
     const to = from + take - 1;
-    const { data, error } = await supabase
+    let query = supabase
       .from("hr_attendance_days")
       .select("*")
       .eq("venue_id", venueId)
@@ -531,6 +537,12 @@ export async function listAttendanceDays(
       .order("work_date", { ascending: false })
       .order("emp_no")
       .range(from, to);
+
+    if (opts.approvedOnly) {
+      query = query.eq("approval_status", "approved");
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error("[hr] listAttendanceDays:", error.message);
@@ -547,6 +559,26 @@ export async function listAttendanceDays(
   return rows;
 }
 
+/**
+ * Attendance days approved on Validation — the only source payroll / leave
+ * hour calculations should consume.
+ */
+export async function listApprovedAttendanceDaysForStaff(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts: {
+    staffIds: string[];
+    empNos?: string[];
+    fromDate: string;
+    toDate: string;
+  },
+) {
+  return listAttendanceDaysForStaff(supabase, venueId, {
+    ...opts,
+    approvedOnly: true,
+  });
+}
+
 export async function listAttendanceDaysForStaff(
   supabase: SupabaseClient,
   venueId: string,
@@ -555,6 +587,11 @@ export async function listAttendanceDaysForStaff(
     empNos?: string[];
     fromDate: string;
     toDate: string;
+    /**
+     * When true, only approved days (Validation → Approve Attendance).
+     * Use for payroll and leave calculations — never for raw punch review.
+     */
+    approvedOnly?: boolean;
   },
 ) {
   if (opts.staffIds.length === 0 && !(opts.empNos?.length ?? 0)) return [];
@@ -570,11 +607,17 @@ export async function listAttendanceDaysForStaff(
 
   let query = supabase
     .from("hr_attendance_days")
-    .select("staff_id, emp_no, work_date, clock_in, clock_out, status")
+    .select(
+      "staff_id, emp_no, work_date, clock_in, clock_out, status, approval_status, total_hours",
+    )
     .eq("venue_id", venueId)
     .gte("work_date", opts.fromDate)
     .lte("work_date", opts.toDate)
     .order("work_date");
+
+  if (opts.approvedOnly) {
+    query = query.eq("approval_status", "approved");
+  }
 
   if (staffIds.length > 0 && empNos.length > 0) {
     query = query.or(
@@ -607,6 +650,8 @@ export async function listAttendanceDaysForStaff(
     clock_in: string | null;
     clock_out: string | null;
     status: string;
+    approval_status: string;
+    total_hours: number | null;
   }[];
 }
 
@@ -719,44 +764,6 @@ export type AttendanceCoverage = {
   recordCount: number;
 };
 
-/** Page through all work_dates (PostgREST caps a single response at ~1000 rows). */
-async function collectDistinctAttendanceWorkDates(
-  supabase: SupabaseClient,
-  venueId: string,
-  opts?: { importBatchIds?: string[] },
-): Promise<{ dates: Set<string>; error: string | null }> {
-  const pageSize = 1000;
-  const dates = new Set<string>();
-  let from = 0;
-
-  for (;;) {
-    let query = supabase
-      .from("hr_attendance_days")
-      .select("work_date")
-      .eq("venue_id", venueId)
-      .range(from, from + pageSize - 1);
-
-    if (opts?.importBatchIds?.length) {
-      query = query.in("import_batch_id", opts.importBatchIds);
-    }
-
-    const { data, error } = await query;
-    if (error) {
-      return { dates, error: error.message };
-    }
-
-    for (const row of data ?? []) {
-      const d = row.work_date ? String(row.work_date).slice(0, 10) : "";
-      if (d) dates.add(d);
-    }
-
-    if (!data || data.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return { dates, error: null };
-}
-
 /** Cheap min/max only — used by Schedules punch hints (avoids paging all history). */
 export async function getAttendanceDateBounds(
   supabase: SupabaseClient,
@@ -797,6 +804,112 @@ export async function getAttendanceDateBounds(
   };
 }
 
+export async function listAttendanceMonths(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts?: { allowFallback?: boolean },
+): Promise<import("@/lib/types/database").HrAttendanceMonth[]> {
+  const { data, error } = await supabase
+    .from("hr_attendance_months")
+    .select("*")
+    .eq("venue_id", venueId)
+    .order("month_key", { ascending: false });
+
+  if (!error) {
+    return (data ??
+      []) as import("@/lib/types/database").HrAttendanceMonth[];
+  }
+
+  if (opts?.allowFallback === false) {
+    return [];
+  }
+
+  // Skeleton month keys only until hr_attendance_months exists.
+  return buildAttendanceMonthsFallback(supabase, venueId);
+}
+
+async function buildAttendanceMonthsFallback(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<import("@/lib/types/database").HrAttendanceMonth[]> {
+  const bounds = await getAttendanceDateBounds(supabase, venueId);
+  if (!bounds.minWorkDate || !bounds.maxWorkDate) return [];
+
+  const keys: string[] = [];
+  const [minY, minM] = bounds.minWorkDate.split("-").map(Number);
+  const [maxY, maxM] = bounds.maxWorkDate.split("-").map(Number);
+  let y = minY;
+  let m = minM;
+  while (y < maxY || (y === maxY && m <= maxM)) {
+    keys.push(`${y}-${String(m).padStart(2, "0")}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+
+  // Skeleton only — full counts/status require hr_attendance_months migration.
+  // Avoid N× round-trips that make Data Management slow before the index exists.
+  return keys
+    .map((monthKey) => {
+      const fromDate = `${monthKey}-01`;
+      const [yy, mm] = monthKey.split("-").map(Number);
+      const lastDay = new Date(yy, mm, 0).getDate();
+      const toDate = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
+      const clampedFrom =
+        monthKey === keys[0] ? bounds.minWorkDate! : fromDate;
+      const clampedTo =
+        monthKey === keys[keys.length - 1] ? bounds.maxWorkDate! : toDate;
+      return {
+        id: `${venueId}:${monthKey}`,
+        venue_id: venueId,
+        month_key: monthKey,
+        from_date: clampedFrom,
+        to_date: clampedTo,
+        employee_day_count: 0,
+        punch_count: 0,
+        distinct_emp_count: 0,
+        distinct_day_count: 0,
+        complete_count: 0,
+        missing_clock_in_count: 0,
+        missing_clock_out_count: 0,
+        incomplete_count: 0,
+        no_punches_count: 0,
+        pending_count: 0,
+        approved_count: 0,
+        rejected_count: 0,
+        flagged_count: 0,
+        refreshed_at: new Date().toISOString(),
+      } satisfies import("@/lib/types/database").HrAttendanceMonth;
+    })
+    .reverse();
+}
+
+/** Recompute monthly index rows for the given month keys (YYYY-MM). */
+export async function refreshAttendanceMonths(
+  supabase: SupabaseClient,
+  venueId: string,
+  monthKeys: string[],
+): Promise<void> {
+  const keys = [
+    ...new Set(
+      monthKeys
+        .map((k) => k.trim())
+        .filter((k) => /^\d{4}-\d{2}$/.test(k)),
+    ),
+  ];
+  if (keys.length === 0) return;
+
+  const { error } = await supabase.rpc("refresh_hr_attendance_months", {
+    p_venue_id: venueId,
+    p_month_keys: keys,
+  });
+  if (error) {
+    console.warn("[hr] refreshAttendanceMonths skipped:", error.message);
+  }
+}
+
 export async function getAttendanceCoverage(
   supabase: SupabaseClient,
   venueId: string,
@@ -808,32 +921,33 @@ export async function getAttendanceCoverage(
     recordCount: 0,
   };
 
-  // Min/max via ordered single-row reads — do not rely on an unbounded select
-  // (PostgREST silently truncates to ~1000 rows, which skews coverage).
-  const [bounds, countRes, distinctRes] = await Promise.all([
+  // Never use the expensive months fallback here — coverage must stay cheap.
+  const [bounds, months, countRes] = await Promise.all([
     getAttendanceDateBounds(supabase, venueId),
+    listAttendanceMonths(supabase, venueId, { allowFallback: false }),
     supabase
       .from("hr_attendance_days")
       .select("*", { count: "exact", head: true })
       .eq("venue_id", venueId),
-    collectDistinctAttendanceWorkDates(supabase, venueId),
   ]);
 
-  if (countRes.error || distinctRes.error) {
-    console.error(
-      "[hr] getAttendanceCoverage:",
-      countRes.error?.message ?? distinctRes.error,
-    );
+  if (countRes.error) {
+    console.error("[hr] getAttendanceCoverage:", countRes.error.message);
     return empty;
   }
 
   const { minWorkDate, maxWorkDate } = bounds;
   if (!minWorkDate || !maxWorkDate) return empty;
 
+  const distinctDayCount =
+    months.length > 0
+      ? months.reduce((sum, m) => sum + (m.distinct_day_count ?? 0), 0)
+      : 0;
+
   return {
     minWorkDate,
     maxWorkDate,
-    distinctDayCount: distinctRes.dates.size,
+    distinctDayCount,
     recordCount: countRes.count ?? 0,
   };
 }
@@ -865,62 +979,22 @@ export async function listAttendanceImportBatches(
   const batches = (data ??
     []) as import("@/lib/types/database").HrAttendanceImportBatch[];
 
-  if (batches.length === 0) return [];
-
-  const batchIds = batches.map((b) => b.id);
-  // Page through rows — a single select is capped at ~1000 by PostgREST.
-  const pageSize = 1000;
-  const byBatch = new Map<string, Set<string>>();
-  let from = 0;
-  for (;;) {
-    const { data: dayRows, error: daysError } = await supabase
-      .from("hr_attendance_days")
-      .select("import_batch_id, work_date")
-      .eq("venue_id", venueId)
-      .in("import_batch_id", batchIds)
-      .range(from, from + pageSize - 1);
-
-    if (daysError) {
-      console.error(
-        "[hr] listAttendanceImportBatches dates:",
-        daysError.message,
-      );
-      break;
-    }
-
-    for (const row of dayRows ?? []) {
-      const id = row.import_batch_id as string | null;
-      if (!id) continue;
-      const d = row.work_date ? String(row.work_date).slice(0, 10) : "";
-      if (!d) continue;
-      let set = byBatch.get(id);
-      if (!set) {
-        set = new Set();
-        byBatch.set(id, set);
-      }
-      set.add(d);
-    }
-
-    if (!dayRows || dayRows.length < pageSize) break;
-    from += pageSize;
-  }
-
   return batches.map((batch) => {
-    const dates = byBatch.get(batch.id);
-    if (!dates || dates.size === 0) {
+    if (batch.min_work_date && batch.max_work_date) {
       return {
         ...batch,
-        minWorkDate: null,
-        maxWorkDate: null,
-        distinctDayCount: 0,
+        minWorkDate: String(batch.min_work_date).slice(0, 10),
+        maxWorkDate: String(batch.max_work_date).slice(0, 10),
+        distinctDayCount: batch.distinct_day_count ?? 0,
       };
     }
-    const sorted = [...dates].sort();
+
+    // Avoid N× bound queries when migration columns are not present yet.
     return {
       ...batch,
-      minWorkDate: sorted[0] ?? null,
-      maxWorkDate: sorted[sorted.length - 1] ?? null,
-      distinctDayCount: dates.size,
+      minWorkDate: null,
+      maxWorkDate: null,
+      distinctDayCount: batch.distinct_day_count ?? 0,
     };
   });
 }

@@ -8,9 +8,11 @@ import {
   mondayKeyForWorkDate,
 } from "@/components/hr/attendance-date-filters";
 import {
+  approveAttendanceDays,
   saveValidationRosterDays,
   type ValidationRosterLabelCode,
 } from "@/lib/actions/hr-attendance";
+import { ATTENDANCE_APPROVED_STATUS } from "@/lib/hr/attendance-approval";
 import { clearAllCachedScheduleDays } from "@/lib/hr/schedules-client-cache";
 import { scheduleDayLabelStyle } from "@/lib/hr/schedules";
 import { cn } from "@/lib/utils";
@@ -28,6 +30,7 @@ export type AttendanceApprovalRow = {
   clockOut: string | null;
   totalHours: number | null;
   attendanceStatus: string | null;
+  approvalStatus: "pending" | "approved" | "rejected" | "flagged" | null;
   issue: string | null;
 };
 
@@ -159,6 +162,7 @@ function emptyRowForDay(opts: {
     clockOut: null,
     totalHours: null,
     attendanceStatus: null,
+    approvalStatus: null,
     issue: null,
   };
 }
@@ -172,6 +176,9 @@ export function AttendanceApprovalsTable({
   canEditRoster,
 }: Props) {
   const [pending, startTransition] = useTransition();
+  const [busyAction, setBusyAction] = useState<"save" | "approve" | null>(
+    null,
+  );
   const [local, setLocal] = useState(rows);
   const [departmentId, setDepartmentId] = useState("");
   const [empNo, setEmpNo] = useState("");
@@ -180,6 +187,8 @@ export function AttendanceApprovalsTable({
   const [drafts, setDrafts] = useState<
     Record<string, ValidationRosterLabelCode>
   >({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const labelsByCode = useMemo(() => {
     const map = new Map<string, ScheduleLabelOption>();
@@ -270,6 +279,17 @@ export function AttendanceApprovalsTable({
     drafts,
   ]);
 
+  const selectableIds = useMemo(
+    () => filtered.map((row) => row.id).filter((id): id is string => Boolean(id)),
+    [filtered],
+  );
+  const selectedCount = useMemo(
+    () => selectableIds.filter((id) => selectedIds.has(id)).length,
+    [selectableIds, selectedIds],
+  );
+  const allSelectableSelected =
+    selectableIds.length > 0 && selectedCount === selectableIds.length;
+
   function stageAction(
     row: AttendanceApprovalRow,
     labelCode: ValidationRosterLabelCode,
@@ -287,8 +307,30 @@ export function AttendanceApprovalsTable({
     });
   }
 
+  function toggleRowSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      if (
+        selectableIds.length > 0 &&
+        selectableIds.every((id) => prev.has(id))
+      ) {
+        return new Set();
+      }
+      return new Set(selectableIds);
+    });
+  }
+
   function saveDrafts() {
     if (!hasDrafts) return;
+    setActionError(null);
 
     const staffByEmp = new Map(
       employees.map((e) => [e.empNo.trim().toLowerCase(), e] as const),
@@ -323,6 +365,7 @@ export function AttendanceApprovalsTable({
 
     if (changes.length === 0) return;
 
+    setBusyAction("save");
     startTransition(async () => {
       const result = await saveValidationRosterDays({
         changes: changes.map(({ staffId, workDate, labelCode }) => ({
@@ -331,7 +374,15 @@ export function AttendanceApprovalsTable({
           labelCode,
         })),
       });
-      if (!("ok" in result) || !result.ok) return;
+      if (!("ok" in result) || !result.ok) {
+        setActionError(
+          "error" in result && result.error
+            ? result.error
+            : "Could not save roster edits.",
+        );
+        setBusyAction(null);
+        return;
+      }
 
       clearAllCachedScheduleDays();
 
@@ -368,6 +419,41 @@ export function AttendanceApprovalsTable({
       });
 
       setDrafts({});
+      setBusyAction(null);
+    });
+  }
+
+  function approveSelected() {
+    const ids = selectableIds.filter((id) => selectedIds.has(id));
+    if (ids.length === 0) return;
+    setActionError(null);
+
+    setBusyAction("approve");
+    startTransition(async () => {
+      const result = await approveAttendanceDays({
+        ids,
+        approvalStatus: ATTENDANCE_APPROVED_STATUS,
+      });
+      if (!("ok" in result) || !result.ok) {
+        setActionError(
+          "error" in result && result.error
+            ? result.error
+            : "Could not approve attendance.",
+        );
+        setBusyAction(null);
+        return;
+      }
+
+      const updated = new Set(result.updatedIds);
+      setLocal((prev) =>
+        prev.map((row) =>
+          row.id && updated.has(row.id)
+            ? { ...row, approvalStatus: ATTENDANCE_APPROVED_STATUS }
+            : row,
+        ),
+      );
+      setSelectedIds(new Set());
+      setBusyAction(null);
     });
   }
 
@@ -376,10 +462,14 @@ export function AttendanceApprovalsTable({
     setEmpNo("");
     setSelectedWeekKeys([]);
     setDrafts({});
+    setSelectedIds(new Set());
+    setActionError(null);
   }
 
   function onEmployeeChange(next: string) {
     setEmpNo(next);
+    setSelectedIds(new Set());
+    setActionError(null);
   }
 
   return (
@@ -426,35 +516,79 @@ export function AttendanceApprovalsTable({
             fieldLabel="3. Weeks"
             emptyLabel={empNo ? "Select week(s)" : "Select employee first"}
             selectedWeekKeys={selectedWeekKeys}
-            onChange={setSelectedWeekKeys}
+            onChange={(keys) => {
+              setSelectedWeekKeys(keys);
+              setSelectedIds(new Set());
+            }}
           />
         </div>
         {canEditRoster ? (
-          <div className="ml-auto flex shrink-0 flex-col gap-1">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-transparent">
-              Save
-            </span>
-            <Button
-              type="button"
-              disabled={pending || !hasDrafts}
-              onClick={saveDrafts}
-              className="h-10 px-4"
-            >
-              {pending
-                ? "Saving…"
-                : hasDrafts
-                  ? `Save ${draftCount} edit${draftCount === 1 ? "" : "s"}`
-                  : "Save"}
-            </Button>
+          <div className="ml-auto flex shrink-0 items-end gap-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-transparent">
+                Select
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending || !ready || selectableIds.length === 0}
+                onClick={toggleSelectAll}
+                className="h-10 px-3"
+              >
+                {allSelectableSelected ? "Unselect all" : "Select all"}
+              </Button>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-transparent">
+                Approve
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={pending || selectedCount === 0}
+                onClick={approveSelected}
+                className="h-10 px-4"
+              >
+                {busyAction === "approve"
+                  ? "Approving…"
+                  : selectedCount > 0
+                    ? `Approve Attendance (${selectedCount})`
+                    : "Approve Attendance"}
+              </Button>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-transparent">
+                Save
+              </span>
+              <Button
+                type="button"
+                disabled={pending || !hasDrafts}
+                onClick={saveDrafts}
+                className="h-10 px-4"
+              >
+                {busyAction === "save"
+                  ? "Saving…"
+                  : hasDrafts
+                    ? `Save ${draftCount} edit${draftCount === 1 ? "" : "s"}`
+                    : "Save"}
+              </Button>
+            </div>
           </div>
         ) : null}
       </div>
+
+      {actionError ? (
+        <p className="text-sm text-rose-800" role="alert">
+          {actionError}
+        </p>
+      ) : null}
 
       {!ready ? (
         <div className="rounded-xl border border-dashed border-black/15 bg-white/40 px-5 py-10 text-center">
           <p className="text-sm text-black/55">
             Select a department, then an employee, then one or more weeks to
-            load validation results. Stage actions on days, then Save.
+            load validation results. Stage actions on days, Save, then select
+            rows and Approve Attendance for payroll and leave.
           </p>
         </div>
       ) : (
@@ -470,6 +604,29 @@ export function AttendanceApprovalsTable({
                 <th className="px-3 py-2.5 font-medium">Hours</th>
                 <th className="px-3 py-2.5 font-medium">Issue</th>
                 <th className="px-3 py-2.5 font-medium">Actions</th>
+                <th className="px-3 py-2.5 text-center font-medium">
+                  <span className="sr-only">Select</span>
+                  {canEditRoster && selectableIds.length > 0 ? (
+                    <input
+                      type="checkbox"
+                      checked={allSelectableSelected}
+                      ref={(el) => {
+                        if (el) {
+                          el.indeterminate =
+                            selectedCount > 0 && !allSelectableSelected;
+                        }
+                      }}
+                      onChange={toggleSelectAll}
+                      disabled={pending}
+                      aria-label={
+                        allSelectableSelected
+                          ? "Unselect all rows"
+                          : "Select all rows"
+                      }
+                      className="h-4 w-4 rounded border-black/25 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30"
+                    />
+                  ) : null}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -481,6 +638,9 @@ export function AttendanceApprovalsTable({
                 const weekEnd = isSundayIso(row.workDate);
                 const holidayName = publicHolidayByDate[row.workDate] ?? null;
                 const isPublicHoliday = Boolean(holidayName);
+                const isApproved = row.approvalStatus === ATTENDANCE_APPROVED_STATUS;
+                const canSelect = Boolean(row.id);
+                const isSelected = Boolean(row.id && selectedIds.has(row.id));
                 return (
                   <tr
                     key={`${row.empNo}-${row.workDate}`}
@@ -494,6 +654,7 @@ export function AttendanceApprovalsTable({
                       isPublicHoliday
                         ? "bg-[#ede9fe]/45"
                         : hasDraft && "bg-[var(--venue-secondary)]/25",
+                      isSelected && "bg-[var(--venue-primary)]/[0.06]",
                       weekEnd
                         ? "[&>td]:border-b-2 [&>td]:border-black/40"
                         : "[&>td]:border-b [&>td]:border-black/5",
@@ -510,6 +671,11 @@ export function AttendanceApprovalsTable({
                       {isPublicHoliday ? (
                         <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-[#5b21b6]">
                           · PH
+                        </span>
+                      ) : null}
+                      {isApproved ? (
+                        <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                          approved
                         </span>
                       ) : null}
                       {hasDraft ? (
@@ -603,6 +769,26 @@ export function AttendanceApprovalsTable({
                             <span className="text-xs text-black/40">—</span>
                           )}
                       </div>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {canSelect ? (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={pending || !canEditRoster}
+                          onChange={() => {
+                            if (row.id) toggleRowSelected(row.id);
+                          }}
+                          aria-label={`Select ${row.workDate} for approval`}
+                          className="h-4 w-4 rounded border-black/25 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30"
+                        />
+                      ) : (
+                        <span
+                          className="inline-block h-4 w-4 rounded border border-dashed border-black/15"
+                          title="No attendance record to approve"
+                          aria-hidden
+                        />
+                      )}
                     </td>
                   </tr>
                 );

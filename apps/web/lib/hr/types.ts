@@ -151,6 +151,7 @@ export const HR_FEATURES = {
   schedules: "schedules",
   lookups: "lookups",
   salary: "salary",
+  scheduleApproval: "schedule_approval",
 } as const;
 
 export const EXPIRY_FIELDS = [

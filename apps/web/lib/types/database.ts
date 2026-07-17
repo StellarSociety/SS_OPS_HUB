@@ -116,6 +116,31 @@ export type HrAttendanceImportBatch = {
   imported_by: string | null;
   imported_at: string;
   notes: string | null;
+  min_work_date?: string | null;
+  max_work_date?: string | null;
+  distinct_day_count?: number;
+};
+
+export type HrAttendanceMonth = {
+  id: string;
+  venue_id: string;
+  month_key: string;
+  from_date: string;
+  to_date: string;
+  employee_day_count: number;
+  punch_count: number;
+  distinct_emp_count: number;
+  distinct_day_count: number;
+  complete_count: number;
+  missing_clock_in_count: number;
+  missing_clock_out_count: number;
+  incomplete_count: number;
+  no_punches_count: number;
+  pending_count: number;
+  approved_count: number;
+  rejected_count: number;
+  flagged_count: number;
+  refreshed_at: string;
 };
 
 export type HrShiftTemplate = {
@@ -301,6 +326,7 @@ export type Database = {
       hr_schedule_days: { Row: HrScheduleDay };
       hr_attendance_days: { Row: HrAttendanceDay };
       hr_attendance_import_batches: { Row: HrAttendanceImportBatch };
+      hr_attendance_months: { Row: HrAttendanceMonth };
       hr_shift_templates: { Row: HrShiftTemplate };
       hr_public_holidays: { Row: HrPublicHoliday };
       hr_schedule_week_sections: { Row: HrScheduleWeekSection };

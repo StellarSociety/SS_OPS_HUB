@@ -1,44 +1,42 @@
 import { AttendanceInsightsPanel } from "@/components/hr/attendance-insights-panel";
+import { AttendanceMonthUrlPicker } from "@/components/hr/attendance-month-url-picker";
+import {
+  formatMonthKeyLabel,
+  monthKeysFromSearchParams,
+  rangeForMonthKeys,
+  resolveFetchMonthKeys,
+} from "@/lib/hr/attendance-months";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
-  getAttendanceCoverage,
   listAttendanceDays,
+  listAttendanceMonths,
   listStaffForVenue,
 } from "@/lib/hr/store";
 
-function currentMonthRange(): { fromDate: string; toDate: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const fromDate = `${y}-${pad(m + 1)}-01`;
-  const lastDay = new Date(y, m + 1, 0).getDate();
-  const toDate = `${y}-${pad(m + 1)}-${pad(lastDay)}`;
-  return { fromDate, toDate };
-}
+type Props = {
+  searchParams: Promise<{ month?: string; months?: string }>;
+};
 
-function currentMonthKey(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-export default async function AttendanceInsightsPage() {
+export default async function AttendanceInsightsPage({ searchParams }: Props) {
   const { supabase, venue } = await getHrPageContext();
-  const month = currentMonthRange();
+  const params = await searchParams;
+  const selectedMonthKeys = monthKeysFromSearchParams(params);
 
-  const [coverage, staff] = await Promise.all([
-    getAttendanceCoverage(supabase, venue.id),
+  const [staff, months] = await Promise.all([
     listStaffForVenue(supabase, venue.id),
+    listAttendanceMonths(supabase, venue.id),
   ]);
 
-  const loadFrom = coverage.minWorkDate ?? month.fromDate;
-  const loadTo = coverage.maxWorkDate ?? month.toDate;
+  const fetchMonthKeys = resolveFetchMonthKeys(
+    selectedMonthKeys,
+    months.map((m) => m.month_key),
+  );
+  const range = rangeForMonthKeys(fetchMonthKeys);
+
   const days = await listAttendanceDays(supabase, venue.id, {
-    fromDate: loadFrom,
-    toDate: loadTo,
-    limit: 10000,
+    fromDate: range.fromDate,
+    toDate: range.toDate,
+    limit: 5000,
   });
 
   const staffByEmp: Record<
@@ -59,23 +57,36 @@ export default async function AttendanceInsightsPage() {
     };
   }
 
+  const monthLabel =
+    selectedMonthKeys.length === 0
+      ? "all loaded months"
+      : selectedMonthKeys.length === 1
+        ? formatMonthKeyLabel(selectedMonthKeys[0]!)
+        : `${selectedMonthKeys.length} months`;
+  const availableHint =
+    months.length > 0
+      ? `${months[months.length - 1]?.month_key} → ${months[0]?.month_key}`
+      : null;
+
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">Insights</h2>
-        <p className="text-sm text-black/55">
-          Hours worked and punch completeness by staff, grouped by department.
-          Filter by days, weeks, or months
-          {coverage.minWorkDate && coverage.maxWorkDate
-            ? ` (${coverage.minWorkDate} → ${coverage.maxWorkDate})`
-            : ""}
-          .
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-serif text-lg text-[#3D421F]">Insights</h2>
+          <p className="text-sm text-black/55">
+            Hours worked and punch completeness by staff for {monthLabel}
+            {availableHint ? ` (indexed ${availableHint})` : ""}. Months are
+            optional — week/day filters apply within the loaded slice.
+          </p>
+        </div>
+        <AttendanceMonthUrlPicker selectedMonthKeys={selectedMonthKeys} />
       </div>
       <AttendanceInsightsPanel
+        key={selectedMonthKeys.join(",") || "any"}
         days={days}
         staffByEmp={staffByEmp}
-        defaultMonthKey={currentMonthKey()}
+        defaultMonthKeys={selectedMonthKeys}
+        monthPickerInParent
       />
     </section>
   );

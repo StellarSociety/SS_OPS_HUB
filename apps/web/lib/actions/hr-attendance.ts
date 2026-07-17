@@ -11,8 +11,12 @@ import {
   type AttendanceDayResult,
   type AttendancePunchRaw,
 } from "@/lib/hr/attendance-import";
-import { canAdminLookups, canEditStaff } from "@/lib/hr/permissions";
-import { getHrVenueSetting } from "@/lib/hr/store";
+import { canAdminLookups, canEditSchedules, canEditStaff } from "@/lib/hr/permissions";
+import {
+  getHrVenueSetting,
+  refreshAttendanceMonths,
+} from "@/lib/hr/store";
+import { monthKeyFromWorkDate } from "@/lib/hr/attendance-months";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import {
   DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
@@ -197,6 +201,21 @@ export async function importAttendanceFromParsed(
     }
   }
 
+  const workDates = payload.days
+    .map((d) => d.workDate)
+    .filter(Boolean)
+    .sort();
+  const distinctWorkDates = [...new Set(workDates)];
+  const minWorkDate = distinctWorkDates[0] ?? null;
+  const maxWorkDate = distinctWorkDates[distinctWorkDates.length - 1] ?? null;
+  const monthKeys = [
+    ...new Set(
+      distinctWorkDates
+        .map((d) => monthKeyFromWorkDate(d))
+        .filter((k): k is string => Boolean(k)),
+    ),
+  ];
+
   const { data: batch, error: batchError } = await service
     .from("hr_attendance_import_batches")
     .insert({
@@ -221,6 +240,25 @@ export async function importAttendanceFromParsed(
   }
 
   const batchId = batch.id as string;
+
+  // Optional columns from hr_attendance_months migration — ignore if not applied yet.
+  if (minWorkDate && maxWorkDate) {
+    const { error: spanError } = await service
+      .from("hr_attendance_import_batches")
+      .update({
+        min_work_date: minWorkDate,
+        max_work_date: maxWorkDate,
+        distinct_day_count: distinctWorkDates.length,
+      })
+      .eq("id", batchId)
+      .eq("venue_id", venue.id);
+    if (spanError) {
+      console.warn(
+        "[hr] import batch date span update skipped:",
+        spanError.message,
+      );
+    }
+  }
   const timezone =
     payload.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone;
   const overnightCutoff =
@@ -300,8 +338,11 @@ export async function importAttendanceFromParsed(
       punches: payload.punches.length,
       days: payload.days.length,
       unmatched: [...unmatchedSet],
+      months: monthKeys,
     },
   });
+
+  await refreshAttendanceMonths(service, venue.id, monthKeys);
 
   revalidatePath("/hr/attendance", "layout");
   revalidatePath("/hr/settings/data-management", "layout");
@@ -317,34 +358,186 @@ export async function importAttendanceFromParsed(
   };
 }
 
+/** Delete one import batch and all punches / employee-day rows from that import. */
+export async function deleteAttendanceImportBatch(batchId: string) {
+  const { user, venue, permissions } = await getAuthContext();
+
+  if (!canEditStaff(permissions, venue.id)) {
+    return { error: "You do not have permission to delete attendance imports." };
+  }
+  if (venue.is_global) {
+    return { error: "Delete attendance imports at a specific venue, not Global." };
+  }
+  if (!batchId) {
+    return { error: "Missing import batch." };
+  }
+
+  const service = createServiceClient();
+
+  const { data: batch, error: batchLookupError } = await service
+    .from("hr_attendance_import_batches")
+    .select("id, filename, row_count, day_count")
+    .eq("id", batchId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (batchLookupError) {
+    return { error: batchLookupError.message };
+  }
+  if (!batch) {
+    return { error: "Import batch not found." };
+  }
+
+  // Capture month keys before delete so we can refresh the monthly index.
+  const monthKeySet = new Set<string>();
+  const pageSize = 1000;
+  let from = 0;
+  for (;;) {
+    const { data: dayRows, error: monthLookupError } = await service
+      .from("hr_attendance_days")
+      .select("work_date")
+      .eq("venue_id", venue.id)
+      .eq("import_batch_id", batchId)
+      .range(from, from + pageSize - 1);
+    if (monthLookupError) {
+      console.error(
+        "[hr] delete import month lookup:",
+        monthLookupError.message,
+      );
+      break;
+    }
+    for (const row of dayRows ?? []) {
+      const key = monthKeyFromWorkDate(String(row.work_date ?? ""));
+      if (key) monthKeySet.add(key);
+    }
+    if (!dayRows || dayRows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const { error: punchesError } = await service
+    .from("hr_attendance_punches")
+    .delete()
+    .eq("venue_id", venue.id)
+    .eq("import_batch_id", batchId);
+  if (punchesError) {
+    console.error("[hr] delete import punches:", punchesError.message);
+    return { error: `Could not delete punches: ${punchesError.message}` };
+  }
+
+  const { error: daysError } = await service
+    .from("hr_attendance_days")
+    .delete()
+    .eq("venue_id", venue.id)
+    .eq("import_batch_id", batchId);
+  if (daysError) {
+    console.error("[hr] delete import days:", daysError.message);
+    return { error: `Could not delete attendance days: ${daysError.message}` };
+  }
+
+  const { error: batchDeleteError } = await service
+    .from("hr_attendance_import_batches")
+    .delete()
+    .eq("id", batchId)
+    .eq("venue_id", venue.id);
+  if (batchDeleteError) {
+    console.error("[hr] delete import batch:", batchDeleteError.message);
+    return { error: `Could not delete import batch: ${batchDeleteError.message}` };
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "delete",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_attendance_import_batches",
+    entity_id: batchId,
+    venue_id: venue.id,
+    before: {
+      filename: batch.filename,
+      row_count: batch.row_count,
+      day_count: batch.day_count,
+      months: [...monthKeySet],
+    },
+  });
+
+  await refreshAttendanceMonths(service, venue.id, [...monthKeySet]);
+
+  revalidatePath("/hr/attendance", "layout");
+  revalidatePath("/hr/settings/data-management", "layout");
+
+  return { ok: true as const };
+}
+
 export async function updateAttendanceApproval(params: {
   id: string;
   approvalStatus: "pending" | "approved" | "rejected" | "flagged";
   notes?: string;
 }) {
+  return approveAttendanceDays({
+    ids: [params.id],
+    approvalStatus: params.approvalStatus,
+    notes: params.notes,
+  });
+}
+
+/**
+ * Bulk-set approval status on attendance day rows (Validation → Approve Attendance).
+ * Approved days are the only ones payroll / leave calculations should consume.
+ */
+export async function approveAttendanceDays(params: {
+  ids: string[];
+  approvalStatus?: "pending" | "approved" | "rejected" | "flagged";
+  notes?: string;
+}) {
+  const ids = [...new Set(params.ids.filter(Boolean))];
+  if (ids.length === 0) {
+    return { error: "Select at least one attendance day." };
+  }
+
   const { user, venue, permissions } = await getAuthContext();
-  if (!canEditStaff(permissions, venue.id)) {
+  if (
+    !canEditStaff(permissions, venue.id) &&
+    !canEditSchedules(permissions, venue.id)
+  ) {
     return { error: "You do not have permission to update approvals." };
   }
 
+  const approvalStatus = params.approvalStatus ?? "approved";
   const service = createServiceClient();
-  const { error } = await service
+  const now = new Date().toISOString();
+
+  const { data: updated, error } = await service
     .from("hr_attendance_days")
     .update({
-      approval_status: params.approvalStatus,
+      approval_status: approvalStatus,
       notes: params.notes ?? undefined,
       updated_by: user.id,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
-    .eq("id", params.id)
-    .eq("venue_id", venue.id);
+    .eq("venue_id", venue.id)
+    .in("id", ids)
+    .select("id, work_date");
 
   if (error) {
     return { error: error.message };
   }
 
+  const monthKeys = [
+    ...new Set(
+      (updated ?? [])
+        .map((row) => monthKeyFromWorkDate(String(row.work_date ?? "")))
+        .filter((key): key is string => Boolean(key)),
+    ),
+  ];
+  await refreshAttendanceMonths(service, venue.id, monthKeys);
+
   revalidatePath("/hr/attendance", "layout");
-  return { ok: true as const };
+  revalidatePath("/hr/settings/data-management", "layout");
+
+  return {
+    ok: true as const,
+    updatedIds: (updated ?? []).map((row) => String(row.id)),
+    approvalStatus,
+  };
 }
 
 export type ValidationRosterLabelCode =

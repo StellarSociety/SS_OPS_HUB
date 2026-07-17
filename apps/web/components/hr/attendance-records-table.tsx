@@ -5,7 +5,9 @@ import {
   AttendanceDayRangePicker,
   AttendanceMultiWeekPicker,
   mondayKeyForWorkDate,
+  monthKeyForWorkDate,
 } from "@/components/hr/attendance-date-filters";
+import { AttendanceMonthUrlPicker } from "@/components/hr/attendance-month-url-picker";
 import type { HrAttendanceDay } from "@/lib/types/database";
 import { ChevronDown, ChevronsUpDown, ChevronUp, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -23,9 +25,12 @@ type Props = {
   days: HrAttendanceDay[];
   staffByEmp: Record<string, StaffLookup>;
   departments: DepartmentOption[];
-  /** Inclusive default day range (typically current month). */
-  defaultDayStart?: string;
-  defaultDayEnd?: string;
+  /**
+   * Optional month keys (YYYY-MM) from the URL picker. When set, only those
+   * months are shown (handles non-contiguous multi-select within the loaded
+   * span). Empty means no month constraint — filter with weeks/days instead.
+   */
+  monthKeys?: string[];
 };
 
 const ATTENDANCE_STATUSES: HrAttendanceDay["status"][] = [
@@ -116,17 +121,19 @@ export function AttendanceRecordsTable({
   days,
   staffByEmp,
   departments,
-  defaultDayStart = "",
-  defaultDayEnd = "",
+  monthKeys = [],
 }: Props) {
   const [empNo, setEmpNo] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [status, setStatus] = useState("");
   const [selectedWeekKeys, setSelectedWeekKeys] = useState<string[]>([]);
-  const [dayStart, setDayStart] = useState(defaultDayStart);
-  const [dayEnd, setDayEnd] = useState(defaultDayEnd);
+  const [dayStart, setDayStart] = useState("");
+  const [dayEnd, setDayEnd] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("work_date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const monthKeySet = useMemo(() => new Set(monthKeys), [monthKeys]);
+  const hasMonthFilter = monthKeys.length > 0;
 
   const employees = useMemo(() => {
     const seen = new Set<string>();
@@ -204,6 +211,11 @@ export function AttendanceRecordsTable({
       if (departmentId && staff?.department_id !== departmentId) return false;
       if (status && day.status !== status) return false;
 
+      if (hasMonthFilter) {
+        const monthKey = monthKeyForWorkDate(day.work_date);
+        if (!monthKey || !monthKeySet.has(monthKey)) return false;
+      }
+
       if (hasWeekFilter || hasDayRange) {
         const mondayKey = mondayKeyForWorkDate(day.work_date);
         const inWeek = Boolean(mondayKey && weekKeySet.has(mondayKey));
@@ -213,7 +225,7 @@ export function AttendanceRecordsTable({
           day.work_date <= rangeEnd;
         const matchesWeek = hasWeekFilter && inWeek;
         const matchesDays = hasDayRange && inDays;
-        // Separate filter tools: match if the day hits any active tool.
+        // Weeks and days are alternate period tools — match either.
         if (!matchesWeek && !matchesDays) return false;
       }
 
@@ -225,6 +237,8 @@ export function AttendanceRecordsTable({
     empNo,
     departmentId,
     status,
+    hasMonthFilter,
+    monthKeySet,
     hasWeekFilter,
     hasDayRange,
     weekKeySet,
@@ -311,96 +325,106 @@ export function AttendanceRecordsTable({
     }
   }
 
+  const filterBar = (
+    <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-0.5">
+      <div className="flex min-w-[12rem] flex-1 flex-col gap-1">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+          Employee
+        </span>
+        <SearchableSelect
+          value={empNo}
+          onChange={setEmpNo}
+          options={employeeOptions}
+          placeholder="All employees"
+          searchPlaceholder="Search employee…"
+        />
+      </div>
+      <div className="flex min-w-[10rem] w-[12rem] shrink-0 flex-col gap-1">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+          Department
+        </span>
+        <SearchableSelect
+          value={departmentId}
+          onChange={(next) => {
+            setDepartmentId(next);
+            if (next && empNo) {
+              const selected = employees.find((e) => e.empNo === empNo);
+              if (selected && selected.departmentId !== next) {
+                setEmpNo("");
+              }
+            }
+          }}
+          options={departmentOptions}
+          placeholder="All departments"
+          searchPlaceholder="Search department…"
+        />
+      </div>
+      <div className="flex w-[11rem] shrink-0 flex-col gap-1">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+          Status
+        </span>
+        <SearchableSelect
+          value={status}
+          onChange={setStatus}
+          options={statusOptions}
+          placeholder="All statuses"
+          searchPlaceholder="Search status…"
+        />
+      </div>
+      <div className="shrink-0">
+        <AttendanceMonthUrlPicker selectedMonthKeys={monthKeys} />
+      </div>
+      <AttendanceMultiWeekPicker
+        selectedWeekKeys={selectedWeekKeys}
+        onChange={(keys) => {
+          setSelectedWeekKeys(keys);
+          // Weeks and days are alternate period tools — using one clears the other.
+          if (keys.length > 0) {
+            setDayStart("");
+            setDayEnd("");
+          }
+        }}
+      />
+      <AttendanceDayRangePicker
+        startDate={dayStart}
+        endDate={dayEnd}
+        onChange={({ startDate, endDate }) => {
+          setDayStart(startDate);
+          setDayEnd(endDate);
+          if (startDate || endDate) {
+            setSelectedWeekKeys([]);
+          }
+        }}
+      />
+      <button
+        type="button"
+        onClick={clearFilters}
+        disabled={!hasActiveFilters}
+        className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 text-sm text-black/60 hover:bg-black/[0.02] disabled:pointer-events-none disabled:opacity-40"
+      >
+        <X className="h-3.5 w-3.5" />
+        Clear filters
+      </button>
+    </div>
+  );
+
   if (!days.length) {
     return (
-      <div className="rounded-xl border border-dashed border-black/15 bg-white/40 px-5 py-10 text-center">
-        <p className="text-sm text-black/55">
-          No attendance records yet. Import an InOutData file under Settings →
-          Data Management → Attendance to get started.
-        </p>
+      <div className="space-y-3">
+        {filterBar}
+        <div className="rounded-xl border border-dashed border-black/15 bg-white/40 px-5 py-10 text-center">
+          <p className="text-sm text-black/55">
+            No attendance records yet. Import an InOutData file under Settings →
+            Data Management → Attendance to get started.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <div className="flex items-end gap-3">
-        <div className="flex min-w-[12rem] flex-1 flex-col gap-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-            Employee
-          </span>
-          <SearchableSelect
-            value={empNo}
-            onChange={setEmpNo}
-            options={employeeOptions}
-            placeholder="All employees"
-            searchPlaceholder="Search employee…"
-          />
-        </div>
-        <div className="flex min-w-[10rem] w-[12rem] shrink-0 flex-col gap-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-            Department
-          </span>
-          <SearchableSelect
-            value={departmentId}
-            onChange={(next) => {
-              setDepartmentId(next);
-              if (next && empNo) {
-                const selected = employees.find((e) => e.empNo === empNo);
-                if (selected && selected.departmentId !== next) {
-                  setEmpNo("");
-                }
-              }
-            }}
-            options={departmentOptions}
-            placeholder="All departments"
-            searchPlaceholder="Search department…"
-          />
-        </div>
-        <div className="flex w-[11rem] shrink-0 flex-col gap-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-            Status
-          </span>
-          <SearchableSelect
-            value={status}
-            onChange={setStatus}
-            options={statusOptions}
-            placeholder="All statuses"
-            searchPlaceholder="Search status…"
-          />
-        </div>
-        <AttendanceMultiWeekPicker
-          selectedWeekKeys={selectedWeekKeys}
-          onChange={(keys) => {
-            setSelectedWeekKeys(keys);
-            // Weeks and days are alternate period tools — using one clears the other.
-            if (keys.length > 0) {
-              setDayStart("");
-              setDayEnd("");
-            }
-          }}
-        />
-        <AttendanceDayRangePicker
-          startDate={dayStart}
-          endDate={dayEnd}
-          onChange={({ startDate, endDate }) => {
-            setDayStart(startDate);
-            setDayEnd(endDate);
-            if (startDate || endDate) {
-              setSelectedWeekKeys([]);
-            }
-          }}
-        />
-        <button
-          type="button"
-          onClick={clearFilters}
-          disabled={!hasActiveFilters}
-          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 text-sm text-black/60 hover:bg-black/[0.02] disabled:pointer-events-none disabled:opacity-40"
-        >
-          <X className="h-3.5 w-3.5" />
-          Clear filters
-        </button>
-      </div>
+      {filterBar}
 
       <p className="text-sm text-black/50">
         {filtered.length} of {days.length} record{days.length === 1 ? "" : "s"}

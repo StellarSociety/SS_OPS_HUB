@@ -1,9 +1,13 @@
 import { AttendanceApprovalsTable } from "@/components/hr/attendance-approvals-table";
+import {
+  rangeForMonthKeys,
+  resolveFetchMonthKeys,
+} from "@/lib/hr/attendance-months";
 import { canEditSchedules } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
-  getAttendanceCoverage,
   listAttendanceDays,
+  listAttendanceMonths,
   listDepartments,
   listPublicHolidays,
   listScheduleDayLabels,
@@ -22,16 +26,6 @@ const VALIDATION_ELIGIBLE_STATUS_NAMES = new Set<string>([
   EMPLOYMENT_STATUS_NAMES.offBoard,
 ]);
 
-function daysAgoIso(days: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function formatScheduleTime(
   startTime: string | null | undefined,
   endTime: string | null | undefined,
@@ -44,31 +38,33 @@ export default async function AttendanceValidationPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
   const canEditRoster = canEditSchedules(permissions, venue.id);
 
-  const [coverage, staff, departments, templates, scheduleLabels] =
+  const months = await listAttendanceMonths(supabase, venue.id);
+  const fetchMonthKeys = resolveFetchMonthKeys(
+    [],
+    months.map((m) => m.month_key),
+  );
+  const range = rangeForMonthKeys(fetchMonthKeys);
+  const fromDate = range.fromDate;
+  const toDate = range.toDate;
+  const holidayYear = Number(fromDate.slice(0, 4)) || new Date().getFullYear();
+
+  const [staff, departments, templates, scheduleLabels, days, roster, publicHolidays] =
     await Promise.all([
-      getAttendanceCoverage(supabase, venue.id),
       listStaffForVenue(supabase, venue.id),
       listDepartments(supabase, venue.id),
       listShiftTemplates(supabase, venue.id, { includeInactive: true }),
       listScheduleDayLabels(supabase),
+      listAttendanceDays(supabase, venue.id, {
+        fromDate,
+        toDate,
+        limit: 5000,
+      }),
+      listScheduleDaysByDateRange(supabase, venue.id, { fromDate, toDate }),
+      listPublicHolidays(supabase, venue.id, {
+        fromDate: `${holidayYear - 1}-01-01`,
+        toDate: `${holidayYear + 1}-12-31`,
+      }),
     ]);
-
-  const fromDate = coverage.minWorkDate ?? daysAgoIso(90);
-  const toDate = coverage.maxWorkDate ?? todayIso();
-  const holidayYear = new Date().getFullYear();
-
-  const [days, roster, publicHolidays] = await Promise.all([
-    listAttendanceDays(supabase, venue.id, {
-      fromDate,
-      toDate,
-      limit: 10000,
-    }),
-    listScheduleDaysByDateRange(supabase, venue.id, { fromDate, toDate }),
-    listPublicHolidays(supabase, venue.id, {
-      fromDate: `${holidayYear - 1}-01-01`,
-      toDate: `${holidayYear + 1}-12-31`,
-    }),
-  ]);
 
   const staffByEmp = new Map(
     staff.map((s) => [s.emp_no.trim().toLowerCase(), s]),
@@ -91,6 +87,7 @@ export default async function AttendanceValidationPage() {
     clockOut: string | null;
     totalHours: number | null;
     attendanceStatus: string | null;
+    approvalStatus: "pending" | "approved" | "rejected" | "flagged" | null;
     issue: string | null;
   };
 
@@ -144,6 +141,7 @@ export default async function AttendanceValidationPage() {
       clockOut: day.clock_out,
       totalHours: day.total_hours,
       attendanceStatus: day.status,
+      approvalStatus: day.approval_status,
       issue,
     });
   }
@@ -176,6 +174,7 @@ export default async function AttendanceValidationPage() {
       clockOut: null,
       totalHours: null,
       attendanceStatus: null,
+      approvalStatus: null,
       issue,
     });
   }
@@ -222,7 +221,8 @@ export default async function AttendanceValidationPage() {
         <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
         <p className="mt-1 text-sm text-black/55">
           Select a department, employee, and week(s). Stage SH / ABS / PH / AL /
-          SL / UPL on any days, then Save to update the schedule roster.
+          SL / UPL, Save roster edits, then Approve Attendance so hours can feed
+          payroll and leave.
         </p>
       </div>
       <AttendanceApprovalsTable

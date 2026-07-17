@@ -46,9 +46,11 @@ export function ScheduleApprovalSettingsPanel({
     <Card className="p-5">
       <h2 className="font-serif text-lg text-[#3D421F]">Schedule Approval</h2>
       <p className="mt-1 text-sm text-black/55">
-        Choose who can be asked to approve weekly schedules. Editors pick from
-        this list when sending a week for approval. Approvers can revise the
-        roster and confirm publish so Editors can download the schedule PDF.
+        Choose who can be asked to approve weekly schedules. Only users with the
+        Schedule Approval sensitive grant (Settings → Users → Human Resources)
+        appear here. Editors pick from this list when sending a week for
+        approval. Approvers can revise the roster and confirm publish so Editors
+        can download the schedule PDF.
       </p>
 
       <form action={saveScheduleApprovalSettings} className="mt-4 space-y-4">
@@ -56,8 +58,9 @@ export function ScheduleApprovalSettingsPanel({
 
         {candidates.length === 0 ? (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900/80">
-            No users with Schedules edit access were found for this venue. Grant
-            edit access in Settings → Users first.
+            No users with the Schedule Approval sensitive grant were found for
+            this venue. Grant it under Settings → Users → Human Resources →
+            Sensitive content first.
           </p>
         ) : (
           <ul className="divide-y divide-black/5 rounded-lg border border-black/10 bg-white">

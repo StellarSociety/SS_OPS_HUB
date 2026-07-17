@@ -1,47 +1,43 @@
 import { AttendanceRecordsTable } from "@/components/hr/attendance-records-table";
+import {
+  formatMonthKeyLabel,
+  monthKeysFromSearchParams,
+  rangeForMonthKeys,
+  resolveFetchMonthKeys,
+} from "@/lib/hr/attendance-months";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
-  getAttendanceCoverage,
   listAttendanceDays,
+  listAttendanceMonths,
   listDepartments,
   listStaffForVenue,
 } from "@/lib/hr/store";
 
-/** Inclusive YYYY-MM-DD range for the current local calendar month. */
-function currentMonthRange(): { fromDate: string; toDate: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const fromDate = `${y}-${pad(m + 1)}-01`;
-  const lastDay = new Date(y, m + 1, 0).getDate();
-  const toDate = `${y}-${pad(m + 1)}-${pad(lastDay)}`;
-  return { fromDate, toDate };
-}
+type Props = {
+  searchParams: Promise<{ month?: string; months?: string }>;
+};
 
-function monthLabel(fromDate: string): string {
-  const [y, m] = fromDate.split("-").map(Number);
-  const d = new Date(y, m - 1, 1);
-  return d.toLocaleString(undefined, { month: "long", year: "numeric" });
-}
-
-export default async function AttendanceRecordsPage() {
+export default async function AttendanceRecordsPage({ searchParams }: Props) {
   const { supabase, venue } = await getHrPageContext();
-  const month = currentMonthRange();
+  const params = await searchParams;
+  const selectedMonthKeys = monthKeysFromSearchParams(params);
 
-  const [coverage, staff, departments] = await Promise.all([
-    getAttendanceCoverage(supabase, venue.id),
+  const [staff, departments, months] = await Promise.all([
     listStaffForVenue(supabase, venue.id),
     listDepartments(supabase, venue.id),
+    listAttendanceMonths(supabase, venue.id),
   ]);
 
-  // Load full history so week/day filters can reach older records.
-  const loadFrom = coverage.minWorkDate ?? month.fromDate;
-  const loadTo = coverage.maxWorkDate ?? month.toDate;
+  const fetchMonthKeys = resolveFetchMonthKeys(
+    selectedMonthKeys,
+    months.map((m) => m.month_key),
+  );
+  const range = rangeForMonthKeys(fetchMonthKeys);
+
   const days = await listAttendanceDays(supabase, venue.id, {
-    fromDate: loadFrom,
-    toDate: loadTo,
-    limit: 10000,
+    fromDate: range.fromDate,
+    toDate: range.toDate,
+    limit: 5000,
   });
 
   const staffByEmp: Record<
@@ -67,26 +63,34 @@ export default async function AttendanceRecordsPage() {
     name: d.name,
   }));
 
+  const monthLabel =
+    selectedMonthKeys.length === 0
+      ? "all loaded months"
+      : selectedMonthKeys.length === 1
+        ? formatMonthKeyLabel(selectedMonthKeys[0]!)
+        : `${selectedMonthKeys.length} months`;
+  const availableHint =
+    months.length > 0
+      ? `Indexed months: ${months[months.length - 1]?.month_key} → ${months[0]?.month_key}`
+      : null;
+
   return (
     <div className="space-y-6">
       <section className="space-y-3">
         <div>
           <h2 className="font-serif text-lg text-[#3D421F]">Recent records</h2>
           <p className="text-sm text-black/55">
-            Showing {monthLabel(month.fromDate)} by default — use Weeks or Days
-            to browse earlier records
-            {coverage.minWorkDate && coverage.maxWorkDate
-              ? ` (${coverage.minWorkDate} → ${coverage.maxWorkDate})`
-              : ""}
-            .
+            Showing {monthLabel}
+            {availableHint ? ` · ${availableHint}` : ""}. Filter by employee,
+            department, status, months, weeks, or days within the loaded slice.
           </p>
         </div>
         <AttendanceRecordsTable
+          key={selectedMonthKeys.join(",") || "any"}
           days={days}
           staffByEmp={staffByEmp}
           departments={departmentOptions}
-          defaultDayStart={month.fromDate}
-          defaultDayEnd={month.toDate}
+          monthKeys={selectedMonthKeys}
         />
       </section>
     </div>
