@@ -1,7 +1,14 @@
 "use client";
 
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import {
   saveVenueDailySalesEntry,
   saveVenueDailyTenderTotals,
@@ -651,14 +658,19 @@ function DailyTenderTotalsColumn({
         ) : (
           <div className="flex flex-1 flex-col space-y-2">
             {tenders.map((tender) => (
-              <SalesFormFieldRow key={tender.id} label={tender.name}>
-                <SalesNumericInput
-                  key={`${tender.id}-${inputMode}`}
-                  value={displayValue(amounts[tender.id] ?? 0)}
-                  disabled={!canEdit}
-                  onChange={(v) => handleTenderChange(tender.id, v)}
-                />
-              </SalesFormFieldRow>
+              <Fragment key={tender.id}>
+                <SalesFormFieldRow label={tender.name}>
+                  <SalesNumericInput
+                    key={`${tender.id}-${inputMode}`}
+                    value={displayValue(amounts[tender.id] ?? 0)}
+                    disabled={!canEdit}
+                    onChange={(v) => handleTenderChange(tender.id, v)}
+                  />
+                </SalesFormFieldRow>
+                {tender.name.trim().toLowerCase() === "cash" ? (
+                  <div aria-hidden className="border-t border-black/10" />
+                ) : null}
+              </Fragment>
             ))}
             <div className="flex flex-col gap-1 rounded-lg border border-black/10 bg-white px-3 py-2">
               <span className="text-xs font-medium uppercase tracking-wide text-black/50">
