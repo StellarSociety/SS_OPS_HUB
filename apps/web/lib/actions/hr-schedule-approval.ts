@@ -8,6 +8,7 @@ import {
   canAdminLookups,
   canApproveSchedules,
   canAccessSchedules,
+  canEditSchedules,
 } from "@/lib/hr/permissions";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import {
