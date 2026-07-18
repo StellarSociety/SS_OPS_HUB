@@ -774,14 +774,14 @@ export function WaiterSalesEntryForm({
           <h3 className="font-serif text-lg font-bold text-[#3D421F]">Comments</h3>
           <div className="grid gap-4 lg:grid-cols-3">
             <label className="block text-sm">
-              <span className="text-black/60">Voucher Comments</span>
+              <span className="text-black/60">Voucher Issue Comments</span>
               <BulletedCommentTextarea
                 disabled={!fieldsEditable}
                 value={form.voucher_comments}
                 onChange={(value) =>
                   updateCommentField("voucher_comments", value)
                 }
-                placeholder="For each Voucher reference include the: Voucher Name | Number | Value"
+                placeholder="For each Voucher Issue reference include the: Voucher Name | Number | Value"
                 className={cn(textareaClass(!fieldsEditable), "mt-1")}
               />
             </label>

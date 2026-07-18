@@ -18,7 +18,7 @@ const SCALAR_COLUMNS = [
   { key: "gratuity_cash_gs", label: "Cash Gratuity" },
   { key: "groups_service_charge_gs", label: "Groups Service Charge" },
   { key: "total_covers", label: "Total Covers", type: "count" as const },
-  { key: "voucher_comments", label: "Voucher Comments", type: "text" as const },
+  { key: "voucher_comments", label: "Voucher Issue Comments", type: "text" as const },
   { key: "deposit_comments", label: "Deposit Comments", type: "text" as const },
   { key: "on_accounts_comments", label: "On Accounts Comments", type: "text" as const },
 ] as const;
@@ -63,6 +63,15 @@ function buildHeaderAliases(tenders: VenueTender[]): Record<string, string> {
   for (const tender of tenders) {
     aliases[`${TENDER_PREFIX}${tender.name.toLowerCase()}`] = `tender_${tender.id}`;
     aliases[tender.name.toLowerCase()] = `tender_${tender.id}`;
+  }
+
+  const voucherIssue = tenders.find(
+    (tender) => normalizeName(tender.name) === "voucher issue",
+  );
+  if (voucherIssue) {
+    // Keep spreadsheets exported before the tender rename importable.
+    aliases.voucher = `tender_${voucherIssue.id}`;
+    aliases[`${TENDER_PREFIX}voucher`] = `tender_${voucherIssue.id}`;
   }
 
   return aliases;

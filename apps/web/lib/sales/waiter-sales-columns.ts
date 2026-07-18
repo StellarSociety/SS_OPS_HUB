@@ -171,7 +171,7 @@ const AFTER_GRATUITY_COLUMNS: WaiterSalesColumn[] = [
   },
   {
     key: "voucher_comments",
-    label: "Voucher Comments",
+    label: "Voucher Issue Comments",
     kind: "text",
     field: "voucher_comments",
     section: "comments",
