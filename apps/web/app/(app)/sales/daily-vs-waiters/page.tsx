@@ -1,5 +1,4 @@
 import { DailyVsWaitersTable } from "@/components/sales/daily-vs-waiters-table";
-import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
   SalesSchemaSetupNotice,
   getSalesDataLoadErrorMessage,
@@ -61,37 +60,21 @@ export default async function DailyVsWaitersPage() {
     );
 
     return (
-      <div className="mx-auto w-full max-w-none space-y-6">
-        <div>
-          <ModulePageTitle>Daily vs Waiters</ModulePageTitle>
-          <p className="mt-1 text-sm text-black/60">
-            Reconcile daily sales with waiter totals — {venue.name}
-          </p>
-          <hr className="mt-4 border-black/10" />
-        </div>
-
-        <DailyVsWaitersTable
-          venueName={venue.name}
-          venueLogoUrl={getVenueLogoUrl(venue)}
-          dailyRecords={dailyRecords}
-          waiterRecords={waiterRecords}
-          comments={comments}
-          totalTaxPct={totalTaxPct}
-          canEdit={canEdit}
-          userDisplayName={userDisplayName}
-        />
-      </div>
+      <DailyVsWaitersTable
+        venueName={venue.name}
+        venueLogoUrl={getVenueLogoUrl(venue)}
+        dailyRecords={dailyRecords}
+        waiterRecords={waiterRecords}
+        comments={comments}
+        totalTaxPct={totalTaxPct}
+        canEdit={canEdit}
+        userDisplayName={userDisplayName}
+      />
     );
   } catch (error) {
     if (getSalesDataLoadErrorMessage(error) === "schema_missing") {
       return (
-        <div className="mx-auto max-w-4xl space-y-4">
-          <div>
-            <ModulePageTitle>Daily vs Waiters</ModulePageTitle>
-            <p className="mt-1 text-sm text-black/60">
-              Reconcile daily sales with waiter totals — {venue.name}
-            </p>
-          </div>
+        <div className="mx-auto max-w-4xl">
           <SalesSchemaSetupNotice />
         </div>
       );
@@ -100,13 +83,7 @@ export default async function DailyVsWaitersPage() {
     console.error("[sales/daily-vs-waiters]", error);
 
     return (
-      <div className="mx-auto max-w-4xl space-y-4">
-        <div>
-          <ModulePageTitle>Daily vs Waiters</ModulePageTitle>
-          <p className="mt-1 text-sm text-black/60">
-            Reconcile daily sales with waiter totals — {venue.name}
-          </p>
-        </div>
+      <div className="mx-auto max-w-4xl">
         <Card className="p-6">
           <h2 className="font-serif text-xl text-[#3D421F]">
             Could not load comparison data
