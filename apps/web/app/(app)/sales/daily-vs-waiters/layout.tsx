@@ -23,7 +23,7 @@ export default async function DailyVsWaitersLayout({
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
       <div>
-        <ModulePageTitle>Daily vs Waiters</ModulePageTitle>
+        <ModulePageTitle>Verification</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Reconcile daily sales with waiter totals — {venue.name}
         </p>

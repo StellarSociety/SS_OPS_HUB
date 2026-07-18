@@ -102,7 +102,7 @@ export const moduleCatalog: ModuleDef[] = [
       { key: "overview", label: "Overview dashboards", href: "/sales", description: "KPI dashboards & charts" },
       { key: "venue_daily", label: "Daily Sales", href: "/sales/daily" },
       { key: "waiter_daily", label: "Waiter Sales", href: "/sales/waiter" },
-      { key: "daily_vs_waiters", label: "Daily vs Waiters", href: "/sales/daily-vs-waiters" },
+      { key: "daily_vs_waiters", label: "Verification", href: "/sales/daily-vs-waiters" },
       { key: "cash_drawer", label: "Discounts", href: "/sales/discounts" },
       { key: "forecast", label: "Forecasts", href: "/sales/forecast" },
       { key: "cash_up", label: "Daily Snap", href: "/sales/daily-snap" },

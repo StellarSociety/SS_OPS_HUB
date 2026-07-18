@@ -155,7 +155,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       { label: "Daily Sales", href: "/sales/daily", icon: Coins },
       { label: "Waiter Sales", href: "/sales/waiter", icon: UserRound },
       {
-        label: "Daily vs Waiters",
+        label: "Verification",
         href: "/sales/daily-vs-waiters",
         icon: GitCompareArrows,
       },
