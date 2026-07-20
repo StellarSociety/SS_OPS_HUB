@@ -64,13 +64,16 @@ type Props = {
   canEditRoster: boolean;
 };
 
-const ROSTER_ACTIONS: {
+type RosterActionDef = {
   code: ValidationRosterLabelCode;
   /** Roster label_code stored when this action is applied. */
   rosterCode: string;
   /** Fallback tooltip if schedule settings label is missing. */
   fallbackTitle: string;
-}[] = [
+};
+
+/** Full set of validation actions — keep in sync with schedule day labels. */
+const ROSTER_ACTION_DEFS: RosterActionDef[] = [
   {
     code: "SH",
     rosterCode: "SHIFT",
@@ -86,7 +89,21 @@ const ROSTER_ACTIONS: {
   { code: "AL", rosterCode: "AL", fallbackTitle: "Annual leave" },
   { code: "SL", rosterCode: "SL", fallbackTitle: "Sick leave" },
   { code: "UPL", rosterCode: "UPL", fallbackTitle: "Unpaid leave" },
+  { code: "ML", rosterCode: "ML", fallbackTitle: "Maternal leave" },
+  { code: "PL", rosterCode: "PL", fallbackTitle: "Parental leave" },
+  { code: "BL", rosterCode: "BL", fallbackTitle: "Bereavement leave" },
 ];
+
+/** True when the saved roster label matches this action (incl. legacy LP → AL). */
+function rosterMatchesAction(
+  rosterLabel: string | null | undefined,
+  action: RosterActionDef,
+): boolean {
+  if (!rosterLabel) return false;
+  if (rosterLabel === action.rosterCode) return true;
+  if (action.rosterCode === "AL" && rosterLabel === "LP") return true;
+  return false;
+}
 
 function formatTime(iso: string | null): string {
   if (!iso) return "—";
@@ -214,6 +231,16 @@ export function AttendanceApprovalsTable({
       map.set(label.code, label);
     }
     return map;
+  }, [scheduleLabels]);
+
+  /** Prefer configured schedule labels; fall back to the full built-in set. */
+  const rosterActions = useMemo(() => {
+    const configured = new Set(scheduleLabels.map((label) => label.code));
+    if (configured.size === 0) return ROSTER_ACTION_DEFS;
+    const fromSettings = ROSTER_ACTION_DEFS.filter((action) =>
+      configured.has(action.rosterCode),
+    );
+    return fromSettings.length > 0 ? fromSettings : ROSTER_ACTION_DEFS;
   }, [scheduleLabels]);
 
   const departmentOptions = useMemo(
@@ -780,11 +807,14 @@ export function AttendanceApprovalsTable({
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1.5">
                         {canEditRoster && staffId
-                          ? ROSTER_ACTIONS.map((action) => {
+                          ? rosterActions.map((action) => {
                               const selected =
                                 draft === action.code ||
                                 (!draft &&
-                                  row.rosterLabel === action.rosterCode);
+                                  rosterMatchesAction(
+                                    row.rosterLabel,
+                                    action,
+                                  ));
                               const label = labelsByCode.get(action.rosterCode);
                               const tooltip =
                                 action.code === "SH"

@@ -73,8 +73,9 @@ export default async function AttendanceValidationPage() {
         <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
         <p className="mt-1 text-sm text-black/55">
           Select a department, employee, and week(s). Stage SH / OFF / ABS / PH /
-          AL / SL / UPL, Save roster edits, then Approve Attendance so hours can
-          feed payroll and leave.
+          AL / SL / UPL / ML / PL / BL (current roster label is highlighted),
+          Save roster edits, then Approve Attendance so hours can feed payroll
+          and leave.
         </p>
       </div>
       <AttendanceApprovalsTable

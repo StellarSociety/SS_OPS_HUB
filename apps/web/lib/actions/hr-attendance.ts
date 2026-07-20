@@ -548,7 +548,10 @@ export type ValidationRosterLabelCode =
   | "SL"
   | "SH"
   | "OFF"
-  | "UPL";
+  | "UPL"
+  | "ML"
+  | "PL"
+  | "BL";
 
 /** Map validation action codes to schedule_day_labels.code. */
 function scheduleLabelForValidation(
@@ -558,7 +561,8 @@ function scheduleLabelForValidation(
 }
 
 /**
- * Persist one or more validation roster edits (SH / OFF / ABS / PH / AL / SL / UPL).
+ * Persist one or more validation roster edits
+ * (SH / OFF / ABS / PH / AL / SL / UPL / ML / PL / BL).
  * SH = shift for payroll (roster SHIFT) — does not invent or change hours.
  * OFF = paid day off (roster OFF).
  */
