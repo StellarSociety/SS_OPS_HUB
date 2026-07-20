@@ -1004,23 +1004,40 @@ export async function listScheduleDaysByDateRange(
   venueId: string,
   opts: { fromDate: string; toDate: string },
 ) {
-  const { data, error } = await supabase
-    .from("hr_schedule_days")
-    .select("staff_id, emp_no, work_date, label_code, shift_template_id")
-    .eq("venue_id", venueId)
-    .gte("work_date", opts.fromDate)
-    .lte("work_date", opts.toDate);
-
-  if (error) {
-    console.error("[hr] listScheduleDaysByDateRange:", error.message);
-    return [];
-  }
-
-  return (data ?? []) as {
+  // One week × full venue roster can exceed PostgREST’s silent 1000-row cap.
+  const pageSize = 1000;
+  const maxRows = 5000;
+  const rows: {
     staff_id: string;
     emp_no: string;
     work_date: string;
     label_code: string;
     shift_template_id: string | null;
-  }[];
+  }[] = [];
+  let from = 0;
+
+  while (rows.length < maxRows) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from("hr_schedule_days")
+      .select("staff_id, emp_no, work_date, label_code, shift_template_id")
+      .eq("venue_id", venueId)
+      .gte("work_date", opts.fromDate)
+      .lte("work_date", opts.toDate)
+      .order("work_date")
+      .order("staff_id")
+      .range(from, to);
+
+    if (error) {
+      console.error("[hr] listScheduleDaysByDateRange:", error.message);
+      return rows;
+    }
+
+    const page = (data ?? []) as typeof rows;
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
 }

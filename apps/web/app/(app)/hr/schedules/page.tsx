@@ -9,7 +9,10 @@ import { canEditSchedules } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
+  getMondayForWeekOffset,
+  getWeekDayColumns,
   resolveScheduleDepartment,
+  scheduleDaysToCellMap,
   withFallbackScheduleLabelIds,
   type ScheduleDepartmentKey,
   type ScheduleStaffRow,
@@ -17,6 +20,7 @@ import {
 import {
   listPublicHolidays,
   listScheduleDayLabels,
+  listScheduleDaysByDateRange,
   listShiftTemplates,
   listStaffForVenue,
 } from "@/lib/hr/store";
@@ -83,7 +87,11 @@ async function loadWorkingStatusByStaffId(
 export default async function SchedulesPage() {
   const { supabase, user, venue, permissions } = await getHrPageContext();
   const year = new Date().getFullYear();
-  const [staff, labelsFromDb, shiftTemplatesFromDb, publicHolidays, profileResult, approvalSettings, candidatesResult] =
+  const currentMonday = getMondayForWeekOffset(0);
+  const currentWeekDays = getWeekDayColumns(currentMonday);
+  const currentFromDate = currentWeekDays[0]?.key ?? "";
+  const currentToDate = currentWeekDays[6]?.key ?? "";
+  const [staff, labelsFromDb, shiftTemplatesFromDb, publicHolidays, profileResult, approvalSettings, candidatesResult, currentWeekScheduleDays] =
     await Promise.all([
       listStaffForVenue(supabase, venue.id),
       listScheduleDayLabels(supabase),
@@ -99,6 +107,12 @@ export default async function SchedulesPage() {
         .single(),
       getScheduleApprovalSettings(),
       listScheduleApproverCandidates(),
+      currentFromDate && currentToDate
+        ? listScheduleDaysByDateRange(supabase, venue.id, {
+            fromDate: currentFromDate,
+            toDate: currentToDate,
+          })
+        : Promise.resolve([]),
     ]);
   const canEdit = canEditSchedules(permissions, venue.id);
   const userDisplayName = buildExportUserLabel(
@@ -117,6 +131,15 @@ export default async function SchedulesPage() {
       : withFallbackScheduleLabelIds(DEFAULT_SCHEDULE_DAY_LABELS);
   const shiftTemplates = shiftTemplatesFromDb ?? [];
   const holidays: PublicHoliday[] = publicHolidays ?? [];
+  const knownCodes = new Set(labels.map((label) => label.code));
+  const initialWeekCells = scheduleDaysToCellMap(
+    currentWeekScheduleDays,
+    knownCodes,
+  );
+  const initialWeekKey =
+    currentFromDate && currentToDate
+      ? `days:${currentFromDate}:${currentToDate}`
+      : null;
 
   const scheduleStaff = staff.filter((member) => {
     if (!member.joining_date?.trim()) return false;
@@ -161,6 +184,8 @@ export default async function SchedulesPage() {
       userDisplayName={userDisplayName}
       currentUserId={user.id}
       approverPool={approverPool}
+      initialWeekCells={initialWeekCells}
+      initialWeekKey={initialWeekKey}
     />
   );
 }

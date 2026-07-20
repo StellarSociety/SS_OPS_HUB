@@ -321,6 +321,8 @@ export function SchedulesWeekNav({
     });
   }
 
+  const isCurrentWeek = weekOffset === 0;
+
   return (
     <>
       <div
@@ -368,6 +370,24 @@ export function SchedulesWeekNav({
           aria-label="Next week"
         >
           <ChevronRight className="h-4 w-4" aria-hidden />
+        </button>
+        <button
+          type="button"
+          disabled={isCurrentWeek}
+          onClick={() => run(() => onWeekOffsetChange(0))}
+          title={
+            isCurrentWeek
+              ? "Already viewing the current week"
+              : "Jump to the current week"
+          }
+          className={cn(
+            "ml-1 inline-flex h-9 items-center rounded-lg border px-2.5 text-[11px] font-semibold uppercase tracking-wide transition-colors",
+            isCurrentWeek
+              ? "cursor-default border-black/5 bg-black/[0.03] text-black/30"
+              : "border-black/10 bg-white/70 text-[#3D421F] hover:bg-white",
+          )}
+        >
+          Current week
         </button>
       </div>
 

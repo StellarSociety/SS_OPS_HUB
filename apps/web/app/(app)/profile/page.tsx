@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Image from "next/image";
 import {
   Briefcase,
   Building2,
@@ -19,6 +20,7 @@ import type { ModuleAccessRecord, UserListRow } from "@/lib/access/types";
 import { getModuleLabel } from "@/lib/modules-catalog";
 import { createClient } from "@/lib/supabase/server";
 import { getUserInitials } from "@/lib/user/display";
+import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { Card } from "@/components/ui/card";
 
 async function loadOwnModuleAccess(
@@ -46,7 +48,7 @@ export default async function ProfilePage() {
 
   const STAFF_JOIN = `
       staff:staff_id (
-        emp_no, first_name, full_name, work_email, personal_email,
+        emp_no, first_name, full_name, work_email, personal_email, photo_url,
         department:department_id ( name ),
         position:position_id ( name ),
         home_venue:home_venue_id ( name )
@@ -55,7 +57,9 @@ export default async function ProfilePage() {
   let profile: Record<string, unknown> | null = null;
   const ext = await supabase
     .from("profiles")
-    .select(`id, email, full_name, status, is_external, last_login_at,${STAFF_JOIN}`)
+    .select(
+      `id, email, full_name, status, is_external, last_login_at, avatar_url,${STAFF_JOIN}`,
+    )
     .eq("id", user.id)
     .maybeSingle();
   if (ext.error) {
@@ -87,6 +91,7 @@ export default async function ProfilePage() {
     emp_no: string;
     work_email: string | null;
     personal_email: string | null;
+    photo_url?: string | null;
     department: Named;
     position: Named;
     home_venue: Named;
@@ -94,6 +99,7 @@ export default async function ProfilePage() {
   type ProfileShape = {
     email?: string | null;
     full_name?: string | null;
+    avatar_url?: string | null;
     staff?: StaffShape | StaffShape[] | null;
   };
 
@@ -104,6 +110,7 @@ export default async function ProfilePage() {
         emp_no: staffRaw.emp_no,
         work_email: staffRaw.work_email,
         personal_email: staffRaw.personal_email,
+        photo_url: staffRaw.photo_url ?? null,
         department: unwrap(staffRaw.department),
         position: unwrap(staffRaw.position),
         home_venue: unwrap(staffRaw.home_venue),
@@ -111,6 +118,12 @@ export default async function ProfilePage() {
     : null;
   const fullName = p?.full_name ?? user.email ?? "User";
   const email = p?.email ?? user.email ?? "";
+  const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  const avatarUrl = resolveAvatarUrl({
+    profileAvatarUrl: p?.avatar_url,
+    staffPhotoUrl: staff?.photo_url ?? null,
+    userMetadata: metadata,
+  });
 
   const editorState = buildEditorState({
     moduleAccess,
@@ -123,9 +136,21 @@ export default async function ProfilePage() {
     <div className="mx-auto max-w-4xl space-y-6">
       {/* Header */}
       <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#3D421F] font-serif text-2xl text-[#F0F3DD]">
-          {getUserInitials(fullName, email)}
-        </div>
+        {avatarUrl ? (
+          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-black/10 shadow-sm">
+            <Image
+              src={avatarUrl}
+              alt={fullName}
+              fill
+              className="object-cover"
+              unoptimized
+            />
+          </div>
+        ) : (
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#3D421F] font-serif text-2xl text-[#F0F3DD]">
+            {getUserInitials(fullName, email)}
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <h1 className="font-serif text-2xl text-[#3D421F]">{fullName}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-black/60">

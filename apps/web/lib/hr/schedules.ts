@@ -614,6 +614,33 @@ export function scheduleCellKey(staffId: string, dateKey: string) {
   return `${staffId}:${dateKey}`;
 }
 
+/** Raw schedule day row from `hr_schedule_days` (API / DB shape). */
+export type ScheduleDayRow = {
+  staff_id: string;
+  work_date: string;
+  label_code: string;
+  shift_template_id: string | null;
+};
+
+/** Map API day rows into the cell map used by the roster UI and PDF export. */
+export function scheduleDaysToCellMap(
+  days: ScheduleDayRow[],
+  knownCodes: Set<string>,
+): Record<string, ScheduleCellValue> {
+  const next: Record<string, ScheduleCellValue> = {};
+  for (const day of days) {
+    if (!knownCodes.has(day.label_code) && day.label_code !== "LP") continue;
+    const code = day.label_code === "LP" ? "AL" : day.label_code;
+    if (!knownCodes.has(code)) continue;
+    next[scheduleCellKey(day.staff_id, day.work_date)] = {
+      labelCode: code,
+      shiftTemplateId:
+        code === "SHIFT" ? (day.shift_template_id ?? null) : null,
+    };
+  }
+  return next;
+}
+
 export type ScheduleDayAssignment = {
   staffId: string;
   dateKey: string;

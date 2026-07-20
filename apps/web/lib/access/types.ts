@@ -16,6 +16,7 @@ export type UserListRow = {
   id: string;
   email: string;
   full_name: string | null;
+  avatar_url: string | null;
   status: "active" | "disabled";
   staff_id: string | null;
   is_external: boolean;

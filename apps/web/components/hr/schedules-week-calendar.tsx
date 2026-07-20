@@ -52,6 +52,7 @@ import {
   getCachedScheduleAttendance,
   getCachedScheduleDaysForStaff,
   getCachedScheduleSections,
+  isWeekDaysCacheComplete,
   mergeCachedScheduleDays,
   patchCachedScheduleDays,
   scheduleSectionsCacheKey,
@@ -77,10 +78,17 @@ type SchedulesWeekCalendarProps = {
   weekOffset?: number;
   onWeekOffsetChange?: (offset: number) => void;
   /**
-   * Staff IDs to fetch for the week (defaults to `staff`).
-   * Pass every department’s IDs so one request warms the shared week cache.
+   * Staff IDs to mark as loaded after a week fetch (defaults to `staff`).
+   * Pass every department’s IDs so tab switches hit the shared week cache.
    */
-  loadStaffIds?: string[];
+  cacheStaffIds?: string[];
+  /**
+   * Optional SSR seed for the visible week — paints labels before the client
+   * round-trip. Keys are `staffId::YYYY-MM-DD`.
+   */
+  initialCells?: Record<string, ScheduleCellValue>;
+  /** Week key (`fromDate:toDate`) that `initialCells` belongs to. */
+  initialWeekKey?: string | null;
   /**
    * All on-board staff used to load fingerprint attendance (defaults to `staff`).
    * Pass every department so punch times are not limited to the active tab.
@@ -204,8 +212,6 @@ function attendanceHintForWeek(
   return `No punch times for the week of ${rangeLabel}.`;
 }
 
-const SHOW_PUNCH_TIMES_STORAGE_KEY = "hr-schedules-show-punch-times";
-
 export function SchedulesWeekCalendar({
   departmentLabel,
   staff,
@@ -217,7 +223,9 @@ export function SchedulesWeekCalendar({
   departmentKey,
   weekOffset: weekOffsetProp,
   onWeekOffsetChange,
-  loadStaffIds,
+  cacheStaffIds,
+  initialCells,
+  initialWeekKey = null,
   attendanceStaff: attendanceStaffProp,
   onRegisterUnsavedGuard,
   hideWeekNavigation = false,
@@ -232,7 +240,14 @@ export function SchedulesWeekCalendar({
     if (weekOffsetProp === undefined) setWeekOffsetState(value);
   }
   const saveDraftsRef = useRef<() => Promise<boolean>>(async () => true);
-  const [saved, setSaved] = useState<Record<string, ScheduleCellValue>>({});
+  const seededWeekRef = useRef<string | null>(null);
+  const [saved, setSaved] = useState<Record<string, ScheduleCellValue>>(() => {
+    if (!initialCells || !initialWeekKey) return {};
+    const monday = getMondayForWeekOffset(weekOffsetProp ?? 0);
+    const cols = getWeekDayColumns(monday);
+    const key = scheduleWeekDaysCacheKey(cols[0]?.key ?? "", cols[6]?.key ?? "");
+    return key === initialWeekKey ? initialCells : {};
+  });
   const [attendance, setAttendance] = useState<
     Record<string, ScheduleAttendanceCell>
   >({});
@@ -249,7 +264,13 @@ export function SchedulesWeekCalendar({
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (!initialCells || !initialWeekKey) return true;
+    const monday = getMondayForWeekOffset(weekOffsetProp ?? 0);
+    const cols = getWeekDayColumns(monday);
+    const key = scheduleWeekDaysCacheKey(cols[0]?.key ?? "", cols[6]?.key ?? "");
+    return key !== initialWeekKey;
+  });
   const [error, setError] = useState<string | null>(null);
   const suppressClickRef = useRef(false);
   const loadGenRef = useRef(0);
@@ -293,17 +314,17 @@ export function SchedulesWeekCalendar({
     () => staff.map((member) => `${member.id}:${member.empNo}`).join("|"),
     [staff],
   );
-  const fetchStaffIds = useMemo(() => {
-    if (loadStaffIds && loadStaffIds.length > 0) return loadStaffIds;
+  const cacheIds = useMemo(() => {
+    if (cacheStaffIds && cacheStaffIds.length > 0) return cacheStaffIds;
     return staff.map((member) => member.id);
-  }, [loadStaffIds, staff]);
+  }, [cacheStaffIds, staff]);
+  const cacheStaffIdsKey = cacheIds.join(",");
   const attendanceStaff = attendanceStaffProp ?? staff;
   const attendanceStaffKey = useMemo(
     () =>
       attendanceStaff.map((member) => `${member.id}:${member.empNo}`).join("|"),
     [attendanceStaff],
   );
-  const fetchStaffIdsKey = fetchStaffIds.join(",");
   const staffById = useMemo(() => {
     const map = new Map<string, ScheduleStaffRow>();
     for (const member of staff) map.set(member.id, member);
@@ -311,6 +332,10 @@ export function SchedulesWeekCalendar({
   }, [staff]);
   const knownCodes = useMemo(
     () => new Set(labels.map((label) => label.code)),
+    [labels],
+  );
+  const knownCodesKey = useMemo(
+    () => labels.map((label) => label.code).join("|"),
     [labels],
   );
   const selectedCount = selected.size;
@@ -386,10 +411,12 @@ export function SchedulesWeekCalendar({
 
   const loadWeek = useEffectEvent(async () => {
     const gen = ++loadGenRef.current;
-    const staffIds = fetchStaffIds;
     const displayIds = displayStaffIdsKey
       ? displayStaffIdsKey.split(",").filter(Boolean)
       : [];
+    const allCacheIds = cacheStaffIdsKey
+      ? cacheStaffIdsKey.split(",").filter(Boolean)
+      : displayIds;
     const weekKey = scheduleWeekDaysCacheKey(fromDate, toDate);
     const sectionsKey =
       sectionsMode && departmentKey && weekStart
@@ -397,6 +424,19 @@ export function SchedulesWeekCalendar({
         : null;
 
     try {
+      // Seed SSR cells into the shared week cache once.
+      if (
+        initialCells &&
+        initialWeekKey &&
+        initialWeekKey === weekKey &&
+        seededWeekRef.current !== weekKey
+      ) {
+        mergeCachedScheduleDays(weekKey, allCacheIds, initialCells, {
+          weekComplete: true,
+        });
+        seededWeekRef.current = weekKey;
+      }
+
       const cachedDays = getCachedScheduleDaysForStaff(weekKey, displayIds);
       if (cachedDays) {
         setSaved(cachedDays);
@@ -423,7 +463,7 @@ export function SchedulesWeekCalendar({
         return;
       }
 
-      const needDays = !getCachedScheduleDaysForStaff(weekKey, staffIds);
+      const needDays = !isWeekDaysCacheComplete(weekKey);
       const needSections = Boolean(
         sectionsKey && !getCachedScheduleSections(sectionsKey),
       );
@@ -461,7 +501,6 @@ export function SchedulesWeekCalendar({
 
       if (needDays && needSections) {
         const result = await loadSchedulesWeekData({
-          staffIds,
           fromDate,
           toDate,
           departmentKey,
@@ -478,7 +517,9 @@ export function SchedulesWeekCalendar({
         }
 
         const next = cellsFromDays(result.days ?? []);
-        mergeCachedScheduleDays(weekKey, staffIds, next);
+        mergeCachedScheduleDays(weekKey, allCacheIds, next, {
+          weekComplete: result.weekComplete !== false,
+        });
         setSaved(getCachedScheduleDaysForStaff(weekKey, displayIds) ?? next);
 
         const nextSections = result.sections ?? [];
@@ -490,7 +531,6 @@ export function SchedulesWeekCalendar({
 
       if (needDays) {
         const result = await loadSchedulesWeekData({
-          staffIds,
           fromDate,
           toDate,
           includeSections: false,
@@ -505,7 +545,9 @@ export function SchedulesWeekCalendar({
         }
 
         const next = cellsFromDays(result.days ?? []);
-        mergeCachedScheduleDays(weekKey, staffIds, next);
+        mergeCachedScheduleDays(weekKey, allCacheIds, next, {
+          weekComplete: result.weekComplete !== false,
+        });
         setSaved(getCachedScheduleDaysForStaff(weekKey, displayIds) ?? next);
         setLoading(false);
       } else {
@@ -521,16 +563,6 @@ export function SchedulesWeekCalendar({
       /* attendance loaded in dedicated effect */
     }
   });
-
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(SHOW_PUNCH_TIMES_STORAGE_KEY) === "1") {
-        setShowPunchTimes(true);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   const loadAttendanceForWeek = useEffectEvent(async () => {
     if (!showPunchTimes) {
@@ -615,12 +647,13 @@ export function SchedulesWeekCalendar({
   }, [
     fromDate,
     toDate,
-    fetchStaffIdsKey,
+    cacheStaffIdsKey,
     displayStaffIdsKey,
-    knownCodes,
+    knownCodesKey,
     sectionsMode,
     departmentKey,
     weekStart,
+    initialWeekKey,
   ]);
 
   // Keep the shared sections cache in sync after local edits.
@@ -1851,16 +1884,7 @@ export function SchedulesWeekCalendar({
               type="checkbox"
               checked={showPunchTimes}
               onChange={(event) => {
-                const next = event.target.checked;
-                setShowPunchTimes(next);
-                try {
-                  localStorage.setItem(
-                    SHOW_PUNCH_TIMES_STORAGE_KEY,
-                    next ? "1" : "0",
-                  );
-                } catch {
-                  /* ignore */
-                }
+                setShowPunchTimes(event.target.checked);
               }}
               className="h-3.5 w-3.5 rounded border-black/20 accent-[var(--venue-primary)]"
             />

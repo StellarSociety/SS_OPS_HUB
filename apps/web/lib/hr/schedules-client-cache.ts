@@ -9,6 +9,8 @@ import type {
 type WeekDaysEntry = {
   cells: Record<string, ScheduleCellValue>;
   loadedStaffIds: Set<string>;
+  /** True after a venue-wide week fetch — tab switches need no extra round-trip. */
+  weekComplete: boolean;
 };
 
 const weekDaysCache = new Map<string, WeekDaysEntry>();
@@ -25,12 +27,21 @@ export function scheduleSectionsCacheKey(
   return `sections:${departmentKey}:${weekStart}`;
 }
 
+function emptyWeekDaysEntry(): WeekDaysEntry {
+  return { cells: {}, loadedStaffIds: new Set(), weekComplete: false };
+}
+
+export function isWeekDaysCacheComplete(weekKey: string) {
+  return weekDaysCache.get(weekKey)?.weekComplete === true;
+}
+
 export function getCachedScheduleDaysForStaff(
   weekKey: string,
   staffIds: string[],
 ): Record<string, ScheduleCellValue> | null {
   const entry = weekDaysCache.get(weekKey);
   if (!entry) return null;
+  if (entry.weekComplete) return entry.cells;
   if (staffIds.length === 0) return {};
   const missing = staffIds.some((id) => !entry.loadedStaffIds.has(id));
   if (missing) return null;
@@ -41,13 +52,12 @@ export function mergeCachedScheduleDays(
   weekKey: string,
   staffIds: string[],
   cells: Record<string, ScheduleCellValue>,
+  opts?: { weekComplete?: boolean },
 ) {
-  const entry = weekDaysCache.get(weekKey) ?? {
-    cells: {},
-    loadedStaffIds: new Set<string>(),
-  };
+  const entry = weekDaysCache.get(weekKey) ?? emptyWeekDaysEntry();
   entry.cells = { ...entry.cells, ...cells };
   for (const id of staffIds) entry.loadedStaffIds.add(id);
+  if (opts?.weekComplete) entry.weekComplete = true;
   weekDaysCache.set(weekKey, entry);
 }
 

@@ -11,8 +11,10 @@ import {
   getShiftTemplate,
   getWeekDayColumns,
   scheduleCellKey,
+  scheduleDaysToCellMap,
   type ScheduleCellValue,
   type ScheduleDayLabel,
+  type ScheduleDayRow,
   type ScheduleDepartmentKey,
   type ScheduleStaffRow,
   type ScheduleWeekSection,
@@ -31,12 +33,9 @@ type PdfLogoAsset = {
   height: number;
 };
 
-export type SchedulesPdfDayRow = {
-  staff_id: string;
-  work_date: string;
-  label_code: string;
-  shift_template_id: string | null;
-};
+export type SchedulesPdfDayRow = ScheduleDayRow;
+
+export { scheduleDaysToCellMap };
 
 export type SchedulesPdfDepartmentBlock = {
   departmentKey: ScheduleDepartmentKey;
@@ -847,23 +846,4 @@ export async function exportSchedulesPdf(
       options.exportedAt,
     ),
   );
-}
-
-/** Map API day rows into the cell map used by the PDF/UI. */
-export function scheduleDaysToCellMap(
-  days: SchedulesPdfDayRow[],
-  knownCodes: Set<string>,
-): Record<string, ScheduleCellValue> {
-  const next: Record<string, ScheduleCellValue> = {};
-  for (const day of days) {
-    if (!knownCodes.has(day.label_code) && day.label_code !== "LP") continue;
-    const code = day.label_code === "LP" ? "AL" : day.label_code;
-    if (!knownCodes.has(code)) continue;
-    next[scheduleCellKey(day.staff_id, day.work_date)] = {
-      labelCode: code,
-      shiftTemplateId:
-        code === "SHIFT" ? (day.shift_template_id ?? null) : null,
-    };
-  }
-  return next;
 }

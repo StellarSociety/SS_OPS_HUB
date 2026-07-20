@@ -33,6 +33,7 @@ import {
   listPositions,
   listPublicHolidays,
   listStaffScheduleDays,
+  listScheduleDaysByDateRange,
   listAttendanceDaysForStaff,
   listAttendancePunchesForStaff,
   countAttendanceForWeekRange,
@@ -1953,10 +1954,11 @@ export async function listWeekSections(params: {
 
 /**
  * Single round-trip for schedule roster cells (+ optional section bands).
- * Prefers auth once and parallel DB reads over stacked client actions.
+ * Loads the whole venue week via (venue_id, work_date) — much faster than a
+ * large staff_id IN list — so every department tab can paint from one cache.
  */
 export async function loadSchedulesWeekData(params: {
-  staffIds: string[];
+  staffIds?: string[];
   fromDate: string;
   toDate: string;
   departmentKey?: string | null;
@@ -1967,12 +1969,12 @@ export async function loadSchedulesWeekData(params: {
   if (!canAccessSchedules(permissions, venue.id)) {
     return {
       error: "No access.",
-      days: [] as Awaited<ReturnType<typeof listStaffScheduleDays>>,
+      days: [] as Awaited<ReturnType<typeof listScheduleDaysByDateRange>>,
       sections: [] as ScheduleWeekSection[],
+      weekComplete: false,
     };
   }
 
-  const staffIds = [...new Set(params.staffIds.filter(Boolean))];
   const includeSections =
     Boolean(params.includeSections) &&
     Boolean(params.departmentKey) &&
@@ -1980,18 +1982,15 @@ export async function loadSchedulesWeekData(params: {
     isDepartmentKey(params.departmentKey!) &&
     isWeekStart(params.weekStart!);
 
-  const daysPromise =
-    staffIds.length > 0
-      ? listStaffScheduleDays(supabase, venue.id, {
-          staffIds,
-          fromDate: params.fromDate,
-          toDate: params.toDate,
-        })
-      : Promise.resolve([]);
+  // Prefer the venue+date index over filtering by every staff UUID.
+  const daysPromise = listScheduleDaysByDateRange(supabase, venue.id, {
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+  });
 
   if (!includeSections) {
     const days = await daysPromise;
-    return { days, sections: [] as ScheduleWeekSection[] };
+    return { days, sections: [] as ScheduleWeekSection[], weekComplete: true };
   }
 
   const departmentKey = params.departmentKey as ScheduleDepartmentKey;
@@ -2006,7 +2005,7 @@ export async function loadSchedulesWeekData(params: {
 
   const [days, existing] = await Promise.all([daysPromise, existingPromise]);
   if (existing.length > 0) {
-    return { days, sections: existing };
+    return { days, sections: existing, weekComplete: true };
   }
 
   await seedWeekFromPreviousOrDefaults({
@@ -2021,7 +2020,7 @@ export async function loadSchedulesWeekData(params: {
     departmentKey,
     weekStart,
   );
-  return { days, sections };
+  return { days, sections, weekComplete: true };
 }
 
 /** Fingerprint clock-in/out for the schedule roster grid. */

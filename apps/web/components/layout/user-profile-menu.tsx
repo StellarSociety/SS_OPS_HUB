@@ -100,13 +100,13 @@ export function UserProfileMenu({ user }: UserProfileMenuProps) {
           <Image
             src={user.avatarUrl}
             alt={displayName}
-            width={36}
-            height={36}
-            className="h-9 w-9 rounded-full border border-white/80 object-cover shadow-sm"
+            width={40}
+            height={40}
+            className="h-10 w-10 rounded-full border border-white/80 object-cover shadow-sm"
             unoptimized
           />
         ) : (
-          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/80 bg-[#3D421F] text-sm font-medium text-white shadow-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-[#3D421F] text-sm font-medium text-white shadow-sm">
             {initials}
           </div>
         )}

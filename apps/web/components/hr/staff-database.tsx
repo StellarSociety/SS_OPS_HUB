@@ -53,6 +53,24 @@ type Column = {
 const filterFieldClass =
   "h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20";
 
+const STICKY_COLUMN_KEYS = new Set(["emp_no", "full_name"]);
+
+const STICKY_COLUMN_LAYOUT: Record<string, { width: string; left: string }> = {
+  emp_no: { width: "5.5rem", left: "0px" },
+  full_name: { width: "11.5rem", left: "5.5rem" },
+};
+
+function stickyColumnStyle(key: string): React.CSSProperties | undefined {
+  const layout = STICKY_COLUMN_LAYOUT[key];
+  if (!layout) return undefined;
+  return {
+    left: layout.left,
+    width: layout.width,
+    minWidth: layout.width,
+    maxWidth: layout.width,
+  };
+}
+
 function ClearButton({
   onClick,
   className,
@@ -145,6 +163,21 @@ export function StaffDatabase({
         ),
       },
       {
+        key: "full_name",
+        label: "Full name",
+        kind: "text",
+        sortValue: (s) => s.full_name,
+        text: (s) => s.full_name,
+        render: (s) => (
+          <Link
+            href={`/hr/${s.id}`}
+            className="font-medium text-[#3D421F] hover:underline"
+          >
+            {s.full_name}
+          </Link>
+        ),
+      },
+      {
         key: "department",
         label: "Department",
         kind: "text",
@@ -175,21 +208,6 @@ export function StaffDatabase({
         sortValue: (s) => s.last_name ?? "",
         text: (s) => s.last_name ?? "",
         render: (s) => s.last_name ?? "—",
-      },
-      {
-        key: "full_name",
-        label: "Full name",
-        kind: "text",
-        sortValue: (s) => s.full_name,
-        text: (s) => s.full_name,
-        render: (s) => (
-          <Link
-            href={`/hr/${s.id}`}
-            className="font-medium text-[#3D421F] hover:underline"
-          >
-            {s.full_name}
-          </Link>
-        ),
       },
       {
         key: "contact_phone",
@@ -691,10 +709,16 @@ export function StaffDatabase({
               <tr>
                 {columns.map((col) => {
                   const active = sortKey === col.key;
+                  const sticky = STICKY_COLUMN_KEYS.has(col.key);
                   return (
                     <th
                       key={col.key}
-                      className="border-b border-black/10 px-3 py-2 align-top"
+                      className={cn(
+                        "border-b border-black/10 px-3 py-2 align-top",
+                        sticky &&
+                          "sticky z-30 border-r border-black/10 bg-[var(--venue-secondary)]/95 backdrop-blur-md",
+                      )}
+                      style={stickyColumnStyle(col.key)}
                     >
                       <button
                         type="button"
@@ -735,19 +759,25 @@ export function StaffDatabase({
               {filtered.map((s) => (
                 <tr
                   key={s.id}
-                  className="border-b border-black/5 hover:bg-[var(--venue-secondary)]/30"
+                  className="group border-b border-black/5 hover:bg-[var(--venue-secondary)]/30"
                 >
-                  {columns.map((col) => (
+                  {columns.map((col) => {
+                    const sticky = STICKY_COLUMN_KEYS.has(col.key);
+                    return (
                     <td
                       key={col.key}
                       className={cn(
                         "whitespace-nowrap px-3 py-2 text-black/70",
                         col.kind === "number" && "text-right tabular-nums",
+                        sticky &&
+                          "sticky z-10 border-r border-black/10 bg-white/90 backdrop-blur-sm group-hover:bg-[var(--venue-secondary)]/30",
                       )}
+                      style={stickyColumnStyle(col.key)}
                     >
                       {col.render(s)}
                     </td>
-                  ))}
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>

@@ -67,6 +67,7 @@ const STAFF_JOIN = `
         work_email,
         personal_email,
         home_venue_id,
+        photo_url,
         department:department_id ( name ),
         position:position_id ( name ),
         employment_status:employment_status_id ( name ),
@@ -74,7 +75,7 @@ const STAFF_JOIN = `
       )`;
 
 const PROFILE_SELECT_EXT = `
-      id, email, full_name, status, staff_id,
+      id, email, full_name, status, staff_id, avatar_url,
       is_external, login_email_source, invited_at, invite_accepted_at, last_login_at,
       created_at,${STAFF_JOIN}`;
 
@@ -102,6 +103,7 @@ type RawProfile = {
   id: string;
   email: string;
   full_name: string | null;
+  avatar_url?: string | null;
   status: string;
   staff_id: string | null;
   created_at: string;
@@ -166,6 +168,7 @@ export async function listUsers(
       id: p.id,
       email: p.email,
       full_name: p.full_name,
+      avatar_url: p.avatar_url ?? null,
       status: p.status as UserListRow["status"],
       staff_id: p.staff_id,
       is_external: p.is_external ?? false,

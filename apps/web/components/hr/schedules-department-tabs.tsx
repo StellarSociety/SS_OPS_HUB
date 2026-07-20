@@ -29,7 +29,9 @@ import {
   filterStaffForWeek,
   getMondayForWeekOffset,
   getWeekDayColumns,
+  scheduleDaysToCellMap,
   weekStartKeyFromDate,
+  type ScheduleCellValue,
   type ScheduleDayLabel,
   type ScheduleDepartmentKey,
   type ScheduleStaffRow,
@@ -38,7 +40,6 @@ import {
 import type { PublicHoliday, ScheduleApprovalRequest } from "@/lib/hr/types";
 import {
   exportSchedulesPdf,
-  scheduleDaysToCellMap,
   type SchedulesPdfDepartmentBlock,
 } from "@/lib/hr/schedules-pdf";
 import {
@@ -62,6 +63,9 @@ type SchedulesDepartmentTabsProps = {
   currentUserId: string;
   approverPool: ScheduleApproverCandidate[];
   initialApprovalByWeek?: Record<string, ScheduleApprovalRequest | null>;
+  /** SSR-seeded roster cells for the current week (keys: staffId::date). */
+  initialWeekCells?: Record<string, ScheduleCellValue>;
+  initialWeekKey?: string | null;
 };
 
 function approvalStatusLabel(request: ScheduleApprovalRequest | null | undefined) {
@@ -83,6 +87,8 @@ export function SchedulesDepartmentTabs({
   currentUserId,
   approverPool,
   initialApprovalByWeek = {},
+  initialWeekCells,
+  initialWeekKey = null,
 }: SchedulesDepartmentTabsProps) {
   const [active, setActive] = useState<ScheduleDepartmentKey>("kitchen");
   const [viewByDept, setViewByDept] = useState<
@@ -469,7 +475,7 @@ export function SchedulesDepartmentTabs({
             departmentLabel={activeDept.label}
             departmentKey={active}
             staff={staffByDepartmentForWeek[active] ?? []}
-            loadStaffIds={allStaffIds}
+            cacheStaffIds={allStaffIds}
             attendanceStaff={allStaff}
             labels={labels}
             shiftTemplates={shiftTemplates}
@@ -480,6 +486,8 @@ export function SchedulesDepartmentTabs({
             onWeekOffsetChange={setWeekOffset}
             onRegisterUnsavedGuard={registerUnsavedGuard}
             hideWeekNavigation
+            initialCells={initialWeekCells}
+            initialWeekKey={initialWeekKey}
           />
         </div>
       </Card>

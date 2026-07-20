@@ -20,7 +20,12 @@ import {
   sendResendEmail,
 } from "@/lib/email/resend";
 import { VENUE_TOGGLEABLE_MODULES } from "@/lib/modules-catalog";
+import {
+  convertImageToWebp,
+  isRasterImageMime,
+} from "@/lib/storage/convert-to-webp";
 import { createServiceClient } from "@/lib/supabase/service";
+import sharp from "sharp";
 
 const SETTINGS_PATHS = ["/settings", "/settings/users", "/settings/venue-modules"];
 
@@ -712,6 +717,157 @@ export async function changeUserName(userId: string, newNameRaw: string) {
   revalidateSettings();
   revalidatePath(`/settings/users/${userId}`);
   return { success: `Name updated to ${fullName}.` };
+}
+
+const USER_AVATARS_BUCKET = "user-avatars";
+const USER_AVATAR_MAX_BYTES = 512 * 1024;
+
+function userAvatarObjectPath(userId: string) {
+  return `${userId}.webp`;
+}
+
+function userAvatarLegacyPaths(userId: string) {
+  return [`${userId}.jpg`, `${userId}.jpeg`, `${userId}.png`];
+}
+
+export async function updateUserAvatar(userId: string, formData: FormData) {
+  const { user: actor } = await requireAppAdmin();
+  const service = createServiceClient();
+
+  const before = await getUserById(service, userId);
+  if (!before) return { error: "User not found." };
+
+  const clear = String(formData.get("avatar_clear") ?? "") === "1";
+  const file = formData.get("avatar");
+  const objectPath = userAvatarObjectPath(userId);
+
+  if (file instanceof File && file.size > 0) {
+    if (file.size > USER_AVATAR_MAX_BYTES) {
+      return { error: "Profile photo must be 512 KB or smaller." };
+    }
+    if (!isRasterImageMime(file.type)) {
+      return { error: "Profile photo must be a PNG, JPEG, or WebP image." };
+    }
+
+    const bytes = Buffer.from(await file.arrayBuffer());
+    let webpBuffer: Buffer;
+    try {
+      const rotated = sharp(bytes, { failOn: "none" }).rotate();
+      webpBuffer = await rotated
+        .resize(256, 256, { fit: "cover", position: "centre" })
+        .webp({ quality: 82 })
+        .toBuffer();
+    } catch {
+      try {
+        const webp = await convertImageToWebp(bytes, {
+          maxWidth: 256,
+          maxHeight: 256,
+        });
+        webpBuffer = webp.buffer;
+      } catch {
+        return { error: "Could not process profile photo." };
+      }
+    }
+
+    await service.storage
+      .from(USER_AVATARS_BUCKET)
+      .remove([objectPath, ...userAvatarLegacyPaths(userId)]);
+
+    const { error: uploadError } = await service.storage
+      .from(USER_AVATARS_BUCKET)
+      .upload(objectPath, webpBuffer, {
+        contentType: "image/webp",
+        upsert: true,
+        cacheControl: "31536000",
+      });
+
+    if (uploadError) {
+      return {
+        error:
+          "Could not upload profile photo. Ensure user-avatars storage exists (run db migrations).",
+      };
+    }
+
+    const { data: publicData } = service.storage
+      .from(USER_AVATARS_BUCKET)
+      .getPublicUrl(objectPath);
+
+    const avatarUrl = `${publicData.publicUrl}?v=${Date.now()}`;
+
+    const { error: profileError } = await service
+      .from("profiles")
+      .update({ avatar_url: avatarUrl })
+      .eq("id", userId);
+    if (profileError) return { error: profileError.message };
+
+    try {
+      await service.auth.admin.updateUserById(userId, {
+        user_metadata: { avatar_url: avatarUrl },
+      });
+    } catch {
+      // profile.avatar_url is the source of truth
+    }
+
+    await writeAuditLog({
+      actor_id: actor.id,
+      action: "update",
+      module_key: "app",
+      entity: "profile_avatar",
+      entity_id: userId,
+      before: { avatar_url: before.avatar_url },
+      after: { avatar_url: avatarUrl },
+    });
+
+    revalidateSettings();
+    revalidatePath(`/settings/users/${userId}`);
+    revalidatePath("/", "layout");
+    return { success: "Profile photo saved.", avatarUrl };
+  }
+
+  if (clear) {
+    const toRemove = new Set<string>([
+      objectPath,
+      ...userAvatarLegacyPaths(userId),
+    ]);
+    if (before.avatar_url) {
+      const match = before.avatar_url.match(/\/user-avatars\/([^?]+)/);
+      if (match?.[1]) {
+        toRemove.add(decodeURIComponent(match[1]));
+      }
+    }
+    await service.storage.from(USER_AVATARS_BUCKET).remove([...toRemove]);
+
+    const { error: profileError } = await service
+      .from("profiles")
+      .update({ avatar_url: null })
+      .eq("id", userId);
+    if (profileError) return { error: profileError.message };
+
+    try {
+      await service.auth.admin.updateUserById(userId, {
+        user_metadata: { avatar_url: null },
+      });
+    } catch {
+      /* best-effort */
+    }
+
+    await writeAuditLog({
+      actor_id: actor.id,
+      action: "update",
+      module_key: "app",
+      entity: "profile_avatar",
+      entity_id: userId,
+      before: { avatar_url: before.avatar_url },
+      after: { avatar_url: null },
+    });
+
+    revalidateSettings();
+    revalidatePath(`/settings/users/${userId}`);
+    revalidatePath("/", "layout");
+    return { success: "Profile photo removed.", avatarUrl: null };
+  }
+
+  return { error: "Choose a photo to upload." };
 }
 
 export async function setUserStatus(userId: string, status: "active" | "disabled") {

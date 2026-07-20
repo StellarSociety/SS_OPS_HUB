@@ -16,6 +16,7 @@ import {
 import { inviteStatusOf, type UserListRow } from "@/lib/access/types";
 import { AccessCredentialsBox } from "@/components/settings/access-credentials-box";
 import { InviteLinkBox } from "@/components/settings/invite-link-box";
+import { UserAvatarField } from "@/components/profile/user-avatar-field";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -204,6 +205,17 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
 
   return (
     <Card className="space-y-5 p-4 sm:p-6">
+      {user.is_external ? (
+        <>
+          <UserAvatarField
+            userId={user.id}
+            avatarUrl={user.avatar_url}
+            fullName={user.full_name}
+            email={user.email}
+          />
+          <div className="border-t border-black/5" />
+        </>
+      ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-3">
           <h2 className="font-serif text-xl text-[#3D421F]">Account</h2>
