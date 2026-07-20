@@ -92,6 +92,13 @@ const BASE_COLUMNS: WaiterSalesColumn[] = [
     section: "summary",
   },
   {
+    key: "total_discounts_gs",
+    label: "Total Discounts",
+    kind: "input",
+    field: "total_discounts_gs",
+    section: "summary",
+  },
+  {
     key: "asph",
     label: "ASPH",
     kind: "money",

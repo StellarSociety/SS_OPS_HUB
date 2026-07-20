@@ -3,11 +3,16 @@
 import Image from "next/image";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useEffect, useRef, useState } from "react";
-import { Settings, User } from "lucide-react";
+import { Minus, Plus, Settings, User } from "lucide-react";
 import { signOut } from "@/lib/actions/auth";
 import { getUserInitials } from "@/lib/user/display";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+const DEFAULT_ZOOM = 100;
+const MIN_ZOOM = 80;
+const MAX_ZOOM = 120;
+const ZOOM_STEP = 10;
 
 export type ShellUser = {
   email: string;
@@ -22,9 +27,15 @@ type UserProfileMenuProps = {
 
 export function UserProfileMenu({ user }: UserProfileMenuProps) {
   const [open, setOpen] = useState(false);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const panelRef = useRef<HTMLDivElement>(null);
   const initials = getUserInitials(user.fullName, user.email);
   const displayName = user.fullName?.trim() || user.email;
+  const zoomStorageKey = `ss-ops-ui-zoom:${user.email.trim().toLowerCase()}`;
+
+  function applyZoom(value: number) {
+    document.documentElement.style.setProperty("zoom", String(value / 100));
+  }
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
@@ -37,6 +48,43 @@ export function UserProfileMenu({ user }: UserProfileMenuProps) {
       return () => document.removeEventListener("mousedown", onPointerDown);
     }
   }, [open]);
+
+  useEffect(() => {
+    let savedZoom = DEFAULT_ZOOM;
+
+    try {
+      const storedValue = Number.parseInt(
+        window.localStorage.getItem(zoomStorageKey) ?? "",
+        10,
+      );
+      if (
+        Number.isFinite(storedValue) &&
+        storedValue >= MIN_ZOOM &&
+        storedValue <= MAX_ZOOM
+      ) {
+        savedZoom = storedValue;
+      }
+    } catch {
+      // Browser storage may be unavailable in restricted browsing modes.
+    }
+
+    applyZoom(savedZoom);
+    const frame = window.requestAnimationFrame(() => setZoom(savedZoom));
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [zoomStorageKey]);
+
+  function changeZoom(nextZoom: number) {
+    const boundedZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+    setZoom(boundedZoom);
+    applyZoom(boundedZoom);
+
+    try {
+      window.localStorage.setItem(zoomStorageKey, String(boundedZoom));
+    } catch {
+      // Keep the zoom active for this session if persistence is unavailable.
+    }
+  }
 
   return (
     <div ref={panelRef} className="relative">
@@ -95,6 +143,42 @@ export function UserProfileMenu({ user }: UserProfileMenuProps) {
             <Settings className="h-4 w-4" />
             Profile settings
           </Link>
+
+          <div className="my-1 border-t border-black/5" />
+
+          <div
+            role="group"
+            aria-label="Interface zoom"
+            className="flex items-center justify-between gap-3 px-4 py-2"
+          >
+            <span className="text-sm text-black/70">Zoom</span>
+            <div className="flex items-center rounded-md border border-black/10">
+              <button
+                type="button"
+                onClick={() => changeZoom(zoom - ZOOM_STEP)}
+                disabled={zoom <= MIN_ZOOM}
+                aria-label="Zoom out"
+                className="flex h-8 w-8 items-center justify-center rounded-l-md text-black/60 transition-colors hover:bg-black/5 hover:text-[#3D421F] disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                <Minus className="h-3.5 w-3.5" aria-hidden />
+              </button>
+              <span
+                className="w-12 border-x border-black/10 text-center text-xs tabular-nums text-black/60"
+                aria-live="polite"
+              >
+                {zoom}%
+              </span>
+              <button
+                type="button"
+                onClick={() => changeZoom(zoom + ZOOM_STEP)}
+                disabled={zoom >= MAX_ZOOM}
+                aria-label="Zoom in"
+                className="flex h-8 w-8 items-center justify-center rounded-r-md text-black/60 transition-colors hover:bg-black/5 hover:text-[#3D421F] disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
+          </div>
 
           <div className="my-1 border-t border-black/5" />
 

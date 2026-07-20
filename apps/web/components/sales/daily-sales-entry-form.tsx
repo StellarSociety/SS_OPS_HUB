@@ -9,6 +9,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   saveVenueDailySalesEntry,
   saveVenueDailyTenderTotals,
@@ -30,6 +31,10 @@ import type { VenueTender } from "@/lib/sales/tenders-types";
 import type { VenueWaiterDailySalesEntry } from "@/lib/sales/waiter-sales-types";
 import type { VenueDailyTenderTotal } from "@/lib/sales/daily-tender-totals-store";
 import {
+  computeTaxCollectionExpected,
+  FIGURES_ALERTS_TOLERANCE,
+} from "@/lib/sales/figures-alerts-calculations";
+import {
   canCreateSalesEntryForDate,
   FUTURE_SALES_ENTRY_ERROR,
   isFutureSalesEntryDate,
@@ -46,6 +51,7 @@ import {
   salesFormColumnWidthClass,
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
+import { usePersistedSalesEntryDate } from "@/components/sales/use-persisted-sales-filters";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -63,9 +69,8 @@ type DailySalesEntryFormProps = {
 type SalesInputMode = "gross" | "net";
 
 // Tolerance (in currency units) to absorb per-line rounding drift when
-// comparing independently-rounded totals. A couple of cents keeps genuinely
-// balanced days from flagging on rounding artifacts (e.g. -0.01).
-const ROUNDING_TOLERANCE = 0.02;
+// comparing independently-rounded totals. Diffs up to 0.03 are treated as matched.
+const ROUNDING_TOLERANCE = FIGURES_ALERTS_TOLERANCE;
 
 type FormState = {
   id: string;
@@ -532,7 +537,7 @@ function TenderVerificationRow({
   entered: number;
 }) {
   const difference = Math.round((entered - waitersTotal) * 100) / 100;
-  const balanced = difference === 0;
+  const balanced = Math.abs(difference) <= ROUNDING_TOLERANCE;
   return (
     <div
       className="grid flex-1 items-center gap-x-2 border-b border-black/5 py-1 text-[11px] last:border-0"
@@ -805,7 +810,7 @@ function TenderVerificationColumn({
               overallBalanced ? "text-emerald-700" : "text-amber-700",
             )}
           >
-            {overallDifference === 0 ? "—" : formatDifference(overallDifference)}
+            {overallBalanced ? "—" : formatDifference(overallDifference)}
           </span>
         </div>
         <div
@@ -836,7 +841,7 @@ function TenderVerificationColumn({
               exGratuityBalanced ? "text-emerald-700" : "text-amber-700",
             )}
           >
-            {exGratuityDifference === 0
+            {exGratuityBalanced
               ? "—"
               : formatDifference(exGratuityDifference)}
           </span>
@@ -855,7 +860,7 @@ function TenderVerificationColumn({
             Total Revenue Exc. CC Gratuity
           </span>
           <span className="tabular-nums font-semibold uppercase">
-            {salesVsRevenueDiff === 0
+            {salesVsRevenueBalanced
               ? "Matched"
               : formatDifference(salesVsRevenueDiff)}
           </span>
@@ -908,7 +913,7 @@ function TaxCollectionEntryRow({
             matched ? "text-emerald-700" : "text-amber-700",
           )}
         >
-          {difference === 0 ? "Matched" : formatDifference(difference)}
+          {matched ? "Matched" : formatDifference(difference)}
         </span>
       </div>
     </div>
@@ -937,26 +942,22 @@ function TaxCollectionColumn({
   onChange: (field: VenueDailySalesInputField, value: string) => void;
 }) {
   const round2 = (n: number) => Math.round(n * 100) / 100;
-
-  const netSalesRaw = grossToNet(venueRevenueGross, totalTaxPct);
   const vatOnServiceEffectivePct =
     taxSettings.service_charge_pct *
     (taxSettings.vat_on_service_charge_pct / 100);
 
-  const serviceChargeExpected = round2(
-    netSalesRaw * (taxSettings.service_charge_pct / 100),
-  );
-  const municipalityExpected = round2(
-    netSalesRaw * (taxSettings.municipality_fee_pct / 100),
-  );
-  const vatExpected = round2(
-    netSalesRaw * ((taxSettings.vat_pct + vatOnServiceEffectivePct) / 100),
+  const {
+    netSales,
+    vatExpected,
+    municipalityExpected,
+    serviceChargeExpected,
+    expectedTotal,
+  } = computeTaxCollectionExpected(
+    venueRevenueGross,
+    taxSettings,
+    totalTaxPct,
   );
 
-  const netSales = round2(netSalesRaw);
-  const expectedTotal = round2(
-    vatExpected + municipalityExpected + serviceChargeExpected,
-  );
   const enteredTotal = round2(
     vatEntered + municipalityEntered + serviceChargeEntered,
   );
@@ -1047,7 +1048,7 @@ function TaxCollectionColumn({
             totalMatched ? "text-emerald-700" : "text-amber-700",
           )}
         >
-          {totalDifference === 0 ? "—" : formatDifference(totalDifference)}
+          {totalMatched ? "—" : formatDifference(totalDifference)}
         </span>
       </div>
       <p className="px-2 text-[10px] text-black/40">
@@ -1068,7 +1069,7 @@ function TaxCollectionColumn({
           Total Revenue (excl. gratuity)
         </span>
         <span className="tabular-nums font-semibold uppercase">
-          {grossDifference === 0 ? "Matched" : formatDifference(grossDifference)}
+          {grossMatched ? "Matched" : formatDifference(grossDifference)}
         </span>
       </div>
     </div>
@@ -1125,13 +1126,23 @@ export function DailySalesEntryForm({
     return map;
   }, [waiterRecords]);
 
-  const [selectedDate, setSelectedDate] = useState(today);
+  const { selectedDate, setSelectedDate } = usePersistedSalesEntryDate(today);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const dateParam = searchParams.get("date");
+    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      setSelectedDate(dateParam);
+      setIsFormOpen(false);
+    }
+  }, [searchParams]);
+
   const [form, setForm] = useState<FormState>(() =>
     emptyForm(today, tenderIds),
   );
-  const [lunchInputMode, setLunchInputMode] = useState<SalesInputMode>("gross");
-  const [dinnerInputMode, setDinnerInputMode] = useState<SalesInputMode>("gross");
+  const [lunchInputMode, setLunchInputMode] = useState<SalesInputMode>("net");
+  const [dinnerInputMode, setDinnerInputMode] = useState<SalesInputMode>("net");
   const [tenderInputMode, setTenderInputMode] = useState<SalesInputMode>("gross");
   const [discountInputMode, setDiscountInputMode] =
     useState<SalesInputMode>("gross");

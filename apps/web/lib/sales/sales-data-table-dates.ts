@@ -201,6 +201,7 @@ export function createEmptyWaiterSalesEntry(
     gratuity_cash_gs: 0,
     groups_service_charge_gs: 0,
     total_covers: 0,
+    total_discounts_gs: 0,
     voucher_comments: "",
     deposit_comments: "",
     on_accounts_comments: "",

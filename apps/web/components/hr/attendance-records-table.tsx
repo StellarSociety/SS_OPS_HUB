@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   AttendanceDayRangePicker,
@@ -8,9 +9,9 @@ import {
   monthKeyForWorkDate,
 } from "@/components/hr/attendance-date-filters";
 import { AttendanceMonthUrlPicker } from "@/components/hr/attendance-month-url-picker";
+import { usePersistedHrAttendanceRecordsFilters } from "@/components/hr/use-persisted-hr-filters";
 import type { HrAttendanceDay } from "@/lib/types/database";
 import { ChevronDown, ChevronsUpDown, ChevronUp, X } from "lucide-react";
-import { useMemo, useState } from "react";
 
 type StaffLookup = {
   emp_no: string;
@@ -123,12 +124,20 @@ export function AttendanceRecordsTable({
   departments,
   monthKeys = [],
 }: Props) {
-  const [empNo, setEmpNo] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
-  const [status, setStatus] = useState("");
-  const [selectedWeekKeys, setSelectedWeekKeys] = useState<string[]>([]);
-  const [dayStart, setDayStart] = useState("");
-  const [dayEnd, setDayEnd] = useState("");
+  const {
+    empNo,
+    departmentId,
+    status,
+    selectedWeekKeys,
+    dayStart,
+    dayEnd,
+    setEmpNo,
+    setDepartmentId,
+    setStatus,
+    setSelectedWeekKeys,
+    setDayStart,
+    setDayEnd,
+  } = usePersistedHrAttendanceRecordsFilters();
   const [sortKey, setSortKey] = useState<SortKey>("work_date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 

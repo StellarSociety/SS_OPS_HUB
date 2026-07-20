@@ -28,6 +28,7 @@ export type VenueWaiterDailySalesRecord = {
   gratuity_cash_gs: number;
   groups_service_charge_gs: number;
   total_covers: number;
+  total_discounts_gs: number;
   voucher_comments: string;
   deposit_comments: string;
   on_accounts_comments: string;
@@ -54,7 +55,8 @@ export type WaiterSalesScalarField =
   | "gratuity_cc_gs"
   | "gratuity_cash_gs"
   | "groups_service_charge_gs"
-  | "total_covers";
+  | "total_covers"
+  | "total_discounts_gs";
 
 export type ComputedWaiterSales = {
   asph: number | null;

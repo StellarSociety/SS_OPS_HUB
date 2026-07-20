@@ -171,7 +171,7 @@ export function SalesEntryStatusBoxes({ days }: SalesEntryStatusBoxesProps) {
       <StatusCard
         icon={GitCompareArrows}
         title="Daily & Waiters"
-        href="/sales/daily-vs-waiters"
+        href="/sales/daily-vs-waiters/figures-verification"
         columns={["Δ Covers", "Δ Revenue"]}
       >
         {days.map((day) => (

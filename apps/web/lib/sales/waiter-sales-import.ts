@@ -18,6 +18,7 @@ const SCALAR_COLUMNS = [
   { key: "gratuity_cash_gs", label: "Cash Gratuity" },
   { key: "groups_service_charge_gs", label: "Groups Service Charge" },
   { key: "total_covers", label: "Total Covers", type: "count" as const },
+  { key: "total_discounts_gs", label: "Total Discounts" },
   { key: "voucher_comments", label: "Voucher Issue Comments", type: "text" as const },
   { key: "deposit_comments", label: "Deposit Comments", type: "text" as const },
   { key: "on_accounts_comments", label: "On Accounts Comments", type: "text" as const },
@@ -34,6 +35,7 @@ export type WaiterSalesImportPayload = {
   gratuity_cash_gs: number;
   groups_service_charge_gs: number;
   total_covers: number;
+  total_discounts_gs: number;
   voucher_comments: string;
   deposit_comments: string;
   on_accounts_comments: string;
@@ -126,6 +128,7 @@ export function parseWaiterSalesImportRows(
       gratuity_cash_gs: 0,
       groups_service_charge_gs: 0,
       total_covers: 0,
+      total_discounts_gs: 0,
       voucher_comments: "",
       deposit_comments: "",
       on_accounts_comments: "",
@@ -223,6 +226,7 @@ export function waiterSalesEntryToTemplateRow(
     entry.gratuity_cash_gs,
     entry.groups_service_charge_gs,
     entry.total_covers,
+    entry.total_discounts_gs,
     entry.voucher_comments,
     entry.deposit_comments,
     entry.on_accounts_comments,

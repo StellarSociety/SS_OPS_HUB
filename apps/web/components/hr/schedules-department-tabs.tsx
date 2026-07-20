@@ -46,6 +46,7 @@ import {
   segmentedSubNavShellClass,
 } from "@/lib/sub-nav-ui";
 import { cn } from "@/lib/utils";
+import { usePersistedHrSchedulesWeekOffset } from "@/components/hr/use-persisted-hr-filters";
 
 type ScheduleViewMode = "roster" | "sections";
 
@@ -91,7 +92,7 @@ export function SchedulesDepartmentTabs({
     bar: "roster",
     floor: "roster",
   });
-  const [weekOffset, setWeekOffset] = useState(0);
+  const { weekOffset, setWeekOffset } = usePersistedHrSchedulesWeekOffset(0);
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishWeekOffset, setPublishWeekOffset] = useState(0);
   const [publishView, setPublishView] = useState<SchedulesPublishView>(

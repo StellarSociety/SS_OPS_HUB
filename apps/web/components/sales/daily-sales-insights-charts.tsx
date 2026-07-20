@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Bar,
@@ -45,6 +45,7 @@ import {
 } from "@/lib/sales/sales-data-table-ui";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { usePersistedSalesInsightsFilters } from "@/components/sales/use-persisted-sales-filters";
 
 type PeriodMode = "week" | "month" | "year";
 type EnrichedRow = ReturnType<typeof enrichDailySalesRows>[number];
@@ -902,11 +903,17 @@ export function DailySalesInsightsCharts({
   records,
   totalTaxPct,
 }: DailySalesInsightsChartsProps) {
-  const [periodMode, setPeriodMode] = useState<PeriodMode>("week");
-  const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
-  const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthKey());
-  const [yearFilter, setYearFilter] = useState(() => getCurrentYearKey());
-  const [toDateOnly, setToDateOnly] = useState(false);
+  const {
+    periodMode,
+    weekFilter,
+    monthFilter,
+    yearFilter,
+    toDateOnly,
+    selectPeriodMode,
+    applyCurrentPeriod,
+    setActivePeriodValue,
+    setToDateOnly,
+  } = usePersistedSalesInsightsFilters();
 
   const allRows = useMemo(
     () => enrichDailySalesRows(records, totalTaxPct),
@@ -1071,29 +1078,6 @@ export function DailySalesInsightsCharts({
     [totalSeries.periodTotal, totalHistoricalAverage],
   );
 
-  function selectPeriodMode(mode: PeriodMode) {
-    setPeriodMode(mode);
-    if (mode === "week" && !weekFilter) {
-      setWeekFilter(getCurrentWeekFilterKey());
-    }
-    if (mode === "month" && !monthFilter) {
-      setMonthFilter(getCurrentMonthKey());
-    }
-    if (mode === "year" && !yearFilter) {
-      setYearFilter(getCurrentYearKey());
-    }
-  }
-
-  function applyCurrentPeriod() {
-    if (periodMode === "week") {
-      setWeekFilter(getCurrentWeekFilterKey());
-    } else if (periodMode === "month") {
-      setMonthFilter(getCurrentMonthKey());
-    } else {
-      setYearFilter(getCurrentYearKey());
-    }
-  }
-
   const currentPeriodLabel =
     periodMode === "week" ? "week" : periodMode === "month" ? "month" : "year";
 
@@ -1112,16 +1096,6 @@ export function DailySalesInsightsCharts({
   const canGoToPreviousPeriod =
     activePeriodIndex >= 0 && activePeriodIndex < periodOptions.length - 1;
   const canGoToNextPeriod = activePeriodIndex > 0;
-
-  function setActivePeriodValue(value: string) {
-    if (periodMode === "week") {
-      setWeekFilter(value);
-    } else if (periodMode === "month") {
-      setMonthFilter(value);
-    } else {
-      setYearFilter(value);
-    }
-  }
 
   function stepActivePeriod(step: number) {
     if (activePeriodIndex === -1) return;

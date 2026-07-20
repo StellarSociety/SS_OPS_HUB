@@ -54,6 +54,7 @@ export async function upsertVenueWaiterDailySales(
     gratuity_cash_gs: number;
     groups_service_charge_gs: number;
     total_covers: number;
+    total_discounts_gs: number;
     voucher_comments: string;
     deposit_comments: string;
     on_accounts_comments: string;
@@ -70,6 +71,7 @@ export async function upsertVenueWaiterDailySales(
     gratuity_cash_gs: payload.gratuity_cash_gs,
     groups_service_charge_gs: payload.groups_service_charge_gs,
     total_covers: payload.total_covers,
+    total_discounts_gs: payload.total_discounts_gs,
     voucher_comments: payload.voucher_comments,
     deposit_comments: payload.deposit_comments,
     on_accounts_comments: payload.on_accounts_comments,

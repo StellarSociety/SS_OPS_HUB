@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export const SALES_FORM_FIELD_INPUT_WIDTH = "8.5rem";
-export const SALES_FORM_COLUMN_MAX_WIDTH = "22rem";
+export const SALES_FORM_COLUMN_MAX_WIDTH = "20rem";
 export const SALES_FORM_THREE_COLUMN_GROUP_MAX_WIDTH =
-  "calc(3 * 22rem + 2 * 1.5rem)";
+  "calc(3 * 20rem + 2 * 1.5rem)";
 
 export const SALES_FORM_FIELD_GRID_COLUMNS = `minmax(0, 1fr) ${SALES_FORM_FIELD_INPUT_WIDTH}`;
 
@@ -23,14 +23,14 @@ export function salesFormColumnShellClass(className?: string) {
 }
 
 const salesFormColumnSizeClass =
-  "min-w-[min(100%,14rem)] max-w-[22rem] flex-[1_1_18rem]";
+  "min-w-[min(100%,14rem)] max-w-[20rem] flex-[1_1_18rem]";
 
 /** Width/sizing shared by Lunch, Dinner, totals columns and aligned banners. */
 export function salesFormColumnWidthClass() {
   return salesFormColumnSizeClass;
 }
 
-/** Shared sizing for Lunch / Dinner / totals columns — flexes with viewport, capped at 22rem. */
+/** Shared sizing for Lunch / Dinner / totals columns — flexes with viewport, capped at 20rem. */
 export function salesFormColumnClassName(className?: string) {
   return cn(
     salesFormColumnShellClass(),

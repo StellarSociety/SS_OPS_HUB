@@ -29,14 +29,13 @@ import type { VenueTender } from "./tenders-types";
 import { computeWaiterSales } from "./waiter-sales-calculations";
 import type { VenueWaiterDailySalesEntry } from "./waiter-sales-types";
 import type { VenueWaiter } from "./waiters-types";
+import { FIGURES_ALERTS_TOLERANCE } from "./figures-alerts-calculations";
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-// Same tolerance as daily sales entry reconciliation boxes — absorb per-line
-// rounding drift so a couple of cents (e.g. ±0.01) still counts as balanced.
-const ROUNDING_TOLERANCE = 0.02;
+const ROUNDING_TOLERANCE = FIGURES_ALERTS_TOLERANCE;
 
 function isWithinRoundingTolerance(differenceGs: number): boolean {
   return Math.abs(differenceGs) <= ROUNDING_TOLERANCE;

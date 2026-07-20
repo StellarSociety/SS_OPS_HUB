@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   AttendanceMultiWeekPicker,
   mondayKeyForWorkDate,
 } from "@/components/hr/attendance-date-filters";
+import { usePersistedHrAttendanceValidationFilters } from "@/components/hr/use-persisted-hr-filters";
 import {
   approveAttendanceDays,
+  loadAttendanceValidationRowsForRange,
   saveValidationRosterDays,
   type ValidationRosterLabelCode,
 } from "@/lib/actions/hr-attendance";
@@ -73,6 +75,11 @@ const ROSTER_ACTIONS: {
     code: "SH",
     rosterCode: "SHIFT",
     fallbackTitle: "Working shift (payroll, hours unchanged)",
+  },
+  {
+    code: "OFF",
+    rosterCode: "OFF",
+    fallbackTitle: "Day off (paid)",
   },
   { code: "ABS", rosterCode: "ABS", fallbackTitle: "Absence" },
   { code: "PH", rosterCode: "PH", fallbackTitle: "Public holiday" },
@@ -180,15 +187,26 @@ export function AttendanceApprovalsTable({
     null,
   );
   const [local, setLocal] = useState(rows);
-  const [departmentId, setDepartmentId] = useState("");
-  const [empNo, setEmpNo] = useState("");
-  const [selectedWeekKeys, setSelectedWeekKeys] = useState<string[]>([]);
+  const {
+    departmentId,
+    empNo,
+    selectedWeekKeys,
+    setDepartmentId,
+    setEmpNo,
+    setSelectedWeekKeys,
+  } = usePersistedHrAttendanceValidationFilters();
   /** Staged roster actions keyed by empNo::workDate — saved together. */
   const [drafts, setDrafts] = useState<
     Record<string, ValidationRosterLabelCode>
   >({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [loadingRange, setLoadingRange] = useState(false);
+
+  const weekRangeKey = useMemo(
+    () => [...selectedWeekKeys].sort().join(","),
+    [selectedWeekKeys],
+  );
 
   const labelsByCode = useMemo(() => {
     const map = new Map<string, ScheduleLabelOption>();
@@ -229,6 +247,50 @@ export function AttendanceApprovalsTable({
   );
 
   const ready = Boolean(departmentId && empNo && selectedWeekKeys.length > 0);
+
+  useEffect(() => {
+    if (!ready || !empNo || selectedWeekKeys.length === 0) {
+      setLoadingRange(false);
+      return;
+    }
+
+    const dates = datesForWeekKeys(selectedWeekKeys);
+    if (dates.length === 0) return;
+    const sorted = [...dates].sort();
+    const fromDate = sorted[0]!;
+    const toDate = sorted[sorted.length - 1]!;
+    const empKey = empNo.trim().toLowerCase();
+
+    let cancelled = false;
+    setLoadingRange(true);
+
+    void loadAttendanceValidationRowsForRange({ fromDate, toDate, empNo }).then(
+      (result) => {
+        if (cancelled) return;
+        setLoadingRange(false);
+        if (!result.ok) {
+          setActionError(result.error);
+          return;
+        }
+
+        setLocal((prev) => {
+          const byKey = new Map(
+            prev.map((r) => [draftKey(r.empNo, r.workDate), r] as const),
+          );
+          for (const row of result.rows) {
+            if (row.empNo.trim().toLowerCase() !== empKey) continue;
+            if (row.departmentId !== departmentId) continue;
+            byKey.set(draftKey(row.empNo, row.workDate), row);
+          }
+          return [...byKey.values()];
+        });
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, empNo, departmentId, weekRangeKey, selectedWeekKeys]);
 
   const draftEntries = useMemo(() => Object.entries(drafts), [drafts]);
   const draftCount = draftEntries.length;
@@ -592,7 +654,13 @@ export function AttendanceApprovalsTable({
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-black/10 bg-white/70">
+        <div
+          className={cn(
+            "overflow-x-auto rounded-xl border border-black/10 bg-white/70",
+            loadingRange && "opacity-60",
+          )}
+          aria-busy={loadingRange}
+        >
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-black/10 bg-black/[0.03] text-xs uppercase tracking-wide text-black/45">
               <tr>
@@ -721,7 +789,9 @@ export function AttendanceApprovalsTable({
                               const tooltip =
                                 action.code === "SH"
                                   ? `${label?.name ?? action.fallbackTitle} — counted for payroll, hours unchanged`
-                                  : (label?.name ?? action.fallbackTitle);
+                                  : action.code === "OFF"
+                                    ? `${label?.name ?? action.fallbackTitle} — paid day off`
+                                    : (label?.name ?? action.fallbackTitle);
                               return (
                                 <button
                                   key={action.code}

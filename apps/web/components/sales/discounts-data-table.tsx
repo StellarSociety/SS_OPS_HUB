@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   removeVenueDailyDiscountsEntry,
 } from "@/lib/actions/sales";
@@ -14,6 +14,7 @@ import {
   getIsoWeekParts,
 } from "@/lib/sales/daily-sales-calculations";
 import { computeDailyDiscounts } from "@/lib/sales/discounts-calculations";
+import { usePersistedSalesTableDateFilters } from "@/components/sales/use-persisted-sales-filters";
 import {
   columnsForSection,
   DISCOUNTS_COLUMNS,
@@ -40,9 +41,6 @@ import {
   buildSalesTableWeekOptions,
   countSalesTableRowsWithData,
   createEmptyDiscountsRecord,
-  formatLocalDateFromDate,
-  getCurrentWeekFilterKey,
-  getCurrentYearKey,
   isSalesTableEmptyRowId,
   resolveSalesTableCalendarDates,
   SALES_TABLE_EMPTY_ROW_CLASS,
@@ -137,12 +135,6 @@ function renderCellValue(row: VenueDailyDiscountsRow, column: DiscountsColumn) {
   return <span className="text-xs text-black/40">—</span>;
 }
 
-function parseWeekFilterKey(key: string): { week: number; year: number } | null {
-  const match = /^(\d{4})-W(\d{2})$/.exec(key);
-  if (!match) return null;
-  return { year: Number(match[1]), week: Number(match[2]) };
-}
-
 export function DiscountsDataTable({
   records,
   totalTaxPct,
@@ -151,11 +143,21 @@ export function DiscountsDataTable({
   const router = useRouter();
   const [pendingRowId, setPendingRowId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
-  const [monthFilter, setMonthFilter] = useState("");
-  const [yearFilter, setYearFilter] = useState("");
+  const {
+    fromDate,
+    toDate,
+    weekFilter,
+    monthFilter,
+    yearFilter,
+    setFromDate,
+    setToDate,
+    setWeekFilter,
+    setMonthFilter,
+    applyThisWeek,
+    applyThisMonth,
+    applyThisYear,
+    clearFilters,
+  } = usePersistedSalesTableDateFilters();
 
   const allRows = useMemo(() => {
     return records.map((record) => ({
@@ -183,18 +185,6 @@ export function DiscountsDataTable({
       ),
     [allRows],
   );
-
-  useEffect(() => {
-    if (weekFilter && !weekOptions.some((opt) => opt.value === weekFilter)) {
-      setWeekFilter("");
-    }
-  }, [weekFilter, weekOptions]);
-
-  useEffect(() => {
-    if (monthFilter && !monthOptions.some((opt) => opt.value === monthFilter)) {
-      setMonthFilter("");
-    }
-  }, [monthFilter, monthOptions]);
 
   const filteredRows = useMemo(() => {
     const recordsByDate = new Map(allRows.map((row) => [row.sale_date, row]));
@@ -249,38 +239,6 @@ export function DiscountsDataTable({
     [filteredRows],
   );
 
-  function applyThisWeek() {
-    setWeekFilter(getCurrentWeekFilterKey());
-    setMonthFilter("");
-    setYearFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function applyThisMonth() {
-    setMonthFilter(getCurrentMonthKey());
-    setWeekFilter("");
-    setYearFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function applyThisYear() {
-    setYearFilter(getCurrentYearKey());
-    setMonthFilter("");
-    setWeekFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function clearFilters() {
-    setFromDate("");
-    setToDate("");
-    setWeekFilter("");
-    setMonthFilter("");
-    setYearFilter("");
-  }
-
   const totalColumns = DISCOUNTS_COLUMNS.length + 1;
 
   function handleDeleteRow(rowId: string, saleDate: string) {
@@ -308,32 +266,10 @@ export function DiscountsDataTable({
         monthFilter={monthFilter}
         weekOptions={weekOptions}
         monthOptions={monthOptions}
-        onFromDateChange={(value) => {
-          setFromDate(value);
-          setWeekFilter("");
-          setMonthFilter("");
-          setYearFilter("");
-        }}
-        onToDateChange={(value) => {
-          setToDate(value);
-          setWeekFilter("");
-          setMonthFilter("");
-          setYearFilter("");
-        }}
-        onWeekFilterChange={(value) => {
-          setWeekFilter(value);
-          setFromDate("");
-          setToDate("");
-          setMonthFilter("");
-          setYearFilter("");
-        }}
-        onMonthFilterChange={(value) => {
-          setMonthFilter(value);
-          setFromDate("");
-          setToDate("");
-          setWeekFilter("");
-          setYearFilter("");
-        }}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        onWeekFilterChange={setWeekFilter}
+        onMonthFilterChange={setMonthFilter}
         onThisWeek={applyThisWeek}
         onThisMonth={applyThisMonth}
         onThisYear={applyThisYear}

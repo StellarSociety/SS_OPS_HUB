@@ -15,13 +15,16 @@ import {
   netToGross,
 } from "@/lib/sales/daily-sales-calculations";
 import { computeDailyDiscounts } from "@/lib/sales/discounts-calculations";
+import { FIGURES_ALERTS_TOLERANCE } from "@/lib/sales/figures-alerts-calculations";
 import type {
   VenueDailyDiscountsInputField,
   VenueDailyDiscountsRecord,
 } from "@/lib/sales/discounts-types";
 import type { VenueDailySalesRecord } from "@/lib/sales/daily-sales-types";
+import type { VenueWaiterDailySalesEntry } from "@/lib/sales/waiter-sales-types";
 import { SalesEntryDateBar } from "@/components/sales/sales-entry-date-bar";
 import { SalesEntryDateBanner } from "@/components/sales/sales-entry-date-banner";
+import { usePersistedSalesEntryDate } from "@/components/sales/use-persisted-sales-filters";
 import {
   SalesFormColumnsLayout,
   SalesFormFieldRow,
@@ -39,6 +42,7 @@ import { cn } from "@/lib/utils";
 type DiscountsEntryFormProps = {
   records: VenueDailyDiscountsRecord[];
   dailySalesRecords: VenueDailySalesRecord[];
+  waiterRecords: VenueWaiterDailySalesEntry[];
   totalTaxPct: number;
   canEdit: boolean;
 };
@@ -196,16 +200,26 @@ function ValidationRow({
   );
 }
 
+function amountsMatch(a: number, b: number): boolean {
+  return Math.abs(a - b) <= FIGURES_ALERTS_TOLERANCE;
+}
+
 function DiscountsValidationColumn({
   discountsTotalGs,
   allDayDiscountGs,
+  waiterDiscountsTotalGs,
 }: {
   discountsTotalGs: number;
   allDayDiscountGs: number;
+  waiterDiscountsTotalGs: number;
 }) {
-  const diff = Math.round((discountsTotalGs - allDayDiscountGs) * 100) / 100;
-  const hasData = discountsTotalGs > 0 || allDayDiscountGs > 0;
-  const matches = Math.abs(diff) < 0.005;
+  const values = [discountsTotalGs, allDayDiscountGs, waiterDiscountsTotalGs];
+  const hasData = values.some((v) => v > 0);
+  const matches =
+    amountsMatch(discountsTotalGs, allDayDiscountGs) &&
+    amountsMatch(discountsTotalGs, waiterDiscountsTotalGs);
+  const spread =
+    Math.round((Math.max(...values) - Math.min(...values)) * 100) / 100;
 
   return (
     <div
@@ -218,6 +232,10 @@ function DiscountsValidationColumn({
       <ValidationRow
         label="All day Discounts (Daily Sales)"
         value={allDayDiscountGs}
+      />
+      <ValidationRow
+        label="Waiter Sales Discounts"
+        value={waiterDiscountsTotalGs}
       />
       <div
         className={cn(
@@ -235,17 +253,13 @@ function DiscountsValidationColumn({
           </p>
         ) : matches ? (
           <p className="text-sm font-bold text-emerald-700">
-            Matched — both entries agree
+            Matched — all entries agree
           </p>
         ) : (
           <p className="text-sm font-bold text-amber-700">
-            Difference {formatMoney(diff)}
+            Difference {formatMoney(spread)}
             <span className="ml-1 font-medium text-amber-700/80">
-              (
-              {diff > 0
-                ? "Discounts entry higher"
-                : "Daily Sales higher"}
-              )
+              (values do not match)
             </span>
           </p>
         )}
@@ -257,6 +271,7 @@ function DiscountsValidationColumn({
 export function DiscountsEntryForm({
   records,
   dailySalesRecords,
+  waiterRecords,
   totalTaxPct,
   canEdit,
 }: DiscountsEntryFormProps) {
@@ -277,8 +292,19 @@ export function DiscountsEntryForm({
       ),
     [dailySalesRecords],
   );
+  const waiterDiscountsByDate = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const record of waiterRecords) {
+      const current = totals.get(record.sale_date) ?? 0;
+      totals.set(
+        record.sale_date,
+        Math.round((current + (record.total_discounts_gs ?? 0)) * 100) / 100,
+      );
+    }
+    return totals;
+  }, [waiterRecords]);
 
-  const [selectedDate, setSelectedDate] = useState(today);
+  const { selectedDate, setSelectedDate } = usePersistedSalesEntryDate(today);
   const [isFormOpen, setIsFormOpen] = useState(false);
 
   useEffect(() => {
@@ -452,6 +478,9 @@ export function DiscountsEntryForm({
             totals.totalOthersDiscountGs
           }
           allDayDiscountGs={allDayDiscountByDate.get(selectedDate) ?? 0}
+          waiterDiscountsTotalGs={
+            waiterDiscountsByDate.get(selectedDate) ?? 0
+          }
         />
       </SalesFormColumnsLayout>
     </div>

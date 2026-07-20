@@ -22,34 +22,34 @@ export function WaiterSelectBar({
           Select waiter
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">
-        {waiters.map((waiter) => {
-          const active = waiter.id === selectedWaiterId;
-          return (
-            <button
-              key={waiter.id}
-              type="button"
-              onClick={() => onSelect(waiter.id)}
-              className={cn(
-                "flex shrink-0 flex-col items-center justify-center rounded-md border px-3 py-1.5 text-center transition-colors",
-                active
-                  ? "border-[var(--venue-primary)] bg-[var(--venue-primary)] text-white"
-                  : "border-black/10 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary)]/30",
-              )}
-            >
-              <span className="text-sm font-medium">{waiter.name}</span>
-              {waiter.position ? (
-                <span
-                  className={cn(
-                    "text-xs",
-                    active ? "text-white/80" : "text-black/50",
-                  )}
-                >
-                  {waiter.position}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
+          {waiters.map((waiter) => {
+            const active = waiter.id === selectedWaiterId;
+            return (
+              <button
+                key={waiter.id}
+                type="button"
+                onClick={() => onSelect(waiter.id)}
+                className={cn(
+                  "flex shrink-0 flex-col items-center justify-center rounded-md border px-3 py-1.5 text-center transition-colors",
+                  active
+                    ? "border-[var(--venue-primary)] bg-[var(--venue-primary)] text-white"
+                    : "border-black/10 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary)]/30",
+                )}
+              >
+                <span className="text-sm font-medium">{waiter.name}</span>
+                {waiter.position ? (
+                  <span
+                    className={cn(
+                      "text-xs",
+                      active ? "text-white/80" : "text-black/50",
+                    )}
+                  >
+                    {waiter.position}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
       </div>
     </Card>

@@ -4,6 +4,7 @@ import {
   CalendarOff,
   Camera,
   Coins,
+  FileBarChart,
   GitCompareArrows,
   Gift,
   GraduationCap,
@@ -156,7 +157,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       { label: "Waiter Sales", href: "/sales/waiter", icon: UserRound },
       {
         label: "Verification",
-        href: "/sales/daily-vs-waiters",
+        href: "/sales/daily-vs-waiters/figures-verification",
         icon: GitCompareArrows,
       },
       { label: "Discounts", href: "/sales/discounts", icon: Tag },
@@ -168,6 +169,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       },
       { label: "Forecasts", href: "/sales/forecast", icon: LineChart },
       { label: "Daily Snap", href: "/sales/daily-snap", icon: Camera },
+      { label: "Reports", href: "/sales/reports", icon: FileBarChart },
     ],
     bottomItems: [
       { label: "Settings", href: "/sales/settings", icon: Settings },

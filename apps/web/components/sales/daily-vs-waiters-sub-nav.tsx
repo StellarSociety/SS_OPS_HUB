@@ -1,24 +1,30 @@
 "use client";
 
-import { BadgeCheck, GitCompareArrows } from "lucide-react";
+import { AlertTriangle, BadgeCheck, GitCompareArrows } from "lucide-react";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
 const tabs = [
   {
-    href: "/sales/daily-vs-waiters",
+    href: "/sales/daily-vs-waiters/figures-verification",
     label: "Daily vs Waiters",
+    icon: BadgeCheck,
+    exact: false,
+  },
+  {
+    href: "/sales/daily-vs-waiters",
+    label: "Monthly vs Waiters",
     icon: GitCompareArrows,
     exact: true,
   },
   {
-    href: "/sales/daily-vs-waiters/figures-verification",
-    label: "Figures Verification",
-    icon: BadgeCheck,
+    href: "/sales/daily-vs-waiters/figures-alerts",
+    label: "Figures Alerts",
+    icon: AlertTriangle,
     exact: false,
   },
-];
+] as const;
 
 export function DailyVsWaitersSubNav() {
   const pathname = useRelativePathname();

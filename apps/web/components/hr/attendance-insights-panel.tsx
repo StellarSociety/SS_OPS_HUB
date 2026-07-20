@@ -7,9 +7,10 @@ import {
   mondayKeyForWorkDate,
   monthKeyForWorkDate,
 } from "@/components/hr/attendance-date-filters";
+import { usePersistedHrAttendanceInsightsFilters } from "@/components/hr/use-persisted-hr-filters";
 import type { HrAttendanceDay } from "@/lib/types/database";
 import { X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 type StaffLookup = {
   emp_no: string;
@@ -65,12 +66,16 @@ export function AttendanceInsightsPanel({
   defaultMonthKeys,
   monthPickerInParent = false,
 }: Props) {
-  const [dayStart, setDayStart] = useState("");
-  const [dayEnd, setDayEnd] = useState("");
-  const [selectedWeekKeys, setSelectedWeekKeys] = useState<string[]>([]);
-  const [selectedMonthKeys, setSelectedMonthKeys] = useState<string[]>(() =>
-    defaultMonthKeys?.length ? defaultMonthKeys : [],
-  );
+  const {
+    dayStart,
+    dayEnd,
+    selectedWeekKeys,
+    selectedMonthKeys,
+    setDayStart,
+    setDayEnd,
+    setSelectedWeekKeys,
+    setSelectedMonthKeys,
+  } = usePersistedHrAttendanceInsightsFilters(defaultMonthKeys);
 
   const weekKeySet = useMemo(
     () => new Set(selectedWeekKeys),

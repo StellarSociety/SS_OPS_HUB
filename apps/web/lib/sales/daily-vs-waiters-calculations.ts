@@ -3,6 +3,7 @@ import {
   getIsoWeekNumber,
   getWeekDayLabel,
 } from "./daily-sales-calculations";
+import { FIGURES_ALERTS_TOLERANCE } from "./figures-alerts-calculations";
 import { getDatesInMonth } from "./sales-data-table-dates";
 import type { VenueDailySalesRecord } from "./daily-sales-types";
 import type { VenueWaiterDailySalesEntry } from "./waiter-sales-types";
@@ -78,6 +79,8 @@ export function buildDailyVsWaitersRows(
 
     const coversDifference = dailyCovers - waiterTotals.covers;
     const grossSalesDifference = dailyGrossSales - waiterTotals.grossSales;
+    const grossSalesMatched =
+      Math.abs(grossSalesDifference) <= FIGURES_ALERTS_TOLERANCE;
 
     return {
       sale_date: saleDate,
@@ -91,7 +94,7 @@ export function buildDailyVsWaitersRows(
       grossSalesDifference,
       hasDailyRecord: Boolean(dailyRecord),
       hasWaiterRecords: waiterByDate.has(saleDate),
-      isMatched: coversDifference === 0 && grossSalesDifference === 0,
+      isMatched: coversDifference === 0 && grossSalesMatched,
     };
   });
 }
@@ -117,7 +120,10 @@ export function summarizeDailyVsWaitersRows(
       coversDiscrepancyDays:
         acc.coversDiscrepancyDays + (row.coversDifference !== 0 ? 1 : 0),
       revenueDiscrepancyDays:
-        acc.revenueDiscrepancyDays + (row.grossSalesDifference !== 0 ? 1 : 0),
+        acc.revenueDiscrepancyDays +
+        (Math.abs(row.grossSalesDifference) > FIGURES_ALERTS_TOLERANCE
+          ? 1
+          : 0),
     }),
     {
       dailyCovers: 0,

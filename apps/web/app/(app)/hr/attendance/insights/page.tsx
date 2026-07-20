@@ -6,12 +6,18 @@ import {
   rangeForMonthKeys,
   resolveFetchMonthKeys,
 } from "@/lib/hr/attendance-months";
+import {
+  hrFiltersStorageKey,
+  HR_ATTENDANCE_MONTHS_KEY,
+  parseAttendanceMonthKeysCookie,
+} from "@/lib/hr/hr-filters-storage";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   listAttendanceDays,
   listAttendanceMonths,
   listStaffForVenue,
 } from "@/lib/hr/store";
+import { cookies } from "next/headers";
 
 type Props = {
   searchParams: Promise<{ month?: string; months?: string }>;
@@ -20,7 +26,13 @@ type Props = {
 export default async function AttendanceInsightsPage({ searchParams }: Props) {
   const { supabase, venue } = await getHrPageContext();
   const params = await searchParams;
-  const selectedMonthKeys = monthKeysFromSearchParams(params);
+  const fromUrl = monthKeysFromSearchParams(params);
+  const cookieStore = await cookies();
+  const fromCookie = parseAttendanceMonthKeysCookie(
+    cookieStore.get(hrFiltersStorageKey(HR_ATTENDANCE_MONTHS_KEY, venue.slug))
+      ?.value,
+  );
+  const selectedMonthKeys = fromUrl.length > 0 ? fromUrl : fromCookie;
 
   const [staff, months] = await Promise.all([
     listStaffForVenue(supabase, venue.id),

@@ -1,7 +1,60 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { ChevronDown, Layers, Lock, ShieldAlert } from "lucide-react";
+import {
+  BadgeCheck,
+  Banknote,
+  BookOpen,
+  Boxes,
+  Building2,
+  CalendarCheck,
+  CalendarDays,
+  CalendarOff,
+  Camera,
+  ChartNoAxesCombined,
+  ChevronDown,
+  CircleCheckBig,
+  ClipboardCheck,
+  ClipboardList,
+  Coins,
+  DoorClosed,
+  DoorOpen,
+  FileChartColumn,
+  FileText,
+  FolderKanban,
+  GitCompareArrows,
+  GraduationCap,
+  HandCoins,
+  HardHat,
+  Landmark,
+  Layers,
+  LayoutDashboard,
+  LineChart,
+  Lock,
+  MessageCircleHeart,
+  MessagesSquare,
+  PackageCheck,
+  Percent,
+  Receipt,
+  ReceiptText,
+  Scale,
+  Settings,
+  ShieldAlert,
+  ShieldCheck,
+  Smile,
+  Tag,
+  TrendingUp,
+  UserMinus,
+  UserPlus,
+  UserRound,
+  UserRoundSearch,
+  Users,
+  Utensils,
+  Wallet,
+  Wine,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { saveUserAccess } from "@/lib/actions/users";
 import {
   ACCOUNT_ROLE_OPTIONS,
@@ -11,6 +64,7 @@ import {
   type ModuleAccessConfig,
 } from "@/lib/access/roles";
 import { moduleOverviewRegistry } from "@/lib/modules-registry";
+import { ModuleIcon } from "@/components/modules/module-icon";
 import {
   getAssignableModules,
   getModuleLabel,
@@ -29,9 +83,75 @@ type UserAccessEditorProps = {
   venues: Venue[];
 };
 
-const MODULE_STATUS = new Map(
-  moduleOverviewRegistry.map((m) => [m.key, m.status]),
+const MODULE_OVERVIEW = new Map(
+  moduleOverviewRegistry.map((module) => [module.key, module]),
 );
+
+const FEATURE_ICONS: Record<string, LucideIcon> = {
+  "operational_lists:shift_report": ClipboardList,
+  "operational_lists:opening": DoorOpen,
+  "operational_lists:closing": DoorClosed,
+  "team_projects:projects": FolderKanban,
+  "maintenance:requests": Wrench,
+  "maintenance:assets": Boxes,
+  "sentiment:guest": MessageCircleHeart,
+  "sentiment:team": Smile,
+  "sales:overview": LayoutDashboard,
+  "sales:venue_daily": Coins,
+  "sales:waiter_daily": UserRound,
+  "sales:daily_vs_waiters": GitCompareArrows,
+  "sales:cash_drawer": Tag,
+  "sales:forecast": LineChart,
+  "sales:cash_up": Camera,
+  "sales:revenue_figures": TrendingUp,
+  "gp_cos:invoices": FileText,
+  "gp_cos:food_cost": Utensils,
+  "gp_cos:beverages_cost": Wine,
+  "gp_cos:margins": ChartNoAxesCombined,
+  "accounting:accounts": Landmark,
+  "accounting:ledgers": BookOpen,
+  "accounting:statements": FileChartColumn,
+  "hr:overview": LayoutDashboard,
+  "hr:staff": Users,
+  "hr:insurance": ShieldCheck,
+  "hr:certifications": GraduationCap,
+  "hr:schedules": CalendarDays,
+  "hr:attendance_insights": LineChart,
+  "hr:attendance": CalendarCheck,
+  "hr:attendance_validation": ClipboardCheck,
+  "hr:leave": CalendarOff,
+  "hr:payroll": Wallet,
+  "hr:benefits": HandCoins,
+  "hr:payslips": ReceiptText,
+  "hr:expenses": Receipt,
+  "hr:onboarding": UserPlus,
+  "hr:communications": MessagesSquare,
+  "hr:offboarding": UserMinus,
+  "hr:lookups": UserRoundSearch,
+  "hr:salary": Banknote,
+  "hr:schedule_approval": PackageCheck,
+  "learning:courses": BookOpen,
+  "learning:progress": GraduationCap,
+  "venue_governance:legal_docs": Scale,
+  "venue_governance:contractors": HardHat,
+  "venue_governance:compliance": BadgeCheck,
+  "approvals:approvals": CircleCheckBig,
+};
+
+function FeatureIcon({
+  moduleKey,
+  featureKey,
+  className = "h-4 w-4",
+}: {
+  moduleKey: string;
+  featureKey: string;
+  className?: string;
+}) {
+  const Icon =
+    FEATURE_ICONS[`${moduleKey}:${featureKey}`] ??
+    (featureKey === "settings" ? Settings : Building2);
+  return <Icon aria-hidden="true" className={className} />;
+}
 
 export function UserAccessEditor({
   userId,
@@ -253,7 +373,8 @@ export function UserAccessEditor({
             const subPages = getSubPagesForModule(mod.key);
             const sensitive = getSensitiveFeaturesForModule(mod.key);
             const settingsFeature = getSettingsFeatureForModule(mod.key);
-            const status = MODULE_STATUS.get(mod.key);
+            const overview = MODULE_OVERVIEW.get(mod.key);
+            const status = overview?.status;
             const comingSoon = status && status !== "live";
 
             return (
@@ -281,6 +402,14 @@ export function UserAccessEditor({
                     onClick={() => config.enabled && toggleExpanded(mod.key)}
                     className="flex flex-1 items-center gap-2 text-left"
                   >
+                    {overview ? (
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--venue-secondary)]/60 text-[#3D421F]">
+                        <ModuleIcon
+                          iconKey={overview.iconKey}
+                          className="h-5 w-5"
+                        />
+                      </span>
+                    ) : null}
                     <span className="font-medium text-[#3D421F]">
                       {getModuleLabel(mod.key)}
                     </span>
@@ -395,6 +524,11 @@ export function UserAccessEditor({
                                 onChange={() => toggleSubPage(mod.key, f.key)}
                                 className="h-4 w-4 rounded border-black/20 accent-[#818a40]"
                               />
+                              <FeatureIcon
+                                moduleKey={mod.key}
+                                featureKey={f.key}
+                                className="h-4 w-4 shrink-0 text-[#818a40]"
+                              />
                               <span className="text-[#3D421F]">{f.label}</span>
                             </label>
                           ))}
@@ -434,8 +568,13 @@ export function UserAccessEditor({
                                   className="mt-0.5 h-4 w-4 shrink-0 rounded border-black/20 accent-[#818a40]"
                                 />
                                 <span className="min-w-0">
-                                  <span className="block text-[#3D421F]">
-                                    {f.label}
+                                  <span className="flex items-center gap-2 text-[#3D421F]">
+                                    <FeatureIcon
+                                      moduleKey={mod.key}
+                                      featureKey={f.key}
+                                      className="h-4 w-4 shrink-0 text-amber-700"
+                                    />
+                                    <span>{f.label}</span>
                                   </span>
                                   {f.description ? (
                                     <span className="mt-0.5 block text-[11px] leading-snug text-black/50">

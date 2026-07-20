@@ -16,6 +16,7 @@ import {
   netToGross,
 } from "@/lib/sales/daily-sales-calculations";
 import { computeWaiterSales, computeWaiterSalesReconciliation } from "@/lib/sales/waiter-sales-calculations";
+import { FIGURES_ALERTS_TOLERANCE } from "@/lib/sales/figures-alerts-calculations";
 import type { VenueTender } from "@/lib/sales/tenders-types";
 import type {
   VenueWaiterDailySalesEntry,
@@ -25,6 +26,10 @@ import type { VenueWaiter } from "@/lib/sales/waiters-types";
 import { BulletedCommentTextarea } from "@/components/sales/bulleted-comment-textarea";
 import { SalesEntryDateBar } from "@/components/sales/sales-entry-date-bar";
 import { SalesEntryDateBanner } from "@/components/sales/sales-entry-date-banner";
+import {
+  usePersistedSalesEntryDate,
+  usePersistedSalesWaiterSelection,
+} from "@/components/sales/use-persisted-sales-filters";
 import {
   SalesFormColumnsLayout,
   SalesFormFieldRow,
@@ -63,6 +68,7 @@ type FormState = {
   gratuity_cash_gs: number;
   groups_service_charge_gs: number;
   total_covers: number;
+  total_discounts_gs: number;
   voucher_comments: string;
   deposit_comments: string;
   on_accounts_comments: string;
@@ -86,6 +92,7 @@ const FIELD_LABELS: Record<WaiterSalesScalarField, string> = {
   gratuity_cash_gs: "Cash Gratuity",
   groups_service_charge_gs: "Groups Service Charge",
   total_covers: "Total Covers",
+  total_discounts_gs: "Total Discounts",
 };
 
 function recordKey(waiterId: string, saleDate: string) {
@@ -104,6 +111,7 @@ function emptyForm(waiterId: string, saleDate: string, tenderIds: string[]): For
     gratuity_cash_gs: 0,
     groups_service_charge_gs: 0,
     total_covers: 0,
+    total_discounts_gs: 0,
     voucher_comments: "",
     deposit_comments: "",
     on_accounts_comments: "",
@@ -128,6 +136,7 @@ function recordToForm(
     gratuity_cash_gs: record.gratuity_cash_gs,
     groups_service_charge_gs: record.groups_service_charge_gs ?? 0,
     total_covers: record.total_covers,
+    total_discounts_gs: record.total_discounts_gs ?? 0,
     voucher_comments: record.voucher_comments ?? "",
     deposit_comments: record.deposit_comments ?? "",
     on_accounts_comments: record.on_accounts_comments ?? "",
@@ -166,7 +175,7 @@ function ReconciliationRow({
   expected: number;
   difference: number;
 }) {
-  const balanced = difference === 0;
+  const balanced = Math.abs(difference) <= FIGURES_ALERTS_TOLERANCE;
 
   return (
     <div className="rounded-lg border border-black/10 bg-white px-4 py-3">
@@ -246,7 +255,8 @@ export function WaiterSalesEntryForm({
     [records],
   );
 
-  const [selectedWaiterId, setSelectedWaiterId] = useState("");
+  const { selectedWaiterId, setSelectedWaiterId } =
+    usePersistedSalesWaiterSelection();
   const datesWithEntries = useMemo(() => {
     const set = new Set<string>();
     for (const record of records) {
@@ -255,7 +265,7 @@ export function WaiterSalesEntryForm({
     }
     return set;
   }, [records, selectedWaiterId]);
-  const [selectedDate, setSelectedDate] = useState(today);
+  const { selectedDate, setSelectedDate } = usePersistedSalesEntryDate(today);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [inputMode, setInputMode] = useState<SalesInputMode>("gross");
   const [form, setForm] = useState<FormState>(() =>
@@ -350,6 +360,7 @@ export function WaiterSalesEntryForm({
       String(form.groups_service_charge_gs),
     );
     formData.set("total_covers", String(form.total_covers));
+    formData.set("total_discounts_gs", String(form.total_discounts_gs));
     formData.set("voucher_comments", form.voucher_comments);
     formData.set("deposit_comments", form.deposit_comments);
     formData.set("on_accounts_comments", form.on_accounts_comments);
@@ -613,6 +624,14 @@ export function WaiterSalesEntryForm({
                       Number.parseInt(v, 10) || 0,
                     )
                   }
+                />
+              </SalesFormFieldRow>
+              <SalesFormFieldRow label="Total Discounts">
+                <SalesNumericInput
+                  key={`discounts-${form.id}-${inputMode}`}
+                  value={displayMoney(form.total_discounts_gs)}
+                  disabled={!fieldsEditable}
+                  onChange={(v) => applyMoneyChange("total_discounts_gs", v)}
                 />
               </SalesFormFieldRow>
               <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary)]/20 px-4 py-3">

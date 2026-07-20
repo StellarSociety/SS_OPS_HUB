@@ -1,25 +1,23 @@
-import { DailyVsWaitersTable } from "@/components/sales/daily-vs-waiters-table";
+import { FiguresAlertsPanel } from "@/components/sales/figures-alerts-panel";
 import {
   SalesSchemaSetupNotice,
   getSalesDataLoadErrorMessage,
 } from "@/components/sales/sales-schema-setup-notice";
+import { Card } from "@/components/ui/card";
 import { totalTaxRateFromSettings } from "@/lib/sales/daily-sales-calculations";
 import {
   getVenueSalesTaxSettings,
   listVenueDailySales,
 } from "@/lib/sales/daily-sales-store";
-import { listVenueDailyVsWaitersComments } from "@/lib/sales/daily-vs-waiters-store";
-import {
-  canAccessDailyVsWaiters,
-  canEditDailyVsWaiters,
-} from "@/lib/sales/permissions";
+import { listVenueDailyTenderTotals } from "@/lib/sales/daily-tender-totals-store";
+import { listVenueDailyDiscounts } from "@/lib/sales/discounts-store";
+import { canAccessDailyVsWaiters } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
 import { listVenueWaiterDailySales } from "@/lib/sales/waiter-sales-store";
-import { Card } from "@/components/ui/card";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
 
-export default async function DailyVsWaitersPage() {
+export default async function FiguresAlertsPage() {
   const { supabase, venue, permissions } = await getSalesPageContext();
   const {
     data: { user },
@@ -29,22 +27,28 @@ export default async function DailyVsWaitersPage() {
     return (
       <div className="mx-auto max-w-4xl">
         <p className="text-sm text-black/60">
-          You do not have access to Monthly vs Waiters for this venue.
+          You do not have access to Figures Alerts for this venue.
         </p>
       </div>
     );
   }
 
   try {
-    const [dailyRecords, waiterRecords, taxSettings, comments] = await Promise.all([
+    const [
+      dailyRecords,
+      waiterRecords,
+      dailyTenderTotals,
+      discountsRecords,
+      taxSettings,
+    ] = await Promise.all([
       listVenueDailySales(supabase, venue.id),
       listVenueWaiterDailySales(supabase, venue.id),
+      listVenueDailyTenderTotals(supabase, venue.id),
+      listVenueDailyDiscounts(supabase, venue.id),
       getVenueSalesTaxSettings(supabase, venue.id),
-      listVenueDailyVsWaitersComments(supabase, venue.id),
     ]);
 
     const totalTaxPct = totalTaxRateFromSettings(taxSettings);
-    const canEdit = canEditDailyVsWaiters(permissions, venue.id);
 
     const { data: profile } = user
       ? await supabase
@@ -60,16 +64,29 @@ export default async function DailyVsWaitersPage() {
     );
 
     return (
-      <DailyVsWaitersTable
-        venueName={venue.name}
-        venueLogoUrl={getVenueLogoUrl(venue)}
-        dailyRecords={dailyRecords}
-        waiterRecords={waiterRecords}
-        comments={comments}
-        totalTaxPct={totalTaxPct}
-        canEdit={canEdit}
-        userDisplayName={userDisplayName}
-      />
+      <div className="space-y-4">
+        <div>
+          <h2 className="font-serif text-xl font-bold text-[#3D421F]">
+            Figures Alerts
+          </h2>
+          <p className="mt-1 text-sm text-black/60">
+            Central view of mismatches across tender verification, tax
+            collection, waiter balance checks, daily vs waiters, and discounts.
+          </p>
+        </div>
+
+        <FiguresAlertsPanel
+          venueName={venue.name}
+          venueLogoUrl={getVenueLogoUrl(venue)}
+          userDisplayName={userDisplayName}
+          dailyRecords={dailyRecords}
+          waiterRecords={waiterRecords}
+          dailyTenderTotals={dailyTenderTotals}
+          discountsRecords={discountsRecords}
+          taxSettings={taxSettings}
+          totalTaxPct={totalTaxPct}
+        />
+      </div>
     );
   } catch (error) {
     if (getSalesDataLoadErrorMessage(error) === "schema_missing") {
@@ -80,17 +97,17 @@ export default async function DailyVsWaitersPage() {
       );
     }
 
-    console.error("[sales/daily-vs-waiters]", error);
+    console.error("[sales/daily-vs-waiters/figures-alerts]", error);
 
     return (
       <div className="mx-auto max-w-4xl">
         <Card className="p-6">
           <h2 className="font-serif text-xl text-[#3D421F]">
-            Could not load comparison data
+            Could not load figures alerts
           </h2>
           <p className="mt-2 text-sm text-black/60">
-            Something went wrong loading daily vs waiters data. Refresh the page
-            or try again in a moment.
+            Something went wrong loading verification data. Refresh the page or
+            try again in a moment.
           </p>
         </Card>
       </div>

@@ -3,6 +3,7 @@ import {
   getWeekDayLabel,
   grossToNet,
 } from "./daily-sales-calculations";
+import { FIGURES_ALERTS_TOLERANCE } from "./figures-alerts-calculations";
 import type {
   ComputedWaiterSales,
   VenueWaiterDailySalesEntry,
@@ -57,7 +58,9 @@ export function computeWaiterSalesReconciliation(
     expectedPaymentsGs,
     paymentsDifferenceGs,
     tendersDifferenceGs,
-    isBalanced: paymentsDifferenceGs === 0 && tendersDifferenceGs === 0,
+    isBalanced:
+      Math.abs(paymentsDifferenceGs) <= FIGURES_ALERTS_TOLERANCE &&
+      Math.abs(tendersDifferenceGs) <= FIGURES_ALERTS_TOLERANCE,
   };
 }
 

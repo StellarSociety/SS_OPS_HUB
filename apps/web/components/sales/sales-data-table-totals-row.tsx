@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   SALES_TABLE_ACTION_COLUMN_WIDTH,
   SALES_TABLE_ACTION_STICKY_CLASS,
@@ -30,6 +31,7 @@ type SalesDataTableTotalsRowProps<TRow, TColumn, TSection extends string> = {
   stickyMeta?: (columnKey: string) => SalesTableStickyColumn | null;
   includeActions?: boolean;
   totalsLabel?: string;
+  additionalRows?: ReactNode;
 };
 
 export function SalesDataTableTotalsRow<TRow, TColumn, TSection extends string>({
@@ -44,8 +46,18 @@ export function SalesDataTableTotalsRow<TRow, TColumn, TSection extends string>(
   stickyMeta,
   includeActions = true,
   totalsLabel = "Totals",
+  additionalRows,
 }: SalesDataTableTotalsRowProps<TRow, TColumn, TSection>) {
-  let totalsLabelShown = false;
+  const totalsLabelColumn = sections
+    .flatMap((section) => getColumnsForSection(section))
+    .find(
+      (column) =>
+        (isDateColumn?.(column) ?? false) &&
+        getAggregate(column) === "skip",
+    );
+  const totalsLabelColumnKey = totalsLabelColumn
+    ? getColumnKey(totalsLabelColumn)
+    : null;
 
   return (
     <tfoot>
@@ -64,12 +76,7 @@ export function SalesDataTableTotalsRow<TRow, TColumn, TSection extends string>(
             const totalValue = aggregateColumnValues(rows, (row) =>
               getValue(row, column),
             aggregate);
-            const showLabel =
-              !totalsLabelShown &&
-              (isDateColumn?.(column) ?? false) &&
-              aggregate === "skip";
-
-            if (showLabel) totalsLabelShown = true;
+            const showLabel = columnKey === totalsLabelColumnKey;
 
             return (
               <td
@@ -125,6 +132,7 @@ export function SalesDataTableTotalsRow<TRow, TColumn, TSection extends string>(
           />
         ) : null}
       </tr>
+      {additionalRows}
     </tfoot>
   );
 }

@@ -136,7 +136,10 @@ export function waiterSalesColumnValue(
   if (column.tenderId) {
     return readNumber(row.tender_amounts[column.tenderId] ?? 0);
   }
-  if (column.kind === "input" && column.field) {
+  if (
+    (column.kind === "input" || column.kind === "count") &&
+    column.field
+  ) {
     return readNumber(row[column.field as keyof VenueWaiterDailySalesRow]);
   }
   if (column.computedKey) {

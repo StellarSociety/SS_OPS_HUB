@@ -20,12 +20,14 @@ import {
   summarizeDailyVsWaitersRows,
   type DailyVsWaitersDayRow,
 } from "@/lib/sales/daily-vs-waiters-calculations";
+import { FIGURES_ALERTS_TOLERANCE } from "@/lib/sales/figures-alerts-calculations";
 import { exportDailyVsWaitersPdf } from "@/lib/sales/daily-vs-waiters-pdf";
 import {
   DailyVsWaitersExportDialog,
   DEFAULT_DAILY_VS_WAITERS_PDF_SECTIONS,
   type DailyVsWaitersPdfSections,
 } from "@/components/sales/daily-vs-waiters-export-dialog";
+import { usePersistedSalesMonthFilter } from "@/components/sales/use-persisted-sales-filters";
 import type { VenueDailyVsWaitersComment } from "@/lib/sales/daily-vs-waiters-types";
 import type { VenueDailySalesRecord } from "@/lib/sales/daily-sales-types";
 import {
@@ -77,7 +79,7 @@ type DailyVsWaitersTableProps = {
 };
 
 function formatDifference(value: number): string {
-  if (value === 0) return formatMoney(0);
+  if (Math.abs(value) <= FIGURES_ALERTS_TOLERANCE) return formatMoney(0);
   const sign = value > 0 ? "+" : "-";
   return `${sign}${formatMoney(Math.abs(value))}`;
 }
@@ -88,8 +90,16 @@ function formatCoversDifference(value: number): string {
   return `${sign}${formatCount(Math.abs(value))}`;
 }
 
-function differenceClass(value: number, balancedClass = "text-emerald-700") {
-  if (value === 0) return balancedClass;
+function differenceClass(
+  value: number,
+  balancedClass = "text-emerald-700",
+  unit: "money" | "count" = "money",
+) {
+  const matched =
+    unit === "count"
+      ? value === 0
+      : Math.abs(value) <= FIGURES_ALERTS_TOLERANCE;
+  if (matched) return balancedClass;
   return "font-semibold text-amber-700";
 }
 
@@ -256,7 +266,8 @@ export function DailyVsWaitersTable({
   const [editingDate, setEditingDate] = useState<string | null>(null);
   const [pendingDate, setPendingDate] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthKey());
+  const { monthFilter, setMonthFilter, applyThisMonth } =
+    usePersistedSalesMonthFilter();
 
   const commentsByDate = useMemo(
     () => new Map(comments.map((comment) => [comment.sale_date, comment])),
@@ -411,7 +422,7 @@ export function DailyVsWaitersTable({
           </select>
           <button
             type="button"
-            onClick={() => setMonthFilter(getCurrentMonthKey())}
+            onClick={applyThisMonth}
             className={salesTableFilterButtonClass()}
           >
             This month
@@ -635,7 +646,7 @@ export function DailyVsWaitersTable({
                     <span
                       className={cn(
                         NUMERIC_VALUE_CLASS,
-                        differenceClass(row.coversDifference),
+                        differenceClass(row.coversDifference, undefined, "count"),
                       )}
                     >
                       {formatCoversDifference(row.coversDifference)}
@@ -709,7 +720,7 @@ export function DailyVsWaitersTable({
                   className={cn(
                     BODY_CELL_CLASS,
                     "whitespace-nowrap border-t border-black/10 px-2 text-right text-xs tabular-nums",
-                    differenceClass(summary.coversDifference),
+                    differenceClass(summary.coversDifference, undefined, "count"),
                   )}
                 >
                   {formatCoversDifference(summary.coversDifference)}

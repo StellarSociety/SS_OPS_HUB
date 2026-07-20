@@ -238,7 +238,7 @@ export function SchedulesWeekCalendar({
   >({});
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceHint, setAttendanceHint] = useState<string | null>(null);
-  const [showPunchTimes, setShowPunchTimes] = useState(true);
+  const [showPunchTimes, setShowPunchTimes] = useState(false);
   const [drafts, setDrafts] = useState<DraftMap>({});
   const [labelsDialogOpen, setLabelsDialogOpen] = useState(false);
   const [selected, setSelected] = useState<Map<string, SelectedCell>>(
@@ -524,8 +524,8 @@ export function SchedulesWeekCalendar({
 
   useEffect(() => {
     try {
-      if (localStorage.getItem(SHOW_PUNCH_TIMES_STORAGE_KEY) === "0") {
-        setShowPunchTimes(false);
+      if (localStorage.getItem(SHOW_PUNCH_TIMES_STORAGE_KEY) === "1") {
+        setShowPunchTimes(true);
       }
     } catch {
       /* ignore */
@@ -533,6 +533,13 @@ export function SchedulesWeekCalendar({
   }, []);
 
   const loadAttendanceForWeek = useEffectEvent(async () => {
+    if (!showPunchTimes) {
+      setAttendance({});
+      setAttendanceHint(null);
+      setAttendanceLoading(false);
+      return;
+    }
+
     if (!fromDate || !toDate || staff.length === 0) {
       setAttendance({});
       setAttendanceHint(null);
@@ -601,7 +608,7 @@ export function SchedulesWeekCalendar({
 
   useEffect(() => {
     void loadAttendanceForWeek();
-  }, [fromDate, toDate, staffEmpKey, attendanceStaffKey]);
+  }, [fromDate, toDate, staffEmpKey, attendanceStaffKey, showPunchTimes]);
 
   useEffect(() => {
     void loadWeek();

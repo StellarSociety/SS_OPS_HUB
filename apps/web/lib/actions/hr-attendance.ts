@@ -11,11 +11,12 @@ import {
   type AttendanceDayResult,
   type AttendancePunchRaw,
 } from "@/lib/hr/attendance-import";
-import { canAdminLookups, canEditSchedules, canEditStaff } from "@/lib/hr/permissions";
+import { canAdminLookups, canAccessStaff, canEditSchedules, canEditStaff } from "@/lib/hr/permissions";
 import {
   getHrVenueSetting,
   refreshAttendanceMonths,
 } from "@/lib/hr/store";
+import { buildAttendanceValidationRows } from "@/lib/hr/build-attendance-validation-rows";
 import { monthKeyFromWorkDate } from "@/lib/hr/attendance-months";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import {
@@ -546,6 +547,7 @@ export type ValidationRosterLabelCode =
   | "AL"
   | "SL"
   | "SH"
+  | "OFF"
   | "UPL";
 
 /** Map validation action codes to schedule_day_labels.code. */
@@ -556,8 +558,9 @@ function scheduleLabelForValidation(
 }
 
 /**
- * Persist one or more validation roster edits (SH / ABS / PH / AL / SL / UPL).
+ * Persist one or more validation roster edits (SH / OFF / ABS / PH / AL / SL / UPL).
  * SH = shift for payroll (roster SHIFT) — does not invent or change hours.
+ * OFF = paid day off (roster OFF).
  */
 export async function saveValidationRosterDays(params: {
   changes: {
@@ -584,4 +587,36 @@ export async function saveValidationRosterDays(params: {
     revalidatePath("/hr/schedules", "page");
   }
   return result;
+}
+
+/** Load roster + attendance rows for Validation when selected weeks fall outside the initial page range. */
+export async function loadAttendanceValidationRowsForRange(params: {
+  fromDate: string;
+  toDate: string;
+  empNo?: string;
+}): Promise<
+  | { ok: true; rows: Awaited<ReturnType<typeof buildAttendanceValidationRows>> }
+  | { ok: false; error: string }
+> {
+  const { supabase, venue, permissions } = await getAuthContext();
+  if (!canAccessStaff(permissions, venue.id)) {
+    return { ok: false, error: "No access." };
+  }
+
+  const fromDate = params.fromDate.trim();
+  const toDate = params.toDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+    return { ok: false, error: "Invalid date range." };
+  }
+  if (fromDate > toDate) {
+    return { ok: false, error: "Invalid date range." };
+  }
+
+  const rows = await buildAttendanceValidationRows(supabase, venue.id, {
+    fromDate,
+    toDate,
+    empNo: params.empNo,
+  });
+
+  return { ok: true, rows };
 }

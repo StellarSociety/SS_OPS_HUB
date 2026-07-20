@@ -258,7 +258,7 @@ export function firstAccessibleSalesPath(
   if (canAccessVenueDaily(permissions, venueId)) return "/sales/daily";
   if (canAccessWaiterDaily(permissions, venueId)) return "/sales/waiter";
   if (canAccessDailyVsWaiters(permissions, venueId))
-    return "/sales/daily-vs-waiters";
+    return "/sales/daily-vs-waiters/figures-verification";
   if (canAccessCashDrawer(permissions, venueId)) return "/sales/discounts";
   if (canAccessForecast(permissions, venueId)) return "/sales/forecast";
   if (canAccessCashUp(permissions, venueId)) return "/sales/daily-snap";

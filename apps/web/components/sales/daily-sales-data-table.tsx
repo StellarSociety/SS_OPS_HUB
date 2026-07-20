@@ -16,6 +16,7 @@ import {
   getIsoWeekNumber,
   getIsoWeekParts,
 } from "@/lib/sales/daily-sales-calculations";
+import { usePersistedSalesTableDateFilters } from "@/components/sales/use-persisted-sales-filters";
 import {
   columnsForSection,
   DAILY_SALES_COLUMNS,
@@ -45,9 +46,6 @@ import {
   buildSalesTableWeekOptions,
   countSalesTableRowsWithData,
   createEmptyDailySalesRecord,
-  formatLocalDateFromDate,
-  getCurrentWeekFilterKey,
-  getCurrentYearKey,
   isSalesTableEmptyRowId,
   resolveSalesTableCalendarDates,
   SALES_TABLE_EMPTY_ROW_CLASS,
@@ -205,12 +203,6 @@ function buildDailySalesFormData(draft: DraftRow): FormData {
   return formData;
 }
 
-function parseWeekFilterKey(key: string): { week: number; year: number } | null {
-  const match = /^(\d{4})-W(\d{2})$/.exec(key);
-  if (!match) return null;
-  return { year: Number(match[1]), week: Number(match[2]) };
-}
-
 export function DailySalesDataTable({
   records,
   totalTaxPct,
@@ -220,11 +212,21 @@ export function DailySalesDataTable({
     Object.fromEntries(records.map((r) => [r.id, toDraft(r)])),
   );
 
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
-  const [monthFilter, setMonthFilter] = useState("");
-  const [yearFilter, setYearFilter] = useState("");
+  const {
+    fromDate,
+    toDate,
+    weekFilter,
+    monthFilter,
+    yearFilter,
+    setFromDate,
+    setToDate,
+    setWeekFilter,
+    setMonthFilter,
+    applyThisWeek,
+    applyThisMonth,
+    applyThisYear,
+    clearFilters,
+  } = usePersistedSalesTableDateFilters();
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [pendingRowId, setPendingRowId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -254,12 +256,6 @@ export function DailySalesDataTable({
     [allRows],
   );
 
-  useEffect(() => {
-    if (weekFilter && !weekOptions.some((opt) => opt.value === weekFilter)) {
-      setWeekFilter("");
-    }
-  }, [weekFilter, weekOptions]);
-
   const monthOptions = useMemo(
     () =>
       buildSalesTableMonthOptions(
@@ -269,12 +265,6 @@ export function DailySalesDataTable({
       ),
     [allRows],
   );
-
-  useEffect(() => {
-    if (monthFilter && !monthOptions.some((opt) => opt.value === monthFilter)) {
-      setMonthFilter("");
-    }
-  }, [monthFilter, monthOptions]);
 
   const filteredRows = useMemo(() => {
     const recordsByDate = new Map(allRows.map((row) => [row.sale_date, row]));
@@ -339,38 +329,6 @@ export function DailySalesDataTable({
     () => countSalesTableRowsWithData(filteredRows),
     [filteredRows],
   );
-
-  function applyThisWeek() {
-    setWeekFilter(getCurrentWeekFilterKey());
-    setMonthFilter("");
-    setYearFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function applyThisMonth() {
-    setMonthFilter(getCurrentMonthKey());
-    setWeekFilter("");
-    setYearFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function applyThisYear() {
-    setYearFilter(getCurrentYearKey());
-    setMonthFilter("");
-    setWeekFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function clearFilters() {
-    setFromDate("");
-    setToDate("");
-    setWeekFilter("");
-    setMonthFilter("");
-    setYearFilter("");
-  }
 
   function updateDraft(
     rowId: string,
@@ -449,32 +407,10 @@ export function DailySalesDataTable({
         monthFilter={monthFilter}
         weekOptions={weekOptions}
         monthOptions={monthOptions}
-        onFromDateChange={(value) => {
-          setFromDate(value);
-          setWeekFilter("");
-          setMonthFilter("");
-          setYearFilter("");
-        }}
-        onToDateChange={(value) => {
-          setToDate(value);
-          setWeekFilter("");
-          setMonthFilter("");
-          setYearFilter("");
-        }}
-        onWeekFilterChange={(value) => {
-          setWeekFilter(value);
-          setFromDate("");
-          setToDate("");
-          setMonthFilter("");
-          setYearFilter("");
-        }}
-        onMonthFilterChange={(value) => {
-          setMonthFilter(value);
-          setFromDate("");
-          setToDate("");
-          setWeekFilter("");
-          setYearFilter("");
-        }}
+        onFromDateChange={setFromDate}
+        onToDateChange={setToDate}
+        onWeekFilterChange={setWeekFilter}
+        onMonthFilterChange={setMonthFilter}
         onThisWeek={applyThisWeek}
         onThisMonth={applyThisMonth}
         onThisYear={applyThisYear}

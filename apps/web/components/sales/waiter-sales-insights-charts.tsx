@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Bar,
@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card } from "@/components/ui/card";
+import { usePersistedSalesInsightsFilters } from "@/components/sales/use-persisted-sales-filters";
 import {
   formatIsoWeekLabel,
   formatMoney,
@@ -302,11 +303,17 @@ export function WaiterSalesInsightsCharts({
   entries,
   waiters,
 }: WaiterSalesInsightsChartsProps) {
-  const [periodMode, setPeriodMode] = useState<WaiterInsightsPeriodMode>("week");
-  const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
-  const [monthFilter, setMonthFilter] = useState(() => getCurrentMonthKey());
-  const [yearFilter, setYearFilter] = useState(() => getCurrentYearKey());
-  const [toDateOnly, setToDateOnly] = useState(false);
+  const {
+    periodMode,
+    weekFilter,
+    monthFilter,
+    yearFilter,
+    toDateOnly,
+    selectPeriodMode,
+    applyCurrentPeriod,
+    setActivePeriodValue,
+    setToDateOnly,
+  } = usePersistedSalesInsightsFilters();
 
   const saleDates = useMemo(
     () => entries.map((entry) => entry.sale_date),
@@ -393,29 +400,6 @@ export function WaiterSalesInsightsCharts({
     toDateOnly,
   ]);
 
-  function selectPeriodMode(mode: WaiterInsightsPeriodMode) {
-    setPeriodMode(mode);
-    if (mode === "week" && !weekFilter) {
-      setWeekFilter(getCurrentWeekFilterKey());
-    }
-    if (mode === "month" && !monthFilter) {
-      setMonthFilter(getCurrentMonthKey());
-    }
-    if (mode === "year" && !yearFilter) {
-      setYearFilter(getCurrentYearKey());
-    }
-  }
-
-  function applyCurrentPeriod() {
-    if (periodMode === "week") {
-      setWeekFilter(getCurrentWeekFilterKey());
-    } else if (periodMode === "month") {
-      setMonthFilter(getCurrentMonthKey());
-    } else {
-      setYearFilter(getCurrentYearKey());
-    }
-  }
-
   const currentPeriodTypeLabel =
     periodMode === "week" ? "week" : periodMode === "month" ? "month" : "year";
 
@@ -434,16 +418,6 @@ export function WaiterSalesInsightsCharts({
   const canGoToPreviousPeriod =
     activePeriodIndex >= 0 && activePeriodIndex < periodOptions.length - 1;
   const canGoToNextPeriod = activePeriodIndex > 0;
-
-  function setActivePeriodValue(value: string) {
-    if (periodMode === "week") {
-      setWeekFilter(value);
-    } else if (periodMode === "month") {
-      setMonthFilter(value);
-    } else {
-      setYearFilter(value);
-    }
-  }
 
   function stepActivePeriod(step: number) {
     if (activePeriodIndex === -1) return;

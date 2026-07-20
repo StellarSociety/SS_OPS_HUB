@@ -15,6 +15,10 @@ import {
 } from "@/lib/sales/daily-sales-calculations";
 import { computeWaiterSalesTableRow } from "@/lib/sales/waiter-sales-calculations";
 import {
+  usePersistedSalesTableDateFilters,
+  usePersistedSalesWaiterSelection,
+} from "@/components/sales/use-persisted-sales-filters";
+import {
   buildWaiterSalesColumns,
   columnsForSection,
   sectionColSpan,
@@ -47,9 +51,6 @@ import {
   buildSalesTableWeekOptions,
   countSalesTableRowsWithData,
   createEmptyWaiterSalesEntry,
-  formatLocalDateFromDate,
-  getCurrentWeekFilterKey,
-  getCurrentYearKey,
   isSalesTableEmptyRowId,
   resolveSalesTableCalendarDates,
   SALES_TABLE_EMPTY_ROW_CLASS,
@@ -231,12 +232,6 @@ function renderCellValue(row: VenueWaiterDailySalesRow, column: WaiterSalesColum
   return <span className="text-xs text-black/40">—</span>;
 }
 
-function parseWeekFilterKey(key: string): { week: number; year: number } | null {
-  const match = /^(\d{4})-W(\d{2})$/.exec(key);
-  if (!match) return null;
-  return { year: Number(match[1]), week: Number(match[2]) };
-}
-
 export function WaiterSalesDataTable({
   waiters,
   tenders,
@@ -252,24 +247,46 @@ export function WaiterSalesDataTable({
     () => buildWaiterSalesColumns(tenders, groupsAddedServiceChargePct),
     [tenders, groupsAddedServiceChargePct],
   );
-  const [selectedWaiterId, setSelectedWaiterId] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [weekFilter, setWeekFilter] = useState(() => getCurrentWeekFilterKey());
-  const [monthFilter, setMonthFilter] = useState("");
-  const [yearFilter, setYearFilter] = useState("");
+  const { selectedWaiterId, setSelectedWaiterId } =
+    usePersistedSalesWaiterSelection();
+  const {
+    fromDate,
+    toDate,
+    weekFilter,
+    monthFilter,
+    yearFilter,
+    setFromDate,
+    setToDate,
+    setWeekFilter,
+    setMonthFilter,
+    applyThisWeek,
+    applyThisMonth,
+    applyThisYear,
+    clearFilters,
+  } = usePersistedSalesTableDateFilters();
+
+  useEffect(() => {
+    if (
+      selectedWaiterId &&
+      !waiters.some((waiter) => waiter.id === selectedWaiterId)
+    ) {
+      setSelectedWaiterId("");
+    }
+  }, [selectedWaiterId, setSelectedWaiterId, waiters]);
 
   const waiterRecords = useMemo(
     () => records.filter((record) => record.waiter_id === selectedWaiterId),
     [records, selectedWaiterId],
   );
 
-  const allRows = useMemo(() => {
-    return waiterRecords.map((record) => ({
-      ...record,
-      ...computeWaiterSalesTableRow(record, totalTaxPct),
-    }));
-  }, [waiterRecords, totalTaxPct]);
+  const allRows = useMemo(
+    () =>
+      waiterRecords.map((record) => ({
+        ...record,
+        ...computeWaiterSalesTableRow(record, totalTaxPct),
+      })),
+    [waiterRecords, totalTaxPct],
+  );
 
   const weekOptions = useMemo(
     () =>
@@ -293,12 +310,16 @@ export function WaiterSalesDataTable({
 
   useEffect(() => {
     if (weekFilter && !weekOptions.some((opt) => opt.value === weekFilter)) {
+      // Keep the filter valid when switching between waiter datasets.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWeekFilter("");
     }
   }, [weekFilter, weekOptions]);
 
   useEffect(() => {
     if (monthFilter && !monthOptions.some((opt) => opt.value === monthFilter)) {
+      // Keep the filter valid when switching between waiter datasets.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMonthFilter("");
     }
   }, [monthFilter, monthOptions]);
@@ -370,38 +391,6 @@ export function WaiterSalesDataTable({
     [filteredRows],
   );
 
-  function applyThisWeek() {
-    setWeekFilter(getCurrentWeekFilterKey());
-    setMonthFilter("");
-    setYearFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function applyThisMonth() {
-    setMonthFilter(getCurrentMonthKey());
-    setWeekFilter("");
-    setYearFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function applyThisYear() {
-    setYearFilter(getCurrentYearKey());
-    setMonthFilter("");
-    setWeekFilter("");
-    setFromDate("");
-    setToDate("");
-  }
-
-  function clearFilters() {
-    setFromDate("");
-    setToDate("");
-    setWeekFilter("");
-    setMonthFilter("");
-    setYearFilter("");
-  }
-
   const selectedWaiter = waiters.find((w) => w.id === selectedWaiterId);
   const totalColumns = columns.length + 1;
 
@@ -460,32 +449,10 @@ export function WaiterSalesDataTable({
           monthFilter={monthFilter}
           weekOptions={weekOptions}
           monthOptions={monthOptions}
-          onFromDateChange={(value) => {
-            setFromDate(value);
-            setWeekFilter("");
-            setMonthFilter("");
-            setYearFilter("");
-          }}
-          onToDateChange={(value) => {
-            setToDate(value);
-            setWeekFilter("");
-            setMonthFilter("");
-            setYearFilter("");
-          }}
-          onWeekFilterChange={(value) => {
-            setWeekFilter(value);
-            setFromDate("");
-            setToDate("");
-            setMonthFilter("");
-            setYearFilter("");
-          }}
-          onMonthFilterChange={(value) => {
-            setMonthFilter(value);
-            setFromDate("");
-            setToDate("");
-            setWeekFilter("");
-            setYearFilter("");
-          }}
+          onFromDateChange={setFromDate}
+          onToDateChange={setToDate}
+          onWeekFilterChange={setWeekFilter}
+          onMonthFilterChange={setMonthFilter}
           onThisWeek={applyThisWeek}
           onThisMonth={applyThisMonth}
           onThisYear={applyThisYear}
@@ -540,7 +507,9 @@ export function WaiterSalesDataTable({
                   sections={WAITER_SALES_SECTIONS}
                   fixedSectionKey="fixed"
                   sectionLabels={WAITER_SALES_SECTION_LABELS}
-                  sectionColSpan={(section) => sectionColSpan(columns, section)}
+                  sectionColSpan={(section) =>
+                    sectionColSpan(columns, section)
+                  }
                   fixedStickyColumns={FIXED_STICKY}
                 />
                 <tr
@@ -592,8 +561,8 @@ export function WaiterSalesDataTable({
                       className="px-4 py-10 text-center text-sm text-black/50"
                     >
                       No records match the current filters for{" "}
-                      {selectedWaiter?.name ?? "this waiter"}. Use the Entry
-                      Form tab to add sales, or adjust the date range.
+                      {selectedWaiter?.name ?? "this waiter"}. Use the Entry Form
+                      tab to add sales, or adjust the date range.
                     </td>
                   </tr>
                 ) : (

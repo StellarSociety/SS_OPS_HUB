@@ -19,12 +19,12 @@ export default async function SalesWaiterDataPage() {
   try {
     const [waiters, tenders, records, taxSettings, waiterSalesSettings] =
       await Promise.all([
-      listActiveVenueWaiters(supabase, venue.id),
-      listActiveVenueTenders(supabase, venue.id),
-      listVenueWaiterDailySales(supabase, venue.id),
-      getVenueSalesTaxSettings(supabase, venue.id),
-      getVenueWaiterSalesSettings(supabase, venue.id),
-    ]);
+        listActiveVenueWaiters(supabase, venue.id),
+        listActiveVenueTenders(supabase, venue.id),
+        listVenueWaiterDailySales(supabase, venue.id),
+        getVenueSalesTaxSettings(supabase, venue.id),
+        getVenueWaiterSalesSettings(supabase, venue.id),
+      ]);
 
     const totalTaxPct = totalTaxRateFromSettings(taxSettings);
 

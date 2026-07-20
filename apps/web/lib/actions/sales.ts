@@ -687,6 +687,7 @@ export async function saveVenueWaiterDailySalesEntry(formData: FormData) {
         formData.get("groups_service_charge_gs"),
       ),
       total_covers: parseCount(formData.get("total_covers")),
+      total_discounts_gs: parseMoney(formData.get("total_discounts_gs")),
       voucher_comments: String(formData.get("voucher_comments") ?? "").trim(),
       deposit_comments: String(formData.get("deposit_comments") ?? "").trim(),
       on_accounts_comments: String(
