@@ -239,7 +239,7 @@ function isLeaveOrAbsenceLabel(label: string | null | undefined): boolean {
 /** Selection key — only days that actually need Validation approval. */
 function selectionKey(
   row: AttendanceApprovalRow,
-  opts: { varianceMinutes: number; timezone: string },
+  opts?: { varianceMinutes: number; timezone: string } | null,
 ): string | null {
   // Day off / calendar holiday taken — no payroll decision.
   if (row.rosterLabel && NO_APPROVAL_ROSTER_LABELS.has(row.rosterLabel)) {
@@ -262,8 +262,11 @@ function selectionKey(
       scheduleEnd: row.scheduleEndTime ?? null,
       clockIn: row.clockIn,
       clockOut: row.clockOut,
-      timezone: opts.timezone,
-      varianceMinutes: opts.varianceMinutes,
+      timezone:
+        opts?.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
+      varianceMinutes:
+        opts?.varianceMinutes ??
+        DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes,
     });
     if (!needs) return null;
     if (row.id) return `id:${row.id}`;
@@ -614,60 +617,70 @@ export function AttendanceApprovalsTable({
 
     setBusyAction("save");
     startTransition(async () => {
-      const result = await saveValidationRosterDays({
-        changes: changes.map(({ staffId, workDate, labelCode }) => ({
-          staffId,
-          workDate,
-          labelCode,
-        })),
-      });
-      if (!("ok" in result) || !result.ok) {
+      try {
+        const result = await saveValidationRosterDays({
+          changes: changes.map(({ staffId, workDate, labelCode }) => ({
+            staffId,
+            workDate,
+            labelCode,
+          })),
+        });
+        if (!("ok" in result) || !result.ok) {
+          const message =
+            "error" in result && result.error
+              ? result.error
+              : "Could not save roster edits.";
+          window.alert(message);
+          setActionError(message);
+          setBusyAction(null);
+          return;
+        }
+
+        clearAllCachedScheduleDays();
+
+        setLocal((prev) => {
+          const byKey = new Map(
+            prev.map((r) => [draftKey(r.empNo, r.workDate), r] as const),
+          );
+
+          for (const change of changes) {
+            const key = draftKey(change.empNo, change.workDate);
+            const existing = byKey.get(key);
+            const person = staffByEmp.get(change.empNo.trim().toLowerCase());
+            byKey.set(key, {
+              ...(existing ??
+                emptyRowForDay({
+                  staffId: change.staffId,
+                  workDate: change.workDate,
+                  empNo: change.empNo,
+                  fullName: person?.fullName ?? change.empNo,
+                  departmentId: person?.departmentId ?? null,
+                })),
+              staffId: change.staffId,
+              rosterLabel: rosterCodeForAction(change.labelCode),
+              scheduleTime: null,
+              issue: issueAfterRosterLabel(
+                change.labelCode,
+                existing?.clockIn ?? null,
+                existing?.clockOut ?? null,
+              ),
+            });
+          }
+
+          return [...byKey.values()];
+        });
+
+        setDrafts({});
+      } catch (err) {
         const message =
-          "error" in result && result.error
-            ? result.error
+          err instanceof Error && err.message
+            ? err.message
             : "Could not save roster edits.";
         window.alert(message);
         setActionError(message);
+      } finally {
         setBusyAction(null);
-        return;
       }
-
-      clearAllCachedScheduleDays();
-
-      setLocal((prev) => {
-        const byKey = new Map(
-          prev.map((r) => [draftKey(r.empNo, r.workDate), r] as const),
-        );
-
-        for (const change of changes) {
-          const key = draftKey(change.empNo, change.workDate);
-          const existing = byKey.get(key);
-          const person = staffByEmp.get(change.empNo.trim().toLowerCase());
-          byKey.set(key, {
-            ...(existing ??
-              emptyRowForDay({
-                staffId: change.staffId,
-                workDate: change.workDate,
-                empNo: change.empNo,
-                fullName: person?.fullName ?? change.empNo,
-                departmentId: person?.departmentId ?? null,
-              })),
-            staffId: change.staffId,
-            rosterLabel: rosterCodeForAction(change.labelCode),
-            scheduleTime: null,
-            issue: issueAfterRosterLabel(
-              change.labelCode,
-              existing?.clockIn ?? null,
-              existing?.clockOut ?? null,
-            ),
-          });
-        }
-
-        return [...byKey.values()];
-      });
-
-      setDrafts({});
-      setBusyAction(null);
     });
   }
 
@@ -692,45 +705,53 @@ export function AttendanceApprovalsTable({
 
     setBusyAction("approve");
     startTransition(async () => {
-      const result = await approveAttendanceDays({
-        ids,
-        days,
-        approvalStatus: ATTENDANCE_APPROVED_STATUS,
-      });
-      if (!("ok" in result) || !result.ok) {
+      try {
+        const result = await approveAttendanceDays({
+          ids,
+          days,
+          approvalStatus: ATTENDANCE_APPROVED_STATUS,
+        });
+        if (!("ok" in result) || !result.ok) {
+          setActionError(
+            "error" in result && result.error
+              ? result.error
+              : "Could not approve attendance.",
+          );
+          return;
+        }
+
+        const byKey = new Map(
+          (result.days ?? []).map(
+            (day) => [draftKey(day.empNo, day.workDate), day] as const,
+          ),
+        );
+        setLocal((prev) => {
+          const next = new Map(
+            prev.map((row) => [draftKey(row.empNo, row.workDate), row] as const),
+          );
+          for (const row of selectedRows) {
+            const key = draftKey(row.empNo, row.workDate);
+            const approved = byKey.get(key);
+            const existing = next.get(key) ?? row;
+            next.set(key, {
+              ...existing,
+              id: approved?.id ?? existing.id,
+              staffId: approved?.staffId ?? existing.staffId,
+              approvalStatus: ATTENDANCE_APPROVED_STATUS,
+            });
+          }
+          return [...next.values()];
+        });
+        setSelectedIds(new Set());
+      } catch (err) {
         setActionError(
-          "error" in result && result.error
-            ? result.error
+          err instanceof Error && err.message
+            ? err.message
             : "Could not approve attendance.",
         );
+      } finally {
         setBusyAction(null);
-        return;
       }
-
-      const byKey = new Map(
-        (result.days ?? []).map(
-          (day) => [draftKey(day.empNo, day.workDate), day] as const,
-        ),
-      );
-      setLocal((prev) => {
-        const next = new Map(
-          prev.map((row) => [draftKey(row.empNo, row.workDate), row] as const),
-        );
-        for (const row of selectedRows) {
-          const key = draftKey(row.empNo, row.workDate);
-          const approved = byKey.get(key);
-          const existing = next.get(key) ?? row;
-          next.set(key, {
-            ...existing,
-            id: approved?.id ?? existing.id,
-            staffId: approved?.staffId ?? existing.staffId,
-            approvalStatus: ATTENDANCE_APPROVED_STATUS,
-          });
-        }
-        return [...next.values()];
-      });
-      setSelectedIds(new Set());
-      setBusyAction(null);
     });
   }
 

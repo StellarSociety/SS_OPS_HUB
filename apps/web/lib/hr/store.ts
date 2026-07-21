@@ -179,7 +179,10 @@ export async function getHrVenueSetting<T>(
     .eq("venue_id", venueId)
     .eq("key", key)
     .maybeSingle();
-  if (error) throw error;
+  if (error) {
+    console.error(`[hr] getHrVenueSetting("${key}"):`, error.message);
+    return defaults;
+  }
   if (!data?.value) return defaults;
   return { ...defaults, ...(data.value as Partial<T>) };
 }

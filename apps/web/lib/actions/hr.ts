@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
@@ -1197,15 +1198,17 @@ export async function saveScheduleDayChanges(params: {
   );
 
   // One round-trip for staff + label codes (+ templates only when needed).
+  // Service client after permission check — faster than RLS-scoped user client.
+  const service = createServiceClient();
   const [staffResult, labelsResult, templatesResult] = await Promise.all([
-    supabase
+    service
       .from("staff")
       .select("id, emp_no, full_name, department_id, termination_date")
       .eq("home_venue_id", venue.id)
       .in("id", staffIds),
-    supabase.from("schedule_day_labels").select("code"),
+    service.from("schedule_day_labels").select("code"),
     needsTemplateCheck
-      ? supabase
+      ? service
           .from("hr_shift_templates")
           .select("id")
           .eq("venue_id", venue.id)
@@ -1271,7 +1274,7 @@ export async function saveScheduleDayChanges(params: {
     }
     const results = await Promise.all(
       [...datesByStaff.entries()].map(([staffId, dates]) =>
-        supabase
+        service
           .from("hr_schedule_days")
           .delete()
           .eq("venue_id", venue.id)
@@ -1286,24 +1289,35 @@ export async function saveScheduleDayChanges(params: {
     }
   }
 
-  if (toUpsert.length > 0) {
-    const upsertYears = [
-      ...new Set(
-        toUpsert
-          .map((c) => Number(c.workDate.slice(0, 4)))
-          .filter((y) => Number.isFinite(y) && y > 0),
-      ),
-    ];
-    const holidayDates = new Set<string>();
-    await Promise.all(
-      upsertYears.map(async (year) => {
-        const holidays = await listPublicHolidays(supabase, venue.id, { year });
-        for (const h of holidays ?? []) {
-          holidayDates.add(h.holidayDate.slice(0, 10));
-        }
-      }),
-    );
+  const changedDates = [...new Set(changes.map((c) => c.workDate))];
+  const holidayDates = new Set<string>();
+  const needsHolidayLookup =
+    toUpsert.some((c) => {
+      const code = (c.labelCode ?? "").trim().toUpperCase();
+      return (
+        code === "OFF" ||
+        code === "PH" ||
+        code === "PH-REPL" ||
+        code === "SHIFT"
+      );
+    }) || toClear.length > 0;
 
+  if (needsHolidayLookup && changedDates.length > 0) {
+    const { data: holidayRows, error: holidayError } = await service
+      .from("hr_public_holidays")
+      .select("holiday_date")
+      .eq("venue_id", venue.id)
+      .in("holiday_date", changedDates);
+    if (holidayError) {
+      console.error("[hr] holiday lookup on save:", holidayError.message);
+    } else {
+      for (const row of holidayRows ?? []) {
+        holidayDates.add(String(row.holiday_date).slice(0, 10));
+      }
+    }
+  }
+
+  if (toUpsert.length > 0) {
     const rows = [];
     const now = new Date().toISOString();
     for (const change of toUpsert) {
@@ -1359,7 +1373,7 @@ export async function saveScheduleDayChanges(params: {
       });
     }
 
-    const { error } = await supabase
+    const { error } = await service
       .from("hr_schedule_days")
       .upsert(rows, { onConflict: "staff_id,work_date" });
 
@@ -1370,23 +1384,49 @@ export async function saveScheduleDayChanges(params: {
   }
 
   // Client already patches the session cache — skip revalidatePath so save
-  // does not remount the page and re-fetch ~10s of punch coverage.
+  // does not remount the page and re-fetch punch coverage.
 
-  // Auto PH-REPL: SHIFT on a configured public holiday accrues a replacement day.
-  const changedDates = [...new Set(changes.map((c) => c.workDate))];
-  const years = [
-    ...new Set(changedDates.map((d) => Number(d.slice(0, 4))).filter(Boolean)),
-  ];
-  for (const year of years) {
-    const holidays = await listPublicHolidays(supabase, venue.id, { year });
-    const holidaySet = new Set(
-      (holidays ?? []).map((h) => h.holidayDate.slice(0, 10)),
-    );
-    if (!changedDates.some((d) => holidaySet.has(d))) continue;
-    const { syncPhReplacementBalancesForYear } = await import(
-      "@/lib/actions/hr-leave"
-    );
-    await syncPhReplacementBalancesForYear(year);
+  // PH-REPL credits: never block the save. Sync only affected staff when a
+  // changed date falls on a public holiday (SHIFT on PH accrues credit).
+  if (holidayDates.size > 0) {
+    const phStaffByYear = new Map<number, Set<string>>();
+    for (const change of changes) {
+      if (!holidayDates.has(change.workDate)) continue;
+      const year = Number(change.workDate.slice(0, 4));
+      if (!Number.isFinite(year)) continue;
+      const set = phStaffByYear.get(year) ?? new Set<string>();
+      set.add(change.staffId);
+      phStaffByYear.set(year, set);
+    }
+
+    if (phStaffByYear.size > 0) {
+      const venueId = venue.id;
+      after(() => {
+        void (async () => {
+          const { syncPhReplacementBalancesForStaff } = await import(
+            "@/lib/actions/hr-leave"
+          );
+          for (const [year, staffSet] of phStaffByYear) {
+            const result = await syncPhReplacementBalancesForStaff({
+              venueId,
+              staffIds: [...staffSet],
+              leaveYear: year,
+            });
+            if (result.error) {
+              console.error(
+                "[hr] deferred PH-REPL balance sync:",
+                result.error,
+              );
+            }
+          }
+        })().catch((err) => {
+          console.error(
+            "[hr] deferred PH-REPL balance sync:",
+            err instanceof Error ? err.message : err,
+          );
+        });
+      });
+    }
   }
 
   return { ok: true as const, count: changes.length };
@@ -2089,7 +2129,9 @@ export async function loadSchedulesWeekData(params: {
     isWeekStart(params.weekStart!);
 
   // Prefer the venue+date index over filtering by every staff UUID.
-  const daysPromise = listScheduleDaysByDateRange(supabase, venue.id, {
+  // Service client after permission check — week loads are RLS-heavy otherwise.
+  const service = createServiceClient();
+  const daysPromise = listScheduleDaysByDateRange(service, venue.id, {
     fromDate: params.fromDate,
     toDate: params.toDate,
   });
@@ -2103,7 +2145,7 @@ export async function loadSchedulesWeekData(params: {
   const weekStart = params.weekStart as string;
 
   const existingPromise = loadWeekSectionsPayload(
-    supabase,
+    service,
     venue.id,
     departmentKey,
     weekStart,
@@ -2121,7 +2163,7 @@ export async function loadSchedulesWeekData(params: {
   });
 
   const sections = await loadWeekSectionsPayload(
-    supabase,
+    service,
     venue.id,
     departmentKey,
     weekStart,

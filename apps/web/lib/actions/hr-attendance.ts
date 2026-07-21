@@ -32,7 +32,6 @@ import {
 } from "@/lib/hr/types";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { mirrorAttendanceApprovalsToLeave } from "@/lib/actions/hr-leave";
 
 async function getAuthContext() {
   const supabase = await createClient();
@@ -574,12 +573,22 @@ export async function approveAttendanceDays(params: {
       entry.dates.push(row.workDate);
       byStaff.set(staffId, entry);
     }
+    const { mirrorAttendanceApprovalsToLeave } = await import(
+      "@/lib/actions/hr-leave"
+    );
     for (const [staffId, entry] of byStaff) {
-      await mirrorAttendanceApprovalsToLeave({
-        staffId,
-        empNo: entry.empNo,
-        workDates: entry.dates,
-      });
+      try {
+        await mirrorAttendanceApprovalsToLeave({
+          staffId,
+          empNo: entry.empNo,
+          workDates: entry.dates,
+        });
+      } catch (err) {
+        console.error(
+          "[hr] mirrorAttendanceApprovalsToLeave:",
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
   }
 
@@ -634,20 +643,24 @@ export async function saveValidationRosterDays(params: {
     return { error: "No changes to save." };
   }
 
-  const result = await saveScheduleDayChanges({
-    changes: params.changes.map((change) => ({
-      staffId: change.staffId,
-      workDate: change.workDate,
-      labelCode: scheduleLabelForValidation(change.labelCode),
-      shiftTemplateId: null,
-    })),
-  });
-
-  if ("ok" in result && result.ok) {
-    revalidatePath("/hr/attendance", "layout");
-    revalidatePath("/hr/schedules", "page");
+  try {
+    // Do not revalidatePath here — the client patches local rows. A layout
+    // revalidate remounts Validation (~10s punch reload) and can surface as a
+    // cryptic Next.js digest (e.g. ERROR 41071405) when that refresh fails.
+    return await saveScheduleDayChanges({
+      changes: params.changes.map((change) => ({
+        staffId: change.staffId,
+        workDate: change.workDate,
+        labelCode: scheduleLabelForValidation(change.labelCode),
+        shiftTemplateId: null,
+      })),
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not save roster edits.";
+    console.error("[hr] saveValidationRosterDays:", message);
+    return { error: message };
   }
-  return result;
 }
 
 /** Load roster + attendance rows for Validation when selected weeks fall outside the initial page range. */

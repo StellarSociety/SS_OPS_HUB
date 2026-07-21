@@ -562,38 +562,70 @@ export async function syncPhReplacementBalancesForYear(
 
   const year = leaveYear ?? currentLeaveYear();
   const staff = await listStaffForVenue(supabase, venue.id);
-  const service = createServiceClient();
+  return syncPhReplacementBalancesForStaff({
+    venueId: venue.id,
+    staffIds: staff.map((s) => s.id),
+    leaveYear: year,
+  });
+}
 
-  const holidays = await listPublicHolidays(supabase, venue.id, { year });
+/**
+ * Fast PH-REPL sync for a small staff set. Only reads schedule days on
+ * public-holiday dates (not the full year grid). Safe to call from `after()`.
+ */
+export async function syncPhReplacementBalancesForStaff(params: {
+  venueId: string;
+  staffIds: string[];
+  leaveYear: number;
+}): Promise<{ error?: string; updated: number; created: number }> {
+  const staffIds = [...new Set(params.staffIds.filter(Boolean))];
+  const year = params.leaveYear;
+  if (staffIds.length === 0 || !Number.isFinite(year)) {
+    return { updated: 0, created: 0 };
+  }
+
+  const service = createServiceClient();
+  const holidays = await listPublicHolidays(service, params.venueId, { year });
   const holidayDates = (holidays ?? []).map((h) => h.holidayDate.slice(0, 10));
   const holidaySet = new Set(holidayDates);
 
   const phCreditsByStaff = new Map<string, number>();
-  if (holidayDates.length > 0 && staff.length > 0) {
-    const scheduleDays = await listStaffScheduleDays(supabase, venue.id, {
-      staffIds: staff.map((s) => s.id),
-      fromDate: `${year}-01-01`,
-      toDate: `${year}-12-31`,
-    });
+  for (const id of staffIds) phCreditsByStaff.set(id, 0);
+
+  if (holidayDates.length > 0) {
+    // Chunk staff ids — PostgREST .in() has practical URL limits.
+    const chunkSize = 80;
     const daysByStaff = new Map<
       string,
       Array<{ work_date: string; label_code: string }>
     >();
-    for (const day of scheduleDays) {
-      if (!holidaySet.has(String(day.work_date).slice(0, 10))) continue;
-      const list = daysByStaff.get(day.staff_id) ?? [];
-      list.push({
-        work_date: day.work_date,
-        label_code: day.label_code,
-      });
-      daysByStaff.set(day.staff_id, list);
+    for (let i = 0; i < staffIds.length; i += chunkSize) {
+      const chunk = staffIds.slice(i, i + chunkSize);
+      const { data, error } = await service
+        .from("hr_schedule_days")
+        .select("staff_id, work_date, label_code")
+        .eq("venue_id", params.venueId)
+        .in("staff_id", chunk)
+        .in("work_date", holidayDates);
+      if (error) {
+        return { error: error.message, updated: 0, created: 0 };
+      }
+      for (const day of data ?? []) {
+        const staffId = day.staff_id as string;
+        const list = daysByStaff.get(staffId) ?? [];
+        list.push({
+          work_date: String(day.work_date),
+          label_code: String(day.label_code),
+        });
+        daysByStaff.set(staffId, list);
+      }
     }
-    for (const member of staff) {
+    for (const staffId of staffIds) {
       phCreditsByStaff.set(
-        member.id,
+        staffId,
         countPhReplacementCredits({
           holidayDates: holidaySet,
-          scheduleDays: daysByStaff.get(member.id) ?? [],
+          scheduleDays: daysByStaff.get(staffId) ?? [],
         }),
       );
     }
@@ -602,9 +634,10 @@ export async function syncPhReplacementBalancesForYear(
   const { data: existing, error: existingError } = await service
     .from("hr_leave_balances")
     .select("*")
-    .eq("venue_id", venue.id)
+    .eq("venue_id", params.venueId)
     .eq("leave_year", year)
-    .eq("leave_type_code", "PH-REPL");
+    .eq("leave_type_code", "PH-REPL")
+    .in("staff_id", staffIds);
 
   if (existingError) {
     return { error: existingError.message, updated: 0, created: 0 };
@@ -620,14 +653,15 @@ export async function syncPhReplacementBalancesForYear(
   let created = 0;
   let updated = 0;
   const inserts: Record<string, unknown>[] = [];
+  const updateJobs: PromiseLike<{ error: { message: string } | null }>[] = [];
 
-  for (const member of staff) {
-    const credits = phCreditsByStaff.get(member.id) ?? 0;
-    const current = byStaff.get(member.id);
+  for (const staffId of staffIds) {
+    const credits = phCreditsByStaff.get(staffId) ?? 0;
+    const current = byStaff.get(staffId);
     if (!current) {
       inserts.push({
-        venue_id: venue.id,
-        staff_id: member.id,
+        venue_id: params.venueId,
+        staff_id: staffId,
         leave_year: year,
         leave_type_code: "PH-REPL",
         entitled: credits,
@@ -644,16 +678,25 @@ export async function syncPhReplacementBalancesForYear(
       continue;
     }
     if (current.entitled !== credits || current.accrued !== credits) {
-      const { error } = await service
-        .from("hr_leave_balances")
-        .update({
-          entitled: credits,
-          accrued: credits,
-          updated_at: now,
-        })
-        .eq("id", current.id);
-      if (error) return { error: error.message, updated, created };
+      updateJobs.push(
+        service
+          .from("hr_leave_balances")
+          .update({
+            entitled: credits,
+            accrued: credits,
+            updated_at: now,
+          })
+          .eq("id", current.id),
+      );
       updated += 1;
+    }
+  }
+
+  if (updateJobs.length > 0) {
+    const results = await Promise.all(updateJobs);
+    const failed = results.find((r) => r.error);
+    if (failed?.error) {
+      return { error: failed.error.message, updated: 0, created: 0 };
     }
   }
 
@@ -1646,7 +1689,9 @@ async function listActiveLeaveTypes(
     console.error("[leave] listActiveLeaveTypes:", error.message);
     return [];
   }
-  return (data ?? []) as LeaveTypeRow[];
+  return ((data ?? []) as LeaveTypeRow[]).filter(
+    (t) => t.is_active !== false,
+  );
 }
 
 function scheduleCodeForType(type: LeaveTypeRow): string {
@@ -1663,10 +1708,21 @@ function findLeaveTypeForScheduleLabel(
   labelCode: string,
 ): LeaveTypeRow | undefined {
   const want = normalizeScheduleLeaveCode(labelCode);
+  const upper = labelCode.trim().toUpperCase();
   return (
     leaveTypes.find((t) => scheduleCodeForType(t) === want) ??
+    leaveTypes.find(
+      (t) =>
+        normalizeScheduleLeaveCode(t.schedule_code || "") === want ||
+        (t.schedule_code || "").toUpperCase() === want ||
+        (t.schedule_code || "").toUpperCase() === upper,
+    ) ??
     leaveTypes.find((t) => normalizeScheduleLeaveCode(t.code) === want) ??
-    leaveTypes.find((t) => t.code.toUpperCase() === labelCode.toUpperCase())
+    leaveTypes.find((t) => t.code.toUpperCase() === upper) ??
+    // Legacy DB code PHRL without schedule_code set.
+    (want === "PH-REPL"
+      ? leaveTypes.find((t) => t.code.toUpperCase() === "PHRL")
+      : undefined)
   );
 }
 

@@ -9,7 +9,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { Eraser, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Eraser, GripVertical, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { RosterLabelsDialog } from "@/components/hr/roster-labels-dialog";
 import { SchedulesWeekNav } from "@/components/hr/schedules-week-nav";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
@@ -266,6 +266,7 @@ export function SchedulesWeekCalendar({
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => {
     if (!initialCells || !initialWeekKey) return true;
     const monday = getMondayForWeekOffset(weekOffsetProp ?? 0);
@@ -916,35 +917,51 @@ export function SchedulesWeekCalendar({
     }
 
     const entriesSnapshot = draftEntries;
+    const changeCount = changes.length;
 
     setPending(true);
+    setPendingLabel(
+      `Saving ${changeCount} change${changeCount === 1 ? "" : "s"}…`,
+    );
     setError(null);
 
-    const result = await saveScheduleDayChanges({ changes });
-    setPending(false);
-    if (result.error) {
-      window.alert(result.error);
-      setError(result.error);
-      return false;
-    }
-
-    setSaved((current) => {
-      const next = { ...current };
-      const patch: Record<string, ScheduleCellValue | null> = {};
-      for (const [key, value] of entriesSnapshot) {
-        if (value) next[key] = value;
-        else delete next[key];
-        patch[key] = value;
+    try {
+      const result = await saveScheduleDayChanges({ changes });
+      if (result.error) {
+        window.alert(result.error);
+        setError(result.error);
+        return false;
       }
-      patchCachedScheduleDays(
-        scheduleWeekDaysCacheKey(fromDate, toDate),
-        patch,
-      );
-      return next;
-    });
-    setDrafts({});
-    setSelected(new Map());
-    return true;
+
+      setSaved((current) => {
+        const next = { ...current };
+        const patch: Record<string, ScheduleCellValue | null> = {};
+        for (const [key, value] of entriesSnapshot) {
+          if (value) next[key] = value;
+          else delete next[key];
+          patch[key] = value;
+        }
+        patchCachedScheduleDays(
+          scheduleWeekDaysCacheKey(fromDate, toDate),
+          patch,
+        );
+        return next;
+      });
+      setDrafts({});
+      setSelected(new Map());
+      return true;
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : `Could not save ${changeCount} change${changeCount === 1 ? "" : "s"}.`;
+      window.alert(message);
+      setError(message);
+      return false;
+    } finally {
+      setPending(false);
+      setPendingLabel(null);
+    }
   }
 
   saveDraftsRef.current = saveDrafts;
@@ -1915,14 +1932,33 @@ export function SchedulesWeekCalendar({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="relative space-y-3">
+      {pending || loading ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="sticky top-0 z-30 flex items-center gap-2 rounded-lg border border-[var(--venue-primary)]/30 bg-[var(--venue-secondary,#F0F3DD)] px-3 py-2 text-sm font-medium text-[#3D421F] shadow-sm"
+        >
+          <Loader2
+            className="h-4 w-4 shrink-0 animate-spin text-[var(--venue-primary,#818a40)]"
+            aria-hidden
+          />
+          {pending
+            ? pendingLabel ?? "Saving roster…"
+            : "Loading schedule week…"}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p className="text-sm text-black/55">
             {departmentLabel} {sectionsMode ? "sections" : "roster"} · week of{" "}
             <span className="font-medium text-[#3D421F]">{rangeLabel}</span>
             {loading ? (
-              <span className="ml-2 text-xs text-black/40">Loading…</span>
+              <span className="ml-2 inline-flex items-center gap-1 text-xs text-black/45">
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                Loading…
+              </span>
             ) : null}
           </p>
           <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-[#3D421F]">
@@ -2086,7 +2122,14 @@ export function SchedulesWeekCalendar({
               }}
               className="h-8 w-full"
             >
-              {pending ? "Saving…" : "Save"}
+              {pending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Saving…
+                </span>
+              ) : (
+                "Save"
+              )}
             </Button>
             <Button
               type="button"
