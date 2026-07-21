@@ -32,23 +32,14 @@ import {
 } from "@/lib/hr/types";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getActionAuthContext } from "@/lib/auth/action-context";
 
 async function getAuthContext() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const venue = await resolveActiveVenue(supabase);
-  if (!venue) redirect("/select-venue");
-
-  const { data: permissions } = await supabase
-    .from("user_permissions")
-    .select("*")
-    .eq("user_id", user.id);
-
-  return { supabase, user, venue, permissions: permissions ?? [] };
+  const ctx = await getActionAuthContext();
+  if ("error" in ctx) {
+    throw new Error(ctx.error);
+  }
+  return ctx;
 }
 
 export type AttendanceImportPayload = {

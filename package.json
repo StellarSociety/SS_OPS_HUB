@@ -14,5 +14,22 @@
     "next": "16.2.10",
     "pg": "^8.22.0",
     "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "//": "sharp ships prebuilt native binaries per platform. Vercel builds on linux-x64, so those must be installable/buildable there even though the lockfile is generated on macOS.",
+    "onlyBuiltDependencies": [
+      "sharp"
+    ],
+    "supportedArchitectures": {
+      "os": [
+        "current",
+        "linux"
+      ],
+      "cpu": [
+        "current",
+        "x64",
+        "arm64"
+      ]
+    }
   }
 }

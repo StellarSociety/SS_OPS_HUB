@@ -23,9 +23,9 @@ import { VENUE_TOGGLEABLE_MODULES } from "@/lib/modules-catalog";
 import {
   convertImageToWebp,
   isRasterImageMime,
+  loadSharp,
 } from "@/lib/storage/convert-to-webp";
 import { createServiceClient } from "@/lib/supabase/service";
-import sharp from "sharp";
 
 const SETTINGS_PATHS = ["/settings", "/settings/users", "/settings/venue-modules"];
 
@@ -752,6 +752,7 @@ export async function updateUserAvatar(userId: string, formData: FormData) {
     const bytes = Buffer.from(await file.arrayBuffer());
     let webpBuffer: Buffer;
     try {
+      const sharp = await loadSharp();
       const rotated = sharp(bytes, { failOn: "none" }).rotate();
       webpBuffer = await rotated
         .resize(256, 256, { fit: "cover", position: "centre" })

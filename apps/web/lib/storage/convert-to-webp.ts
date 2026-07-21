@@ -1,4 +1,23 @@
-import sharp from "sharp";
+import type { Sharp, SharpOptions } from "sharp";
+
+/**
+ * Load sharp lazily.
+ *
+ * sharp is a native module. Importing it at module scope makes every server
+ * action that transitively imports this file (staff saves, schedule saves,
+ * venue branding) pay the native load — and hard-fail with ERR_DLOPEN_FAILED
+ * if the platform binary is missing on the deployment target. Loading it only
+ * when an image is actually being processed keeps non-image writes working.
+ */
+export async function loadSharp(): Promise<
+  (input: Buffer, options?: SharpOptions) => Sharp
+> {
+  const mod = await import("sharp");
+  return (mod.default ?? mod) as unknown as (
+    input: Buffer,
+    options?: SharpOptions,
+  ) => Sharp;
+}
 
 /** Default lossy WebP quality for uploaded/imported raster images. */
 export const WEBP_QUALITY = 82;
@@ -53,6 +72,7 @@ export async function convertImageToWebp(
     maxHeight?: number;
   },
 ): Promise<ConvertToWebpResult> {
+  const sharp = await loadSharp();
   let pipeline = sharp(input, { failOn: "none" }).rotate();
 
   if (options?.maxWidth || options?.maxHeight) {

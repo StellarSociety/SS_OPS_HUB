@@ -70,17 +70,22 @@ export function StaffDetailView({
     if (photoFile) formData.set("photo", photoFile);
     if (photoSourceFile) formData.set("photo_source", photoSourceFile);
     setSaving(true);
-    const result = await updateStaff(staff.id, formData);
-    setSaving(false);
-    if (result?.error) {
-      toast.error(result.error);
-      return;
+    try {
+      const result = await updateStaff(staff.id, formData);
+      if (result?.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved("Staff details saved.");
+      setPhotoFile(null);
+      setPhotoSourceFile(null);
+      setPhotoCleared(false);
+      router.refresh();
+    } catch {
+      toast.error("Could not save — check your connection and try again.");
+    } finally {
+      setSaving(false);
     }
-    toast.saved("Staff details saved.");
-    setPhotoFile(null);
-    setPhotoSourceFile(null);
-    setPhotoCleared(false);
-    router.refresh();
   }
 
   return (

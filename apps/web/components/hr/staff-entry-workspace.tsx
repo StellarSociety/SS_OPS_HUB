@@ -118,29 +118,33 @@ export function StaffEntryWorkspace({
     if (photoFile) formData.set("photo", photoFile);
     if (photoSourceFile) formData.set("photo_source", photoSourceFile);
     setSaving(true);
-    if (loadedStaffId) {
-      const result = await updateStaff(loadedStaffId, formData);
-      setSaving(false);
-      if (result?.error) {
+    try {
+      if (loadedStaffId) {
+        const result = await updateStaff(loadedStaffId, formData);
+        if (result?.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.saved("Employee updated.");
+        setPhotoFile(null);
+        setPhotoSourceFile(null);
+        setPhotoCleared(false);
+        router.refresh();
+        return;
+      }
+
+      const result = await createStaff(formData);
+      if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.saved("Employee updated.");
-      setPhotoFile(null);
-      setPhotoSourceFile(null);
-      setPhotoCleared(false);
-      router.refresh();
-      return;
+      toast.saved("Staff member added.");
+      if (result.id) router.push(toScopedHref(`/hr/${result.id}`, scope, slug));
+    } catch {
+      toast.error("Could not save — check your connection and try again.");
+    } finally {
+      setSaving(false);
     }
-
-    const result = await createStaff(formData);
-    setSaving(false);
-    if (result.error) {
-      toast.error(result.error);
-      return;
-    }
-    toast.saved("Staff member added.");
-    if (result.id) router.push(toScopedHref(`/hr/${result.id}`, scope, slug));
   }
 
   const showForm = view === "form";

@@ -951,7 +951,6 @@ export function SchedulesWeekCalendar({
       setSelected(new Map());
       return true;
     } catch (err) {
-      // Next flight/RSC digest after a successful mutation — keep local edits.
       const message =
         err instanceof Error && err.message ? err.message : "";
       const digest =
@@ -964,24 +963,11 @@ export function SchedulesWeekCalendar({
         message.includes("digest property");
 
       if (isFlightError) {
-        setSaved((current) => {
-          const next = { ...current };
-          const patch: Record<string, ScheduleCellValue | null> = {};
-          for (const [key, value] of entriesSnapshot) {
-            if (value) next[key] = value;
-            else delete next[key];
-            patch[key] = value;
-          }
-          patchCachedScheduleDays(
-            scheduleWeekDaysCacheKey(fromDate, toDate),
-            patch,
-          );
-          return next;
-        });
-        setDrafts({});
-        setSelected(new Map());
-        setError(null);
-        return true;
+        const interrupted =
+          "Save was interrupted before the server confirmed. Your changes may not be saved — try again or refresh the page.";
+        window.alert(interrupted);
+        setError(interrupted);
+        return false;
       }
 
       const fallback =

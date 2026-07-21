@@ -67,27 +67,23 @@ import {
 } from "@/lib/hr/schedules";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getActionAuthContext, diagnosePersistenceAccess } from "@/lib/auth/action-context";
 import {
   convertImageToWebp,
   isRasterImageMime,
 } from "@/lib/storage/convert-to-webp";
 
 async function getAuthContext() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const ctx = await getActionAuthContext();
+  if ("error" in ctx) {
+    throw new Error(ctx.error);
+  }
+  return ctx;
+}
 
-  const venue = await resolveActiveVenue(supabase);
-  if (!venue) redirect("/select-venue");
-
-  const { data: permissions } = await supabase
-    .from("user_permissions")
-    .select("*")
-    .eq("user_id", user.id);
-
-  return { supabase, user, venue, permissions: permissions ?? [] };
+/** Logged-in diagnostic for production save issues (Settings → Developers). */
+export async function diagnoseHrPersistence() {
+  return diagnosePersistenceAccess();
 }
 
 export async function importStaffFromCsv(csvText: string) {
@@ -310,6 +306,25 @@ export async function updateStaff(
   staffId: string,
   formData: FormData,
 ) {
+  try {
+    return await updateStaffInner(staffId, formData);
+  } catch (err) {
+    const digest =
+      err && typeof err === "object" && "digest" in err
+        ? String((err as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw err;
+    const message =
+      err instanceof Error ? err.message : "Could not save staff details.";
+    console.error("[hr] updateStaff:", message);
+    return { error: message };
+  }
+}
+
+async function updateStaffInner(
+  staffId: string,
+  formData: FormData,
+) {
   const { supabase, user, venue, permissions } = await getAuthContext();
 
   const { data: before } = await supabase
@@ -373,6 +388,22 @@ export async function updateStaff(
 }
 
 export async function createStaff(formData: FormData) {
+  try {
+    return await createStaffInner(formData);
+  } catch (err) {
+    const digest =
+      err && typeof err === "object" && "digest" in err
+        ? String((err as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw err;
+    const message =
+      err instanceof Error ? err.message : "Could not create staff member.";
+    console.error("[hr] createStaff:", message);
+    return { error: message };
+  }
+}
+
+async function createStaffInner(formData: FormData) {
   const { user, venue, permissions } = await getAuthContext();
 
   if (!canSubmitStaff(permissions, venue.id)) {
@@ -2091,64 +2122,76 @@ export async function loadSchedulesWeekData(params: {
   weekStart?: string | null;
   includeSections?: boolean;
 }) {
-  const { supabase, venue, permissions } = await getAuthContext();
-  if (!canAccessSchedules(permissions, venue.id)) {
+  try {
+    const { venue, permissions } = await getAuthContext();
+    if (!canAccessSchedules(permissions, venue.id)) {
+      return {
+        error: "No access.",
+        days: [] as Awaited<ReturnType<typeof listScheduleDaysByDateRange>>,
+        sections: [] as ScheduleWeekSection[],
+        weekComplete: false,
+      };
+    }
+
+    const includeSections =
+      Boolean(params.includeSections) &&
+      Boolean(params.departmentKey) &&
+      Boolean(params.weekStart) &&
+      isDepartmentKey(params.departmentKey!) &&
+      isWeekStart(params.weekStart!);
+
+    // Prefer the venue+date index over filtering by every staff UUID.
+    // Service client after permission check — week loads are RLS-heavy otherwise.
+    const service = createServiceClient();
+    const daysPromise = listScheduleDaysByDateRange(service, venue.id, {
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+    });
+
+    if (!includeSections) {
+      const days = await daysPromise;
+      return { days, sections: [] as ScheduleWeekSection[], weekComplete: true };
+    }
+
+    const departmentKey = params.departmentKey as ScheduleDepartmentKey;
+    const weekStart = params.weekStart as string;
+
+    const existingPromise = loadWeekSectionsPayload(
+      service,
+      venue.id,
+      departmentKey,
+      weekStart,
+    );
+
+    const [days, existing] = await Promise.all([daysPromise, existingPromise]);
+    if (existing.length > 0) {
+      return { days, sections: existing, weekComplete: true };
+    }
+
+    await seedWeekFromPreviousOrDefaults({
+      venueId: venue.id,
+      departmentKey,
+      weekStart,
+    });
+
+    const sections = await loadWeekSectionsPayload(
+      service,
+      venue.id,
+      departmentKey,
+      weekStart,
+    );
+    return { days, sections, weekComplete: true };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not load schedule data.";
+    console.error("[hr] loadSchedulesWeekData:", message);
     return {
-      error: "No access.",
+      error: message,
       days: [] as Awaited<ReturnType<typeof listScheduleDaysByDateRange>>,
       sections: [] as ScheduleWeekSection[],
       weekComplete: false,
     };
   }
-
-  const includeSections =
-    Boolean(params.includeSections) &&
-    Boolean(params.departmentKey) &&
-    Boolean(params.weekStart) &&
-    isDepartmentKey(params.departmentKey!) &&
-    isWeekStart(params.weekStart!);
-
-  // Prefer the venue+date index over filtering by every staff UUID.
-  // Service client after permission check — week loads are RLS-heavy otherwise.
-  const service = createServiceClient();
-  const daysPromise = listScheduleDaysByDateRange(service, venue.id, {
-    fromDate: params.fromDate,
-    toDate: params.toDate,
-  });
-
-  if (!includeSections) {
-    const days = await daysPromise;
-    return { days, sections: [] as ScheduleWeekSection[], weekComplete: true };
-  }
-
-  const departmentKey = params.departmentKey as ScheduleDepartmentKey;
-  const weekStart = params.weekStart as string;
-
-  const existingPromise = loadWeekSectionsPayload(
-    service,
-    venue.id,
-    departmentKey,
-    weekStart,
-  );
-
-  const [days, existing] = await Promise.all([daysPromise, existingPromise]);
-  if (existing.length > 0) {
-    return { days, sections: existing, weekComplete: true };
-  }
-
-  await seedWeekFromPreviousOrDefaults({
-    venueId: venue.id,
-    departmentKey,
-    weekStart,
-  });
-
-  const sections = await loadWeekSectionsPayload(
-    service,
-    venue.id,
-    departmentKey,
-    weekStart,
-  );
-  return { days, sections, weekComplete: true };
 }
 
 /** Fingerprint clock-in/out for the schedule roster grid. */
