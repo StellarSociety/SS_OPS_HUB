@@ -1,0 +1,9 @@
+# Keep local-only files out of CLI deploys (vercel deploy uploads the folder).
+.env
+.env.*
+!.env.example
+Arattai.app
+node_modules
+.next
+.git
+data

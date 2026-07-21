@@ -3,6 +3,7 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @ss-ops-hub/web build",
   "framework": "nextjs",
+  "outputDirectory": "apps/web/.next",
   "crons": [
     {
       "path": "/api/cron/notifications",
