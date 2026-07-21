@@ -1,7 +1,10 @@
-export default function HrLeaveSettingsPage() {
-  return (
-    <div className="rounded-2xl border border-dashed border-black/10 bg-white/60 p-6">
-      <p className="text-sm text-black/60">This page is intentionally empty.</p>
-    </div>
-  );
+import { LeavePolicySettingsPanel } from "@/components/hr/leave-policy-settings-panel";
+import { getLeavePolicySettings } from "@/lib/actions/hr-leave";
+import { getHrPageContext } from "@/lib/hr/page-context";
+
+export default async function HrLeaveSettingsPage() {
+  await getHrPageContext();
+  const settings = await getLeavePolicySettings();
+
+  return <LeavePolicySettingsPanel settings={settings} />;
 }

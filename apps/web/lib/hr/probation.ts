@@ -336,6 +336,34 @@ export type OnProbationItem = {
 const ON_BOARD_STATUS_NAME = "ON Board";
 
 /**
+ * True when staff is ON Board and still within their probation window
+ * (Pending) — same rules as the Staff Directory “On probation” widget.
+ */
+export function isStaffOnProbation(member: {
+  joining_date: string | null;
+  termination_date: string | null;
+  probation_duration_value: number | null;
+  probation_duration_unit: string | null;
+  probation_status: string | null;
+  employment_status?: { name: string } | null;
+}): boolean {
+  if (member.employment_status?.name !== ON_BOARD_STATUS_NAME) return false;
+  if (!member.joining_date) return false;
+
+  const calc = computeProbation({
+    joiningDate: member.joining_date,
+    durationValue:
+      member.probation_duration_value ?? DEFAULT_PROBATION_DURATION_VALUE,
+    durationUnit:
+      member.probation_duration_unit ?? DEFAULT_PROBATION_DURATION_UNIT,
+    probationStatus: member.probation_status,
+    terminationDate: member.termination_date,
+  });
+
+  return calc.status === "Pending";
+}
+
+/**
  * Staff still within their probation window (Pending), sorted soonest-ending
  * first. Defaults unset duration to the contractual 6-month default so rows
  * match the staff entry form.
@@ -358,8 +386,7 @@ export function listOnProbationItems(
   const items: OnProbationItem[] = [];
 
   for (const member of staff) {
-    if (member.employment_status?.name !== ON_BOARD_STATUS_NAME) continue;
-    if (!member.joining_date) continue;
+    if (!isStaffOnProbation(member)) continue;
 
     const calc = computeProbation({
       joiningDate: member.joining_date,
@@ -372,7 +399,6 @@ export function listOnProbationItems(
     });
 
     if (
-      calc.status !== "Pending" ||
       !calc.legalEndDate ||
       !calc.commencementDate ||
       !calc.durationLabel ||

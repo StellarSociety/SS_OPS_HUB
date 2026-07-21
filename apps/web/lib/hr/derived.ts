@@ -18,26 +18,54 @@ export function computeAge(dob: string | null | undefined): number | null {
   return age;
 }
 
+export function computeWorkedMonths(
+  joiningDate: string | null | undefined,
+  terminationDate?: string | null,
+): number | null {
+  const parts = computeWorkedParts(joiningDate, terminationDate);
+  if (!parts) return null;
+  return parts.years * 12 + parts.months;
+}
+
+/** Calendar years / months / days from joining → termination (or today). */
+export function computeWorkedParts(
+  joiningDate: string | null | undefined,
+  terminationDate?: string | null,
+): { years: number; months: number; days: number } | null {
+  const start = toDate(joiningDate);
+  if (!start) return null;
+  const end = toDate(terminationDate) ?? new Date();
+  if (end < start) return null;
+
+  let years = end.getFullYear() - start.getFullYear();
+  let months = end.getMonth() - start.getMonth();
+  let days = end.getDate() - start.getDate();
+
+  if (days < 0) {
+    months -= 1;
+    const prevMonth = new Date(end.getFullYear(), end.getMonth(), 0);
+    days += prevMonth.getDate();
+  }
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+
+  return { years, months, days };
+}
+
+/** Format: `02 Y | 03 M | 05 D` (zero-padded). */
 export function computeWorkedTime(
   joiningDate: string | null | undefined,
   terminationDate?: string | null,
 ): string | null {
-  const start = toDate(joiningDate);
-  if (!start) return null;
-  const end = toDate(terminationDate) ?? new Date();
+  const parts = computeWorkedParts(joiningDate, terminationDate);
+  if (!parts) return null;
 
-  const totalMonths =
-    (end.getFullYear() - start.getFullYear()) * 12 +
-    (end.getMonth() - start.getMonth());
-
-  if (totalMonths < 0) return null;
-
-  const years = Math.floor(totalMonths / 12);
-  const months = totalMonths % 12;
-
-  if (years === 0) return `${months} mo`;
-  if (months === 0) return `${years} yr`;
-  return `${years} yr ${months} mo`;
+  const y = String(parts.years).padStart(2, "0");
+  const m = String(parts.months).padStart(2, "0");
+  const d = String(parts.days).padStart(2, "0");
+  return `${y} Y | ${m} M | ${d} D`;
 }
 
 export function computeVacationBalance(

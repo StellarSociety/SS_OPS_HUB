@@ -47,6 +47,7 @@ function emptyStaffByDepartment(): Record<
     kitchen: [],
     bar: [],
     floor: [],
+    office: [],
   };
 }
 

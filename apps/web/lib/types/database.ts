@@ -172,7 +172,7 @@ export type HrPublicHoliday = {
 export type HrScheduleWeekSection = {
   id: string;
   venue_id: string;
-  department_key: "kitchen" | "bar" | "floor";
+  department_key: "kitchen" | "bar" | "floor" | "office";
   week_start: string;
   name: string;
   sort_order: number;
@@ -183,7 +183,7 @@ export type HrScheduleWeekSection = {
 export type HrScheduleSectionAssignment = {
   id: string;
   venue_id: string;
-  department_key: "kitchen" | "bar" | "floor";
+  department_key: "kitchen" | "bar" | "floor" | "office";
   week_start: string;
   section_id: string;
   staff_id: string;

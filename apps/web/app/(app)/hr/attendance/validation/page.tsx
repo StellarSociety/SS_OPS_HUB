@@ -12,14 +12,29 @@ import {
   withFallbackScheduleLabelIds,
 } from "@/lib/hr/schedules";
 import {
+  getHrVenueSetting,
   listAttendanceMonths,
   listDepartments,
   listPublicHolidays,
   listScheduleDayLabels,
   listStaffForVenue,
 } from "@/lib/hr/store";
+import {
+  DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+  HR_SETTINGS_KEYS,
+  type HrAttendanceImportRules,
+} from "@/lib/hr/types";
 
-export default async function AttendanceValidationPage() {
+type PageProps = {
+  searchParams?: Promise<{ staffId?: string }>;
+};
+
+export default async function AttendanceValidationPage({
+  searchParams,
+}: PageProps) {
+  const params = (await searchParams) ?? {};
+  const initialStaffId = params.staffId?.trim() || null;
+
   const { supabase, venue, permissions } = await getHrPageContext();
   const canEditRoster = canEditSchedules(permissions, venue.id);
 
@@ -32,7 +47,7 @@ export default async function AttendanceValidationPage() {
   const toDate = range.toDate;
   const holidayYear = Number(fromDate.slice(0, 4)) || new Date().getFullYear();
 
-  const [staff, departments, scheduleLabels, rows, publicHolidays] =
+  const [staff, departments, scheduleLabels, rows, publicHolidays, importRules] =
     await Promise.all([
       listStaffForVenue(supabase, venue.id),
       listDepartments(supabase, venue.id),
@@ -42,6 +57,12 @@ export default async function AttendanceValidationPage() {
         fromDate: `${holidayYear - 1}-01-01`,
         toDate: `${holidayYear + 1}-12-31`,
       }),
+      getHrVenueSetting<HrAttendanceImportRules>(
+        supabase,
+        venue.id,
+        HR_SETTINGS_KEYS.attendanceImportRules,
+        DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+      ),
     ]);
 
   const departmentOptions = departments.map((d) => ({
@@ -72,10 +93,14 @@ export default async function AttendanceValidationPage() {
       <div>
         <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
         <p className="mt-1 text-sm text-black/55">
-          Select a department, employee, and week(s). Stage SH / OFF / ABS / PH /
-          AL / SL / UPL / ML / PL / BL (current roster label is highlighted),
-          Save roster edits, then Approve Attendance so hours can feed payroll
-          and leave.
+          Select a department, employee, and week(s). Stage actions in three
+          groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL /
+          BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as
+          calendar PH; working SH earns a PH-REPL credit automatically. Save
+          roster edits, then Approve Attendance. SHIFT days only need approval
+          when clock in/out differ from schedule by more than{" "}
+          {importRules.scheduleVarianceMinutes} minutes (or punches are
+          missing). Leave and ABS need approval; OFF / calendar PH do not.
         </p>
       </div>
       <AttendanceApprovalsTable
@@ -85,6 +110,9 @@ export default async function AttendanceValidationPage() {
         scheduleLabels={labelOptions}
         publicHolidayByDate={publicHolidayByDate}
         canEditRoster={canEditRoster}
+        initialStaffId={initialStaffId}
+        scheduleVarianceMinutes={importRules.scheduleVarianceMinutes}
+        timezone={importRules.timezone}
       />
     </div>
   );

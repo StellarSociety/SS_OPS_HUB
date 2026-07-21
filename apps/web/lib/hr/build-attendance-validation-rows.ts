@@ -2,11 +2,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentMonthKey, resolveFetchMonthKeys } from "@/lib/hr/attendance-months";
 import { EMPLOYMENT_STATUS_NAMES } from "@/lib/hr/employment-status";
 import {
+  DEFAULT_SCHEDULE_VARIANCE_MINUTES,
+  measureShiftPunchVariance,
+} from "@/lib/hr/schedule-variance";
+import {
+  getHrVenueSetting,
   listAttendanceDays,
   listScheduleDaysByDateRange,
   listShiftTemplates,
   listStaffForVenue,
 } from "@/lib/hr/store";
+import {
+  DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+  HR_SETTINGS_KEYS,
+  type HrAttendanceImportRules,
+} from "@/lib/hr/types";
 
 export type AttendanceValidationRow = {
   id: string | null;
@@ -17,6 +27,8 @@ export type AttendanceValidationRow = {
   departmentId: string | null;
   rosterLabel: string | null;
   scheduleTime: string | null;
+  scheduleStartTime: string | null;
+  scheduleEndTime: string | null;
   clockIn: string | null;
   clockOut: string | null;
   totalHours: number | null;
@@ -69,7 +81,7 @@ export async function buildAttendanceValidationRows(
 ): Promise<AttendanceValidationRow[]> {
   const empFilter = opts.empNo?.trim().toLowerCase() ?? null;
 
-  const [staff, templates, days, roster] = await Promise.all([
+  const [staff, templates, days, roster, importRules] = await Promise.all([
     listStaffForVenue(supabase, venueId),
     listShiftTemplates(supabase, venueId, { includeInactive: true }),
     listAttendanceDays(supabase, venueId, {
@@ -81,7 +93,19 @@ export async function buildAttendanceValidationRows(
       fromDate: opts.fromDate,
       toDate: opts.toDate,
     }),
+    getHrVenueSetting<HrAttendanceImportRules>(
+      supabase,
+      venueId,
+      HR_SETTINGS_KEYS.attendanceImportRules,
+      DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+    ),
   ]);
+
+  const timezone = importRules.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone;
+  const varianceMinutes =
+    Number.isFinite(importRules.scheduleVarianceMinutes)
+      ? Math.max(0, importRules.scheduleVarianceMinutes)
+      : DEFAULT_SCHEDULE_VARIANCE_MINUTES;
 
   const staffByEmp = new Map(
     staff.map((s) => [s.emp_no.trim().toLowerCase(), s]),
@@ -99,13 +123,49 @@ export async function buildAttendanceValidationRows(
 
   const rowsByKey = new Map<string, AttendanceValidationRow>();
 
-  function scheduleTimeFor(
+  function scheduleTimesFor(
     labelCode: string | null | undefined,
     shiftTemplateId: string | null | undefined,
-  ): string | null {
-    if (labelCode !== "SHIFT" || !shiftTemplateId) return null;
+  ): {
+    scheduleTime: string | null;
+    scheduleStartTime: string | null;
+    scheduleEndTime: string | null;
+  } {
+    if (labelCode !== "SHIFT" || !shiftTemplateId) {
+      return {
+        scheduleTime: null,
+        scheduleStartTime: null,
+        scheduleEndTime: null,
+      };
+    }
     const shiftTemplate = templatesById.get(shiftTemplateId);
-    return formatScheduleTime(shiftTemplate?.startTime, shiftTemplate?.endTime);
+    const start = shiftTemplate?.startTime ?? null;
+    const end = shiftTemplate?.endTime ?? null;
+    return {
+      scheduleTime: formatScheduleTime(start, end),
+      scheduleStartTime: start,
+      scheduleEndTime: end,
+    };
+  }
+
+  function shiftVarianceIssue(
+    workDate: string,
+    scheduleStart: string | null,
+    scheduleEnd: string | null,
+    clockIn: string | null,
+    clockOut: string | null,
+  ): string | null {
+    if (!scheduleStart || !scheduleEnd || !clockIn || !clockOut) return null;
+    const { maxDiffMinutes } = measureShiftPunchVariance({
+      workDate,
+      scheduleStart,
+      scheduleEnd,
+      clockIn,
+      clockOut,
+      timezone,
+    });
+    if (maxDiffMinutes == null || maxDiffMinutes <= varianceMinutes) return null;
+    return `Clock times differ from schedule by ${maxDiffMinutes} min (limit ${varianceMinutes})`;
   }
 
   for (const day of days) {
@@ -114,6 +174,10 @@ export async function buildAttendanceValidationRows(
     const key = `${empKey}::${day.work_date}`;
     const planned = rosterByKey.get(key);
     const person = staffByEmp.get(empKey);
+    const schedule = scheduleTimesFor(
+      planned?.label_code,
+      planned?.shift_template_id,
+    );
     let issue: string | null = null;
 
     if (planned?.label_code === "SHIFT" && day.status !== "complete") {
@@ -130,6 +194,14 @@ export async function buildAttendanceValidationRows(
       issue = "Missing clock out";
     } else if (day.status === "missing_clock_in") {
       issue = "Missing clock in";
+    } else if (planned?.label_code === "SHIFT") {
+      issue = shiftVarianceIssue(
+        day.work_date,
+        schedule.scheduleStartTime,
+        schedule.scheduleEndTime,
+        day.clock_in,
+        day.clock_out,
+      );
     }
 
     rowsByKey.set(key, {
@@ -140,10 +212,9 @@ export async function buildAttendanceValidationRows(
       fullName: person?.full_name ?? day.emp_no,
       departmentId: person?.department_id ?? null,
       rosterLabel: planned?.label_code ?? null,
-      scheduleTime: scheduleTimeFor(
-        planned?.label_code,
-        planned?.shift_template_id,
-      ),
+      scheduleTime: schedule.scheduleTime,
+      scheduleStartTime: schedule.scheduleStartTime,
+      scheduleEndTime: schedule.scheduleEndTime,
       clockIn: day.clock_in,
       clockOut: day.clock_out,
       totalHours: day.total_hours,
@@ -160,6 +231,10 @@ export async function buildAttendanceValidationRows(
     if (rowsByKey.has(key)) continue;
 
     const person = staffByEmp.get(empKey);
+    const schedule = scheduleTimesFor(
+      planned.label_code,
+      planned.shift_template_id,
+    );
     const issue =
       planned.label_code === "SHIFT"
         ? "Scheduled shift with no attendance"
@@ -173,10 +248,9 @@ export async function buildAttendanceValidationRows(
       fullName: person?.full_name ?? planned.emp_no,
       departmentId: person?.department_id ?? null,
       rosterLabel: planned.label_code,
-      scheduleTime: scheduleTimeFor(
-        planned.label_code,
-        planned.shift_template_id,
-      ),
+      scheduleTime: schedule.scheduleTime,
+      scheduleStartTime: schedule.scheduleStartTime,
+      scheduleEndTime: schedule.scheduleEndTime,
       clockIn: null,
       clockOut: null,
       totalHours: null,

@@ -34,8 +34,10 @@ export default function ForgotPasswordPage() {
         </div>
         <form action={formAction} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" required />
+            <Label htmlFor="email" variant="onDark">
+              Email
+            </Label>
+            <Input id="email" name="email" type="email" required variant="onDark" />
           </div>
           {state.error ? (
             <p className="text-sm text-red-300">{state.error}</p>

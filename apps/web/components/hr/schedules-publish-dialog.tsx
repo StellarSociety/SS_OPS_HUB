@@ -21,6 +21,7 @@ export const DEFAULT_SCHEDULES_PUBLISH_DEPARTMENTS: SchedulesPublishDepartments 
     kitchen: true,
     bar: true,
     floor: true,
+    office: true,
   };
 
 type SchedulesPublishDialogProps = {

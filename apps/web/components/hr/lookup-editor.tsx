@@ -7,9 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-// The shared <Input> defaults to white text on a translucent dark background,
-// but lookup rows sit on a white surface. Override to dark, visible text so the
-// fields are actually editable/readable in this light context.
+// Optional light-surface tweaks (shared Input is light by default now).
 const LIGHT_INPUT =
   "border-black/15 bg-white text-black placeholder:text-black/40 focus-visible:ring-offset-white";
 

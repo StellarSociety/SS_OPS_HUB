@@ -11,7 +11,8 @@ export default async function LeaveModuleLayout({
       <div>
         <ModulePageTitle>Leave Management</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
-          Balances, requests, and calendar pages are reserved here.
+          Balances by calendar year, plus a month calendar of scheduled leave
+          with type filters and approval.
         </p>
         <hr className="mt-4 border-black/10" />
       </div>

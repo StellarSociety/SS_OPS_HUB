@@ -31,13 +31,16 @@ export default function ResetPasswordPage() {
         </div>
         <form action={formAction} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="password">New password</Label>
+            <Label htmlFor="password" variant="onDark">
+              New password
+            </Label>
             <Input
               id="password"
               name="password"
               type="password"
               minLength={8}
               required
+              variant="onDark"
             />
           </div>
           {state.error ? (

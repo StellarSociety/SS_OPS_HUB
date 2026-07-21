@@ -20,6 +20,23 @@ export const EMPLOYMENT_STATUS_SURFACE: Record<string, string> = {
   OUT: "border-red-200 bg-red-100 text-red-800",
 };
 
+/** Display / filter order: Hiring → ON Board → OFF Board → OUT. */
+export const EMPLOYMENT_STATUS_SORT_ORDER: readonly string[] = [
+  EMPLOYMENT_STATUS_NAMES.hiring,
+  EMPLOYMENT_STATUS_NAMES.onBoard,
+  EMPLOYMENT_STATUS_NAMES.offBoard,
+  EMPLOYMENT_STATUS_NAMES.out,
+];
+
+export function compareEmploymentStatusNames(a: string, b: string): number {
+  const ai = EMPLOYMENT_STATUS_SORT_ORDER.indexOf(a);
+  const bi = EMPLOYMENT_STATUS_SORT_ORDER.indexOf(b);
+  const aRank = ai === -1 ? EMPLOYMENT_STATUS_SORT_ORDER.length : ai;
+  const bRank = bi === -1 ? EMPLOYMENT_STATUS_SORT_ORDER.length : bi;
+  if (aRank !== bRank) return aRank - bRank;
+  return a.localeCompare(b);
+}
+
 export function employmentStatusSurfaceClass(
   statusName: string | null | undefined,
 ): string {

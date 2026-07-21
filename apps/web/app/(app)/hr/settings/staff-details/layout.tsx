@@ -1,4 +1,5 @@
 import { HrStaffDetailsSubNav } from "@/components/hr/hr-settings-inner-sub-nav";
+import { HrSettingsSectionHeader } from "@/components/hr/hr-settings-section";
 
 export default function HrStaffDetailsSettingsLayout({
   children,
@@ -7,13 +8,10 @@ export default function HrStaffDetailsSettingsLayout({
 }) {
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="font-serif text-2xl text-[#3D421F]">Staff Details</h2>
-        <p className="mt-1 text-sm text-black/60">
-          Profile lookups and salary defaults used across the staff directory,
-          insurance, and certifications.
-        </p>
-      </div>
+      <HrSettingsSectionHeader
+        title="Staff Details"
+        description="Profile lookups and salary defaults used across the staff directory, insurance, and certifications."
+      />
       <HrStaffDetailsSubNav />
       {children}
     </div>

@@ -97,6 +97,7 @@ export function SchedulesDepartmentTabs({
     kitchen: "roster",
     bar: "roster",
     floor: "roster",
+    office: "roster",
   });
   const { weekOffset, setWeekOffset } = usePersistedHrSchedulesWeekOffset(0);
   const [publishOpen, setPublishOpen] = useState(false);
@@ -170,6 +171,7 @@ export function SchedulesDepartmentTabs({
       kitchen: filterStaffForWeek(staffByDepartment.kitchen ?? [], weekMonday),
       bar: filterStaffForWeek(staffByDepartment.bar ?? [], weekMonday),
       floor: filterStaffForWeek(staffByDepartment.floor ?? [], weekMonday),
+      office: filterStaffForWeek(staffByDepartment.office ?? [], weekMonday),
     } satisfies Record<ScheduleDepartmentKey, ScheduleStaffRow[]>;
     return next;
   }, [staffByDepartment, weekMonday]);

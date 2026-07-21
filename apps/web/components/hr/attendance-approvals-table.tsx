@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
@@ -15,8 +15,14 @@ import {
   type ValidationRosterLabelCode,
 } from "@/lib/actions/hr-attendance";
 import { ATTENDANCE_APPROVED_STATUS } from "@/lib/hr/attendance-approval";
+import { isScheduleLeaveLabel } from "@/lib/hr/leave";
+import {
+  DEFAULT_SCHEDULE_VARIANCE_MINUTES,
+  shiftNeedsApproval,
+} from "@/lib/hr/schedule-variance";
 import { clearAllCachedScheduleDays } from "@/lib/hr/schedules-client-cache";
 import { scheduleDayLabelStyle } from "@/lib/hr/schedules";
+import { DEFAULT_HR_ATTENDANCE_IMPORT_RULES } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
 export type AttendanceApprovalRow = {
@@ -28,6 +34,8 @@ export type AttendanceApprovalRow = {
   departmentId: string | null;
   rosterLabel: string | null;
   scheduleTime: string | null;
+  scheduleStartTime?: string | null;
+  scheduleEndTime?: string | null;
   clockIn: string | null;
   clockOut: string | null;
   totalHours: number | null;
@@ -62,7 +70,14 @@ type Props = {
   /** YYYY-MM-DD → holiday name (same purple highlight as Schedules). */
   publicHolidayByDate?: Record<string, string>;
   canEditRoster: boolean;
+  /** Prefill department + employee from leave detail / deep links. */
+  initialStaffId?: string | null;
+  /** Grace minutes between schedule and punches (default 40). */
+  scheduleVarianceMinutes?: number;
+  timezone?: string;
 };
+
+type RosterActionGroupId = "duty" | "paid" | "unpaid";
 
 type RosterActionDef = {
   code: ValidationRosterLabelCode;
@@ -70,28 +85,73 @@ type RosterActionDef = {
   rosterCode: string;
   /** Fallback tooltip if schedule settings label is missing. */
   fallbackTitle: string;
+  group: RosterActionGroupId;
 };
 
-/** Full set of validation actions — keep in sync with schedule day labels. */
+const ROSTER_ACTION_GROUPS: Array<{
+  id: RosterActionGroupId;
+  label: string;
+}> = [
+  { id: "duty", label: "Duty" },
+  { id: "paid", label: "Paid leave" },
+  { id: "unpaid", label: "Unpaid" },
+];
+
+/**
+ * Validation actions in three groups:
+ * 1. Duty — SH / OFF / PH-REPL
+ * 2. Paid leave — AL / SL / ML / PL / BL
+ * 3. Unpaid — UPL / ABS
+ *
+ * Calendar PH (holiday taken) is not a button: OFF on a public-holiday date
+ * auto-saves as PH. Working SH on a public holiday accrues PH-REPL credit.
+ */
 const ROSTER_ACTION_DEFS: RosterActionDef[] = [
   {
     code: "SH",
     rosterCode: "SHIFT",
     fallbackTitle: "Working shift (payroll, hours unchanged)",
+    group: "duty",
   },
   {
     code: "OFF",
     rosterCode: "OFF",
     fallbackTitle: "Day off (paid)",
+    group: "duty",
   },
-  { code: "ABS", rosterCode: "ABS", fallbackTitle: "Absence" },
-  { code: "PH", rosterCode: "PH", fallbackTitle: "Public holiday" },
-  { code: "AL", rosterCode: "AL", fallbackTitle: "Annual leave" },
-  { code: "SL", rosterCode: "SL", fallbackTitle: "Sick leave" },
-  { code: "UPL", rosterCode: "UPL", fallbackTitle: "Unpaid leave" },
-  { code: "ML", rosterCode: "ML", fallbackTitle: "Maternal leave" },
-  { code: "PL", rosterCode: "PL", fallbackTitle: "Parental leave" },
-  { code: "BL", rosterCode: "BL", fallbackTitle: "Bereavement leave" },
+  {
+    code: "PH-REPL",
+    rosterCode: "PH-REPL",
+    fallbackTitle: "Public holiday replacement taken (uses a banked PH day)",
+    group: "duty",
+  },
+  { code: "AL", rosterCode: "AL", fallbackTitle: "Annual leave", group: "paid" },
+  { code: "SL", rosterCode: "SL", fallbackTitle: "Sick leave", group: "paid" },
+  {
+    code: "ML",
+    rosterCode: "ML",
+    fallbackTitle: "Maternity leave",
+    group: "paid",
+  },
+  {
+    code: "PL",
+    rosterCode: "PL",
+    fallbackTitle: "Parental leave",
+    group: "paid",
+  },
+  {
+    code: "BL",
+    rosterCode: "BL",
+    fallbackTitle: "Bereavement leave",
+    group: "paid",
+  },
+  {
+    code: "UPL",
+    rosterCode: "UPL",
+    fallbackTitle: "Unpaid leave",
+    group: "unpaid",
+  },
+  { code: "ABS", rosterCode: "ABS", fallbackTitle: "Absence", group: "unpaid" },
 ];
 
 /** True when the saved roster label matches this action (incl. legacy LP → AL). */
@@ -102,6 +162,8 @@ function rosterMatchesAction(
   if (!rosterLabel) return false;
   if (rosterLabel === action.rosterCode) return true;
   if (action.rosterCode === "AL" && rosterLabel === "LP") return true;
+  // Calendar holiday taken (PH) is the auto form of OFF on a public-holiday date.
+  if (action.rosterCode === "OFF" && rosterLabel === "PH") return true;
   return false;
 }
 
@@ -166,6 +228,55 @@ function draftKey(empNo: string, workDate: string): string {
   return `${empNo.trim().toLowerCase()}::${workDate}`;
 }
 
+/** Roster labels that never need Validation approval (paid rest days). */
+const NO_APPROVAL_ROSTER_LABELS = new Set(["OFF", "PH"]);
+
+function isLeaveOrAbsenceLabel(label: string | null | undefined): boolean {
+  if (!label) return false;
+  return isScheduleLeaveLabel(label) || label === "ABS";
+}
+
+/** Selection key — only days that actually need Validation approval. */
+function selectionKey(
+  row: AttendanceApprovalRow,
+  opts: { varianceMinutes: number; timezone: string },
+): string | null {
+  // Day off / calendar holiday taken — no payroll decision.
+  if (row.rosterLabel && NO_APPROVAL_ROSTER_LABELS.has(row.rosterLabel)) {
+    return null;
+  }
+
+  // Leave / ABS always need approval (even without punches).
+  if (isLeaveOrAbsenceLabel(row.rosterLabel)) {
+    if (row.id) return `id:${row.id}`;
+    if (row.staffId) return `day:${draftKey(row.empNo, row.workDate)}`;
+    return null;
+  }
+
+  // SHIFT: only when punches are missing or differ from schedule beyond grace.
+  if (row.rosterLabel === "SHIFT") {
+    const needs = shiftNeedsApproval({
+      rosterLabel: row.rosterLabel,
+      workDate: row.workDate,
+      scheduleStart: row.scheduleStartTime ?? null,
+      scheduleEnd: row.scheduleEndTime ?? null,
+      clockIn: row.clockIn,
+      clockOut: row.clockOut,
+      timezone: opts.timezone,
+      varianceMinutes: opts.varianceMinutes,
+    });
+    if (!needs) return null;
+    if (row.id) return `id:${row.id}`;
+    // No attendance row yet (e.g. incomplete) — not selectable until punches exist
+    // or the day is reclassified (ABS / leave).
+    return null;
+  }
+
+  // Other punch rows (e.g. attendance with no roster) still need a review.
+  if (row.id) return `id:${row.id}`;
+  return null;
+}
+
 function emptyRowForDay(opts: {
   staffId: string | null;
   workDate: string;
@@ -182,6 +293,8 @@ function emptyRowForDay(opts: {
     departmentId: opts.departmentId,
     rosterLabel: null,
     scheduleTime: null,
+    scheduleStartTime: null,
+    scheduleEndTime: null,
     clockIn: null,
     clockOut: null,
     totalHours: null,
@@ -198,6 +311,9 @@ export function AttendanceApprovalsTable({
   scheduleLabels,
   publicHolidayByDate = {},
   canEditRoster,
+  initialStaffId = null,
+  scheduleVarianceMinutes = DEFAULT_SCHEDULE_VARIANCE_MINUTES,
+  timezone = DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
 }: Props) {
   const [pending, startTransition] = useTransition();
   const [busyAction, setBusyAction] = useState<"save" | "approve" | null>(
@@ -208,9 +324,11 @@ export function AttendanceApprovalsTable({
     departmentId,
     empNo,
     selectedWeekKeys,
+    hydrated,
     setDepartmentId,
     setEmpNo,
     setSelectedWeekKeys,
+    patchFilters,
   } = usePersistedHrAttendanceValidationFilters();
   /** Staged roster actions keyed by empNo::workDate — saved together. */
   const [drafts, setDrafts] = useState<
@@ -219,11 +337,26 @@ export function AttendanceApprovalsTable({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [loadingRange, setLoadingRange] = useState(false);
+  const appliedInitialStaffRef = useRef<string | null>(null);
 
   const weekRangeKey = useMemo(
     () => [...selectedWeekKeys].sort().join(","),
     [selectedWeekKeys],
   );
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const staffId = initialStaffId?.trim();
+    if (!staffId) return;
+    if (appliedInitialStaffRef.current === staffId) return;
+    const employee = employees.find((e) => e.id === staffId);
+    if (!employee?.departmentId) return;
+    appliedInitialStaffRef.current = staffId;
+    patchFilters({
+      departmentId: employee.departmentId,
+      empNo: employee.empNo,
+    });
+  }, [hydrated, initialStaffId, employees, patchFilters]);
 
   const labelsByCode = useMemo(() => {
     const map = new Map<string, ScheduleLabelOption>();
@@ -237,11 +370,21 @@ export function AttendanceApprovalsTable({
   const rosterActions = useMemo(() => {
     const configured = new Set(scheduleLabels.map((label) => label.code));
     if (configured.size === 0) return ROSTER_ACTION_DEFS;
-    const fromSettings = ROSTER_ACTION_DEFS.filter((action) =>
-      configured.has(action.rosterCode),
+    const fromSettings = ROSTER_ACTION_DEFS.filter(
+      (action) =>
+        configured.has(action.rosterCode) ||
+        // PH-REPL may be missing from older label sets that only had PH.
+        (action.rosterCode === "PH-REPL" && configured.has("PH")),
     );
     return fromSettings.length > 0 ? fromSettings : ROSTER_ACTION_DEFS;
   }, [scheduleLabels]);
+
+  const rosterActionGroups = useMemo(() => {
+    return ROSTER_ACTION_GROUPS.map((group) => ({
+      ...group,
+      actions: rosterActions.filter((action) => action.group === group.id),
+    })).filter((group) => group.actions.length > 0);
+  }, [rosterActions]);
 
   const departmentOptions = useMemo(
     () =>
@@ -368,16 +511,31 @@ export function AttendanceApprovalsTable({
     drafts,
   ]);
 
-  const selectableIds = useMemo(
-    () => filtered.map((row) => row.id).filter((id): id is string => Boolean(id)),
-    [filtered],
+  const varianceOpts = useMemo(
+    () => ({
+      varianceMinutes: scheduleVarianceMinutes,
+      timezone,
+    }),
+    [scheduleVarianceMinutes, timezone],
+  );
+
+  const selectableKeys = useMemo(
+    () =>
+      filtered
+        .map((row) => {
+          const key = draftKey(row.empNo, row.workDate);
+          if (drafts[key]) return null;
+          return selectionKey(row, varianceOpts);
+        })
+        .filter((key): key is string => Boolean(key)),
+    [filtered, drafts, varianceOpts],
   );
   const selectedCount = useMemo(
-    () => selectableIds.filter((id) => selectedIds.has(id)).length,
-    [selectableIds, selectedIds],
+    () => selectableKeys.filter((key) => selectedIds.has(key)).length,
+    [selectableKeys, selectedIds],
   );
   const allSelectableSelected =
-    selectableIds.length > 0 && selectedCount === selectableIds.length;
+    selectableKeys.length > 0 && selectedCount === selectableKeys.length;
 
   function stageAction(
     row: AttendanceApprovalRow,
@@ -396,11 +554,11 @@ export function AttendanceApprovalsTable({
     });
   }
 
-  function toggleRowSelected(id: string) {
+  function toggleRowSelected(key: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -408,12 +566,12 @@ export function AttendanceApprovalsTable({
   function toggleSelectAll() {
     setSelectedIds((prev) => {
       if (
-        selectableIds.length > 0 &&
-        selectableIds.every((id) => prev.has(id))
+        selectableKeys.length > 0 &&
+        selectableKeys.every((key) => prev.has(key))
       ) {
         return new Set();
       }
-      return new Set(selectableIds);
+      return new Set(selectableKeys);
     });
   }
 
@@ -464,11 +622,12 @@ export function AttendanceApprovalsTable({
         })),
       });
       if (!("ok" in result) || !result.ok) {
-        setActionError(
+        const message =
           "error" in result && result.error
             ? result.error
-            : "Could not save roster edits.",
-        );
+            : "Could not save roster edits.";
+        window.alert(message);
+        setActionError(message);
         setBusyAction(null);
         return;
       }
@@ -513,14 +672,29 @@ export function AttendanceApprovalsTable({
   }
 
   function approveSelected() {
-    const ids = selectableIds.filter((id) => selectedIds.has(id));
-    if (ids.length === 0) return;
+    const selectedRows = filtered.filter((row) => {
+      const key = selectionKey(row, varianceOpts);
+      return key != null && selectedIds.has(key);
+    });
+    if (selectedRows.length === 0) return;
     setActionError(null);
+
+    const ids = selectedRows
+      .map((row) => row.id)
+      .filter((id): id is string => Boolean(id));
+    const days = selectedRows
+      .filter((row) => !row.id && row.staffId)
+      .map((row) => ({
+        staffId: row.staffId as string,
+        empNo: row.empNo,
+        workDate: row.workDate,
+      }));
 
     setBusyAction("approve");
     startTransition(async () => {
       const result = await approveAttendanceDays({
         ids,
+        days,
         approvalStatus: ATTENDANCE_APPROVED_STATUS,
       });
       if (!("ok" in result) || !result.ok) {
@@ -533,14 +707,28 @@ export function AttendanceApprovalsTable({
         return;
       }
 
-      const updated = new Set(result.updatedIds);
-      setLocal((prev) =>
-        prev.map((row) =>
-          row.id && updated.has(row.id)
-            ? { ...row, approvalStatus: ATTENDANCE_APPROVED_STATUS }
-            : row,
+      const byKey = new Map(
+        (result.days ?? []).map(
+          (day) => [draftKey(day.empNo, day.workDate), day] as const,
         ),
       );
+      setLocal((prev) => {
+        const next = new Map(
+          prev.map((row) => [draftKey(row.empNo, row.workDate), row] as const),
+        );
+        for (const row of selectedRows) {
+          const key = draftKey(row.empNo, row.workDate);
+          const approved = byKey.get(key);
+          const existing = next.get(key) ?? row;
+          next.set(key, {
+            ...existing,
+            id: approved?.id ?? existing.id,
+            staffId: approved?.staffId ?? existing.staffId,
+            approvalStatus: ATTENDANCE_APPROVED_STATUS,
+          });
+        }
+        return [...next.values()];
+      });
       setSelectedIds(new Set());
       setBusyAction(null);
     });
@@ -620,7 +808,7 @@ export function AttendanceApprovalsTable({
               <Button
                 type="button"
                 variant="secondary"
-                disabled={pending || !ready || selectableIds.length === 0}
+                disabled={pending || !ready || selectableKeys.length === 0}
                 onClick={toggleSelectAll}
                 className="h-10 px-3"
               >
@@ -634,9 +822,14 @@ export function AttendanceApprovalsTable({
               <Button
                 type="button"
                 variant="secondary"
-                disabled={pending || selectedCount === 0}
+                disabled={pending || selectedCount === 0 || hasDrafts}
                 onClick={approveSelected}
                 className="h-10 px-4"
+                title={
+                  hasDrafts
+                    ? "Save roster edits before approving attendance"
+                    : undefined
+                }
               >
                 {busyAction === "approve"
                   ? "Approving…"
@@ -701,7 +894,7 @@ export function AttendanceApprovalsTable({
                 <th className="px-3 py-2.5 font-medium">Actions</th>
                 <th className="px-3 py-2.5 text-center font-medium">
                   <span className="sr-only">Select</span>
-                  {canEditRoster && selectableIds.length > 0 ? (
+                  {canEditRoster && selectableKeys.length > 0 ? (
                     <input
                       type="checkbox"
                       checked={allSelectableSelected}
@@ -734,8 +927,26 @@ export function AttendanceApprovalsTable({
                 const holidayName = publicHolidayByDate[row.workDate] ?? null;
                 const isPublicHoliday = Boolean(holidayName);
                 const isApproved = row.approvalStatus === ATTENDANCE_APPROVED_STATUS;
-                const canSelect = Boolean(row.id);
-                const isSelected = Boolean(row.id && selectedIds.has(row.id));
+                const rowSelectionKey = !hasDraft
+                  ? selectionKey(row, varianceOpts)
+                  : null;
+                const canSelect = Boolean(rowSelectionKey);
+                const isSelected = Boolean(
+                  rowSelectionKey && selectedIds.has(rowSelectionKey),
+                );
+                const shiftWithinTolerance =
+                  row.rosterLabel === "SHIFT" &&
+                  Boolean(row.id) &&
+                  !shiftNeedsApproval({
+                    rosterLabel: row.rosterLabel,
+                    workDate: row.workDate,
+                    scheduleStart: row.scheduleStartTime ?? null,
+                    scheduleEnd: row.scheduleEndTime ?? null,
+                    clockIn: row.clockIn,
+                    clockOut: row.clockOut,
+                    timezone,
+                    varianceMinutes: scheduleVarianceMinutes,
+                  });
                 return (
                   <tr
                     key={`${row.empNo}-${row.workDate}`}
@@ -805,87 +1016,128 @@ export function AttendanceApprovalsTable({
                           : "—")}
                     </td>
                     <td className="px-3 py-2">
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                         {canEditRoster && staffId
-                          ? rosterActions.map((action) => {
-                              const selected =
-                                draft === action.code ||
-                                (!draft &&
-                                  rosterMatchesAction(
-                                    row.rosterLabel,
-                                    action,
-                                  ));
-                              const label = labelsByCode.get(action.rosterCode);
-                              const tooltip =
-                                action.code === "SH"
-                                  ? `${label?.name ?? action.fallbackTitle} — counted for payroll, hours unchanged`
-                                  : action.code === "OFF"
-                                    ? `${label?.name ?? action.fallbackTitle} — paid day off`
-                                    : (label?.name ?? action.fallbackTitle);
-                              return (
-                                <button
-                                  key={action.code}
-                                  type="button"
-                                  title={tooltip}
-                                  aria-label={tooltip}
-                                  disabled={pending}
-                                  onClick={() =>
-                                    stageAction(row, action.code)
-                                  }
-                                  className={cn(
-                                    "inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded-md border px-2 text-[11px] font-semibold uppercase tracking-wide transition-opacity hover:opacity-90 disabled:opacity-45",
-                                    selected && "border-2",
-                                  )}
-                                  style={
-                                    label
-                                      ? {
-                                          ...scheduleDayLabelStyle(label),
-                                          ...(selected
-                                            ? {
-                                                borderColor: "#000000",
-                                                boxShadow: "0 0 0 1px #000000",
-                                              }
-                                            : {}),
-                                        }
-                                      : {
-                                          backgroundColor: "#f5f5f5",
-                                          color: "#404040",
-                                          borderColor: selected
-                                            ? "#000000"
-                                            : "#d4d4d4",
-                                          ...(selected
-                                            ? {
-                                                boxShadow: "0 0 0 1px #000000",
-                                              }
-                                            : {}),
-                                        }
-                                  }
+                          ? rosterActionGroups.map((group, groupIndex) => (
+                              <div
+                                key={group.id}
+                                className="flex flex-wrap items-center gap-1.5"
+                              >
+                                {groupIndex > 0 ? (
+                                  <span
+                                    className="mx-0.5 hidden h-6 w-px shrink-0 bg-black/15 sm:block"
+                                    aria-hidden
+                                  />
+                                ) : null}
+                                <div
+                                  className="flex flex-wrap items-center gap-1.5"
+                                  role="group"
+                                  aria-label={group.label}
                                 >
-                                  {action.code}
-                                </button>
-                              );
-                            })
+                                  {group.actions.map((action) => {
+                                    const selected =
+                                      draft === action.code ||
+                                      (!draft &&
+                                        rosterMatchesAction(
+                                          row.rosterLabel,
+                                          action,
+                                        ));
+                                    const label = labelsByCode.get(
+                                      action.rosterCode,
+                                    );
+                                    const phReplOnHoliday =
+                                      action.code === "PH-REPL" &&
+                                      isPublicHoliday;
+                                    const tooltip = phReplOnHoliday
+                                      ? "Calendar public holiday — use OFF (holiday taken) or SH (work to earn a PH-REPL credit). PH-REPL is for taking a banked day on a normal date."
+                                      : action.code === "SH"
+                                        ? isPublicHoliday
+                                          ? `${label?.name ?? action.fallbackTitle} — work on this holiday to earn +1 PH-REPL credit`
+                                          : `${label?.name ?? action.fallbackTitle} — counted for payroll, hours unchanged`
+                                        : action.code === "OFF"
+                                          ? isPublicHoliday
+                                            ? "Public holiday taken (saves as PH on this calendar holiday)"
+                                            : `${label?.name ?? action.fallbackTitle} — paid day off`
+                                          : (label?.name ??
+                                            action.fallbackTitle);
+                                    return (
+                                      <button
+                                        key={action.code}
+                                        type="button"
+                                        title={tooltip}
+                                        aria-label={tooltip}
+                                        disabled={pending || phReplOnHoliday}
+                                        onClick={() =>
+                                          stageAction(row, action.code)
+                                        }
+                                        className={cn(
+                                          "inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded-md border px-2 text-[11px] font-semibold uppercase tracking-wide transition-opacity hover:opacity-90 disabled:opacity-45",
+                                          selected && "border-2",
+                                        )}
+                                        style={
+                                          label
+                                            ? {
+                                                ...scheduleDayLabelStyle(label),
+                                                ...(selected
+                                                  ? {
+                                                      borderColor: "#000000",
+                                                      boxShadow:
+                                                        "0 0 0 1px #000000",
+                                                    }
+                                                  : {}),
+                                              }
+                                            : {
+                                                backgroundColor: "#f5f5f5",
+                                                color: "#404040",
+                                                borderColor: selected
+                                                  ? "#000000"
+                                                  : "#d4d4d4",
+                                                ...(selected
+                                                  ? {
+                                                      boxShadow:
+                                                        "0 0 0 1px #000000",
+                                                    }
+                                                  : {}),
+                                              }
+                                        }
+                                      >
+                                        {action.code}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))
                           : (
                             <span className="text-xs text-black/40">—</span>
                           )}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      {canSelect ? (
+                      {canSelect && rowSelectionKey ? (
                         <input
                           type="checkbox"
                           checked={isSelected}
                           disabled={pending || !canEditRoster}
-                          onChange={() => {
-                            if (row.id) toggleRowSelected(row.id);
-                          }}
+                          onChange={() => toggleRowSelected(rowSelectionKey)}
                           aria-label={`Select ${row.workDate} for approval`}
                           className="h-4 w-4 rounded border-black/25 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30"
                         />
                       ) : (
                         <span
                           className="inline-block h-4 w-4 rounded border border-dashed border-black/15"
-                          title="No attendance record to approve"
+                          title={
+                            hasDraft
+                              ? "Save roster edits before approving"
+                              : row.rosterLabel === "OFF" ||
+                                  row.rosterLabel === "PH"
+                                ? "Day off — no approval needed"
+                                : shiftWithinTolerance
+                                  ? `Within ${scheduleVarianceMinutes} min of schedule — no approval needed`
+                                  : row.rosterLabel === "SHIFT" && !row.id
+                                    ? "Mark ABS (or leave) and Save before approving a no-show"
+                                    : "Set a roster action (e.g. ABS) and Save before approving"
+                          }
                           aria-hidden
                         />
                       )}

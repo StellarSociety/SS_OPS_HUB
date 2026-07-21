@@ -58,7 +58,9 @@ import {
   DEFAULT_SCHEDULE_SECTIONS,
   DEFAULT_SHIFT_TEMPLATES,
   deriveScheduleLabelColors,
+  isWorkDateAfterTermination,
   normalizeShiftTime,
+  postTerminationBlockMessage,
   shiftSpansMidnight,
   type ScheduleDepartmentKey,
   type ScheduleWeekSection,
@@ -1198,7 +1200,7 @@ export async function saveScheduleDayChanges(params: {
   const [staffResult, labelsResult, templatesResult] = await Promise.all([
     supabase
       .from("staff")
-      .select("id, emp_no, department_id")
+      .select("id, emp_no, full_name, department_id, termination_date")
       .eq("home_venue_id", venue.id)
       .in("id", staffIds),
     supabase.from("schedule_day_labels").select("code"),
@@ -1218,6 +1220,27 @@ export async function saveScheduleDayChanges(params: {
   const staffById = new Map(
     staffResult.data.map((row) => [row.id as string, row] as const),
   );
+
+  // Block setting labels after termination (clearing those days is still allowed).
+  for (const change of changes) {
+    if (change.labelCode === null) continue;
+    const staffRow = staffById.get(change.staffId);
+    const terminationDate =
+      (staffRow?.termination_date as string | null | undefined) ?? null;
+    if (
+      isWorkDateAfterTermination(change.workDate, terminationDate) &&
+      terminationDate
+    ) {
+      return {
+        error: postTerminationBlockMessage({
+          terminationDate,
+          fullName: (staffRow?.full_name as string | null) ?? null,
+          empNo: (staffRow?.emp_no as string | null) ?? null,
+          kind: "schedule",
+        }),
+      };
+    }
+  }
 
   const knownCodes = new Set(
     (
@@ -1264,12 +1287,51 @@ export async function saveScheduleDayChanges(params: {
   }
 
   if (toUpsert.length > 0) {
+    const upsertYears = [
+      ...new Set(
+        toUpsert
+          .map((c) => Number(c.workDate.slice(0, 4)))
+          .filter((y) => Number.isFinite(y) && y > 0),
+      ),
+    ];
+    const holidayDates = new Set<string>();
+    await Promise.all(
+      upsertYears.map(async (year) => {
+        const holidays = await listPublicHolidays(supabase, venue.id, { year });
+        for (const h of holidays ?? []) {
+          holidayDates.add(h.holidayDate.slice(0, 10));
+        }
+      }),
+    );
+
     const rows = [];
     const now = new Date().toISOString();
     for (const change of toUpsert) {
-      const code = change.labelCode!.trim().toUpperCase();
-      if (!knownCodes.has(code)) {
+      let code = change.labelCode!.trim().toUpperCase();
+      // PH-REPL is always valid alongside calendar PH (older label sets may omit it).
+      if (
+        !knownCodes.has(code) &&
+        !(code === "PH-REPL" && knownCodes.has("PH"))
+      ) {
         return { error: `Unknown schedule label: ${code}` };
+      }
+      // On a configured public holiday date:
+      // - OFF → PH (taken) — same meaning, keep labels consistent
+      // - PH-REPL → PH (cannot take a replacement day on the holiday itself)
+      // - PH on a non-holiday → PH-REPL (replacement taken)
+      if (code === "OFF" && holidayDates.has(change.workDate)) {
+        code = "PH";
+      }
+      if (code === "PH-REPL" && holidayDates.has(change.workDate)) {
+        code = "PH";
+      }
+      if (code === "PH" && !holidayDates.has(change.workDate)) {
+        if (!knownCodes.has("PH-REPL") && !knownCodes.has("PH")) {
+          return {
+            error: `PH can only be used on a public holiday date (${change.workDate} is not one).`,
+          };
+        }
+        code = "PH-REPL";
       }
       const staffRow = staffById.get(change.staffId);
       const empNo = (staffRow?.emp_no as string | undefined)?.trim();
@@ -1309,6 +1371,24 @@ export async function saveScheduleDayChanges(params: {
 
   // Client already patches the session cache — skip revalidatePath so save
   // does not remount the page and re-fetch ~10s of punch coverage.
+
+  // Auto PH-REPL: SHIFT on a configured public holiday accrues a replacement day.
+  const changedDates = [...new Set(changes.map((c) => c.workDate))];
+  const years = [
+    ...new Set(changedDates.map((d) => Number(d.slice(0, 4))).filter(Boolean)),
+  ];
+  for (const year of years) {
+    const holidays = await listPublicHolidays(supabase, venue.id, { year });
+    const holidaySet = new Set(
+      (holidays ?? []).map((h) => h.holidayDate.slice(0, 10)),
+    );
+    if (!changedDates.some((d) => holidaySet.has(d))) continue;
+    const { syncPhReplacementBalancesForYear } = await import(
+      "@/lib/actions/hr-leave"
+    );
+    await syncPhReplacementBalancesForYear(year);
+  }
+
   return { ok: true as const, count: changes.length };
 }
 
@@ -1627,6 +1707,15 @@ export async function upsertPublicHoliday(formData: FormData): Promise<void> {
 
   revalidatePath("/hr/settings", "layout");
   revalidatePath("/hr/schedules", "page");
+  revalidatePath("/hr/attendance/leave", "layout");
+
+  const year = Number(holidayDate.slice(0, 4));
+  if (Number.isFinite(year)) {
+    const { syncPhReplacementBalancesForYear } = await import(
+      "@/lib/actions/hr-leave"
+    );
+    await syncPhReplacementBalancesForYear(year);
+  }
 }
 
 export async function deletePublicHoliday(id: string): Promise<void> {
@@ -1635,6 +1724,13 @@ export async function deletePublicHoliday(id: string): Promise<void> {
   if (!id) return;
 
   const service = createServiceClient();
+  const { data: existing } = await service
+    .from("hr_public_holidays")
+    .select("id, holiday_date")
+    .eq("id", id)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
   const { error } = await service
     .from("hr_public_holidays")
     .delete()
@@ -1657,6 +1753,16 @@ export async function deletePublicHoliday(id: string): Promise<void> {
 
   revalidatePath("/hr/settings", "layout");
   revalidatePath("/hr/schedules", "page");
+  revalidatePath("/hr/attendance/leave", "layout");
+
+  const holidayDate = String(existing?.holiday_date ?? "").slice(0, 10);
+  const year = Number(holidayDate.slice(0, 4));
+  if (Number.isFinite(year) && year > 0) {
+    const { syncPhReplacementBalancesForYear } = await import(
+      "@/lib/actions/hr-leave"
+    );
+    await syncPhReplacementBalancesForYear(year);
+  }
 }
 
 /** Client-safe list of public holiday dates for a date range (schedules highlight). */
@@ -1680,7 +1786,7 @@ export async function listPublicHolidaysForRange(params: {
   return { holidays: holidays ?? [] };
 }
 
-const DEPARTMENT_KEYS = new Set(["kitchen", "bar", "floor"]);
+const DEPARTMENT_KEYS = new Set(["kitchen", "bar", "floor", "office"]);
 
 function isDepartmentKey(value: string): value is ScheduleDepartmentKey {
   return DEPARTMENT_KEYS.has(value);

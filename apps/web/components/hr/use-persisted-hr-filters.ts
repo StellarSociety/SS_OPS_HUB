@@ -120,7 +120,7 @@ export function usePersistedHrAttendanceInsightsFilters(
 
 export function usePersistedHrAttendanceValidationFilters() {
   const storageKey = useVenueStorageKey(HR_ATTENDANCE_VALIDATION_FILTERS_KEY);
-  const [filters, setFilters] = usePersistedState(
+  const [filters, setFilters, hydrated] = usePersistedState(
     storageKey,
     defaultHrAttendanceValidationFilters,
     sanitizeHrAttendanceValidationFilters,
@@ -130,6 +130,7 @@ export function usePersistedHrAttendanceValidationFilters() {
     departmentId: filters.departmentId,
     empNo: filters.empNo,
     selectedWeekKeys: filters.selectedWeekKeys,
+    hydrated,
     setDepartmentId: (value: string) =>
       setFilters((prev) => ({
         ...prev,

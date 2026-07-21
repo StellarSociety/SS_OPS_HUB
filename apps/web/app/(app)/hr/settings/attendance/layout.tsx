@@ -1,4 +1,5 @@
 import { HrAttendanceSettingsSubNav } from "@/components/hr/hr-settings-inner-sub-nav";
+import { HrSettingsSectionHeader } from "@/components/hr/hr-settings-section";
 
 export default function HrAttendanceSettingsLayout({
   children,
@@ -7,13 +8,10 @@ export default function HrAttendanceSettingsLayout({
 }) {
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="font-serif text-2xl text-[#3D421F]">Attendance</h2>
-        <p className="mt-1 text-sm text-black/60">
-          Schedule, attendance, and leave settings used on the roster and
-          attendance modules.
-        </p>
-      </div>
+      <HrSettingsSectionHeader
+        title="Attendance"
+        description="Schedule, attendance, and leave settings used on the roster and attendance modules."
+      />
       <HrAttendanceSettingsSubNav />
       {children}
     </div>

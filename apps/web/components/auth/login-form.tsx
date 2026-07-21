@@ -91,7 +91,9 @@ export function LoginForm({ notice }: LoginFormProps) {
         onSubmit={handleSubmit}
       >
         <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email" variant="onDark">
+            Email
+          </Label>
           <Input
             id="email"
             name="email"
@@ -101,10 +103,13 @@ export function LoginForm({ notice }: LoginFormProps) {
             placeholder="you@stellarsociety.ae"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            variant="onDark"
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <Label htmlFor="password" variant="onDark">
+            Password
+          </Label>
           <div className="relative">
             <Input
               id="password"
@@ -116,6 +121,7 @@ export function LoginForm({ notice }: LoginFormProps) {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="pr-10"
+              variant="onDark"
             />
             <button
               type="button"

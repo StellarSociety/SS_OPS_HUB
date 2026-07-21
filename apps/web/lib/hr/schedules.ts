@@ -14,11 +14,23 @@ export const SCHEDULE_DEPARTMENTS = [
   {
     key: "floor",
     label: "Floor",
+    /** Receptions/hostess stay with floor service. */
+    departmentNames: ["F&B Service", "Receptions & Reservations"],
+  },
+  {
+    key: "office",
+    label: "Office",
     /**
-     * Explicit floor departments. Anyone not in kitchen/bar also lands here
-     * via `resolveScheduleDepartment` (catch-all).
+     * Explicit office departments. Anyone not in kitchen/bar/floor also lands
+     * here via `resolveScheduleDepartment` (catch-all) — HR, accounts,
+     * cashier, marketing, entertainments, unset, etc.
      */
-    departmentNames: ["F&B Service"],
+    departmentNames: [
+      "Human Resources",
+      "Finance & Accounts",
+      "Social Media & Marketing",
+      "Entertainments",
+    ],
   },
 ] as const;
 
@@ -41,6 +53,7 @@ export const DEFAULT_SCHEDULE_SECTIONS: Record<
   ],
   bar: ["Main Bar", "Lounge Bar"],
   floor: ["Reception", "Dining", "Lounge", "Terrace", "Others"],
+  office: ["Front desk", "Accounts", "HR", "Others"],
 };
 
 export type ScheduleWeekSection = {
@@ -464,11 +477,20 @@ export const DEFAULT_SCHEDULE_DAY_LABELS: Omit<ScheduleDayLabel, "id">[] = [
   {
     code: "PH",
     abbreviation: "PH",
-    name: "Public holiday",
+    name: "Public holiday taken (calendar day only)",
     bgColor: "#ede9fe",
     textColor: "#5b21b6",
     borderColor: "#ddd6fe",
     sortOrder: 4,
+  },
+  {
+    code: "PH-REPL",
+    abbreviation: "PH-REPL",
+    name: "Public holiday replacement taken",
+    bgColor: "#c7d2fe",
+    textColor: "#312e81",
+    borderColor: "#a5b4fc",
+    sortOrder: 5,
   },
   {
     code: "SL",
@@ -477,7 +499,7 @@ export const DEFAULT_SCHEDULE_DAY_LABELS: Omit<ScheduleDayLabel, "id">[] = [
     bgColor: "#ffedd5",
     textColor: "#9a3412",
     borderColor: "#fed7aa",
-    sortOrder: 5,
+    sortOrder: 6,
   },
   {
     code: "UPL",
@@ -486,7 +508,7 @@ export const DEFAULT_SCHEDULE_DAY_LABELS: Omit<ScheduleDayLabel, "id">[] = [
     bgColor: "#fef3c7",
     textColor: "#78350f",
     borderColor: "#fde68a",
-    sortOrder: 6,
+    sortOrder: 7,
   },
   {
     code: "ABS",
@@ -495,7 +517,7 @@ export const DEFAULT_SCHEDULE_DAY_LABELS: Omit<ScheduleDayLabel, "id">[] = [
     bgColor: "#ffe4e6",
     textColor: "#9f1239",
     borderColor: "#fecdd3",
-    sortOrder: 7,
+    sortOrder: 8,
   },
   {
     code: "ML",
@@ -504,7 +526,7 @@ export const DEFAULT_SCHEDULE_DAY_LABELS: Omit<ScheduleDayLabel, "id">[] = [
     bgColor: "#fae8ff",
     textColor: "#86198f",
     borderColor: "#f5d0fe",
-    sortOrder: 8,
+    sortOrder: 9,
   },
   {
     code: "PL",
@@ -523,6 +545,15 @@ export const DEFAULT_SCHEDULE_DAY_LABELS: Omit<ScheduleDayLabel, "id">[] = [
     textColor: "#44403c",
     borderColor: "#d6d3d1",
     sortOrder: 10,
+  },
+  {
+    code: "LD",
+    abbreviation: "LD",
+    name: "Leave day (LD)",
+    bgColor: "#fef3c7",
+    textColor: "#92400e",
+    borderColor: "#fde68a",
+    sortOrder: 11,
   },
 ];
 
@@ -778,6 +809,48 @@ export function weekStartKeyFromDate(monday: Date): string {
 
 const ISO_DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
+export function isIsoDateKey(value: string | null | undefined): boolean {
+  return ISO_DATE_KEY.test(String(value ?? "").trim());
+}
+
+/**
+ * True when `workDate` is strictly after the termination date.
+ * The termination day itself remains a valid employment day.
+ */
+export function isWorkDateAfterTermination(
+  workDate: string,
+  terminationDate: string | null | undefined,
+): boolean {
+  const day = workDate.trim();
+  const term = terminationDate?.trim() ?? "";
+  if (!isIsoDateKey(day) || !isIsoDateKey(term)) return false;
+  return day > term;
+}
+
+/** Format YYYY-MM-DD as DD/MM/YYYY for user-facing messages. */
+export function formatIsoDateDisplay(value: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) return value;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+/**
+ * User-facing explanation when schedule/leave is blocked after termination.
+ */
+export function postTerminationBlockMessage(input: {
+  terminationDate: string;
+  fullName?: string | null;
+  empNo?: string | null;
+  kind?: "schedule" | "leave";
+}): string {
+  const when = formatIsoDateDisplay(input.terminationDate);
+  const who =
+    input.fullName?.trim() ||
+    (input.empNo?.trim() ? `Employee ${input.empNo.trim()}` : "This employee");
+  const kind = input.kind === "leave" ? "leave" : "schedule";
+  return `${who} has a termination date of ${when}. ${kind === "leave" ? "Leave" : "Schedule"} details after that date are not valid and cannot be saved.`;
+}
+
 /**
  * True when the staff member’s employment window overlaps the Mon–Sun week.
  * Hidden before joining and after termination (inclusive on both dates).
@@ -819,7 +892,9 @@ export function matchesScheduleDepartment(
 
 /**
  * Map an HR department name to a schedule tab.
- * Kitchen = Culinary, Bar = Beverages; everyone else (incl. unset) → Floor.
+ * Kitchen = Culinary, Bar = Beverages,
+ * Floor = F&B Service + Receptions & Reservations;
+ * everyone else (incl. unset) → Office.
  */
 export function resolveScheduleDepartment(
   departmentName: string | null | undefined,
@@ -827,7 +902,7 @@ export function resolveScheduleDepartment(
   const normalized = departmentName?.trim().toLowerCase() ?? "";
   if (normalized) {
     for (const dept of SCHEDULE_DEPARTMENTS) {
-      if (dept.key === "floor") continue;
+      if (dept.key === "office") continue;
       if (
         dept.departmentNames.some((name) => name.toLowerCase() === normalized)
       ) {
@@ -835,5 +910,5 @@ export function resolveScheduleDepartment(
       }
     }
   }
-  return "floor";
+  return "office";
 }

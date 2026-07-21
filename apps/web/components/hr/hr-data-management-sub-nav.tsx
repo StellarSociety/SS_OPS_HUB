@@ -32,7 +32,7 @@ export function HrDataManagementSubNav({ basePath = DEFAULT_BASE_PATH }: Props) 
   return (
     <nav
       aria-label="HR data management sections"
-      className="flex flex-wrap gap-2 border-b border-black/10 pb-3"
+      className="flex flex-wrap gap-1 rounded-lg border border-black/10 bg-white/50 p-1.5"
     >
       {tabs.map((tab) => {
         const active = pathname.startsWith(tab.href);

@@ -16,6 +16,11 @@ import {
   getHrVenueSetting,
   refreshAttendanceMonths,
 } from "@/lib/hr/store";
+import { ATTENDANCE_APPROVED_STATUS } from "@/lib/hr/attendance-approval";
+import {
+  upsertAttendanceDayApprovals,
+  type AttendanceDayApprovalTarget,
+} from "@/lib/hr/attendance-day-approvals";
 import { buildAttendanceValidationRows } from "@/lib/hr/build-attendance-validation-rows";
 import { monthKeyFromWorkDate } from "@/lib/hr/attendance-months";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
@@ -27,6 +32,7 @@ import {
 } from "@/lib/hr/types";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { mirrorAttendanceApprovalsToLeave } from "@/lib/actions/hr-leave";
 
 async function getAuthContext() {
   const supabase = await createClient();
@@ -69,6 +75,9 @@ export async function saveHrAttendanceImportRules(
       DEFAULT_HR_ATTENDANCE_IMPORT_RULES.overnightCutoffTime,
   ).trim();
   const maxShiftHours = Number(formData.get("max_shift_hours"));
+  const scheduleVarianceMinutes = Number(
+    formData.get("schedule_variance_minutes"),
+  );
   const timezone = String(
     formData.get("timezone") ?? DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
   ).trim();
@@ -81,6 +90,10 @@ export async function saveHrAttendanceImportRules(
       Number.isFinite(maxShiftHours) && maxShiftHours > 0
         ? maxShiftHours
         : DEFAULT_HR_ATTENDANCE_IMPORT_RULES.maxShiftHours,
+    scheduleVarianceMinutes:
+      Number.isFinite(scheduleVarianceMinutes) && scheduleVarianceMinutes >= 0
+        ? scheduleVarianceMinutes
+        : DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes,
     timezone: timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
   };
 
@@ -482,15 +495,21 @@ export async function updateAttendanceApproval(params: {
 
 /**
  * Bulk-set approval status on attendance day rows (Validation → Approve Attendance).
+ * Creates `no_punches` stubs when approving roster-only leave / ABS days
+ * so payroll can consume them without fingerprint punches.
  * Approved days are the only ones payroll / leave calculations should consume.
+ * OFF / calendar PH do not require approval.
  */
 export async function approveAttendanceDays(params: {
-  ids: string[];
+  ids?: string[];
+  /** Roster-only (or missing) days identified by staff + date. */
+  days?: AttendanceDayApprovalTarget[];
   approvalStatus?: "pending" | "approved" | "rejected" | "flagged";
   notes?: string;
 }) {
-  const ids = [...new Set(params.ids.filter(Boolean))];
-  if (ids.length === 0) {
+  const ids = [...new Set((params.ids ?? []).filter(Boolean))];
+  const dayTargets = params.days ?? [];
+  if (ids.length === 0 && dayTargets.length === 0) {
     return { error: "Select at least one attendance day." };
   }
 
@@ -502,41 +521,76 @@ export async function approveAttendanceDays(params: {
     return { error: "You do not have permission to update approvals." };
   }
 
-  const approvalStatus = params.approvalStatus ?? "approved";
+  const approvalStatus = params.approvalStatus ?? ATTENDANCE_APPROVED_STATUS;
   const service = createServiceClient();
-  const now = new Date().toISOString();
 
-  const { data: updated, error } = await service
-    .from("hr_attendance_days")
-    .update({
-      approval_status: approvalStatus,
-      notes: params.notes ?? undefined,
-      updated_by: user.id,
-      updated_at: now,
-    })
-    .eq("venue_id", venue.id)
-    .in("id", ids)
-    .select("id, work_date");
+  const targets: AttendanceDayApprovalTarget[] = [...dayTargets];
 
-  if (error) {
-    return { error: error.message };
+  if (ids.length > 0) {
+    const { data: existing, error: existingError } = await service
+      .from("hr_attendance_days")
+      .select("id, staff_id, emp_no, work_date")
+      .eq("venue_id", venue.id)
+      .in("id", ids);
+    if (existingError) {
+      return { error: existingError.message };
+    }
+    for (const row of existing ?? []) {
+      targets.push({
+        staffId: (row.staff_id as string | null) ?? null,
+        empNo: String(row.emp_no),
+        workDate: String(row.work_date).slice(0, 10),
+      });
+    }
+  }
+
+  const result = await upsertAttendanceDayApprovals(service, {
+    venueId: venue.id,
+    userId: user.id,
+    days: targets,
+    approvalStatus,
+    notes: params.notes ?? null,
+  });
+  if (result.error) {
+    return { error: result.error };
   }
 
   const monthKeys = [
     ...new Set(
-      (updated ?? [])
-        .map((row) => monthKeyFromWorkDate(String(row.work_date ?? "")))
+      result.rows
+        .map((row) => monthKeyFromWorkDate(row.workDate))
         .filter((key): key is string => Boolean(key)),
     ),
   ];
   await refreshAttendanceMonths(service, venue.id, monthKeys);
 
+  if (approvalStatus === ATTENDANCE_APPROVED_STATUS) {
+    const byStaff = new Map<string, { empNo: string; dates: string[] }>();
+    for (const row of result.rows) {
+      const staffId = row.staffId;
+      if (!staffId) continue;
+      const entry = byStaff.get(staffId) ?? { empNo: row.empNo, dates: [] };
+      entry.empNo = row.empNo;
+      entry.dates.push(row.workDate);
+      byStaff.set(staffId, entry);
+    }
+    for (const [staffId, entry] of byStaff) {
+      await mirrorAttendanceApprovalsToLeave({
+        staffId,
+        empNo: entry.empNo,
+        workDates: entry.dates,
+      });
+    }
+  }
+
   revalidatePath("/hr/attendance", "layout");
+  revalidatePath("/hr/attendance/leave", "layout");
   revalidatePath("/hr/settings/data-management", "layout");
 
   return {
     ok: true as const,
-    updatedIds: (updated ?? []).map((row) => String(row.id)),
+    updatedIds: result.rows.map((row) => row.id),
+    days: result.rows,
     approvalStatus,
   };
 }
@@ -544,6 +598,7 @@ export async function approveAttendanceDays(params: {
 export type ValidationRosterLabelCode =
   | "ABS"
   | "PH"
+  | "PH-REPL"
   | "AL"
   | "SL"
   | "SH"
@@ -562,9 +617,11 @@ function scheduleLabelForValidation(
 
 /**
  * Persist one or more validation roster edits
- * (SH / OFF / ABS / PH / AL / SL / UPL / ML / PL / BL).
+ * (SH / OFF / PH-REPL / AL / SL / UPL / ML / PL / BL / ABS).
  * SH = shift for payroll (roster SHIFT) — does not invent or change hours.
- * OFF = paid day off (roster OFF).
+ * OFF = paid day off; on a configured public holiday date, save auto-maps to PH
+ * (calendar holiday taken). PH-REPL = banked replacement day taken.
+ * Working SH on a public holiday accrues PH-REPL automatically (no action needed).
  */
 export async function saveValidationRosterDays(params: {
   changes: {

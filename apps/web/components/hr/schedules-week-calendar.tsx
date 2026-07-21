@@ -37,6 +37,8 @@ import {
   getMondayForWeekOffset,
   getWeekDayColumns,
   formatWeekRangeLabel,
+  isWorkDateAfterTermination,
+  postTerminationBlockMessage,
   scheduleCellKey,
   scheduleDayLabelStyle,
   type ScheduleAttendanceCell,
@@ -712,7 +714,32 @@ export function SchedulesWeekCalendar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [labelsDialogOpen]);
 
+  function notifyPostTermination(
+    member: ScheduleStaffRow | undefined,
+    dateKey: string,
+  ): boolean {
+    if (
+      !member ||
+      !isWorkDateAfterTermination(dateKey, member.terminationDate)
+    ) {
+      return false;
+    }
+    const message = postTerminationBlockMessage({
+      terminationDate: member.terminationDate!,
+      fullName: member.fullName,
+      empNo: member.empNo,
+      kind: "schedule",
+    });
+    window.alert(message);
+    setError(message);
+    return true;
+  }
+
   function paintCell(staffId: string, dateKey: string, mode: "add" | "remove") {
+    if (mode === "add") {
+      const member = staffById.get(staffId);
+      if (notifyPostTermination(member, dateKey)) return;
+    }
     const key = scheduleCellKey(staffId, dateKey);
     setSelected((current) => {
       const next = new Map(current);
@@ -743,6 +770,14 @@ export function SchedulesWeekCalendar({
   /** Stage a label/shift on the current selection only (no DB write). */
   function stageValue(value: ScheduleCellValue | null) {
     if (!canEdit || selectedCount === 0) return;
+
+    // Setting a label after termination is blocked; clearing is allowed.
+    if (value !== null) {
+      for (const cell of selected.values()) {
+        const member = staffById.get(cell.staffId);
+        if (notifyPostTermination(member, cell.dateKey)) return;
+      }
+    }
 
     setDrafts((current) => {
       let next = current;
@@ -837,6 +872,9 @@ export function SchedulesWeekCalendar({
     const toKey = scheduleCellKey(toStaffId, toDateKey);
     if (from.key === toKey) return;
 
+    const targetMember = staffById.get(toStaffId);
+    if (notifyPostTermination(targetMember, toDateKey)) return;
+
     const movingValue: ScheduleCellValue = {
       labelCode: from.labelCode,
       shiftTemplateId: from.shiftTemplateId,
@@ -870,6 +908,13 @@ export function SchedulesWeekCalendar({
         shiftTemplateId: value?.shiftTemplateId ?? null,
       };
     });
+
+    for (const change of changes) {
+      if (change.labelCode === null) continue;
+      const member = staffById.get(change.staffId);
+      if (notifyPostTermination(member, change.workDate)) return false;
+    }
+
     const entriesSnapshot = draftEntries;
 
     setPending(true);
@@ -878,6 +923,7 @@ export function SchedulesWeekCalendar({
     const result = await saveScheduleDayChanges({ changes });
     setPending(false);
     if (result.error) {
+      window.alert(result.error);
       setError(result.error);
       return false;
     }

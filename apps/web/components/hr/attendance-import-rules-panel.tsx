@@ -96,6 +96,21 @@ export function AttendanceImportRulesPanel({
             />
           </Field>
           <Field
+            label="Schedule variance (minutes)"
+            hint="SHIFT days where clock in and out are within this many minutes of the scheduled times do not need Validation approval. Default 40."
+          >
+            <Input
+              name="schedule_variance_minutes"
+              type="number"
+              min={0}
+              max={240}
+              step={1}
+              defaultValue={settings.scheduleVarianceMinutes}
+              className={cn(LIGHT_INPUT, "max-w-40")}
+              required
+            />
+          </Field>
+          <Field
             label="Timezone"
             hint="Venue local zone used when storing fingerprint punches. Orilla default Asia/Dubai."
           >

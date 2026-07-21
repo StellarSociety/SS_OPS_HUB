@@ -1,4 +1,5 @@
 import { HrDataManagementSubNav } from "@/components/hr/hr-data-management-sub-nav";
+import { HrSettingsSectionHeader } from "@/components/hr/hr-settings-section";
 
 export default function HrDataManagementLayout({
   children,
@@ -7,13 +8,10 @@ export default function HrDataManagementLayout({
 }) {
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="font-serif text-2xl text-[#3D421F]">Data Management</h2>
-        <p className="mt-1 text-sm text-black/60">
-          Bulk import and export employee and attendance data via Excel
-          templates.
-        </p>
-      </div>
+      <HrSettingsSectionHeader
+        title="Data Management"
+        description="Bulk import and export employee and attendance data via Excel templates."
+      />
       <HrDataManagementSubNav />
       {children}
     </div>
