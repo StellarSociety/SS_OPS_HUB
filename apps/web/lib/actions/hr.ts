@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
@@ -1177,7 +1176,30 @@ export async function saveScheduleDayChanges(params: {
     shiftTemplateId?: string | null;
   }[];
 }) {
-  const { supabase, user, venue, permissions } = await getAuthContext();
+  try {
+    return await saveScheduleDayChangesInner(params);
+  } catch (err) {
+    const digest =
+      err && typeof err === "object" && "digest" in err
+        ? String((err as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw err;
+    const message =
+      err instanceof Error ? err.message : "Could not save roster labels.";
+    console.error("[hr] saveScheduleDayChanges:", message);
+    return { error: message };
+  }
+}
+
+async function saveScheduleDayChangesInner(params: {
+  changes: {
+    staffId: string;
+    workDate: string;
+    labelCode: string | null;
+    shiftTemplateId?: string | null;
+  }[];
+}) {
+  const { user, venue, permissions } = await getAuthContext();
   if (!canEditSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to edit schedules." };
   }
@@ -1384,50 +1406,8 @@ export async function saveScheduleDayChanges(params: {
   }
 
   // Client already patches the session cache — skip revalidatePath so save
-  // does not remount the page and re-fetch punch coverage.
-
-  // PH-REPL credits: never block the save. Sync only affected staff when a
-  // changed date falls on a public holiday (SHIFT on PH accrues credit).
-  if (holidayDates.size > 0) {
-    const phStaffByYear = new Map<number, Set<string>>();
-    for (const change of changes) {
-      if (!holidayDates.has(change.workDate)) continue;
-      const year = Number(change.workDate.slice(0, 4));
-      if (!Number.isFinite(year)) continue;
-      const set = phStaffByYear.get(year) ?? new Set<string>();
-      set.add(change.staffId);
-      phStaffByYear.set(year, set);
-    }
-
-    if (phStaffByYear.size > 0) {
-      const venueId = venue.id;
-      after(() => {
-        void (async () => {
-          const { syncPhReplacementBalancesForStaff } = await import(
-            "@/lib/actions/hr-leave"
-          );
-          for (const [year, staffSet] of phStaffByYear) {
-            const result = await syncPhReplacementBalancesForStaff({
-              venueId,
-              staffIds: [...staffSet],
-              leaveYear: year,
-            });
-            if (result.error) {
-              console.error(
-                "[hr] deferred PH-REPL balance sync:",
-                result.error,
-              );
-            }
-          }
-        })().catch((err) => {
-          console.error(
-            "[hr] deferred PH-REPL balance sync:",
-            err instanceof Error ? err.message : err,
-          );
-        });
-      });
-    }
-  }
+  // does not remount the page. PH-REPL credits resync on Leave Balances load;
+  // do not import next/server `after` here (breaks the server-action bundle).
 
   return { ok: true as const, count: changes.length };
 }

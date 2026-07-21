@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { saveScheduleDayChanges } from "@/lib/actions/hr";
@@ -596,34 +595,32 @@ async function approveAttendanceDaysInner(params: {
       entry.dates.push(row.workDate);
       byStaff.set(staffId, entry);
     }
-    // Defer leave mirroring — never block the approval response.
-    const staffEntries = [...byStaff.entries()];
-    after(() => {
-      void (async () => {
-        const { mirrorAttendanceApprovalsToLeave } = await import(
-          "@/lib/actions/hr-leave"
-        );
-        for (const [staffId, entry] of staffEntries) {
-          try {
-            await mirrorAttendanceApprovalsToLeave({
-              staffId,
-              empNo: entry.empNo,
-              workDates: entry.dates,
-            });
-          } catch (err) {
-            console.error(
-              "[hr] mirrorAttendanceApprovalsToLeave:",
-              err instanceof Error ? err.message : err,
-            );
-          }
+    // Best-effort leave mirror — never fail approval. Avoid next/server `after`
+    // (it breaks the shared server-action client bundle).
+    try {
+      const { mirrorAttendanceApprovalsToLeave } = await import(
+        "@/lib/actions/hr-leave"
+      );
+      for (const [staffId, entry] of byStaff) {
+        try {
+          await mirrorAttendanceApprovalsToLeave({
+            staffId,
+            empNo: entry.empNo,
+            workDates: entry.dates,
+          });
+        } catch (err) {
+          console.error(
+            "[hr] mirrorAttendanceApprovalsToLeave:",
+            err instanceof Error ? err.message : err,
+          );
         }
-      })().catch((err) => {
-        console.error(
-          "[hr] deferred leave mirror:",
-          err instanceof Error ? err.message : err,
-        );
-      });
-    });
+      }
+    } catch (err) {
+      console.error(
+        "[hr] leave mirror import:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return {

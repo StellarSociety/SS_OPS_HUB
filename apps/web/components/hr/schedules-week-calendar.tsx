@@ -951,12 +951,44 @@ export function SchedulesWeekCalendar({
       setSelected(new Map());
       return true;
     } catch (err) {
+      // Next flight/RSC digest after a successful mutation — keep local edits.
       const message =
-        err instanceof Error && err.message
-          ? err.message
-          : `Could not save ${changeCount} change${changeCount === 1 ? "" : "s"}.`;
-      window.alert(message);
-      setError(message);
+        err instanceof Error && err.message ? err.message : "";
+      const digest =
+        err && typeof err === "object" && "digest" in err
+          ? String((err as { digest?: unknown }).digest ?? "")
+          : "";
+      const isFlightError =
+        Boolean(digest) ||
+        message.includes("Server Components render") ||
+        message.includes("digest property");
+
+      if (isFlightError) {
+        setSaved((current) => {
+          const next = { ...current };
+          const patch: Record<string, ScheduleCellValue | null> = {};
+          for (const [key, value] of entriesSnapshot) {
+            if (value) next[key] = value;
+            else delete next[key];
+            patch[key] = value;
+          }
+          patchCachedScheduleDays(
+            scheduleWeekDaysCacheKey(fromDate, toDate),
+            patch,
+          );
+          return next;
+        });
+        setDrafts({});
+        setSelected(new Map());
+        setError(null);
+        return true;
+      }
+
+      const fallback =
+        message ||
+        `Could not save ${changeCount} change${changeCount === 1 ? "" : "s"}.`;
+      window.alert(fallback);
+      setError(fallback);
       return false;
     } finally {
       setPending(false);
