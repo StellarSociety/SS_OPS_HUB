@@ -258,7 +258,7 @@ export function WaitersDailyTotalTable({
     return recordsForDay
       .map((record) => ({
         ...record,
-        ...computeWaiterSalesTableRow(record, totalTaxPct),
+        ...computeWaiterSalesTableRow(record, totalTaxPct, tenders),
       }))
       .sort((a, b) => {
         const orderA = waiterOrder.get(a.waiter_id) ?? Number.MAX_SAFE_INTEGER;
@@ -266,7 +266,7 @@ export function WaitersDailyTotalTable({
         if (orderA !== orderB) return orderA - orderB;
         return a.waiter_id.localeCompare(b.waiter_id);
       });
-  }, [waiterRecords, selectedDate, totalTaxPct, waiters]);
+  }, [waiterRecords, selectedDate, totalTaxPct, waiters, tenders]);
 
   const waiterById = useMemo(
     () => new Map(waiters.map((waiter) => [waiter.id, waiter])),

@@ -105,6 +105,7 @@ export const moduleCatalog: ModuleDef[] = [
       { key: "daily_vs_waiters", label: "Verification", href: "/sales/daily-vs-waiters/figures-verification" },
       { key: "cash_drawer", label: "Discounts", href: "/sales/discounts" },
       { key: "forecast", label: "Forecasts", href: "/sales/forecast" },
+      { key: "vouchers", label: "Vouchers", href: "/sales/vouchers" },
       { key: "cash_up", label: "Daily Snap", href: "/sales/daily-snap" },
       { key: "revenue_figures", label: "Revenue figures", description: "Net revenue & totals", sensitive: true },
       { key: "settings", label: "Settings", href: "/sales/settings", settings: true },

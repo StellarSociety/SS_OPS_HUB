@@ -17,6 +17,11 @@ import {
 } from "@/lib/sales/daily-sales-calculations";
 import { computeWaiterSales, computeWaiterSalesReconciliation } from "@/lib/sales/waiter-sales-calculations";
 import { FIGURES_ALERTS_TOLERANCE } from "@/lib/sales/figures-alerts-calculations";
+import {
+  sumSalesMatchingTenderAmounts,
+  sumTenderAmounts,
+  sumVoucherIssueAmount,
+} from "@/lib/sales/tenders-calculations";
 import type { VenueTender } from "@/lib/sales/tenders-types";
 import type {
   VenueWaiterDailySalesEntry,
@@ -303,14 +308,18 @@ export function WaiterSalesEntryForm({
   );
 
   const tendersTotalGross = useMemo(
-    () =>
-      Math.round(
-        Object.values(form.tender_amounts).reduce(
-          (sum, amount) => sum + amount,
-          0,
-        ) * 100,
-      ) / 100,
+    () => sumTenderAmounts(form.tender_amounts),
     [form.tender_amounts],
+  );
+
+  const tendersTotalForBalance = useMemo(
+    () => sumSalesMatchingTenderAmounts(form.tender_amounts, tenders),
+    [form.tender_amounts, tenders],
+  );
+
+  const voucherIssueAmount = useMemo(
+    () => sumVoucherIssueAmount(form.tender_amounts, tenders),
+    [form.tender_amounts, tenders],
   );
 
   const tendersTotalNet = useMemo(
@@ -327,13 +336,13 @@ export function WaiterSalesEntryForm({
           total_payments_gs: form.total_payments_gs,
           gratuity_cc_gs: form.gratuity_cc_gs,
         },
-        tendersTotalGross,
+        tendersTotalForBalance,
       ),
     [
       form.total_sales_gs,
       form.total_payments_gs,
       form.gratuity_cc_gs,
-      tendersTotalGross,
+      tendersTotalForBalance,
     ],
   );
 
@@ -755,7 +764,9 @@ export function WaiterSalesEntryForm({
               </span>
             </div>
             <p className="text-sm text-black/60">
-              Payment Total and the tenders total should both equal{" "}
+              Payment Total and the tenders total
+              {voucherIssueAmount !== 0 ? " (excluding Voucher Issue)" : ""}{" "}
+              should both equal{" "}
               <span className="font-medium text-[#3D421F]">
                 Sales Total + Credit Card Gratuity
               </span>
@@ -780,8 +791,12 @@ export function WaiterSalesEntryForm({
                 difference={reconciliation.paymentsDifferenceGs}
               />
               <ReconciliationRow
-                label="Tenders total"
-                entered={tendersTotalGross}
+                label={
+                  voucherIssueAmount !== 0
+                    ? "Tenders total (excl. Voucher Issue)"
+                    : "Tenders total"
+                }
+                entered={tendersTotalForBalance}
                 expected={reconciliation.expectedPaymentsGs}
                 difference={reconciliation.tendersDifferenceGs}
               />

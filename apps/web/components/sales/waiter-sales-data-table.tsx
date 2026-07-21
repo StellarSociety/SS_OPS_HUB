@@ -283,9 +283,9 @@ export function WaiterSalesDataTable({
     () =>
       waiterRecords.map((record) => ({
         ...record,
-        ...computeWaiterSalesTableRow(record, totalTaxPct),
+        ...computeWaiterSalesTableRow(record, totalTaxPct, tenders),
       })),
-    [waiterRecords, totalTaxPct],
+    [waiterRecords, totalTaxPct, tenders],
   );
 
   const weekOptions = useMemo(
@@ -347,7 +347,7 @@ export function WaiterSalesDataTable({
         );
         return {
           ...emptyRecord,
-          ...computeWaiterSalesTableRow(emptyRecord, totalTaxPct),
+          ...computeWaiterSalesTableRow(emptyRecord, totalTaxPct, tenders),
         };
       });
     }
@@ -384,6 +384,7 @@ export function WaiterSalesDataTable({
     yearFilter,
     selectedWaiterId,
     totalTaxPct,
+    tenders,
   ]);
 
   const rowsWithData = useMemo(

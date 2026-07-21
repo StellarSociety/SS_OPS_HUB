@@ -28,6 +28,11 @@ import type {
   VenueSalesTaxSettings,
 } from "@/lib/sales/daily-sales-types";
 import type { VenueTender } from "@/lib/sales/tenders-types";
+import {
+  sumSalesMatchingTenderAmounts,
+  sumTenderAmounts,
+  sumVoucherIssueAmount,
+} from "@/lib/sales/tenders-calculations";
 import type { VenueWaiterDailySalesEntry } from "@/lib/sales/waiter-sales-types";
 import type { VenueDailyTenderTotal } from "@/lib/sales/daily-tender-totals-store";
 import {
@@ -719,27 +724,42 @@ function TenderVerificationColumn({
   venueRevenueGross: number;
 }) {
   const enteredTotalGross = useMemo(
-    () =>
-      Math.round(
-        tenders.reduce((sum, t) => sum + (amounts[t.id] ?? 0), 0) * 100,
-      ) / 100,
-    [tenders, amounts],
+    () => sumTenderAmounts(amounts),
+    [amounts],
   );
   const waitersTotalGross = useMemo(
-    () =>
-      Math.round(
-        tenders.reduce((sum, t) => sum + (waiterSums[t.id] ?? 0), 0) * 100,
-      ) / 100,
-    [tenders, waiterSums],
+    () => sumTenderAmounts(waiterSums),
+    [waiterSums],
   );
   const overallDifference =
     Math.round((enteredTotalGross - waitersTotalGross) * 100) / 100;
   const overallBalanced = Math.abs(overallDifference) <= ROUNDING_TOLERANCE;
 
-  const waitersExGratuity =
-    Math.round((waitersTotalGross - gratuityCc) * 100) / 100;
-  const enteredExGratuity =
-    Math.round((enteredTotalGross - gratuityCc) * 100) / 100;
+  const voucherIssueWaiters = useMemo(
+    () => sumVoucherIssueAmount(waiterSums, tenders),
+    [waiterSums, tenders],
+  );
+  const voucherIssueEntered = useMemo(
+    () => sumVoucherIssueAmount(amounts, tenders),
+    [amounts, tenders],
+  );
+
+  // Sales Total for verification = Payment Total − CC Gratuity − Voucher Issue.
+  // Voucher Issue is liability tracking, not food revenue. Voucher Redeem stays in.
+  const waitersExGratuity = useMemo(
+    () =>
+      Math.round(
+        (sumSalesMatchingTenderAmounts(waiterSums, tenders) - gratuityCc) * 100,
+      ) / 100,
+    [waiterSums, tenders, gratuityCc],
+  );
+  const enteredExGratuity = useMemo(
+    () =>
+      Math.round(
+        (sumSalesMatchingTenderAmounts(amounts, tenders) - gratuityCc) * 100,
+      ) / 100,
+    [amounts, tenders, gratuityCc],
+  );
   const exGratuityDifference =
     Math.round((enteredExGratuity - waitersExGratuity) * 100) / 100;
   const exGratuityBalanced =
@@ -824,6 +844,21 @@ function TenderVerificationColumn({
           <span className="w-16 text-right tabular-nums text-black/40">—</span>
           <span className="w-16 text-right tabular-nums text-black/40">—</span>
         </div>
+        {(voucherIssueWaiters !== 0 || voucherIssueEntered !== 0) && (
+          <div
+            className="mt-1 grid items-center gap-x-2 px-2 py-1 text-[11px]"
+            style={{ gridTemplateColumns: "minmax(0,1fr) auto auto auto" }}
+          >
+            <span className="truncate text-black/60">Voucher Issue</span>
+            <span className="w-16 text-right tabular-nums text-black/60">
+              {formatMoney(voucherIssueWaiters)}
+            </span>
+            <span className="w-16 text-right tabular-nums text-black/60">
+              {formatMoney(voucherIssueEntered)}
+            </span>
+            <span className="w-16 text-right tabular-nums text-black/40">—</span>
+          </div>
+        )}
         <div
           className="mt-1 grid items-center gap-x-2 border-t-2 border-black/25 px-2 pt-1.5 text-[11px] font-semibold"
           style={{ gridTemplateColumns: "minmax(0,1fr) auto auto auto" }}

@@ -13,6 +13,7 @@ import { listVenueDailyTenderTotals } from "@/lib/sales/daily-tender-totals-stor
 import { listVenueDailyDiscounts } from "@/lib/sales/discounts-store";
 import { canAccessDailyVsWaiters } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
+import { listVenueTenders } from "@/lib/sales/tenders-store";
 import { listVenueWaiterDailySales } from "@/lib/sales/waiter-sales-store";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
@@ -40,12 +41,14 @@ export default async function FiguresAlertsPage() {
       dailyTenderTotals,
       discountsRecords,
       taxSettings,
+      tenders,
     ] = await Promise.all([
       listVenueDailySales(supabase, venue.id),
       listVenueWaiterDailySales(supabase, venue.id),
       listVenueDailyTenderTotals(supabase, venue.id),
       listVenueDailyDiscounts(supabase, venue.id),
       getVenueSalesTaxSettings(supabase, venue.id),
+      listVenueTenders(supabase, venue.id),
     ]);
 
     const totalTaxPct = totalTaxRateFromSettings(taxSettings);
@@ -85,6 +88,7 @@ export default async function FiguresAlertsPage() {
           discountsRecords={discountsRecords}
           taxSettings={taxSettings}
           totalTaxPct={totalTaxPct}
+          tenders={tenders}
         />
       </div>
     );

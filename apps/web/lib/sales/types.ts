@@ -7,6 +7,7 @@ export const SALES_FEATURES = {
   dailyVsWaiters: "daily_vs_waiters",
   cashDrawer: "cash_drawer",
   forecast: "forecast",
+  vouchers: "vouchers",
   cashUp: "cash_up",
   settings: "settings",
 } as const;

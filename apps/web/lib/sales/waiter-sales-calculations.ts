@@ -4,6 +4,11 @@ import {
   grossToNet,
 } from "./daily-sales-calculations";
 import { FIGURES_ALERTS_TOLERANCE } from "./figures-alerts-calculations";
+import {
+  sumSalesMatchingTenderAmounts,
+  sumTenderAmounts,
+} from "./tenders-calculations";
+import type { VenueTender } from "./tenders-types";
 import type {
   ComputedWaiterSales,
   VenueWaiterDailySalesEntry,
@@ -44,7 +49,11 @@ export function computeWaiterSalesReconciliation(
     VenueWaiterDailySalesRecord,
     "total_sales_gs" | "total_payments_gs" | "gratuity_cc_gs"
   >,
-  tendersTotalGs: number,
+  /**
+   * Tender sum used for the balance check. Pass the sales-matching total
+   * (excludes Voucher Issue); Payment Total is still compared as entered.
+   */
+  tendersTotalForBalanceGs: number,
 ): WaiterSalesReconciliation {
   const expectedPaymentsGs = roundMoney(
     record.total_sales_gs + record.gratuity_cc_gs,
@@ -52,7 +61,9 @@ export function computeWaiterSalesReconciliation(
   const paymentsDifferenceGs = roundMoney(
     record.total_payments_gs - expectedPaymentsGs,
   );
-  const tendersDifferenceGs = roundMoney(tendersTotalGs - expectedPaymentsGs);
+  const tendersDifferenceGs = roundMoney(
+    tendersTotalForBalanceGs - expectedPaymentsGs,
+  );
 
   return {
     expectedPaymentsGs,
@@ -64,18 +75,20 @@ export function computeWaiterSalesReconciliation(
   };
 }
 
-function sumTenderAmounts(tenderAmounts: Record<string, number>): number {
-  return roundMoney(
-    Object.values(tenderAmounts).reduce((sum, amount) => sum + amount, 0),
-  );
-}
-
 export function computeWaiterSalesTableRow(
   entry: VenueWaiterDailySalesEntry,
   totalTaxPct: number,
+  tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">> = [],
 ): WaiterSalesTableComputed {
   const tendersTotalGs = sumTenderAmounts(entry.tender_amounts);
-  const reconciliation = computeWaiterSalesReconciliation(entry, tendersTotalGs);
+  const tendersTotalForBalanceGs = sumSalesMatchingTenderAmounts(
+    entry.tender_amounts,
+    tenders,
+  );
+  const reconciliation = computeWaiterSalesReconciliation(
+    entry,
+    tendersTotalForBalanceGs,
+  );
 
   return {
     ...computeWaiterSales(entry),

@@ -211,6 +211,30 @@ export function canEditForecast(
   );
 }
 
+export function canAccessVouchers(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasSalesFeatureAccess(permissions, SALES_FEATURES.vouchers, venueId) ||
+    canAccessVenueDaily(permissions, venueId)
+  );
+}
+
+export function canEditVouchers(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasSalesPermission(
+      permissions,
+      SALES_FEATURES.vouchers,
+      "edit",
+      venueId,
+    ) || canEditVenueDaily(permissions, venueId)
+  );
+}
+
 /**
  * Sales settings are an admin-only surface. Only an App Admin, or a user whose
  * per-app role granted the sales `settings` feature (admin-tier), may enter.
@@ -241,6 +265,7 @@ export function canAccessSalesModule(
     canAccessDailyVsWaiters(permissions, venueId) ||
     canAccessCashDrawer(permissions, venueId) ||
     canAccessForecast(permissions, venueId) ||
+    canAccessVouchers(permissions, venueId) ||
     canAccessCashUp(permissions, venueId)
   );
 }
@@ -261,6 +286,7 @@ export function firstAccessibleSalesPath(
     return "/sales/daily-vs-waiters/figures-verification";
   if (canAccessCashDrawer(permissions, venueId)) return "/sales/discounts";
   if (canAccessForecast(permissions, venueId)) return "/sales/forecast";
+  if (canAccessVouchers(permissions, venueId)) return "/sales/vouchers";
   if (canAccessCashUp(permissions, venueId)) return "/sales/daily-snap";
   return null;
 }

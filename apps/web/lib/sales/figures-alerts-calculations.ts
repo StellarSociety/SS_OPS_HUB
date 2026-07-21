@@ -11,6 +11,11 @@ import type {
   VenueSalesTaxSettings,
 } from "@/lib/sales/daily-sales-types";
 import type { VenueDailyTenderTotal } from "@/lib/sales/daily-tender-totals-store";
+import {
+  sumSalesMatchingTenderAmounts,
+  sumTenderAmounts,
+} from "@/lib/sales/tenders-calculations";
+import type { VenueTender } from "@/lib/sales/tenders-types";
 import { computeWaiterSalesReconciliation } from "@/lib/sales/waiter-sales-calculations";
 import type { VenueWaiterDailySalesEntry } from "@/lib/sales/waiter-sales-types";
 
@@ -97,12 +102,6 @@ function makePair(
   };
 }
 
-function sumTenderAmounts(amounts: Record<string, number>): number {
-  return roundMoney(
-    Object.values(amounts).reduce((sum, amount) => sum + Number(amount), 0),
-  );
-}
-
 function entryHref(path: string, saleDate: string): string {
   return `${path}?date=${saleDate}`;
 }
@@ -145,6 +144,7 @@ function buildTenderCheck(
   waiterTenderAmounts: Record<string, number>,
   waiterGratuityCc: number,
   venueRevenueGross: number,
+  tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>,
   hasDailyTenders: boolean,
   hasWaiterTenders: boolean,
 ): FiguresAlertCheck | null {
@@ -154,7 +154,11 @@ function buildTenderCheck(
   const waitersTotal = sumTenderAmounts(waiterTenderAmounts);
   const overallDiff = roundMoney(enteredTotal - waitersTotal);
 
-  const waitersExGratuity = roundMoney(waitersTotal - waiterGratuityCc);
+  const waitersSalesMatching = sumSalesMatchingTenderAmounts(
+    waiterTenderAmounts,
+    tenders,
+  );
+  const waitersExGratuity = roundMoney(waitersSalesMatching - waiterGratuityCc);
   const salesVsRevenueDiff = roundMoney(waitersExGratuity - venueRevenueGross);
 
   const tenderIds = new Set([
@@ -183,8 +187,8 @@ function buildTenderCheck(
   if (!amountsMatch(waitersExGratuity, venueRevenueGross)) {
     mismatches.push(
       salesVsRevenueDiff > 0
-        ? `Waiter Sales total excl. CC gratuity (${formatMoneyPlain(waitersExGratuity)}) is higher than Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`
-        : `Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) is higher than Waiter Sales total excl. CC gratuity (${formatMoneyPlain(waitersExGratuity)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`,
+        ? `Waiter Sales total excl. CC gratuity & Voucher Issue (${formatMoneyPlain(waitersExGratuity)}) is higher than Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`
+        : `Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) is higher than Waiter Sales total excl. CC gratuity & Voucher Issue (${formatMoneyPlain(waitersExGratuity)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`,
     );
   }
   if (mismatchedTenders > 0) {
@@ -225,7 +229,7 @@ function buildTenderCheck(
           unit: "money",
         },
         {
-          label: "Sales excl. CC gratuity",
+          label: "Sales excl. CC gratuity & Voucher Issue",
           page: "Waiter Sales → Entry",
           value: waitersExGratuity,
           unit: "money",
@@ -304,6 +308,7 @@ function buildTaxCheck(
 function buildWaiterBalanceCheck(
   saleDate: string,
   waiterRecords: VenueWaiterDailySalesEntry[],
+  tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>,
 ): FiguresAlertCheck | null {
   if (waiterRecords.length === 0) return null;
 
@@ -313,10 +318,13 @@ function buildWaiterBalanceCheck(
   let tendersDiffTotal = 0;
 
   for (const record of waiterRecords) {
-    const tendersTotal = sumTenderAmounts(record.tender_amounts ?? {});
+    const tendersTotalForBalance = sumSalesMatchingTenderAmounts(
+      record.tender_amounts ?? {},
+      tenders,
+    );
     const reconciliation = computeWaiterSalesReconciliation(
       record,
-      tendersTotal,
+      tendersTotalForBalance,
     );
     if (!reconciliation.isBalanced) {
       unbalancedCount += 1;
@@ -572,6 +580,7 @@ export type BuildFiguresAlertsInput = {
   taxSettings: VenueSalesTaxSettings;
   totalTaxPct: number;
   dates: string[];
+  tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>;
 };
 
 export function buildFiguresAlertsDays(
@@ -585,6 +594,7 @@ export function buildFiguresAlertsDays(
     taxSettings,
     totalTaxPct,
     dates,
+    tenders,
   } = input;
 
   const dailyByDate = new Map(
@@ -674,6 +684,7 @@ export function buildFiguresAlertsDays(
         waiterTenders,
         waiterGratuityByDate.get(saleDate) ?? 0,
         venueRevenueGross,
+        tenders,
         Object.keys(dailyTenders).length > 0,
         Object.keys(waiterTenders).length > 0,
       ),
@@ -684,7 +695,7 @@ export function buildFiguresAlertsDays(
         taxSettings,
         totalTaxPct,
       ),
-      buildWaiterBalanceCheck(saleDate, waiterEntries),
+      buildWaiterBalanceCheck(saleDate, waiterEntries, tenders),
       buildDailyVsWaitersCheck(
         saleDate,
         dailyCovers,

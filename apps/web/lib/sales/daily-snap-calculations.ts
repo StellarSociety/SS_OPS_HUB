@@ -26,6 +26,10 @@ import {
   getDatesInMonth,
 } from "./sales-data-table-dates";
 import type { VenueTender } from "./tenders-types";
+import {
+  sumSalesMatchingTenderAmounts,
+  sumTenderAmounts,
+} from "./tenders-calculations";
 import { computeWaiterSales } from "./waiter-sales-calculations";
 import type { VenueWaiterDailySalesEntry } from "./waiter-sales-types";
 import type { VenueWaiter } from "./waiters-types";
@@ -475,10 +479,16 @@ export function buildDailySnapSnapshot(input: {
     true,
   );
 
-  const totalTendersGs = roundMoney(
-    tenderRows.reduce((sum, row) => sum + row.amountGs, 0),
+  const totalTendersGs = sumTenderAmounts(
+    Object.fromEntries(tenderRows.map((row) => [row.tenderId, row.amountGs])),
   );
-  const tendersNetOfCcGratuityGs = roundMoney(totalTendersGs - gratuityCcGs);
+  const salesMatchingTendersGs = sumSalesMatchingTenderAmounts(
+    Object.fromEntries(tenderRows.map((row) => [row.tenderId, row.amountGs])),
+    tenders,
+  );
+  const tendersNetOfCcGratuityGs = roundMoney(
+    salesMatchingTendersGs - gratuityCcGs,
+  );
   const totalRevenueGs = dailyActualGs;
   const totalRevenueNetGs = dailyComputed
     ? dailyComputed.totalVenueNet

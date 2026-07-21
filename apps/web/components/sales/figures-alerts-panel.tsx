@@ -28,6 +28,7 @@ import {
   type FiguresAlertCheck,
   type FiguresAlertsDay,
 } from "@/lib/sales/figures-alerts-calculations";
+import type { VenueTender } from "@/lib/sales/tenders-types";
 import {
   DEFAULT_FIGURES_ALERTS_PDF_SECTIONS,
   exportFiguresAlertsPdf,
@@ -61,6 +62,7 @@ type FiguresAlertsPanelProps = {
   discountsRecords: VenueDailyDiscountsRecord[];
   taxSettings: VenueSalesTaxSettings;
   totalTaxPct: number;
+  tenders: VenueTender[];
 };
 
 const CATEGORY_ORDER: FiguresAlertCategory[] = [
@@ -343,6 +345,7 @@ export function FiguresAlertsPanel({
   discountsRecords,
   taxSettings,
   totalTaxPct,
+  tenders,
 }: FiguresAlertsPanelProps) {
   const today = getLocalTodayIsoDate();
   const {
@@ -405,6 +408,7 @@ export function FiguresAlertsPanel({
         taxSettings,
         totalTaxPct,
         dates: periodDates,
+        tenders,
       }),
     [
       dailyRecords,
@@ -414,6 +418,7 @@ export function FiguresAlertsPanel({
       taxSettings,
       totalTaxPct,
       periodDates,
+      tenders,
     ],
   );
 

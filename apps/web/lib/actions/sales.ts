@@ -46,6 +46,13 @@ import {
   upsertVenueWaiterDailySales,
 } from "@/lib/sales/waiter-sales-store";
 import {
+  deleteVenueVoucher,
+  upsertVenueVoucher,
+  upsertVenueVouchersBatch,
+} from "@/lib/sales/vouchers-store";
+import type { VoucherSource, VoucherStatus } from "@/lib/sales/vouchers-types";
+import { VOUCHER_SOURCES, VOUCHER_STATUSES } from "@/lib/sales/vouchers-types";
+import {
   upsertVenueWaiterSalesSettings,
 } from "@/lib/sales/waiter-sales-settings-store";
 import type { WaiterSalesSettingsInput } from "@/lib/sales/waiter-sales-settings-types";
@@ -55,6 +62,7 @@ import {
   canEditDiscounts,
   canEditForecast,
   canEditVenueDaily,
+  canEditVouchers,
   canEditWaiterDaily,
   canManageSalesWaiters,
 } from "@/lib/sales/permissions";
@@ -70,6 +78,7 @@ const SALES_WAITERS_PATHS = [
   "/sales/waiter/entry",
   "/sales/waiter/data",
   "/sales/waiter/insights",
+  "/sales/vouchers",
 ];
 
 function revalidateSalesWaiters() {
@@ -100,6 +109,7 @@ const SALES_DAILY_PATHS = [
   "/sales/daily/entry",
   "/sales/daily/insights",
   "/sales/forecast",
+  "/sales/vouchers",
   "/sales/settings",
   "/sales/settings/tax",
   "/sales/settings/data-management",
@@ -127,6 +137,14 @@ const SALES_DAILY_SNAP_PATHS = [
 
 function revalidateSalesDailySnap() {
   for (const path of SALES_DAILY_SNAP_PATHS) {
+    revalidatePath(path);
+  }
+}
+
+const SALES_VOUCHERS_PATHS = ["/sales/vouchers"];
+
+function revalidateSalesVouchers() {
+  for (const path of SALES_VOUCHERS_PATHS) {
     revalidatePath(path);
   }
 }
@@ -1065,5 +1083,254 @@ export async function removeVenueMonthlyForecast(formData: FormData) {
     return { success: "Forecast removed." };
   } catch {
     return { error: "Could not delete forecast." };
+  }
+}
+
+function parseVoucherStatus(value: unknown): VoucherStatus {
+  const status = String(value ?? "").trim();
+  if ((VOUCHER_STATUSES as readonly string[]).includes(status)) {
+    return status as VoucherStatus;
+  }
+  return "issued";
+}
+
+function parseVoucherSource(value: unknown): VoucherSource {
+  const source = String(value ?? "").trim();
+  if ((VOUCHER_SOURCES as readonly string[]).includes(source)) {
+    return source as VoucherSource;
+  }
+  return "manual";
+}
+
+function parseOptionalDate(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  return raw;
+}
+
+export async function saveVenueVoucher(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditVouchers(permissions, venue.id)) {
+    return { error: "You do not have permission to edit vouchers." };
+  }
+
+  const voucherNumber = String(formData.get("voucher_number") ?? "").trim();
+  if (!voucherNumber) return { error: "Voucher number is required." };
+
+  const issuedDate = String(formData.get("issued_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(issuedDate)) {
+    return { error: "A valid issued date is required." };
+  }
+
+  const status = parseVoucherStatus(formData.get("status"));
+  const redeemedDate = parseOptionalDate(formData.get("redeemed_date"));
+  if (status === "redeemed" && !redeemedDate) {
+    return { error: "Redeemed date is required when status is Redeemed." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim() || undefined;
+
+  try {
+    const record = await upsertVenueVoucher(supabase, venue.id, user.id, {
+      id,
+      voucher_number: voucherNumber,
+      voucher_name: String(formData.get("voucher_name") ?? ""),
+      face_value_gs: parseMoney(formData.get("face_value_gs")),
+      status,
+      issued_date: issuedDate,
+      redeemed_date: redeemedDate,
+      expires_date: parseOptionalDate(formData.get("expires_date")),
+      purchaser_name: String(formData.get("purchaser_name") ?? ""),
+      recipient_name: String(formData.get("recipient_name") ?? ""),
+      notes: String(formData.get("notes") ?? ""),
+      source: parseVoucherSource(formData.get("source")),
+      source_waiter_sales_id:
+        String(formData.get("source_waiter_sales_id") ?? "").trim() || null,
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: id ? "update" : "create",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_vouchers",
+      entity_id: record.id,
+      venue_id: venue.id,
+    });
+    revalidateSalesVouchers();
+    return { success: id ? "Voucher updated." : "Voucher created.", record };
+  } catch (error) {
+    const message =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: string }).code)
+        : "";
+    if (message === "23505") {
+      return { error: "A voucher with this number already exists." };
+    }
+    console.error("[saveVenueVoucher]", error);
+    return { error: "Could not save voucher." };
+  }
+}
+
+export async function removeVenueVoucher(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditVouchers(permissions, venue.id)) {
+    return { error: "You do not have permission to delete vouchers." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { error: "Voucher id is required." };
+
+  try {
+    await deleteVenueVoucher(supabase, venue.id, id);
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "delete",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_vouchers",
+      entity_id: id,
+      venue_id: venue.id,
+    });
+    revalidateSalesVouchers();
+    return { success: "Voucher deleted." };
+  } catch (error) {
+    console.error("[removeVenueVoucher]", error);
+    return { error: "Could not delete voucher." };
+  }
+}
+
+export async function markVenueVoucherRedeemed(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditVouchers(permissions, venue.id)) {
+    return { error: "You do not have permission to edit vouchers." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { error: "Voucher id is required." };
+
+  const redeemedDate =
+    parseOptionalDate(formData.get("redeemed_date")) ??
+    new Date().toISOString().slice(0, 10);
+
+  try {
+    const { data: existing, error } = await supabase
+      .from("venue_vouchers")
+      .select("*")
+      .eq("id", id)
+      .eq("venue_id", venue.id)
+      .single();
+
+    if (error || !existing) {
+      return { error: "Voucher not found." };
+    }
+
+    const record = await upsertVenueVoucher(supabase, venue.id, user.id, {
+      id,
+      voucher_number: existing.voucher_number,
+      voucher_name: existing.voucher_name ?? "",
+      face_value_gs: Number(existing.face_value_gs),
+      status: "redeemed",
+      issued_date: existing.issued_date,
+      redeemed_date: redeemedDate,
+      expires_date: existing.expires_date ?? null,
+      purchaser_name: existing.purchaser_name ?? "",
+      recipient_name: existing.recipient_name ?? "",
+      notes: existing.notes ?? "",
+      source: parseVoucherSource(existing.source),
+      source_waiter_sales_id: existing.source_waiter_sales_id ?? null,
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "update",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_vouchers",
+      entity_id: record.id,
+      venue_id: venue.id,
+      after: { status: "redeemed", redeemed_date: redeemedDate },
+    });
+    revalidateSalesVouchers();
+    return { success: "Voucher marked as redeemed.", record };
+  } catch (error) {
+    console.error("[markVenueVoucherRedeemed]", error);
+    return { error: "Could not redeem voucher." };
+  }
+}
+
+export async function importWaiterVoucherSuggestions(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditVouchers(permissions, venue.id)) {
+    return { error: "You do not have permission to import vouchers." };
+  }
+
+  const raw = String(formData.get("payload") ?? "").trim();
+  if (!raw) return { error: "Nothing to import." };
+
+  let items: Array<{
+    voucher_number: string;
+    voucher_name: string;
+    face_value_gs: number;
+    issued_date: string;
+    source_waiter_sales_id?: string | null;
+  }>;
+
+  try {
+    items = JSON.parse(raw) as typeof items;
+  } catch {
+    return { error: "Invalid import payload." };
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return { error: "Nothing to import." };
+  }
+
+  try {
+    const records = await upsertVenueVouchersBatch(
+      supabase,
+      venue.id,
+      user.id,
+      items.map((item) => ({
+        voucher_number: String(item.voucher_number ?? "").trim(),
+        voucher_name: String(item.voucher_name ?? "").trim(),
+        face_value_gs: parseMoney(item.face_value_gs),
+        status: "issued" as const,
+        issued_date: String(item.issued_date ?? "").trim(),
+        redeemed_date: null,
+        expires_date: null,
+        purchaser_name: "",
+        recipient_name: "",
+        notes: "Imported from waiter Voucher Issue comments.",
+        source: "waiter_comment" as const,
+        source_waiter_sales_id: item.source_waiter_sales_id ?? null,
+      })),
+    );
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "create",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_vouchers",
+      venue_id: venue.id,
+      after: { imported: records.length, source: "waiter_comment" },
+    });
+    revalidateSalesVouchers();
+    return {
+      success: `Imported ${records.length} voucher${records.length === 1 ? "" : "s"}.`,
+      count: records.length,
+    };
+  } catch (error) {
+    const message =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: string }).code)
+        : "";
+    if (message === "23505") {
+      return { error: "One or more voucher numbers already exist." };
+    }
+    console.error("[importWaiterVoucherSuggestions]", error);
+    return { error: "Could not import vouchers." };
   }
 }

@@ -31,3 +31,9 @@ npm-debug.log*
 # editor
 .idea/
 *.swp
+
+# local secrets (keep .env.example tracked)
+.env.local
+.env*.local
+.env.vercel.import
+Arattai.app/
