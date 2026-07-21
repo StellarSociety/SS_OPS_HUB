@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { saveScheduleDayChanges } from "@/lib/actions/hr";
@@ -506,6 +507,28 @@ export async function approveAttendanceDays(params: {
   approvalStatus?: "pending" | "approved" | "rejected" | "flagged";
   notes?: string;
 }) {
+  try {
+    return await approveAttendanceDaysInner(params);
+  } catch (err) {
+    const digest =
+      err && typeof err === "object" && "digest" in err
+        ? String((err as { digest?: unknown }).digest ?? "")
+        : "";
+    // Let Next.js redirects / not-found propagate.
+    if (digest.startsWith("NEXT_")) throw err;
+    const message =
+      err instanceof Error ? err.message : "Could not approve attendance.";
+    console.error("[hr] approveAttendanceDays:", message);
+    return { error: message };
+  }
+}
+
+async function approveAttendanceDaysInner(params: {
+  ids?: string[];
+  days?: AttendanceDayApprovalTarget[];
+  approvalStatus?: "pending" | "approved" | "rejected" | "flagged";
+  notes?: string;
+}) {
   const ids = [...new Set((params.ids ?? []).filter(Boolean))];
   const dayTargets = params.days ?? [];
   if (ids.length === 0 && dayTargets.length === 0) {
@@ -573,28 +596,35 @@ export async function approveAttendanceDays(params: {
       entry.dates.push(row.workDate);
       byStaff.set(staffId, entry);
     }
-    const { mirrorAttendanceApprovalsToLeave } = await import(
-      "@/lib/actions/hr-leave"
-    );
-    for (const [staffId, entry] of byStaff) {
-      try {
-        await mirrorAttendanceApprovalsToLeave({
-          staffId,
-          empNo: entry.empNo,
-          workDates: entry.dates,
-        });
-      } catch (err) {
+    // Defer leave mirroring — never block the approval response.
+    const staffEntries = [...byStaff.entries()];
+    after(() => {
+      void (async () => {
+        const { mirrorAttendanceApprovalsToLeave } = await import(
+          "@/lib/actions/hr-leave"
+        );
+        for (const [staffId, entry] of staffEntries) {
+          try {
+            await mirrorAttendanceApprovalsToLeave({
+              staffId,
+              empNo: entry.empNo,
+              workDates: entry.dates,
+            });
+          } catch (err) {
+            console.error(
+              "[hr] mirrorAttendanceApprovalsToLeave:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+      })().catch((err) => {
         console.error(
-          "[hr] mirrorAttendanceApprovalsToLeave:",
+          "[hr] deferred leave mirror:",
           err instanceof Error ? err.message : err,
         );
-      }
-    }
+      });
+    });
   }
-
-  revalidatePath("/hr/attendance", "layout");
-  revalidatePath("/hr/attendance/leave", "layout");
-  revalidatePath("/hr/settings/data-management", "layout");
 
   return {
     ok: true as const,
@@ -645,8 +675,8 @@ export async function saveValidationRosterDays(params: {
 
   try {
     // Do not revalidatePath here — the client patches local rows. A layout
-    // revalidate remounts Validation (~10s punch reload) and can surface as a
-    // cryptic Next.js digest (e.g. ERROR 41071405) when that refresh fails.
+    // revalidate remounts Validation and can surface as an opaque
+    // "Server Components render" digest when that refresh fails.
     return await saveScheduleDayChanges({
       changes: params.changes.map((change) => ({
         staffId: change.staffId,
@@ -656,6 +686,11 @@ export async function saveValidationRosterDays(params: {
       })),
     });
   } catch (err) {
+    const digest =
+      err && typeof err === "object" && "digest" in err
+        ? String((err as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw err;
     const message =
       err instanceof Error ? err.message : "Could not save roster edits.";
     console.error("[hr] saveValidationRosterDays:", message);

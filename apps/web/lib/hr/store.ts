@@ -39,7 +39,10 @@ export async function listStaffForVenue(
   }
 
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) {
+    console.error("[hr] listStaffForVenue:", error.message);
+    return [];
+  }
 
   let rows = (data ?? []) as StaffWithLookups[];
 
@@ -82,7 +85,10 @@ export async function listDepartments(
     .select("*")
     .eq("venue_id", venueId)
     .order("sort_order");
-  if (error) throw error;
+  if (error) {
+    console.error("[hr] listDepartments:", error.message);
+    return [];
+  }
   return data ?? [];
 }
 

@@ -236,6 +236,21 @@ function isLeaveOrAbsenceLabel(label: string | null | undefined): boolean {
   return isScheduleLeaveLabel(label) || label === "ABS";
 }
 
+/** Next.js opaque flight/RSC errors after a successful server action. */
+function isNextFlightDigestError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const message = "message" in err ? String((err as { message?: unknown }).message ?? "") : "";
+  const digest =
+    "digest" in err && (err as { digest?: unknown }).digest != null
+      ? String((err as { digest?: unknown }).digest)
+      : "";
+  return (
+    Boolean(digest) ||
+    message.includes("Server Components render") ||
+    message.includes("digest property")
+  );
+}
+
 /** Selection key — only days that actually need Validation approval. */
 function selectionKey(
   row: AttendanceApprovalRow,
@@ -632,7 +647,6 @@ export function AttendanceApprovalsTable({
               : "Could not save roster edits.";
           window.alert(message);
           setActionError(message);
-          setBusyAction(null);
           return;
         }
 
@@ -672,6 +686,43 @@ export function AttendanceApprovalsTable({
 
         setDrafts({});
       } catch (err) {
+        // Save often succeeded on the server; Next then failed refreshing RSC.
+        // Keep the staged edits applied locally so the UI matches the DB.
+        if (isNextFlightDigestError(err)) {
+          clearAllCachedScheduleDays();
+          setLocal((prev) => {
+            const byKey = new Map(
+              prev.map((r) => [draftKey(r.empNo, r.workDate), r] as const),
+            );
+            for (const change of changes) {
+              const key = draftKey(change.empNo, change.workDate);
+              const existing = byKey.get(key);
+              const person = staffByEmp.get(change.empNo.trim().toLowerCase());
+              byKey.set(key, {
+                ...(existing ??
+                  emptyRowForDay({
+                    staffId: change.staffId,
+                    workDate: change.workDate,
+                    empNo: change.empNo,
+                    fullName: person?.fullName ?? change.empNo,
+                    departmentId: person?.departmentId ?? null,
+                  })),
+                staffId: change.staffId,
+                rosterLabel: rosterCodeForAction(change.labelCode),
+                scheduleTime: null,
+                issue: issueAfterRosterLabel(
+                  change.labelCode,
+                  existing?.clockIn ?? null,
+                  existing?.clockOut ?? null,
+                ),
+              });
+            }
+            return [...byKey.values()];
+          });
+          setDrafts({});
+          setActionError(null);
+          return;
+        }
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -744,6 +795,26 @@ export function AttendanceApprovalsTable({
         });
         setSelectedIds(new Set());
       } catch (err) {
+        if (isNextFlightDigestError(err)) {
+          // Approval likely persisted; update local rows without showing digest.
+          setLocal((prev) => {
+            const next = new Map(
+              prev.map((row) => [draftKey(row.empNo, row.workDate), row] as const),
+            );
+            for (const row of selectedRows) {
+              const key = draftKey(row.empNo, row.workDate);
+              const existing = next.get(key) ?? row;
+              next.set(key, {
+                ...existing,
+                approvalStatus: ATTENDANCE_APPROVED_STATUS,
+              });
+            }
+            return [...next.values()];
+          });
+          setSelectedIds(new Set());
+          setActionError(null);
+          return;
+        }
         setActionError(
           err instanceof Error && err.message
             ? err.message

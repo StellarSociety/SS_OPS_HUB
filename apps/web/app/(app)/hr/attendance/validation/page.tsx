@@ -38,82 +38,113 @@ export default async function AttendanceValidationPage({
   const { supabase, venue, permissions } = await getHrPageContext();
   const canEditRoster = canEditSchedules(permissions, venue.id);
 
-  const months = await listAttendanceMonths(supabase, venue.id);
-  const range = validationFetchRangeFromMonthKeys(
-    months.map((m) => m.month_key),
-    currentMonthKey(),
-  );
-  const fromDate = range.fromDate;
-  const toDate = range.toDate;
-  const holidayYear = Number(fromDate.slice(0, 4)) || new Date().getFullYear();
+  try {
+    const months = await listAttendanceMonths(supabase, venue.id);
+    const range = validationFetchRangeFromMonthKeys(
+      months.map((m) => m.month_key),
+      currentMonthKey(),
+    );
+    const fromDate = range.fromDate;
+    const toDate = range.toDate;
+    const holidayYear = Number(fromDate.slice(0, 4)) || new Date().getFullYear();
 
-  const [staff, departments, scheduleLabels, rows, publicHolidays, importRules] =
-    await Promise.all([
-      listStaffForVenue(supabase, venue.id),
-      listDepartments(supabase, venue.id),
-      listScheduleDayLabels(supabase),
-      buildAttendanceValidationRows(supabase, venue.id, { fromDate, toDate }),
-      listPublicHolidays(supabase, venue.id, {
-        fromDate: `${holidayYear - 1}-01-01`,
-        toDate: `${holidayYear + 1}-12-31`,
-      }),
-      getHrVenueSetting<HrAttendanceImportRules>(
-        supabase,
-        venue.id,
-        HR_SETTINGS_KEYS.attendanceImportRules,
-        DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
-      ),
-    ]);
+    const [staff, departments, scheduleLabels, rows, publicHolidays, importRules] =
+      await Promise.all([
+        listStaffForVenue(supabase, venue.id).catch((err) => {
+          console.error("[hr] validation listStaffForVenue:", err);
+          return [];
+        }),
+        listDepartments(supabase, venue.id).catch((err) => {
+          console.error("[hr] validation listDepartments:", err);
+          return [];
+        }),
+        listScheduleDayLabels(supabase),
+        buildAttendanceValidationRows(supabase, venue.id, { fromDate, toDate }),
+        listPublicHolidays(supabase, venue.id, {
+          fromDate: `${holidayYear - 1}-01-01`,
+          toDate: `${holidayYear + 1}-12-31`,
+        }),
+        getHrVenueSetting<HrAttendanceImportRules>(
+          supabase,
+          venue.id,
+          HR_SETTINGS_KEYS.attendanceImportRules,
+          DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+        ),
+      ]);
 
-  const departmentOptions = departments.map((d) => ({
-    id: d.id,
-    name: d.name,
-  }));
+    const departmentOptions = departments.map((d) => ({
+      id: d.id,
+      name: d.name,
+    }));
 
-  const employees = validationEmployeeOptions(staff);
+    const employees = validationEmployeeOptions(staff);
 
-  const labelOptions = (
-    scheduleLabels ?? withFallbackScheduleLabelIds(DEFAULT_SCHEDULE_DAY_LABELS)
-  ).map((label) => ({
-    code: label.code,
-    abbreviation: label.abbreviation,
-    name: label.name,
-    bgColor: label.bgColor,
-    textColor: label.textColor,
-    borderColor: label.borderColor,
-  }));
+    const labelOptions = (
+      scheduleLabels ?? withFallbackScheduleLabelIds(DEFAULT_SCHEDULE_DAY_LABELS)
+    ).map((label) => ({
+      code: label.code,
+      abbreviation: label.abbreviation,
+      name: label.name,
+      bgColor: label.bgColor,
+      textColor: label.textColor,
+      borderColor: label.borderColor,
+    }));
 
-  const publicHolidayByDate: Record<string, string> = {};
-  for (const holiday of publicHolidays ?? []) {
-    publicHolidayByDate[holiday.holidayDate] = holiday.name;
-  }
+    const publicHolidayByDate: Record<string, string> = {};
+    for (const holiday of publicHolidays ?? []) {
+      publicHolidayByDate[holiday.holidayDate] = holiday.name;
+    }
 
-  return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
-        <p className="mt-1 text-sm text-black/55">
-          Select a department, employee, and week(s). Stage actions in three
-          groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL /
-          BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as
-          calendar PH; working SH earns a PH-REPL credit automatically. Save
-          roster edits, then Approve Attendance. SHIFT days only need approval
-          when clock in/out differ from schedule by more than{" "}
-          {importRules.scheduleVarianceMinutes} minutes (or punches are
-          missing). Leave and ABS need approval; OFF / calendar PH do not.
-        </p>
+    const rules = {
+      ...DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+      ...importRules,
+    };
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
+          <p className="mt-1 text-sm text-black/55">
+            Select a department, employee, and week(s). Stage actions in three
+            groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL /
+            BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as
+            calendar PH; working SH earns a PH-REPL credit automatically. Save
+            roster edits, then Approve Attendance. SHIFT days only need approval
+            when clock in/out differ from schedule by more than{" "}
+            {rules.scheduleVarianceMinutes} minutes (or punches are missing).
+            Leave and ABS need approval; OFF / calendar PH do not.
+          </p>
+        </div>
+        <AttendanceApprovalsTable
+          rows={rows}
+          departments={departmentOptions}
+          employees={employees}
+          scheduleLabels={labelOptions}
+          publicHolidayByDate={publicHolidayByDate}
+          canEditRoster={canEditRoster}
+          initialStaffId={initialStaffId}
+          scheduleVarianceMinutes={rules.scheduleVarianceMinutes}
+          timezone={rules.timezone}
+        />
       </div>
-      <AttendanceApprovalsTable
-        rows={rows}
-        departments={departmentOptions}
-        employees={employees}
-        scheduleLabels={labelOptions}
-        publicHolidayByDate={publicHolidayByDate}
-        canEditRoster={canEditRoster}
-        initialStaffId={initialStaffId}
-        scheduleVarianceMinutes={importRules.scheduleVarianceMinutes}
-        timezone={importRules.timezone}
-      />
-    </div>
-  );
+    );
+  } catch (err) {
+    // Never let a data-load blip become an opaque Server Components digest
+    // after Save/Approve (Next may soft-refresh this page with the action).
+    console.error(
+      "[hr] validation page render:",
+      err instanceof Error ? err.message : err,
+    );
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
+          <p className="mt-1 text-sm text-rose-700">
+            Could not load attendance validation right now. Reload the page and
+            try again.
+          </p>
+        </div>
+      </div>
+    );
+  }
 }
