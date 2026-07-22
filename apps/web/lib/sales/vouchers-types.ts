@@ -1,4 +1,5 @@
 export const VOUCHER_STATUSES = [
+  "draft",
   "issued",
   "redeemed",
   "cancelled",
@@ -8,6 +9,7 @@ export const VOUCHER_STATUSES = [
 export type VoucherStatus = (typeof VOUCHER_STATUSES)[number];
 
 export const VOUCHER_STATUS_LABELS: Record<VoucherStatus, string> = {
+  draft: "Draft",
   issued: "Issued",
   redeemed: "Redeemed",
   cancelled: "Cancelled",
@@ -28,6 +30,8 @@ export type VenueVoucher = {
   issued_date: string;
   redeemed_date: string | null;
   expires_date: string | null;
+  /** Tender used to pay for the voucher when issued (Cash, Visa, …). */
+  payment_form_tender_id: string | null;
   purchaser_name: string;
   recipient_name: string;
   notes: string;
@@ -48,6 +52,7 @@ export type VenueVoucherInput = {
   issued_date: string;
   redeemed_date: string | null;
   expires_date: string | null;
+  payment_form_tender_id: string | null;
   purchaser_name: string;
   recipient_name: string;
   notes: string;
@@ -67,9 +72,27 @@ export type VoucherTenderTotals = {
   days: VoucherTenderDay[];
 };
 
+/** Per-day allocation of ledger vouchers against a POS tender total. */
+export type VoucherDayAllocation = {
+  sale_date: string;
+  /** @deprecated Prefer issue_gs / redeem_gs for display; kept for redeem/issue builders. */
+  tender_gs: number;
+  /** Daily / waiter Voucher Issue tender total for this date (issue workspace). */
+  issue_gs?: number;
+  /** Daily / waiter Voucher Redeem tender total for this date (redeem workspace). */
+  redeem_gs?: number;
+  allocated_gs: number;
+  remaining_gs: number;
+  voucher_count: number;
+  vouchers: VenueVoucher[];
+  balanced: boolean;
+};
+
 export type VoucherLedgerSummary = {
   outstanding_gs: number;
   outstanding_count: number;
+  draft_gs: number;
+  draft_count: number;
   issued_all_time_gs: number;
   issued_all_time_count: number;
   redeemed_gs: number;

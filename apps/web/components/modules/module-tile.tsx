@@ -20,6 +20,9 @@ type ModuleTileProps = {
   href?: string;
   clickable: boolean;
   blockedReason?: "access" | null;
+  /** When set, a live tile expands/selects instead of navigating. */
+  onSelect?: () => void;
+  selected?: boolean;
 };
 
 export function ModuleTile({
@@ -29,24 +32,34 @@ export function ModuleTile({
   href,
   clickable,
   blockedReason,
+  onSelect,
+  selected = false,
 }: ModuleTileProps) {
-  const isLive = status === "live" && clickable && href;
+  const isLive = status === "live" && clickable && Boolean(href);
   const isComingSoon = status === "coming_soon";
   const isLocked = status === "visible_locked";
-  const isAccessBlocked = !isLive && blockedReason === "access";
+  const isAccessBlocked = status === "live" && blockedReason === "access";
+  // Prefer expand/select over navigation whenever the parent opts in.
+  const isSelectable = Boolean(onSelect) && (isLive || isComingSoon);
 
   const inner = (
     <motion.div
       whileHover={{ scale: 1.07, y: -4 }}
-      whileTap={isLive ? { scale: 0.94 } : { scale: 0.98 }}
+      whileTap={isLive || isSelectable ? { scale: 0.94 } : { scale: 0.98 }}
       transition={{ type: "spring", stiffness: 460, damping: 22 }}
       className={cn(
         "group flex flex-col items-center gap-1.5 px-0.5 py-1 text-center",
-        isLive || isAccessBlocked ? "cursor-pointer" : "cursor-default",
+        isLive || isAccessBlocked || isSelectable
+          ? "cursor-pointer"
+          : "cursor-default",
       )}
     >
       <motion.div
-        className="relative flex items-center justify-center"
+        className={cn(
+          "relative flex items-center justify-center rounded-2xl transition-[box-shadow,background-color,padding]",
+          selected &&
+            "bg-[var(--venue-primary)]/15 p-1.5 ring-2 ring-[var(--venue-primary)]/35",
+        )}
         whileHover={{ scale: 1.05 }}
         transition={{ type: "spring", stiffness: 500, damping: 18 }}
       >
@@ -80,12 +93,31 @@ export function ModuleTile({
           "line-clamp-2 w-full max-w-[5.75rem] text-[11px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]",
           "font-[system-ui,-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif]",
           isLocked && "opacity-50",
+          selected && "font-semibold",
         )}
       >
         {label}
       </p>
     </motion.div>
   );
+
+  if (isSelectable && onSelect) {
+    return (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect();
+        }}
+        aria-pressed={selected}
+        aria-label={selected ? `${label} — hide pages` : `${label} — show pages`}
+        className="block w-full"
+      >
+        {inner}
+      </button>
+    );
+  }
 
   if (isLive && href) {
     return (

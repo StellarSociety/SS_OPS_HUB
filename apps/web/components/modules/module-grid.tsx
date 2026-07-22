@@ -23,9 +23,18 @@ type ModuleGridProps = {
   modules: ModuleGridItem[];
   /** Center the tiles as a group instead of distributing them across a fixed grid. */
   centered?: boolean;
+  /** Currently expanded app key (dashboard expand-in-place). */
+  selectedKey?: string | null;
+  /** When set, live apps call this instead of navigating. */
+  onSelectModule?: (module: ModuleGridItem) => void;
 };
 
-export function ModuleGrid({ modules, centered = false }: ModuleGridProps) {
+export function ModuleGrid({
+  modules,
+  centered = false,
+  selectedKey = null,
+  onSelectModule,
+}: ModuleGridProps) {
   return (
     <motion.div
       className={cn(
@@ -50,6 +59,10 @@ export function ModuleGrid({ modules, centered = false }: ModuleGridProps) {
             href={mod.href}
             clickable={mod.clickable}
             blockedReason={mod.blockedReason}
+            selected={selectedKey === mod.key}
+            onSelect={
+              onSelectModule ? () => onSelectModule(mod) : undefined
+            }
           />
         </motion.div>
       ))}

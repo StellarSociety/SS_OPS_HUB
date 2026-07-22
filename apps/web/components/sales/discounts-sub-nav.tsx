@@ -3,7 +3,7 @@
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { salesSectionTabs } from "@/lib/sales-section-sub-nav";
-import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
+import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
 
 const tabs = salesSectionTabs("/sales/discounts");
 
@@ -13,7 +13,7 @@ export function DiscountsSubNav() {
   return (
     <nav
       aria-label="Discounts sections"
-      className={segmentedSubNavShellClass}
+      className={pillSubNavShellClass}
     >
       {tabs.map((tab) => {
         const active = tab.exact
@@ -27,6 +27,7 @@ export function DiscountsSubNav() {
             label={tab.label}
             icon={tab.icon}
             active={active}
+            variant="pill"
           />
         );
       })}

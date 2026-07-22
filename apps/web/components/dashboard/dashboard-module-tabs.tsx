@@ -11,7 +11,7 @@ import {
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { ModuleGrid } from "@/components/modules/module-grid";
+import { ExpandableModuleGrid } from "@/components/modules/expandable-module-grid";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import type { ModuleCategory, ModuleCategoryKey } from "@/lib/modules-registry";
 import { subNavLabelClass } from "@/lib/sub-nav-ui";
@@ -130,7 +130,10 @@ export function DashboardModuleTabs({
             className="mt-6"
           >
             {activeSection.modules.length > 0 ? (
-              <ModuleGrid modules={activeSection.modules} centered />
+              <ExpandableModuleGrid
+                modules={activeSection.modules}
+                centered
+              />
             ) : (
               <p className="py-8 text-center text-sm text-black/50">
                 No apps in this category yet.

@@ -54,6 +54,8 @@ import {
   salesFormColumnClassName,
   salesFormColumnShellClass,
   salesFormColumnWidthClass,
+  salesFormDateBannerMaxWidthStyle,
+  salesFormDateBannerShellClass,
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
 import { usePersistedSalesEntryDate } from "@/components/sales/use-persisted-sales-filters";
@@ -1402,11 +1404,8 @@ export function DailySalesEntryForm({
 
         <SalesFormColumnsLayout>
           <div
-            className={cn(
-              salesFormColumnShellClass(),
-              salesFormColumnWidthClass(),
-              "items-center justify-center py-3 text-center text-sm font-medium tabular-nums text-[#3D421F] shadow-sm",
-            )}
+            className={salesFormDateBannerShellClass()}
+            style={salesFormDateBannerMaxWidthStyle}
           >
             <SalesEntryDateBanner dateStr={selectedDate} />
           </div>

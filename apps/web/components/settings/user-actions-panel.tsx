@@ -17,6 +17,7 @@ import { inviteStatusOf, type UserListRow } from "@/lib/access/types";
 import { AccessCredentialsBox } from "@/components/settings/access-credentials-box";
 import { InviteLinkBox } from "@/components/settings/invite-link-box";
 import { UserAvatarField } from "@/components/profile/user-avatar-field";
+import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -205,7 +206,7 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
 
   return (
     <Card className="space-y-5 p-4 sm:p-6">
-      {user.is_external ? (
+      {canManageProfileAvatar(user) ? (
         <>
           <UserAvatarField
             userId={user.id}

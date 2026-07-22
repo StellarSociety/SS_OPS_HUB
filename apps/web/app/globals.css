@@ -5,6 +5,11 @@
   --foreground: #3d421f;
   --venue-primary: #818a40;
   --venue-secondary: #f0f3dd;
+  --ui-scale: 1;
+}
+
+html {
+  font-size: calc(100% * var(--ui-scale));
 }
 
 @theme inline {

@@ -8,7 +8,7 @@ VALUES (
   'user-avatars',
   'user-avatars',
   true,
-  1048576,
+  5242880,
   ARRAY[
     'image/png',
     'image/jpeg',

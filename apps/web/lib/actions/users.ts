@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAppAdmin } from "@/lib/access/permissions";
+import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
 import { expandAccess, type AccessEditorState } from "@/lib/access/roles";
 import {
   getUserById,
@@ -25,7 +26,12 @@ import {
   isRasterImageMime,
   loadSharp,
 } from "@/lib/storage/convert-to-webp";
+import {
+  USER_AVATAR_MAX_UPLOAD_BYTES,
+} from "@/lib/user/avatar-upload-constants";
+import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 
 const SETTINGS_PATHS = ["/settings", "/settings/users", "/settings/venue-modules"];
 
@@ -720,7 +726,6 @@ export async function changeUserName(userId: string, newNameRaw: string) {
 }
 
 const USER_AVATARS_BUCKET = "user-avatars";
-const USER_AVATAR_MAX_BYTES = 512 * 1024;
 
 function userAvatarObjectPath(userId: string) {
   return `${userId}.webp`;
@@ -731,19 +736,38 @@ function userAvatarLegacyPaths(userId: string) {
 }
 
 export async function updateUserAvatar(userId: string, formData: FormData) {
-  const { user: actor } = await requireAppAdmin();
-  const service = createServiceClient();
+  const supabase = await createClient();
+  const {
+    data: { user: actor },
+  } = await supabase.auth.getUser();
+  if (!actor) return { error: "Not signed in." };
 
+  const service = createServiceClient();
   const before = await getUserById(service, userId);
   if (!before) return { error: "User not found." };
+
+  if (actor.id !== userId) {
+    const { data: permissions } = await supabase
+      .from("user_permissions")
+      .select("*")
+      .eq("user_id", actor.id);
+    if (!isAppAdmin((permissions ?? []) as UserPermission[])) {
+      return { error: "You do not have permission to update this profile photo." };
+    }
+  } else if (!canManageProfileAvatar(before)) {
+    return {
+      error:
+        "Your profile photo comes from your staff record. Contact HR to update it.",
+    };
+  }
 
   const clear = String(formData.get("avatar_clear") ?? "") === "1";
   const file = formData.get("avatar");
   const objectPath = userAvatarObjectPath(userId);
 
   if (file instanceof File && file.size > 0) {
-    if (file.size > USER_AVATAR_MAX_BYTES) {
-      return { error: "Profile photo must be 512 KB or smaller." };
+    if (file.size > USER_AVATAR_MAX_UPLOAD_BYTES) {
+      return { error: "Profile photo must be 5 MB or smaller." };
     }
     if (!isRasterImageMime(file.type)) {
       return { error: "Profile photo must be a PNG, JPEG, or WebP image." };
@@ -821,6 +845,8 @@ export async function updateUserAvatar(userId: string, formData: FormData) {
 
     revalidateSettings();
     revalidatePath(`/settings/users/${userId}`);
+    revalidatePath("/profile");
+    revalidatePath("/profile/settings");
     revalidatePath("/", "layout");
     return { success: "Profile photo saved.", avatarUrl };
   }
@@ -864,6 +890,8 @@ export async function updateUserAvatar(userId: string, formData: FormData) {
 
     revalidateSettings();
     revalidatePath(`/settings/users/${userId}`);
+    revalidatePath("/profile");
+    revalidatePath("/profile/settings");
     revalidatePath("/", "layout");
     return { success: "Profile photo removed.", avatarUrl: null };
   }

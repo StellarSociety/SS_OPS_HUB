@@ -4,8 +4,13 @@ import Image from "next/image";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ImagePlus, Trash2, Upload } from "lucide-react";
+import { AvatarCropDialog } from "@/components/profile/avatar-crop-dialog";
 import { updateUserAvatar } from "@/lib/actions/users";
 import { getUserInitials } from "@/lib/user/display";
+import {
+  USER_AVATAR_ACCEPT,
+  USER_AVATAR_MAX_UPLOAD_BYTES,
+} from "@/lib/user/avatar-upload-constants";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -28,6 +33,8 @@ export function UserAvatarField({
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState(avatarUrl);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const initials = getUserInitials(fullName, email);
   const displayName = fullName?.trim() || email;
@@ -105,7 +112,8 @@ export function UserAvatarField({
           ) : null}
         </div>
         <p className="max-w-xs text-[11px] leading-snug text-black/40">
-          Square headshot works best. PNG, JPEG, or WebP up to 512 KB.
+          PNG, JPEG, or WebP up to 5 MB. You can reposition and crop before
+          saving.
         </p>
         {!preview ? (
           <span className="inline-flex items-center gap-1 text-[11px] text-black/35">
@@ -116,20 +124,41 @@ export function UserAvatarField({
         <input
           ref={inputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept={USER_AVATAR_ACCEPT}
           className="hidden"
           disabled={isPending}
           onChange={(e) => {
             const file = e.target.files?.[0] ?? null;
-            if (file) {
-              const objectUrl = URL.createObjectURL(file);
-              setPreview(objectUrl);
-              upload(file);
-            }
             e.target.value = "";
+            if (!file) return;
+            if (file.size > USER_AVATAR_MAX_UPLOAD_BYTES) {
+              toast.error("Profile photo must be 5 MB or smaller.");
+              return;
+            }
+            if (!file.type.startsWith("image/")) {
+              toast.error("Profile photo must be an image file.");
+              return;
+            }
+            setCropFile(file);
+            setCropOpen(true);
           }}
         />
       </div>
+      <AvatarCropDialog
+        open={cropOpen}
+        file={cropFile}
+        onClose={() => {
+          setCropOpen(false);
+          setCropFile(null);
+        }}
+        onConfirm={(cropped) => {
+          setCropOpen(false);
+          setCropFile(null);
+          const objectUrl = URL.createObjectURL(cropped);
+          setPreview(objectUrl);
+          upload(cropped);
+        }}
+      />
     </div>
   );
 }

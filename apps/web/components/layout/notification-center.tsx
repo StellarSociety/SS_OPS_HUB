@@ -2,8 +2,10 @@
 
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Bell, Check, CheckCheck } from "lucide-react";
+import { Bell, Check, CheckCheck, Trash2, X } from "lucide-react";
 import {
+  deleteAllNotificationsForVenue,
+  deleteNotificationById,
   markAllNotificationsAsRead,
   markNotificationAsRead,
 } from "@/lib/actions/notifications";
@@ -88,6 +90,25 @@ export function NotificationCenter({
     });
   }
 
+  function handleDelete(id: string) {
+    const removed = notifications.find((n) => n.id === id);
+    startTransition(async () => {
+      await deleteNotificationById(id);
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      if (removed && !removed.read_at) {
+        setUnreadCount((c) => Math.max(0, c - 1));
+      }
+    });
+  }
+
+  function handleClearAll() {
+    startTransition(async () => {
+      await deleteAllNotificationsForVenue({ venueId, isGlobalVenue });
+      setNotifications([]);
+      setUnreadCount(0);
+    });
+  }
+
   return (
     <div className="relative" ref={panelRef}>
       <button
@@ -107,20 +128,35 @@ export function NotificationCenter({
 
       {open ? (
         <div className="absolute right-0 z-50 mt-2 w-[min(100vw-2rem,24rem)] overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-black/5 px-4 py-3">
+          <div className="flex items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
             <p className="font-serif text-base text-[#3D421F]">Notifications</p>
-            {unreadCount > 0 ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1 text-xs text-black/60"
-                disabled={pending}
-                onClick={handleMarkAllRead}
-              >
-                <CheckCheck className="h-3.5 w-3.5" />
-                Mark all read
-              </Button>
+            {notifications.length > 0 ? (
+              <div className="flex shrink-0 items-center gap-0.5">
+                {unreadCount > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1 text-xs text-black/60"
+                    disabled={pending}
+                    onClick={handleMarkAllRead}
+                  >
+                    <CheckCheck className="h-3.5 w-3.5" />
+                    Mark all read
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1 text-xs text-black/60"
+                  disabled={pending}
+                  onClick={handleClearAll}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Clear all
+                </Button>
+              </div>
             ) : null}
           </div>
 
@@ -163,21 +199,36 @@ export function NotificationCenter({
                           : formatDateOnly(n.created_at)}
                       </p>
                     </div>
-                    {isUnread ? (
+                    <div className="flex shrink-0 flex-col gap-0.5">
+                      {isUnread ? (
+                        <button
+                          type="button"
+                          className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-[#3D421F]"
+                          aria-label="Mark as read"
+                          disabled={pending}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleMarkRead(n.id);
+                          }}
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        className="shrink-0 rounded p-1 text-black/40 hover:bg-black/5 hover:text-[#3D421F]"
-                        aria-label="Mark as read"
+                        className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-red-600"
+                        aria-label="Dismiss notification"
                         disabled={pending}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          handleMarkRead(n.id);
+                          handleDelete(n.id);
                         }}
                       >
-                        <Check className="h-4 w-4" />
+                        <X className="h-4 w-4" />
                       </button>
-                    ) : null}
+                    </div>
                   </>
                 );
 

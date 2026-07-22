@@ -74,8 +74,20 @@ const STAFF_JOIN = `
         home_venue:home_venue_id ( id, name, slug, is_global )
       )`;
 
-const PROFILE_SELECT_EXT = `
+/** Access v2 + avatar columns. Prefer this when migrations are applied. */
+const PROFILE_SELECT_FULL = `
       id, email, full_name, status, staff_id, avatar_url,
+      is_external, login_email_source, invited_at, invite_accepted_at, last_login_at,
+      created_at,${STAFF_JOIN}`;
+
+/**
+ * Access v2 columns without avatar_url. Used when the avatar migration has
+ * not been applied yet — never fall straight to BASE, or is_external /
+ * invite_accepted_at silently become false/null and every user looks like a
+ * pending employee invite.
+ */
+const PROFILE_SELECT_ACCESS = `
+      id, email, full_name, status, staff_id,
       is_external, login_email_source, invited_at, invite_accepted_at, last_login_at,
       created_at,${STAFF_JOIN}`;
 
@@ -91,6 +103,7 @@ type RawStaff = {
   work_email: string | null;
   personal_email: string | null;
   home_venue_id: string;
+  photo_url?: string | null;
   department: RawNamed;
   position: RawNamed;
   employment_status: RawNamed;
@@ -115,27 +128,33 @@ type RawProfile = {
   staff?: RawStaff | RawStaff[] | null;
 };
 
+async function loadProfiles(
+  supabase: SupabaseClient,
+): Promise<RawProfile[]> {
+  // Prefer fullest select; step down only when a column is missing so a
+  // later migration (e.g. avatar_url) cannot wipe access/invite fields.
+  let lastError: { message: string } | null = null;
+  for (const select of [
+    PROFILE_SELECT_FULL,
+    PROFILE_SELECT_ACCESS,
+    PROFILE_SELECT_BASE,
+  ]) {
+    const result = await supabase
+      .from("profiles")
+      .select(select)
+      .order("full_name", { ascending: true });
+    if (!result.error) {
+      return (result.data ?? []) as unknown as RawProfile[];
+    }
+    lastError = result.error;
+  }
+  throw lastError ?? new Error("Failed to load profiles.");
+}
+
 export async function listUsers(
   supabase: SupabaseClient,
 ): Promise<UserListRow[]> {
-  // Try the extended select (post-migration); fall back gracefully if the new
-  // profile columns don't exist yet.
-  let profiles: RawProfile[] = [];
-  const extended = await supabase
-    .from("profiles")
-    .select(PROFILE_SELECT_EXT)
-    .order("full_name", { ascending: true });
-
-  if (extended.error) {
-    const base = await supabase
-      .from("profiles")
-      .select(PROFILE_SELECT_BASE)
-      .order("full_name", { ascending: true });
-    if (base.error) throw base.error;
-    profiles = (base.data ?? []) as unknown as RawProfile[];
-  } else {
-    profiles = (extended.data ?? []) as unknown as RawProfile[];
-  }
+  const profiles = await loadProfiles(supabase);
 
   const { data: permissions, error: permError } = await supabase
     .from("user_permissions")
@@ -157,6 +176,7 @@ export async function listUsers(
     const staff = staffRaw
       ? {
           ...staffRaw,
+          photo_url: staffRaw.photo_url ?? null,
           department: unwrapOne(staffRaw.department),
           position: unwrapOne(staffRaw.position),
           employment_status: unwrapOne(staffRaw.employment_status),

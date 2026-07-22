@@ -834,6 +834,13 @@ export function formatIsoDateDisplay(value: string): string {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+/** Format YYYY-MM-DD as DD/MM/YY for compact tables. */
+export function formatIsoDateShort(value: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) return value;
+  return `${m[3]}/${m[2]}/${m[1].slice(-2)}`;
+}
+
 /**
  * User-facing explanation when schedule/leave is blocked after termination.
  */

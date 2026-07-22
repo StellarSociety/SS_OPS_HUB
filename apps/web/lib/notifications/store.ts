@@ -80,3 +80,32 @@ export async function markAllNotificationsRead(
   const { error } = await query;
   if (error) throw error;
 }
+
+export async function deleteNotification(
+  supabase: SupabaseClient,
+  userId: string,
+  notificationId: string,
+) {
+  const { error } = await supabase
+    .from("notifications")
+    .delete()
+    .eq("id", notificationId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+}
+
+export async function deleteAllNotifications(
+  supabase: SupabaseClient,
+  userId: string,
+  options: { venueId: string; isGlobalVenue: boolean },
+) {
+  let query = supabase.from("notifications").delete().eq("user_id", userId);
+
+  if (!options.isGlobalVenue) {
+    query = query.eq("venue_id", options.venueId);
+  }
+
+  const { error } = await query;
+  if (error) throw error;
+}

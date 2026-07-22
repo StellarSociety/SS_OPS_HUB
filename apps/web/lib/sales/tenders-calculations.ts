@@ -14,7 +14,29 @@ export function normalizeTenderName(name: string): string {
  * to revenue or to Sales + CC Gratuity. Voucher Redeem remains included.
  */
 export function isVoucherIssueTender(name: string): boolean {
-  return normalizeTenderName(name) === "voucher issue";
+  const normalized = normalizeTenderName(name);
+  return normalized === "voucher issue" || normalized === "voucher";
+}
+
+/** Voucher Issue / Redeem (and legacy names) — not real payment forms. */
+export function isVoucherRelatedTender(name: string): boolean {
+  const normalized = normalizeTenderName(name);
+  return (
+    normalized === "voucher" ||
+    normalized === "voucher issue" ||
+    normalized === "voucher redeem" ||
+    normalized === "redeemed voucher"
+  );
+}
+
+/** Active non-voucher tenders for Payment Form dropdowns. */
+export function paymentFormTenders(
+  tenders: ReadonlyArray<VenueTender>,
+): VenueTender[] {
+  return tenders.filter(
+    (tender) =>
+      tender.status === "active" && !isVoucherRelatedTender(tender.name),
+  );
 }
 
 export function voucherIssueTenderIds(

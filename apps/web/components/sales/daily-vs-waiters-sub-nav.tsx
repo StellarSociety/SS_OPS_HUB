@@ -3,7 +3,7 @@
 import { AlertTriangle, BadgeCheck, GitCompareArrows } from "lucide-react";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
-import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
+import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
 
 const tabs = [
   {
@@ -32,7 +32,7 @@ export function DailyVsWaitersSubNav() {
   return (
     <nav
       aria-label="Daily vs Waiters sections"
-      className={segmentedSubNavShellClass}
+      className={pillSubNavShellClass}
     >
       {tabs.map((tab) => (
         <SubNavTab
@@ -43,6 +43,7 @@ export function DailyVsWaitersSubNav() {
           active={
             tab.exact ? pathname === tab.href : pathname.startsWith(tab.href)
           }
+          variant="pill"
         />
       ))}
     </nav>

@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  deleteAllNotifications,
+  deleteNotification,
   listNotificationsForUser,
   markAllNotificationsRead,
   markNotificationRead,
@@ -31,6 +33,33 @@ export async function markAllNotificationsAsRead(params: {
   if (!user) return { error: "Not signed in." };
 
   await markAllNotificationsRead(supabase, user.id, params);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteNotificationById(notificationId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  await deleteNotification(supabase, user.id, notificationId);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteAllNotificationsForVenue(params: {
+  venueId: string;
+  isGlobalVenue: boolean;
+}) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  await deleteAllNotifications(supabase, user.id, params);
   revalidatePath("/", "layout");
   return { ok: true };
 }

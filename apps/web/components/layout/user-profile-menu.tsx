@@ -7,12 +7,17 @@ import { Minus, Plus, Settings, User } from "lucide-react";
 import { signOut } from "@/lib/actions/auth";
 import { getUserInitials } from "@/lib/user/display";
 import { Button } from "@/components/ui/button";
+import {
+  applyInterfaceZoom,
+  DEFAULT_UI_ZOOM,
+  MAX_UI_ZOOM,
+  MIN_UI_ZOOM,
+  persistUiZoom,
+  readStoredUiZoom,
+  UI_ZOOM_STEP,
+  uiZoomStorageKey,
+} from "@/lib/ui/interface-zoom";
 import { cn } from "@/lib/utils";
-
-const DEFAULT_ZOOM = 100;
-const MIN_ZOOM = 80;
-const MAX_ZOOM = 120;
-const ZOOM_STEP = 10;
 
 export type ShellUser = {
   email: string;
@@ -27,15 +32,11 @@ type UserProfileMenuProps = {
 
 export function UserProfileMenu({ user }: UserProfileMenuProps) {
   const [open, setOpen] = useState(false);
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [zoom, setZoom] = useState(DEFAULT_UI_ZOOM);
   const panelRef = useRef<HTMLDivElement>(null);
   const initials = getUserInitials(user.fullName, user.email);
   const displayName = user.fullName?.trim() || user.email;
-  const zoomStorageKey = `ss-ops-ui-zoom:${user.email.trim().toLowerCase()}`;
-
-  function applyZoom(value: number) {
-    document.documentElement.style.setProperty("zoom", String(value / 100));
-  }
+  const zoomStorageKey = uiZoomStorageKey(user.email);
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
@@ -50,40 +51,21 @@ export function UserProfileMenu({ user }: UserProfileMenuProps) {
   }, [open]);
 
   useEffect(() => {
-    let savedZoom = DEFAULT_ZOOM;
-
-    try {
-      const storedValue = Number.parseInt(
-        window.localStorage.getItem(zoomStorageKey) ?? "",
-        10,
-      );
-      if (
-        Number.isFinite(storedValue) &&
-        storedValue >= MIN_ZOOM &&
-        storedValue <= MAX_ZOOM
-      ) {
-        savedZoom = storedValue;
-      }
-    } catch {
-      // Browser storage may be unavailable in restricted browsing modes.
-    }
-
-    applyZoom(savedZoom);
+    const savedZoom = readStoredUiZoom(zoomStorageKey);
+    applyInterfaceZoom(savedZoom);
     const frame = window.requestAnimationFrame(() => setZoom(savedZoom));
 
     return () => window.cancelAnimationFrame(frame);
   }, [zoomStorageKey]);
 
   function changeZoom(nextZoom: number) {
-    const boundedZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+    const boundedZoom = Math.min(
+      MAX_UI_ZOOM,
+      Math.max(MIN_UI_ZOOM, nextZoom),
+    );
     setZoom(boundedZoom);
-    applyZoom(boundedZoom);
-
-    try {
-      window.localStorage.setItem(zoomStorageKey, String(boundedZoom));
-    } catch {
-      // Keep the zoom active for this session if persistence is unavailable.
-    }
+    applyInterfaceZoom(boundedZoom);
+    persistUiZoom(zoomStorageKey, boundedZoom);
   }
 
   return (
@@ -155,8 +137,8 @@ export function UserProfileMenu({ user }: UserProfileMenuProps) {
             <div className="flex items-center rounded-md border border-black/10">
               <button
                 type="button"
-                onClick={() => changeZoom(zoom - ZOOM_STEP)}
-                disabled={zoom <= MIN_ZOOM}
+                onClick={() => changeZoom(zoom - UI_ZOOM_STEP)}
+                disabled={zoom <= MIN_UI_ZOOM}
                 aria-label="Zoom out"
                 className="flex h-8 w-8 items-center justify-center rounded-l-md text-black/60 transition-colors hover:bg-black/5 hover:text-[#3D421F] disabled:cursor-not-allowed disabled:opacity-30"
               >
@@ -170,8 +152,8 @@ export function UserProfileMenu({ user }: UserProfileMenuProps) {
               </span>
               <button
                 type="button"
-                onClick={() => changeZoom(zoom + ZOOM_STEP)}
-                disabled={zoom >= MAX_ZOOM}
+                onClick={() => changeZoom(zoom + UI_ZOOM_STEP)}
+                disabled={zoom >= MAX_UI_ZOOM}
                 aria-label="Zoom in"
                 className="flex h-8 w-8 items-center justify-center rounded-r-md text-black/60 transition-colors hover:bg-black/5 hover:text-[#3D421F] disabled:cursor-not-allowed disabled:opacity-30"
               >

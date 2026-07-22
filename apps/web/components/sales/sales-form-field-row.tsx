@@ -2,9 +2,17 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export const SALES_FORM_FIELD_INPUT_WIDTH = "8.5rem";
-export const SALES_FORM_COLUMN_MAX_WIDTH = "20rem";
-export const SALES_FORM_THREE_COLUMN_GROUP_MAX_WIDTH =
-  "calc(3 * 20rem + 2 * 1.5rem)";
+/** Keep in sync with `salesFormColumnSizeClass` below. */
+export const SALES_FORM_COLUMN_MAX_WIDTH = "17rem";
+export const SALES_FORM_COLUMNS_GAP = "1.5rem";
+export const SALES_FORM_TWO_COLUMN_SPAN_MAX_WIDTH = `calc(2 * ${SALES_FORM_COLUMN_MAX_WIDTH} + ${SALES_FORM_COLUMNS_GAP})`;
+export const SALES_FORM_THREE_COLUMN_GROUP_MAX_WIDTH = `calc(3 * ${SALES_FORM_COLUMN_MAX_WIDTH} + 2 * ${SALES_FORM_COLUMNS_GAP})`;
+export const SALES_FORM_FOUR_COLUMN_GROUP_MAX_WIDTH = `calc(4 * ${SALES_FORM_COLUMN_MAX_WIDTH} + 3 * ${SALES_FORM_COLUMNS_GAP})`;
+
+export const salesFormFourColumnGridStyle = {
+  maxWidth: SALES_FORM_FOUR_COLUMN_GROUP_MAX_WIDTH,
+  gridTemplateColumns: `repeat(4, minmax(0, ${SALES_FORM_COLUMN_MAX_WIDTH}))`,
+} as const;
 
 export const SALES_FORM_FIELD_GRID_COLUMNS = `minmax(0, 1fr) ${SALES_FORM_FIELD_INPUT_WIDTH}`;
 
@@ -23,14 +31,14 @@ export function salesFormColumnShellClass(className?: string) {
 }
 
 const salesFormColumnSizeClass =
-  "min-w-[min(100%,14rem)] max-w-[20rem] flex-[1_1_18rem]";
+  "min-w-[min(100%,12rem)] max-w-[17rem] flex-[1_1_15rem]";
 
 /** Width/sizing shared by Lunch, Dinner, totals columns and aligned banners. */
 export function salesFormColumnWidthClass() {
   return salesFormColumnSizeClass;
 }
 
-/** Shared sizing for Lunch / Dinner / totals columns — flexes with viewport, capped at 20rem. */
+/** Shared sizing for Lunch / Dinner / totals columns — flexes with viewport, capped at column max. */
 export function salesFormColumnClassName(className?: string) {
   return cn(
     salesFormColumnShellClass(),
@@ -39,6 +47,24 @@ export function salesFormColumnClassName(className?: string) {
     className,
   );
 }
+
+/** Date banner above daily entry — spans two form columns (e.g. discounts + totals). */
+export function salesFormDateBannerShellClass(className?: string) {
+  return cn(
+    salesFormColumnShellClass(),
+    "w-full flex-none items-center justify-center py-3 text-center text-sm font-medium tabular-nums text-[#3D421F] shadow-sm",
+    className,
+  );
+}
+
+export const salesFormDateBannerMaxWidthStyle = {
+  maxWidth: SALES_FORM_TWO_COLUMN_SPAN_MAX_WIDTH,
+} as const;
+
+/** Waiter entry date banner — spans first three columns in a four-column row. */
+export const salesFormThreeColumnDateBannerMaxWidthStyle = {
+  maxWidth: SALES_FORM_THREE_COLUMN_GROUP_MAX_WIDTH,
+} as const;
 
 export function SalesFormColumnsLayout({ children }: { children: ReactNode }) {
   return (

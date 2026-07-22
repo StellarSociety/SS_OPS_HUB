@@ -17,10 +17,9 @@ import {
   canEditVouchers,
 } from "@/lib/sales/permissions";
 import { listVenueTenders } from "@/lib/sales/tenders-store";
-import type { VenueTender } from "@/lib/sales/tenders-types";
 import { listVenueWaiterDailySales } from "@/lib/sales/waiter-sales-store";
 import type { VenueWaiterDailySalesEntry } from "@/lib/sales/waiter-sales-types";
-import { buildVoucherTenderTotals } from "@/lib/sales/vouchers-calculations";
+import { buildVoucherTenderTotalsMerged } from "@/lib/sales/vouchers-calculations";
 import { listVenueVouchers } from "@/lib/sales/vouchers-store";
 
 export default async function SalesVouchersPage() {
@@ -37,43 +36,43 @@ export default async function SalesVouchersPage() {
   }
 
   try {
-    const canReadTenders = canAccessVenueDaily(permissions, venue.id);
+    const canReadDailyTenders = canAccessVenueDaily(permissions, venue.id);
     const canReadWaiters = canAccessWaiterDaily(permissions, venue.id);
 
-    const [vouchers, tenders, tenderTotals, waiterEntries] = await Promise.all([
-      listVenueVouchers(supabase, venue.id),
-      canReadTenders
-        ? listVenueTenders(supabase, venue.id)
-        : Promise.resolve([] as VenueTender[]),
-      canReadTenders
-        ? listVenueDailyTenderTotals(supabase, venue.id)
-        : Promise.resolve([] as VenueDailyTenderTotal[]),
-      canReadWaiters
-        ? listVenueWaiterDailySales(supabase, venue.id)
-        : Promise.resolve([] as VenueWaiterDailySalesEntry[]),
-    ]);
+    const [vouchers, tenders, dailyTenderTotals, waiterEntries] =
+      await Promise.all([
+        listVenueVouchers(supabase, venue.id),
+        listVenueTenders(supabase, venue.id),
+        canReadDailyTenders
+          ? listVenueDailyTenderTotals(supabase, venue.id)
+          : Promise.resolve([] as VenueDailyTenderTotal[]),
+        canReadWaiters
+          ? listVenueWaiterDailySales(supabase, venue.id)
+          : Promise.resolve([] as VenueWaiterDailySalesEntry[]),
+      ]);
 
-    const voucherTenderTotals = buildVoucherTenderTotals(tenders, tenderTotals);
+    const voucherTenderTotals = buildVoucherTenderTotalsMerged(
+      tenders,
+      dailyTenderTotals,
+      waiterEntries,
+    );
 
     return (
-      <div className="mx-auto w-full max-w-none space-y-6">
+      <div className="mx-auto w-full space-y-6 lg:w-2/3">
         <div>
           <ModulePageTitle>Vouchers</ModulePageTitle>
           <p className="mt-1 text-sm text-black/60">
-            Track issued and redeemed gift vouchers across all time —{" "}
-            {venue.name}
+            Allocate daily Voucher Issue / Redeem tenders into detailed voucher
+            records — {venue.name}
           </p>
           <hr className="mt-4 border-black/10" />
         </div>
 
         <VouchersPanel
+          venueName={venue.name}
           vouchers={vouchers}
+          tenders={tenders}
           tenderTotals={voucherTenderTotals}
-          waiterEntries={waiterEntries.map((entry) => ({
-            id: entry.id,
-            sale_date: entry.sale_date,
-            voucher_comments: entry.voucher_comments,
-          }))}
           canEdit={canEditVouchers(permissions, venue.id)}
         />
       </div>

@@ -8,7 +8,8 @@ import {
   Mail,
   ShieldCheck,
 } from "lucide-react";
-import { ProfilePasswordCard } from "@/components/profile/profile-password-card";
+import { ModuleIcon } from "@/components/modules/module-icon";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { UserAccessLogs } from "@/components/settings/user-access-logs";
 import {
   accountRoleLabel,
@@ -18,6 +19,7 @@ import {
 import { listAccessEvents } from "@/lib/access/store";
 import type { ModuleAccessRecord, UserListRow } from "@/lib/access/types";
 import { getModuleLabel } from "@/lib/modules-catalog";
+import { getModuleEntryHref, getOverviewModuleByKey } from "@/lib/modules-registry";
 import { createClient } from "@/lib/supabase/server";
 import { getUserInitials } from "@/lib/user/display";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
@@ -55,22 +57,21 @@ export default async function ProfilePage() {
       )`;
 
   let profile: Record<string, unknown> | null = null;
-  const ext = await supabase
-    .from("profiles")
-    .select(
-      `id, email, full_name, status, is_external, last_login_at, avatar_url,${STAFF_JOIN}`,
-    )
-    .eq("id", user.id)
-    .maybeSingle();
-  if (ext.error) {
-    const base = await supabase
+  const selects = [
+    `id, email, full_name, status, is_external, last_login_at, avatar_url,${STAFF_JOIN}`,
+    `id, email, full_name, status, is_external, last_login_at,${STAFF_JOIN}`,
+    `id, email, full_name, status,${STAFF_JOIN}`,
+  ];
+  for (const select of selects) {
+    const result = await supabase
       .from("profiles")
-      .select(`id, email, full_name, status,${STAFF_JOIN}`)
+      .select(select)
       .eq("id", user.id)
       .maybeSingle();
-    profile = (base.data ?? null) as Record<string, unknown> | null;
-  } else {
-    profile = (ext.data ?? null) as Record<string, unknown> | null;
+    if (!result.error) {
+      profile = (result.data ?? null) as Record<string, unknown> | null;
+      break;
+    }
   }
 
   const { data: permissions } = await supabase
@@ -221,16 +222,37 @@ export default async function ProfilePage() {
           </p>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
-            {enabledModules.map((m) => (
+            {enabledModules.map((m) => {
+              const overview = getOverviewModuleByKey(m.moduleKey);
+              const label = getModuleLabel(m.moduleKey);
+              const href = m.suspended ? null : getModuleEntryHref(m.moduleKey);
+              return (
               <div
                 key={m.moduleKey}
                 className="flex items-center justify-between gap-2 rounded-lg border border-black/10 bg-white px-3 py-2.5"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-[#3D421F]">
-                    {getModuleLabel(m.moduleKey)}
-                  </p>
-                  <p className="text-xs text-black/50">{appRoleLabel(m.role)}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--venue-secondary)]/60 text-[#3D421F]">
+                    <ModuleIcon
+                      iconKey={overview?.iconKey ?? "settings"}
+                      className="h-5 w-5"
+                    />
+                  </span>
+                  <div className="min-w-0">
+                    {href ? (
+                      <Link
+                        href={href}
+                        className="block truncate text-sm font-medium text-[#3D421F] underline-offset-2 transition-colors hover:text-[#818a40] hover:underline"
+                      >
+                        {label}
+                      </Link>
+                    ) : (
+                      <p className="truncate text-sm font-medium text-[#3D421F]">
+                        {label}
+                      </p>
+                    )}
+                    <p className="text-xs text-black/50">{appRoleLabel(m.role)}</p>
+                  </div>
                 </div>
                 {m.suspended ? (
                   <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-red-700">
@@ -238,12 +260,11 @@ export default async function ProfilePage() {
                   </span>
                 ) : null}
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </Card>
-
-      <ProfilePasswordCard />
 
       <UserAccessLogs events={events} />
     </div>

@@ -3,6 +3,7 @@ import {
   moduleCategories,
   type ModuleCategory,
   type ModuleCategoryKey,
+  moduleCategoryMeta,
 } from "@/lib/module-categories";
 import type { AccessLevel } from "@/lib/role-permissions";
 import {
@@ -13,6 +14,7 @@ import {
   isModuleEnabledForVenue,
   moduleCatalog,
   VENUE_TOGGLEABLE_MODULES,
+  APP_MODULE_KEY,
   type ModuleDef,
   type ModuleFeatureDef,
 } from "@/lib/modules-catalog";
@@ -235,6 +237,15 @@ export function getModuleByKey(key: string) {
 
 export function getOverviewModuleByKey(key: string) {
   return moduleOverviewRegistry.find((m) => m.key === key);
+}
+
+/** Best link target for a module tile or access list (live app, category hub, or settings). */
+export function getModuleEntryHref(moduleKey: string): string {
+  const overview = getOverviewModuleByKey(moduleKey);
+  if (overview?.href) return overview.href;
+  if (overview?.category) return moduleCategoryMeta[overview.category].href;
+  if (moduleKey === APP_MODULE_KEY) return "/settings";
+  return "/modules";
 }
 
 export function getModulesByCategory(category: ModuleCategoryKey): ModuleOverviewItem[] {

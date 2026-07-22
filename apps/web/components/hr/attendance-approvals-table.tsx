@@ -21,7 +21,7 @@ import {
   shiftNeedsApproval,
 } from "@/lib/hr/schedule-variance";
 import { clearAllCachedScheduleDays } from "@/lib/hr/schedules-client-cache";
-import { scheduleDayLabelStyle } from "@/lib/hr/schedules";
+import { scheduleDayLabelStyle, formatIsoDateShort } from "@/lib/hr/schedules";
 import { DEFAULT_HR_ATTENDANCE_IMPORT_RULES } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
@@ -968,23 +968,39 @@ export function AttendanceApprovalsTable({
       ) : (
         <div
           className={cn(
-            "overflow-x-auto rounded-xl border border-black/10 bg-white/70",
+            "h-fit w-max max-w-full max-h-[calc(100dvh-18rem)] overflow-auto overscroll-contain rounded-xl border border-black/10 bg-white/70",
             loadingRange && "opacity-60",
           )}
           aria-busy={loadingRange}
         >
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-black/10 bg-black/[0.03] text-xs uppercase tracking-wide text-black/45">
+          <table className="w-max text-left text-sm">
+            <thead className="sticky top-0 z-10 border-b border-black/10 bg-white/95 text-xs uppercase tracking-wide text-black/45 backdrop-blur-sm">
               <tr>
-                <th className="px-3 py-2.5 font-medium">Date</th>
-                <th className="px-3 py-2.5 font-medium">Roster</th>
-                <th className="px-3 py-2.5 font-medium">Schedule</th>
-                <th className="px-3 py-2.5 font-medium">Clock in</th>
-                <th className="px-3 py-2.5 font-medium">Clock out</th>
-                <th className="px-3 py-2.5 font-medium">Hours</th>
-                <th className="px-3 py-2.5 font-medium">Issue</th>
-                <th className="px-3 py-2.5 font-medium">Actions</th>
-                <th className="px-3 py-2.5 text-center font-medium">
+                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                  Date
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                  Roster
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                  Schedule
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                  Clock in
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                  Clock out
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                  Hours
+                </th>
+                <th className="w-[14rem] min-w-[9rem] max-w-[14rem] px-3 py-2.5 font-medium">
+                  Issue
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                  Actions
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">
                   <span className="sr-only">Select</span>
                   {canEditRoster && selectableKeys.length > 0 ? (
                     <input
@@ -1064,16 +1080,11 @@ export function AttendanceApprovalsTable({
                           isPublicHoliday && "font-medium text-[#5b21b6]",
                         )}
                       >
-                        {row.workDate}
+                        {formatIsoDateShort(row.workDate)}
                       </span>
                       {isPublicHoliday ? (
                         <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-[#5b21b6]">
                           · PH
-                        </span>
-                      ) : null}
-                      {isApproved ? (
-                        <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
-                          approved
                         </span>
                       ) : null}
                       {hasDraft ? (
@@ -1107,13 +1118,13 @@ export function AttendanceApprovalsTable({
                           ? row.attendanceStatus
                           : "—")}
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <div className="flex flex-nowrap items-center gap-x-2">
                         {canEditRoster && staffId
                           ? rosterActionGroups.map((group, groupIndex) => (
                               <div
                                 key={group.id}
-                                className="flex flex-wrap items-center gap-1.5"
+                                className="flex flex-nowrap items-center gap-1.5"
                               >
                                 {groupIndex > 0 ? (
                                   <span
@@ -1122,7 +1133,7 @@ export function AttendanceApprovalsTable({
                                   />
                                 ) : null}
                                 <div
-                                  className="flex flex-wrap items-center gap-1.5"
+                                  className="flex flex-nowrap items-center gap-1.5"
                                   role="group"
                                   aria-label={group.label}
                                 >
@@ -1205,34 +1216,41 @@ export function AttendanceApprovalsTable({
                           )}
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      {canSelect && rowSelectionKey ? (
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          disabled={pending || !canEditRoster}
-                          onChange={() => toggleRowSelected(rowSelectionKey)}
-                          aria-label={`Select ${row.workDate} for approval`}
-                          className="h-4 w-4 rounded border-black/25 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30"
-                        />
-                      ) : (
-                        <span
-                          className="inline-block h-4 w-4 rounded border border-dashed border-black/15"
-                          title={
-                            hasDraft
-                              ? "Save roster edits before approving"
-                              : row.rosterLabel === "OFF" ||
-                                  row.rosterLabel === "PH"
-                                ? "Day off — no approval needed"
-                                : shiftWithinTolerance
-                                  ? `Within ${scheduleVarianceMinutes} min of schedule — no approval needed`
-                                  : row.rosterLabel === "SHIFT" && !row.id
-                                    ? "Mark ABS (or leave) and Save before approving a no-show"
-                                    : "Set a roster action (e.g. ABS) and Save before approving"
-                          }
-                          aria-hidden
-                        />
-                      )}
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-2">
+                        {canSelect && rowSelectionKey ? (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={pending || !canEditRoster}
+                            onChange={() => toggleRowSelected(rowSelectionKey)}
+                            aria-label={`Select ${formatIsoDateShort(row.workDate)} for approval`}
+                            className="h-4 w-4 shrink-0 rounded border-black/25 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30"
+                          />
+                        ) : (
+                          <span
+                            className="inline-block h-4 w-4 shrink-0 rounded border border-dashed border-black/15"
+                            title={
+                              hasDraft
+                                ? "Save roster edits before approving"
+                                : row.rosterLabel === "OFF" ||
+                                    row.rosterLabel === "PH"
+                                  ? "Day off — no approval needed"
+                                  : shiftWithinTolerance
+                                    ? `Within ${scheduleVarianceMinutes} min of schedule — no approval needed`
+                                    : row.rosterLabel === "SHIFT" && !row.id
+                                      ? "Mark ABS (or leave) and Save before approving a no-show"
+                                      : "Set a roster action (e.g. ABS) and Save before approving"
+                            }
+                            aria-hidden
+                          />
+                        )}
+                        {isApproved ? (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                            approved
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );

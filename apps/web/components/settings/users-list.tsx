@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useMemo, useState } from "react";
 import { Activity, Pencil, Search, X } from "lucide-react";
@@ -14,6 +15,8 @@ import { Card } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { UserActivityDialog } from "@/components/settings/user-activity-dialog";
+import { getUserInitials } from "@/lib/user/display";
+import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { cn } from "@/lib/utils";
 
 type UsersListProps = {
@@ -123,6 +126,36 @@ function InviteStatusBadge({ user }: { user: UserListRow }) {
     >
       {style.label}
     </span>
+  );
+}
+
+function UserListAvatar({ user }: { user: UserListRow }) {
+  const avatarUrl = resolveAvatarUrl({
+    profileAvatarUrl: user.avatar_url,
+    staffPhotoUrl: user.staff?.photo_url,
+  });
+  const initials = getUserInitials(user.full_name, user.email);
+  const label = user.full_name?.trim() || user.email;
+
+  return (
+    <div
+      className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-black/10 bg-black/[0.04]"
+      title={label}
+    >
+      {avatarUrl ? (
+        <Image
+          src={avatarUrl}
+          alt=""
+          fill
+          className="object-cover"
+          unoptimized
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-[11px] font-medium text-white">
+          {initials}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -318,16 +351,18 @@ export function UsersList({ users, venues }: UsersListProps) {
         <div className="hidden overflow-hidden rounded-lg border border-black/10 bg-white md:block">
           <table className="w-full table-fixed text-left text-sm">
             <colgroup>
-              <col className="w-[16%]" />
-              <col className="w-[20%]" />
-              <col className="w-[14%]" />
-              <col className="w-[13%]" />
+              <col className="w-[7%]" />
               <col className="w-[15%]" />
+              <col className="w-[19%]" />
+              <col className="w-[13%]" />
               <col className="w-[12%]" />
-              <col className="w-[10%]" />
+              <col className="w-[14%]" />
+              <col className="w-[11%]" />
+              <col className="w-[9%]" />
             </colgroup>
             <thead className="border-b border-black/10 bg-black/[0.02] text-xs uppercase tracking-wide text-black/50">
               <tr>
+                <th className="px-4 py-3" aria-label="Avatar" />
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Home venue</th>
@@ -343,6 +378,9 @@ export function UsersList({ users, venues }: UsersListProps) {
                   key={u.id}
                   className="border-b border-black/5 hover:bg-[var(--venue-secondary)]/30"
                 >
+                  <td className="px-4 py-3">
+                    <UserListAvatar user={u} />
+                  </td>
                   <td className="px-4 py-3">
                     <Link
                       href={`/settings/users/${u.id}`}
@@ -385,11 +423,14 @@ export function UsersList({ users, venues }: UsersListProps) {
               className="rounded-lg border border-black/10 bg-white p-4 shadow-sm"
             >
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-medium text-[#3D421F]">
-                    {u.full_name ?? u.email}
-                  </p>
-                  <p className="text-xs text-black/50">{u.email}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <UserListAvatar user={u} />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-[#3D421F]">
+                      {u.full_name ?? u.email}
+                    </p>
+                    <p className="truncate text-xs text-black/50">{u.email}</p>
+                  </div>
                 </div>
                 <InviteStatusBadge user={u} />
               </div>
@@ -431,14 +472,16 @@ export function UsersList({ users, venues }: UsersListProps) {
         <div className="hidden overflow-hidden rounded-lg border border-black/10 bg-white md:block">
           <table className="w-full table-fixed text-left text-sm">
             <colgroup>
+              <col className="w-[7%]" />
               <col className="w-[16%]" />
               <col className="w-[20%]" />
-              <col className="w-[42%]" />
-              <col className="w-[12%]" />
-              <col className="w-[10%]" />
+              <col className="w-[37%]" />
+              <col className="w-[11%]" />
+              <col className="w-[9%]" />
             </colgroup>
             <thead className="border-b border-black/10 bg-black/[0.02] text-xs uppercase tracking-wide text-black/50">
               <tr>
+                <th className="px-4 py-3" aria-label="Avatar" />
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>
                 <th className="px-4 py-3">Venues with access</th>
@@ -452,6 +495,9 @@ export function UsersList({ users, venues }: UsersListProps) {
                   key={u.id}
                   className="border-b border-black/5 hover:bg-[var(--venue-secondary)]/30"
                 >
+                  <td className="px-4 py-3">
+                    <UserListAvatar user={u} />
+                  </td>
                   <td className="px-4 py-3">
                     <Link
                       href={`/settings/users/${u.id}`}
@@ -484,11 +530,14 @@ export function UsersList({ users, venues }: UsersListProps) {
               className="rounded-lg border border-black/10 bg-white p-4 shadow-sm"
             >
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-medium text-[#3D421F]">
-                    {u.full_name ?? u.email}
-                  </p>
-                  <p className="text-xs text-black/50">{u.email}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <UserListAvatar user={u} />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-[#3D421F]">
+                      {u.full_name ?? u.email}
+                    </p>
+                    <p className="truncate text-xs text-black/50">{u.email}</p>
+                  </div>
                 </div>
                 <InviteStatusBadge user={u} />
               </div>

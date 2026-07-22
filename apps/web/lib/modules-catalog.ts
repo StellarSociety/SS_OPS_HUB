@@ -145,16 +145,16 @@ export const moduleCatalog: ModuleDef[] = [
       { key: "certifications", label: "Certifications", href: "/hr/certifications" },
       { key: "schedules", label: "Schedules", href: "/hr/schedules" },
       {
-        key: "attendance_insights",
-        label: "Attendance insights",
-        href: "/hr/attendance/insights",
-      },
-      { key: "attendance", label: "Attendance", href: "/hr/attendance" },
-      {
         key: "attendance_validation",
         label: "Attendance validation",
         href: "/hr/attendance/validation",
       },
+      {
+        key: "attendance_insights",
+        label: "Attendance insights",
+        href: "/hr/attendance/insights",
+      },
+      { key: "attendance", label: "Attendance records", href: "/hr/attendance/records" },
       { key: "leave", label: "Leave", href: "/hr/attendance/leave" },
       { key: "payroll", label: "Payroll", href: "/hr/payroll" },
       { key: "benefits", label: "Benefits", href: "/hr/benefits" },

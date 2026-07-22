@@ -7,8 +7,15 @@ import {
 } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
+import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
 
 const TABS = [
+  {
+    href: "/hr/attendance/validation",
+    label: "Validation",
+    icon: ClipboardCheck,
+    exact: true,
+  },
   {
     href: "/hr/attendance/insights",
     label: "Insights",
@@ -16,15 +23,9 @@ const TABS = [
     exact: true,
   },
   {
-    href: "/hr/attendance",
+    href: "/hr/attendance/records",
     label: "Records",
     icon: CalendarCheck,
-    exact: true,
-  },
-  {
-    href: "/hr/attendance/validation",
-    label: "Validation",
-    icon: ClipboardCheck,
     exact: true,
   },
 ] as const;
@@ -35,7 +36,7 @@ export function AttendanceSubNav() {
   return (
     <nav
       aria-label="Attendance sections"
-      className="flex flex-wrap gap-1 rounded-lg border border-black/10 bg-white/50 p-1.5"
+      className={pillSubNavShellClass}
     >
       {TABS.map((tab) => {
         const active = tab.exact

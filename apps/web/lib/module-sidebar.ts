@@ -70,7 +70,13 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     label: "Human Resources",
     icon: Users,
     items: [
-      { label: "Overview", href: "/hr", exact: true, icon: LayoutDashboard },
+      {
+        label: "Overview",
+        href: "/hr",
+        exact: true,
+        icon: LayoutDashboard,
+        dividerAfter: true,
+      },
       { label: "Staff directory", href: "/hr/staff", icon: Users },
       { label: "Insurance", href: "/hr/insurance", icon: ShieldCheck },
       {
@@ -90,12 +96,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       { label: "Payroll", href: "/hr/payroll", icon: Wallet },
       { label: "Benefits", href: "/hr/benefits", icon: Gift },
       { label: "Payslips", href: "/hr/payslips", icon: ReceiptText },
-      {
-        label: "Expenses",
-        href: "/hr/expenses",
-        icon: Receipt,
-        dividerAfter: true,
-      },
+      { label: "Expenses", href: "/hr/expenses", icon: Receipt },
       {
         label: "Hiring",
         href: "/hr/hiring",
@@ -122,9 +123,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: CalendarCheck,
         itemHrefs: [
           "/hr/schedules",
-          "/hr/attendance/insights",
           "/hr/attendance",
-          "/hr/attendance/validation",
           "/hr/attendance/leave",
         ],
       },
@@ -153,7 +152,13 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     label: "Sales & Revenue",
     icon: TrendingUp,
     items: [
-      { label: "Overview", href: "/sales", exact: true, icon: LayoutDashboard },
+      {
+        label: "Overview",
+        href: "/sales",
+        exact: true,
+        icon: LayoutDashboard,
+        dividerAfter: true,
+      },
       { label: "Daily Sales", href: "/sales/daily", icon: Coins },
       { label: "Waiter Sales", href: "/sales/waiter", icon: UserRound },
       {
@@ -161,7 +166,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         href: "/sales/daily-vs-waiters/figures-verification",
         icon: GitCompareArrows,
       },
-      { label: "Discounts", href: "/sales/discounts", icon: Tag },
+      { label: "Discounts", href: "/sales/discounts", icon: Tag, dividerAfter: true },
       {
         label: "TAX Collections",
         href: "/sales/tax-collections",
@@ -169,9 +174,9 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         comingSoon: true,
       },
       { label: "Forecasts", href: "/sales/forecast", icon: LineChart },
-      { label: "Vouchers", href: "/sales/vouchers", icon: Ticket },
+      { label: "Vouchers", href: "/sales/vouchers", icon: Ticket, dividerAfter: true },
       { label: "Daily Snap", href: "/sales/daily-snap", icon: Camera },
-      { label: "Reports", href: "/sales/reports", icon: FileBarChart },
+      { label: "Reports", href: "/sales/reports", icon: FileBarChart, dividerAfter: true },
     ],
     bottomItems: [
       { label: "Settings", href: "/sales/settings", icon: Settings },
@@ -195,6 +200,12 @@ export function isModuleSidebarItemActive(
 export function getModuleSidebarForPath(pathname: string): ModuleSidebarDef | null {
   return (
     moduleSidebarRegistry.find((def) => pathname.startsWith(def.basePath)) ?? null
+  );
+}
+
+export function getModuleSidebarByKey(moduleKey: string): ModuleSidebarDef | null {
+  return (
+    moduleSidebarRegistry.find((def) => def.moduleKey === moduleKey) ?? null
   );
 }
 

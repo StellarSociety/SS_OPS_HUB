@@ -36,14 +36,11 @@ import {
   usePersistedSalesWaiterSelection,
 } from "@/components/sales/use-persisted-sales-filters";
 import {
-  SalesFormColumnsLayout,
   SalesFormFieldRow,
   SalesFormInputModeToggle,
   SalesFormSectionHeader,
-  SalesFormThreeColumnGroup,
-  salesFormColumnClassName,
   salesFormColumnShellClass,
-  salesFormColumnWidthClass,
+  salesFormDateBannerShellClass,
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
@@ -51,6 +48,25 @@ import { WaiterSelectBar } from "@/components/sales/waiter-select-bar";
 import { toast } from "@/components/ui/toast";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+
+/** Wider columns — waiter entry page only (daily sales keeps 17rem). */
+const WAITER_ENTRY_COLUMN_MAX_WIDTH = "20rem";
+const WAITER_ENTRY_COLUMNS_GAP = "1.5rem";
+
+const waiterEntryFourColumnGridStyle = {
+  maxWidth: `calc(4 * ${WAITER_ENTRY_COLUMN_MAX_WIDTH} + 3 * ${WAITER_ENTRY_COLUMNS_GAP})`,
+  gridTemplateColumns: `repeat(4, minmax(0, ${WAITER_ENTRY_COLUMN_MAX_WIDTH}))`,
+} as const;
+
+const waiterEntryTendersBalanceBannerMaxWidth = `calc(2 * ${WAITER_ENTRY_COLUMN_MAX_WIDTH} + ${WAITER_ENTRY_COLUMNS_GAP})`;
+
+function waiterEntryColumnCardClass(className?: string) {
+  return cn(
+    salesFormColumnShellClass(),
+    "min-w-[min(100%,12rem)] max-w-[20rem] flex-[1_1_18rem] self-stretch",
+    className,
+  );
+}
 
 type WaiterSalesEntryFormProps = {
   waiters: VenueWaiter[];
@@ -570,22 +586,25 @@ export function WaiterSalesEntryForm({
           </p>
         )}
 
-        <SalesFormColumnsLayout>
+      </div>
+
+      <div
+        className="mx-auto grid w-full items-stretch gap-6"
+        style={waiterEntryFourColumnGridStyle}
+      >
+        <div className="col-span-4 flex w-full justify-center">
           <div
-            className={cn(
-              salesFormColumnShellClass(),
-              salesFormColumnWidthClass(),
-              "items-center justify-center py-3 text-center text-sm font-medium tabular-nums text-[#3D421F] shadow-sm",
-            )}
+            className={salesFormDateBannerShellClass()}
+            style={{
+              width: "100%",
+              maxWidth: waiterEntryTendersBalanceBannerMaxWidth,
+            }}
           >
             <SalesEntryDateBanner dateStr={selectedDate} />
           </div>
-        </SalesFormColumnsLayout>
-      </div>
+        </div>
 
-      <SalesFormThreeColumnGroup>
-        <SalesFormColumnsLayout>
-          <Card className={salesFormColumnClassName("shadow-sm backdrop-blur-xl")}>
+        <Card className={waiterEntryColumnCardClass("h-full shadow-sm backdrop-blur-xl")}>
             <SalesFormSectionHeader
               title="Summary"
               action={
@@ -688,7 +707,7 @@ export function WaiterSalesEntryForm({
             </div>
           </Card>
 
-          <Card className={salesFormColumnClassName("space-y-4 shadow-sm backdrop-blur-xl")}>
+          <Card className={waiterEntryColumnCardClass("h-full space-y-4 shadow-sm backdrop-blur-xl")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-serif text-lg font-bold text-[#3D421F]">Tenders Total</h3>
               {tenders.length === 0 ? (
@@ -747,7 +766,11 @@ export function WaiterSalesEntryForm({
             )}
           </Card>
 
-          <Card className={salesFormColumnClassName("space-y-4 shadow-sm backdrop-blur-xl")}>
+          <Card
+            className={waiterEntryColumnCardClass(
+              "h-full space-y-4 border-black/15 bg-[var(--venue-secondary,#F0F3DD)] shadow-sm backdrop-blur-xl",
+            )}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="font-serif text-lg font-bold text-[#3D421F]">
                 Balance check
@@ -802,50 +825,71 @@ export function WaiterSalesEntryForm({
               />
             </div>
           </Card>
-        </SalesFormColumnsLayout>
 
-        <Card className="w-full space-y-4 border border-black/5 bg-white/60 p-5 shadow-sm backdrop-blur-xl">
-          <h3 className="font-serif text-lg font-bold text-[#3D421F]">Comments</h3>
-          <div className="grid gap-4 lg:grid-cols-3">
-            <label className="block text-sm">
-              <span className="text-black/60">Voucher Issue Comments</span>
-              <BulletedCommentTextarea
-                disabled={!fieldsEditable}
-                value={form.voucher_comments}
-                onChange={(value) =>
-                  updateCommentField("voucher_comments", value)
-                }
-                placeholder="For each Voucher Issue reference include the: Voucher Name | Number | Value"
-                className={cn(textareaClass(!fieldsEditable), "mt-1")}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-black/60">Deposit Comments</span>
-              <BulletedCommentTextarea
-                disabled={!fieldsEditable}
-                value={form.deposit_comments}
-                onChange={(value) =>
-                  updateCommentField("deposit_comments", value)
-                }
-                placeholder="For each Deposit reference include the: Acount Name | Value"
-                className={cn(textareaClass(!fieldsEditable), "mt-1")}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-black/60">On Accounts Comments</span>
-              <BulletedCommentTextarea
-                disabled={!fieldsEditable}
-                value={form.on_accounts_comments}
-                onChange={(value) =>
-                  updateCommentField("on_accounts_comments", value)
-                }
-                placeholder="For each On-Accounts reference include the: Acount Name | Value"
-                className={cn(textareaClass(!fieldsEditable), "mt-1")}
-              />
-            </label>
-          </div>
-        </Card>
-      </SalesFormThreeColumnGroup>
+          <Card
+            className={waiterEntryColumnCardClass(
+              "flex h-full min-h-0 flex-col shadow-sm backdrop-blur-xl",
+            )}
+          >
+            <h3 className="shrink-0 font-serif text-lg font-bold text-[#3D421F]">
+              Comments
+            </h3>
+            <div className="flex min-h-0 flex-1 flex-col gap-4">
+              <label className="flex min-h-0 flex-1 flex-col text-sm">
+                <span className="shrink-0 text-black/60">
+                  Voucher Issue Comments
+                </span>
+                <BulletedCommentTextarea
+                  disabled={!fieldsEditable}
+                  value={form.voucher_comments}
+                  onChange={(value) =>
+                    updateCommentField("voucher_comments", value)
+                  }
+                  placeholder="For each Voucher Issue reference include the: Voucher Name | Number | Value"
+                  rows={1}
+                  className={cn(
+                    textareaClass(!fieldsEditable),
+                    "mt-1 min-h-0 flex-1 resize-none",
+                  )}
+                />
+              </label>
+              <label className="flex min-h-0 flex-1 flex-col text-sm">
+                <span className="shrink-0 text-black/60">Deposit Comments</span>
+                <BulletedCommentTextarea
+                  disabled={!fieldsEditable}
+                  value={form.deposit_comments}
+                  onChange={(value) =>
+                    updateCommentField("deposit_comments", value)
+                  }
+                  placeholder="For each Deposit reference include the: Acount Name | Value"
+                  rows={1}
+                  className={cn(
+                    textareaClass(!fieldsEditable),
+                    "mt-1 min-h-0 flex-1 resize-none",
+                  )}
+                />
+              </label>
+              <label className="flex min-h-0 flex-1 flex-col text-sm">
+                <span className="shrink-0 text-black/60">
+                  On Accounts Comments
+                </span>
+                <BulletedCommentTextarea
+                  disabled={!fieldsEditable}
+                  value={form.on_accounts_comments}
+                  onChange={(value) =>
+                    updateCommentField("on_accounts_comments", value)
+                  }
+                  placeholder="For each On-Accounts reference include the: Acount Name | Value"
+                  rows={1}
+                  className={cn(
+                    textareaClass(!fieldsEditable),
+                    "mt-1 min-h-0 flex-1 resize-none",
+                  )}
+                />
+              </label>
+            </div>
+          </Card>
+      </div>
     </div>
   );
 }
