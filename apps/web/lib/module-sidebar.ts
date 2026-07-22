@@ -166,7 +166,8 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         href: "/sales/daily-vs-waiters/figures-verification",
         icon: GitCompareArrows,
       },
-      { label: "Discounts", href: "/sales/discounts", icon: Tag, dividerAfter: true },
+      { label: "Discounts", href: "/sales/discounts", icon: Tag },
+      { label: "Cash", href: "/sales/cash", icon: Wallet, dividerAfter: true },
       {
         label: "TAX Collections",
         href: "/sales/tax-collections",

@@ -88,6 +88,12 @@ type EventDraft = {
 const sectionTitleClass =
   "truncate font-serif text-sm text-black whitespace-nowrap 2xl:text-base";
 const tableClass = "w-full table-fixed border-collapse text-xs";
+const snapSummaryGridClass =
+  "grid grid-cols-1 gap-3 xl:grid-cols-2 xl:items-stretch [&>*]:h-full [&>*]:min-h-0 [&>*]:min-w-0";
+const snapStretchTableShellClass =
+  "flex h-full min-w-0 flex-col overflow-hidden p-0";
+const snapStretchTableBodyClass =
+  "flex min-h-0 flex-1 flex-col overflow-x-auto p-2 2xl:p-3";
 const thClass =
   "border border-black/10 bg-[#E8E8C8] px-2 py-1.5 text-left font-semibold text-[#3D421F]";
 const tdClass = "border border-black/10 px-2 py-1.5 align-middle";
@@ -652,28 +658,67 @@ function VerificationBox({
   );
 }
 
+function snapStretchGridCols(hideService: boolean) {
+  return hideService
+    ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+    : "grid-cols-[minmax(0,1.15fr)_repeat(3,minmax(0,0.85fr))]";
+}
+
+function SnapStretchTableHeaderCell({
+  children,
+  className,
+  align = "left",
+}: {
+  children: ReactNode;
+  className?: string;
+  align?: "left" | "right";
+}) {
+  return (
+    <div
+      className={cn(
+        thClass,
+        "flex min-w-0 items-center",
+        align === "right" && "justify-end tabular-nums",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SnapStretchTableBodyCell({
+  children,
+  className,
+  align = "left",
+}: {
+  children: ReactNode;
+  className?: string;
+  align?: "left" | "right";
+}) {
+  return (
+    <div
+      className={cn(
+        tdClass,
+        "flex min-h-0 min-w-0 items-center",
+        align === "right" && "justify-end tabular-nums",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function RevenueTable({
   title,
   rows,
-  showEmpty,
   hideService = false,
 }: {
   title: string;
   rows: DailySnapSnapshot["revenueCenters"];
-  showEmpty: boolean;
   hideService?: boolean;
 }) {
-  if (!showEmpty && rows.length === 0) {
-    return (
-      <Card className="min-w-0 p-4">
-        <h3 className={sectionTitleClass} title={title}>
-          {title}
-        </h3>
-        <p className="mt-2 text-sm text-black/50">No data entered for this date.</p>
-      </Card>
-    );
-  }
-
   const totals = rows.reduce(
     (acc, row) => ({
       lunch: acc.lunch + row.lunchGs,
@@ -683,54 +728,72 @@ function RevenueTable({
     { lunch: 0, dinner: 0, total: 0 },
   );
 
+  const gridCols = snapStretchGridCols(hideService);
+
   return (
-    <Card className="min-w-0 overflow-hidden p-0">
-      <div className="border-b border-black/5 px-3 py-2 2xl:px-4">
+    <Card
+      className={snapStretchTableShellClass}
+      data-daily-snap-stretch-table
+    >
+      <div className="shrink-0 border-b border-black/5 px-3 py-2 2xl:px-4">
         <h3 className={sectionTitleClass} title={title}>
           {title}
         </h3>
       </div>
-      <div className="overflow-x-auto p-2 2xl:p-3">
-        <table className={tableClass}>
-          <thead>
-            <tr>
-              <th className={thClass}>Category</th>
-              {!hideService ? (
-                <>
-                  <th className={cn(thClass, numericClass)}>Lunch</th>
-                  <th className={cn(thClass, numericClass)}>Dinner</th>
-                </>
-              ) : null}
-              <th className={cn(thClass, numericClass)}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className={snapStretchTableBodyClass}>
+        <div className="flex min-h-0 flex-1 flex-col text-xs">
+          <div className={cn("grid shrink-0", gridCols)}>
+            <SnapStretchTableHeaderCell>Category</SnapStretchTableHeaderCell>
+            {!hideService ? (
+              <>
+                <SnapStretchTableHeaderCell align="right">Lunch</SnapStretchTableHeaderCell>
+                <SnapStretchTableHeaderCell align="right">Dinner</SnapStretchTableHeaderCell>
+              </>
+            ) : null}
+            <SnapStretchTableHeaderCell align="right">Total</SnapStretchTableHeaderCell>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col">
             {rows.map((row) => (
-              <tr key={row.label}>
-                <td className={tdClass}>{row.label}</td>
+              <div key={row.label} className={cn("grid min-h-0 flex-1", gridCols)}>
+                <SnapStretchTableBodyCell>{row.label}</SnapStretchTableBodyCell>
                 {!hideService ? (
                   <>
-                    <td className={cn(tdClass, numericClass)}>{formatMoney(row.lunchGs)}</td>
-                    <td className={cn(tdClass, numericClass)}>{formatMoney(row.dinnerGs)}</td>
+                    <SnapStretchTableBodyCell align="right">
+                      {formatMoney(row.lunchGs)}
+                    </SnapStretchTableBodyCell>
+                    <SnapStretchTableBodyCell align="right">
+                      {formatMoney(row.dinnerGs)}
+                    </SnapStretchTableBodyCell>
                   </>
                 ) : null}
-                <td className={cn(tdClass, numericClass, "font-medium")}>
+                <SnapStretchTableBodyCell align="right" className="font-medium">
                   {formatMoney(row.totalGs)}
-                </td>
-              </tr>
+                </SnapStretchTableBodyCell>
+              </div>
             ))}
-            <tr className="bg-[#F5F6F0] font-semibold">
-              <td className={tdClass}>Total</td>
+            <div
+              className={cn(
+                "grid min-h-0 flex-1 bg-[#F5F6F0] font-semibold",
+                gridCols,
+              )}
+            >
+              <SnapStretchTableBodyCell>Total</SnapStretchTableBodyCell>
               {!hideService ? (
                 <>
-                  <td className={cn(tdClass, numericClass)}>{formatMoney(totals.lunch)}</td>
-                  <td className={cn(tdClass, numericClass)}>{formatMoney(totals.dinner)}</td>
+                  <SnapStretchTableBodyCell align="right">
+                    {formatMoney(totals.lunch)}
+                  </SnapStretchTableBodyCell>
+                  <SnapStretchTableBodyCell align="right">
+                    {formatMoney(totals.dinner)}
+                  </SnapStretchTableBodyCell>
                 </>
               ) : null}
-              <td className={cn(tdClass, numericClass)}>{formatMoney(totals.total)}</td>
-            </tr>
-          </tbody>
-        </table>
+              <SnapStretchTableBodyCell align="right">
+                {formatMoney(totals.total)}
+              </SnapStretchTableBodyCell>
+            </div>
+          </div>
+        </div>
       </div>
     </Card>
   );
@@ -1010,7 +1073,6 @@ export function DailySnapPanel({
   const missingData: string[] = [];
   if (!snapshot.hasDailySales) missingData.push("Daily Sales");
   if (!snapshot.hasWaiterSales) missingData.push("Waiter Sales");
-  if (!snapshot.hasDiscounts) missingData.push("Discounts");
 
   return (
     <div
@@ -1139,58 +1201,55 @@ export function DailySnapPanel({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3 [&>*]:min-w-0">
-        <RevenueTable
-          title="Revenue Centers"
-          rows={snapshot.revenueCenters}
-          showEmpty={snapshot.hasDailySales}
-        />
-        <Card className="min-w-0 overflow-hidden p-0">
-          <div className="border-b border-black/5 px-3 py-2 2xl:px-4">
+      <div
+        className={snapSummaryGridClass}
+        data-daily-snap-export-summary-grid
+      >
+        <RevenueTable title="Revenue Centers" rows={snapshot.revenueCenters} />
+        <Card className={snapStretchTableShellClass} data-daily-snap-stretch-table>
+          <div className="shrink-0 border-b border-black/5 px-3 py-2 2xl:px-4">
             <h3 className={sectionTitleClass} title="Tenders">
               Tenders
             </h3>
           </div>
-          <div className="overflow-x-auto p-2 2xl:p-3">
+          <div className={snapStretchTableBodyClass}>
             {snapshot.tenderRows.length === 0 ? (
               <p className="text-sm text-black/50">No tenders configured for this venue.</p>
             ) : (
-              <table className={tableClass}>
-                <thead>
-                  <tr>
-                    <th className={thClass}>Tender</th>
-                    <th className={cn(thClass, numericClass)}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <div className="flex min-h-0 flex-1 flex-col text-xs">
+                <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <SnapStretchTableHeaderCell>Tender</SnapStretchTableHeaderCell>
+                  <SnapStretchTableHeaderCell align="right">Amount</SnapStretchTableHeaderCell>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col">
                   {snapshot.tenderRows.map((row) => (
-                    <tr key={row.tenderId}>
-                      <td className={tdClass}>{row.tenderName}</td>
-                      <td className={cn(tdClass, numericClass)}>
+                    <div
+                      key={row.tenderId}
+                      className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
+                    >
+                      <SnapStretchTableBodyCell>{row.tenderName}</SnapStretchTableBodyCell>
+                      <SnapStretchTableBodyCell align="right">
                         {formatMoney(row.amountGs)}
-                      </td>
-                    </tr>
+                      </SnapStretchTableBodyCell>
+                    </div>
                   ))}
-                  <tr className="bg-[#F5F6F0] font-semibold">
-                    <td className={tdClass}>Total</td>
-                    <td className={cn(tdClass, numericClass)}>
+                  <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] bg-[#F5F6F0] font-semibold">
+                    <SnapStretchTableBodyCell>Total</SnapStretchTableBodyCell>
+                    <SnapStretchTableBodyCell align="right">
                       {formatMoney(snapshot.verification.totalTendersGs)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                    </SnapStretchTableBodyCell>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </Card>
-        <RevenueTable
-          title="Discounts by Category"
-          rows={snapshot.discountCategories}
-          showEmpty={snapshot.hasDiscounts}
-          hideService
-        />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 [&>*]:min-w-0">
+      <div
+        className="grid grid-cols-1 gap-3 xl:grid-cols-2 [&>*]:min-w-0"
+        data-daily-snap-export-waiter-row
+      >
         <WaiterSalesTable snapshot={snapshot} />
         <VerificationBox verification={snapshot.verification} />
       </div>
@@ -1278,6 +1337,184 @@ export function DailySnapPanel({
         </Card>
       </div>
 
+      <Card className="overflow-hidden p-0">
+        <div className="flex items-center justify-between border-b border-black/5 px-4 py-2">
+          <h3 className={sectionTitleClass}>
+            Discounts &amp; Complementaries — Detail
+          </h3>
+          {fieldsEditable ? (
+            <button
+              type="button"
+              data-export-hide
+              onClick={addLineDraft}
+              className="inline-flex items-center gap-1 rounded-md border border-black/10 px-2 py-1 text-xs hover:bg-black/[0.03]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add row
+            </button>
+          ) : null}
+        </div>
+        <div className="overflow-x-auto p-3">
+          {lineDrafts.length === 0 ? (
+            <p className="text-sm text-black/50">
+              No detailed discount lines for {formatDisplayDate(selectedDate)}.
+            </p>
+          ) : (
+            <table className={tableClass}>
+              <colgroup>
+                <col className="w-[8%]" />
+                <col className="w-[10%]" />
+                <col className="w-[16%]" />
+                <col className="w-[46%]" />
+                <col className="w-[10%]" />
+                {fieldsEditable ? <col className="w-[10%]" /> : null}
+              </colgroup>
+              <thead>
+                <tr>
+                  <th className={thClass}>Table</th>
+                  <th className={thClass}>Time</th>
+                  <th className={thClass}>Guest</th>
+                  <th className={thClass}>Reason</th>
+                  <th className={cn(thClass, numericClass)}>Amount</th>
+                  {fieldsEditable ? (
+                    <th className={thClass} data-export-hide>
+                      Actions
+                    </th>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {lineDrafts.map((line, index) => (
+                  <tr key={line.id ?? `draft-${index}`}>
+                    <td className={tdClass}>
+                      {fieldsEditable ? (
+                        <TableCellInputWrap>
+                          <input
+                            className={tableCompactInputClass(fieldsEditable)}
+                            value={line.table_number}
+                            onChange={(e) =>
+                              setLineDrafts((current) =>
+                                current.map((row, i) =>
+                                  i === index
+                                    ? { ...row, table_number: e.target.value }
+                                    : row,
+                                ),
+                              )
+                            }
+                          />
+                        </TableCellInputWrap>
+                      ) : (
+                        line.table_number
+                      )}
+                    </td>
+                    <td className={tdClass}>
+                      {fieldsEditable ? (
+                        <input
+                          className={tableTextInputClass(fieldsEditable)}
+                          value={line.time_of_day}
+                          onChange={(e) =>
+                            setLineDrafts((current) =>
+                              current.map((row, i) =>
+                                i === index
+                                  ? { ...row, time_of_day: e.target.value }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      ) : (
+                        line.time_of_day
+                      )}
+                    </td>
+                    <td className={tdClass}>
+                      {fieldsEditable ? (
+                        <input
+                          className={tableTextInputClass(fieldsEditable)}
+                          value={line.guest_name}
+                          onChange={(e) =>
+                            setLineDrafts((current) =>
+                              current.map((row, i) =>
+                                i === index
+                                  ? { ...row, guest_name: e.target.value }
+                                  : row,
+                              ),
+                            )
+                          }
+                        />
+                      ) : (
+                        line.guest_name
+                      )}
+                    </td>
+                    <td className={tdClass}>
+                      {fieldsEditable ? (
+                        <input
+                          className={tableTextInputClass(fieldsEditable)}
+                          value={line.reason}
+                          onChange={(e) =>
+                            setLineDrafts((current) =>
+                              current.map((row, i) =>
+                                i === index ? { ...row, reason: e.target.value } : row,
+                              ),
+                            )
+                          }
+                        />
+                      ) : (
+                        line.reason
+                      )}
+                    </td>
+                    <td className={cn(tdClass, numericClass)}>
+                      {fieldsEditable ? (
+                        <TableCellInputWrap>
+                          <input
+                            className={tableNumericInputClass(fieldsEditable)}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={line.amount_gs}
+                            onChange={(e) =>
+                              setLineDrafts((current) =>
+                                current.map((row, i) =>
+                                  i === index
+                                    ? { ...row, amount_gs: e.target.value }
+                                    : row,
+                                ),
+                              )
+                            }
+                          />
+                        </TableCellInputWrap>
+                      ) : (
+                        formatMoney(Number(line.amount_gs) || 0)
+                      )}
+                    </td>
+                    {fieldsEditable ? (
+                      <td className={tdClass} data-export-hide>
+                        <div className="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            onClick={() => handleSaveLine(index)}
+                            className="rounded border border-black/10 px-2 py-0.5 text-[10px] hover:bg-black/[0.03]"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isPending}
+                            onClick={() => handleRemoveLine(index)}
+                            className="rounded border border-red-200 px-2 py-0.5 text-[10px] text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-black/5 px-4 py-2">
           <h3 className={sectionTitleClass}>Events Breakdown</h3>
@@ -1462,184 +1699,6 @@ export function DailySnapPanel({
         </div>
       </Card>
 
-      <Card className="overflow-hidden p-0">
-        <div className="flex items-center justify-between border-b border-black/5 px-4 py-2">
-          <h3 className={sectionTitleClass}>
-            Discounts &amp; Complementaries — Detail
-          </h3>
-          {fieldsEditable ? (
-            <button
-              type="button"
-              data-export-hide
-              onClick={addLineDraft}
-              className="inline-flex items-center gap-1 rounded-md border border-black/10 px-2 py-1 text-xs hover:bg-black/[0.03]"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add row
-            </button>
-          ) : null}
-        </div>
-        <div className="overflow-x-auto p-3">
-          {lineDrafts.length === 0 ? (
-            <p className="text-sm text-black/50">
-              No detailed discount lines for {formatDisplayDate(selectedDate)}.
-            </p>
-          ) : (
-            <table className={tableClass}>
-              <colgroup>
-                <col className="w-[8%]" />
-                <col className="w-[10%]" />
-                <col className="w-[16%]" />
-                <col className="w-[46%]" />
-                <col className="w-[10%]" />
-                {fieldsEditable ? <col className="w-[10%]" /> : null}
-              </colgroup>
-              <thead>
-                <tr>
-                  <th className={thClass}>Table</th>
-                  <th className={thClass}>Time</th>
-                  <th className={thClass}>Guest</th>
-                  <th className={thClass}>Reason</th>
-                  <th className={cn(thClass, numericClass)}>Amount</th>
-                  {fieldsEditable ? (
-                    <th className={thClass} data-export-hide>
-                      Actions
-                    </th>
-                  ) : null}
-                </tr>
-              </thead>
-              <tbody>
-                {lineDrafts.map((line, index) => (
-                  <tr key={line.id ?? `draft-${index}`}>
-                    <td className={tdClass}>
-                      {fieldsEditable ? (
-                        <TableCellInputWrap>
-                          <input
-                            className={tableCompactInputClass(fieldsEditable)}
-                            value={line.table_number}
-                            onChange={(e) =>
-                              setLineDrafts((current) =>
-                                current.map((row, i) =>
-                                  i === index
-                                    ? { ...row, table_number: e.target.value }
-                                    : row,
-                                ),
-                              )
-                            }
-                          />
-                        </TableCellInputWrap>
-                      ) : (
-                        line.table_number
-                      )}
-                    </td>
-                    <td className={tdClass}>
-                      {fieldsEditable ? (
-                        <input
-                          className={tableTextInputClass(fieldsEditable)}
-                          value={line.time_of_day}
-                          onChange={(e) =>
-                            setLineDrafts((current) =>
-                              current.map((row, i) =>
-                                i === index
-                                  ? { ...row, time_of_day: e.target.value }
-                                  : row,
-                              ),
-                            )
-                          }
-                        />
-                      ) : (
-                        line.time_of_day
-                      )}
-                    </td>
-                    <td className={tdClass}>
-                      {fieldsEditable ? (
-                        <input
-                          className={tableTextInputClass(fieldsEditable)}
-                          value={line.guest_name}
-                          onChange={(e) =>
-                            setLineDrafts((current) =>
-                              current.map((row, i) =>
-                                i === index
-                                  ? { ...row, guest_name: e.target.value }
-                                  : row,
-                              ),
-                            )
-                          }
-                        />
-                      ) : (
-                        line.guest_name
-                      )}
-                    </td>
-                    <td className={tdClass}>
-                      {fieldsEditable ? (
-                        <input
-                          className={tableTextInputClass(fieldsEditable)}
-                          value={line.reason}
-                          onChange={(e) =>
-                            setLineDrafts((current) =>
-                              current.map((row, i) =>
-                                i === index ? { ...row, reason: e.target.value } : row,
-                              ),
-                            )
-                          }
-                        />
-                      ) : (
-                        line.reason
-                      )}
-                    </td>
-                    <td className={cn(tdClass, numericClass)}>
-                      {fieldsEditable ? (
-                        <TableCellInputWrap>
-                          <input
-                            className={tableNumericInputClass(fieldsEditable)}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            inputMode="decimal"
-                            value={line.amount_gs}
-                            onChange={(e) =>
-                              setLineDrafts((current) =>
-                                current.map((row, i) =>
-                                  i === index
-                                    ? { ...row, amount_gs: e.target.value }
-                                    : row,
-                                ),
-                              )
-                            }
-                          />
-                        </TableCellInputWrap>
-                      ) : (
-                        formatMoney(Number(line.amount_gs) || 0)
-                      )}
-                    </td>
-                    {fieldsEditable ? (
-                      <td className={tdClass} data-export-hide>
-                        <div className="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            disabled={isPending}
-                            onClick={() => handleSaveLine(index)}
-                            className="rounded border border-black/10 px-2 py-0.5 text-[10px] hover:bg-black/[0.03]"
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isPending}
-                            onClick={() => handleRemoveLine(index)}
-                            className="rounded border border-red-200 px-2 py-0.5 text-[10px] text-red-700 hover:bg-red-50"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </td>
-                    ) : null}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
       </Card>
     </div>
   );

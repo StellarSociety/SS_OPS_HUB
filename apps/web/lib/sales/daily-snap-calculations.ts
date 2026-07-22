@@ -170,6 +170,32 @@ function sumDailyRevenueForDates(
   return roundMoney(total);
 }
 
+function zeroRevenueCenterRow(label: string): DailySnapRevenueCenterRow {
+  return { label, lunchGs: 0, dinnerGs: 0, totalGs: 0 };
+}
+
+function buildEmptyRevenueCenterRows(): DailySnapRevenueCenterRow[] {
+  return [
+    zeroRevenueCenterRow("Food"),
+    zeroRevenueCenterRow("Beverages"),
+    zeroRevenueCenterRow("Wine"),
+    zeroRevenueCenterRow("Shisha"),
+    zeroRevenueCenterRow("Tobacco"),
+    zeroRevenueCenterRow("Others"),
+    zeroRevenueCenterRow("Service Fees"),
+  ];
+}
+
+function buildEmptyDiscountCategoryRows(): DailySnapRevenueCenterRow[] {
+  return [
+    zeroRevenueCenterRow("Food"),
+    zeroRevenueCenterRow("Beverages"),
+    zeroRevenueCenterRow("Wine"),
+    zeroRevenueCenterRow("Shisha"),
+    zeroRevenueCenterRow("Others"),
+  ];
+}
+
 function buildRevenueCenterRows(
   record: VenueDailySalesRecord,
 ): DailySnapRevenueCenterRow[] {
@@ -310,10 +336,12 @@ export function buildDailySnapSnapshot(input: {
     ? computeDailySales(dailyRecord, totalTaxPct)
     : null;
 
-  const revenueCenters = dailyRecord ? buildRevenueCenterRows(dailyRecord) : [];
+  const revenueCenters = dailyRecord
+    ? buildRevenueCenterRows(dailyRecord)
+    : buildEmptyRevenueCenterRows();
   const discountCategories = discountsRecord
     ? buildDiscountCategoryRows(discountsRecord)
-    : [];
+    : buildEmptyDiscountCategoryRows();
 
   const waiterRows: DailySnapWaiterRow[] = waiterRecordsForDate
     .map((entry) => {
