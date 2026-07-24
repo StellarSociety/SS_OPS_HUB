@@ -888,6 +888,17 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
+      <Field label="WPS employee ID" htmlFor="wps_employee_id">
+        <input
+          id="wps_employee_id"
+          name="wps_employee_id"
+          value={value.wps_employee_id}
+          onChange={set("wps_employee_id")}
+          disabled={readOnly}
+          className={fieldClass}
+          placeholder="MOL / WPS employee number"
+        />
+      </Field>
     </SectionCard>
   );
 

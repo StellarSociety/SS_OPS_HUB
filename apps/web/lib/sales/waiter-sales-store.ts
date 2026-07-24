@@ -6,6 +6,13 @@ type TenderLineRow = {
   amount_gs: number;
 };
 
+/** Minimal waiter-sales fields for gratuity reports (no tender lines). */
+export type VenueWaiterGratuityRow = {
+  sale_date: string;
+  gratuity_cash_gs: number;
+  gratuity_cc_gs: number;
+};
+
 export async function listVenueWaiterDailySales(
   supabase: SupabaseClient,
   venueId: string,
@@ -37,6 +44,29 @@ export async function listVenueWaiterDailySales(
   return salesRows.map((row) => ({
     ...(row as VenueWaiterDailySalesEntry),
     tender_amounts: linesBySales.get(row.id) ?? {},
+  }));
+}
+
+/**
+ * Fast path for gratuity reports: only the three columns needed, no tender-line
+ * round trip. Prefer this over {@link listVenueWaiterDailySales} on report pages.
+ */
+export async function listVenueWaiterGratuityRows(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<VenueWaiterGratuityRow[]> {
+  const { data, error } = await supabase
+    .from("venue_waiter_daily_sales")
+    .select("sale_date, gratuity_cash_gs, gratuity_cc_gs")
+    .eq("venue_id", venueId)
+    .order("sale_date", { ascending: true });
+
+  if (error) throw error;
+
+  return (data ?? []).map((row) => ({
+    sale_date: row.sale_date as string,
+    gratuity_cash_gs: Number(row.gratuity_cash_gs ?? 0),
+    gratuity_cc_gs: Number(row.gratuity_cc_gs ?? 0),
   }));
 }
 

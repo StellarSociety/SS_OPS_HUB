@@ -141,6 +141,39 @@ export function canViewSalary(
   return hasHrPermission(permissions, HR_FEATURES.salary, "view", venueId);
 }
 
+/** Payroll feature access (falls back to salary / staff edit for early rollout). */
+export function canAccessPayroll(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.payroll, venueId) ||
+    canViewSalary(permissions, venueId) ||
+    canAccessStaff(permissions, venueId)
+  );
+}
+
+export function canEditPayroll(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrPermission(permissions, HR_FEATURES.payroll, "edit", venueId) ||
+    hasHrPermission(permissions, HR_FEATURES.salary, "edit", venueId) ||
+    canEditStaff(permissions, venueId)
+  );
+}
+
+export function canViewPayslips(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.payslips, venueId) ||
+    canAccessPayroll(permissions, venueId)
+  );
+}
+
 /** Layer 4 — can act as / be selected as a weekly schedule approver. */
 export function canApproveSchedules(
   permissions: UserPermission[],
@@ -187,6 +220,7 @@ export const SENSITIVE_STAFF_FIELDS = [
   "iban",
   "swift_code",
   "bank_name",
+  "wps_employee_id",
   "wage_package",
   "company_accommodation",
   "basic_salary_60",

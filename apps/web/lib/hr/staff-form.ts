@@ -29,6 +29,7 @@ export type StaffFormState = {
   iban: string;
   swift_code: string;
   bank_name: string;
+  wps_employee_id: string;
   department_id: string;
   position_id: string;
   employment_status_id: string;
@@ -68,6 +69,7 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     iban: "",
     swift_code: "",
     bank_name: "",
+    wps_employee_id: "",
     department_id: "",
     position_id: "",
     employment_status_id: "",
@@ -105,6 +107,7 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     iban: str(s.iban),
     swift_code: str(s.swift_code),
     bank_name: str(s.bank_name),
+    wps_employee_id: str(s.wps_employee_id),
     department_id: str(s.department_id),
     position_id: str(s.position_id),
     employment_status_id: str(s.employment_status_id),

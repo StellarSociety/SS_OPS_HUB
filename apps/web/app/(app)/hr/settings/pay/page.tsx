@@ -1,53 +1,39 @@
+import { PayrollSettingsForm } from "@/components/hr/payroll-settings-form";
+import { HrSettingsSectionHeader } from "@/components/hr/hr-settings-section";
+import { getHrPageContext } from "@/lib/hr/page-context";
 import {
-  BadgeDollarSign,
-  FileSpreadsheet,
-  Gift,
-  Receipt,
-} from "lucide-react";
-import {
-  HrSettingsRoadmap,
-  HrSettingsSectionHeader,
-} from "@/components/hr/hr-settings-section";
+  DEFAULT_HR_PAYROLL_SETTINGS,
+  mergePayrollSettings,
+} from "@/lib/hr/payroll";
+import { getHrVenueSetting } from "@/lib/hr/store";
+import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
+import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
 
-const PAY_ROADMAP = [
-  {
-    title: "Payroll cycles",
-    description:
-      "Pay periods, cut-off dates, and which departments run on each cycle.",
-    icon: BadgeDollarSign,
-  },
-  {
-    title: "Benefits & allowances",
-    description:
-      "Housing, transport, and other recurring allowances beyond the wage package split.",
-    icon: Gift,
-  },
-  {
-    title: "Payslips",
-    description:
-      "Template fields, delivery channel, and what staff see on each payslip.",
-    icon: FileSpreadsheet,
-  },
-  {
-    title: "Expenses",
-    description:
-      "Reimbursement categories, approval rules, and export to finance.",
-    icon: Receipt,
-    status: "soon" as const,
-  },
-] as const;
+export default async function HrPaySettingsPage() {
+  const { supabase, venue, permissions } = await getHrPageContext();
 
-export default function HrPaySettingsPage() {
+  const canConfigure =
+    canEditPayroll(permissions, venue.id) ||
+    canAdminLookups(permissions, venue.id);
+
+  const stored = await getHrVenueSetting<
+    Partial<typeof DEFAULT_HR_PAYROLL_SETTINGS>
+  >(supabase, venue.id, HR_SETTINGS_KEYS.payroll, {});
+  const settings = mergePayrollSettings(stored);
+
   return (
     <div className="space-y-4">
       <HrSettingsSectionHeader
         title="Pay"
-        description="Payroll, benefits, payslips, and expenses for this venue. Salary package defaults for new staff are under Staff Details → Salary Defaults."
+        description="Payroll period, payment date rules, WPS identifiers, and GL accounts for this venue. Salary package defaults for new staff are under Staff Details → Salary Defaults."
       />
-      <HrSettingsRoadmap
-        items={PAY_ROADMAP}
-        footnote="These modules are on the roadmap — nothing to configure here yet."
-      />
+      {canConfigure ? (
+        <PayrollSettingsForm settings={settings} />
+      ) : (
+        <p className="text-sm text-black/55">
+          You need payroll edit access to change these settings.
+        </p>
+      )}
     </div>
   );
 }

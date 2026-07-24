@@ -91,6 +91,7 @@ export type Staff = {
   iban: string | null;
   swift_code: string | null;
   bank_name: string | null;
+  wps_employee_id: string | null;
   joining_date: string | null;
   termination_date: string | null;
   contract_kind: string | null;
@@ -152,6 +153,9 @@ export const HR_FEATURES = {
   lookups: "lookups",
   salary: "salary",
   scheduleApproval: "schedule_approval",
+  payroll: "payroll",
+  payslips: "payslips",
+  benefits: "benefits",
 } as const;
 
 export const EXPIRY_FIELDS = [
@@ -180,6 +184,7 @@ export const HR_SETTINGS_KEYS = {
   attendanceImportRules: "attendance_import_rules",
   scheduleApproval: "schedule_approval",
   leavePolicy: "leave_policy",
+  payroll: "payroll",
 } as const;
 
 /** Paid status for leave type configuration. */

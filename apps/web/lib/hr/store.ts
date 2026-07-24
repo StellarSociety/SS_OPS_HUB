@@ -1015,7 +1015,7 @@ export async function listScheduleDaysByDateRange(
 ) {
   // One week × full venue roster can exceed PostgREST’s silent 1000-row cap.
   const pageSize = 1000;
-  const maxRows = 5000;
+  const maxRows = 20_000;
   const rows: {
     staff_id: string;
     emp_no: string;

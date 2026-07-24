@@ -100,11 +100,23 @@ export type HrAttendanceDay = {
     | "no_punches";
   approval_status: "pending" | "approved" | "rejected" | "flagged";
   import_batch_id: string | null;
-  source: "manual" | "import" | "system";
+  source: "manual" | "import" | "system" | "sync";
   notes: string | null;
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+/** Device-agent ingest log (ZKTeco sync). */
+export type AttendanceDevicePunch = {
+  id: string;
+  venue: string;
+  employee_id: string;
+  employee_name: string | null;
+  timestamp: string;
+  punch_type: "check_in" | "check_out" | null;
+  device_serial: string | null;
+  synced_at: string;
 };
 
 export type HrAttendanceImportBatch = {
@@ -241,6 +253,7 @@ export type Staff = {
   iban: string | null;
   swift_code: string | null;
   bank_name: string | null;
+  wps_employee_id: string | null;
   joining_date: string | null;
   termination_date: string | null;
   contract_kind: string | null;
@@ -328,6 +341,7 @@ export type Database = {
       hr_attendance_days: { Row: HrAttendanceDay };
       hr_attendance_import_batches: { Row: HrAttendanceImportBatch };
       hr_attendance_months: { Row: HrAttendanceMonth };
+      attendance_punches: { Row: AttendanceDevicePunch };
       hr_shift_templates: { Row: HrShiftTemplate };
       hr_public_holidays: { Row: HrPublicHoliday };
       hr_schedule_week_sections: { Row: HrScheduleWeekSection };
