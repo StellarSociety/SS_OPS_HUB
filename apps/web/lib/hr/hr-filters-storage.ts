@@ -34,6 +34,8 @@ export type HrAttendanceValidationFilters = {
   departmentId: string;
   empNo: string;
   selectedWeekKeys: string[];
+  dayStart: string;
+  dayEnd: string;
 };
 
 export function hrFiltersStorageKey(
@@ -143,6 +145,8 @@ export function defaultHrAttendanceValidationFilters(): HrAttendanceValidationFi
     departmentId: "",
     empNo: "",
     selectedWeekKeys: [],
+    dayStart: "",
+    dayEnd: "",
   };
 }
 
@@ -152,10 +156,14 @@ export function sanitizeHrAttendanceValidationFilters(
   const defaults = defaultHrAttendanceValidationFilters();
   if (!value || typeof value !== "object") return defaults;
   const raw = value as Record<string, unknown>;
+  const dayStart = asString(raw.dayStart);
+  const dayEnd = asString(raw.dayEnd);
   return {
     departmentId: asString(raw.departmentId),
     empNo: asString(raw.empNo),
     selectedWeekKeys: sanitizeWeekKeys(raw.selectedWeekKeys),
+    dayStart: dayStart && isValidIsoDateKey(dayStart) ? dayStart : "",
+    dayEnd: dayEnd && isValidIsoDateKey(dayEnd) ? dayEnd : "",
   };
 }
 

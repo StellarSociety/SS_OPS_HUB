@@ -403,12 +403,18 @@ type AttendanceDayRangePickerProps = {
   startDate: string;
   endDate: string;
   onChange: (range: { startDate: string; endDate: string }) => void;
+  /** Field label above the trigger. Defaults to "Days". */
+  fieldLabel?: string;
+  /** Trigger text when nothing is selected. Defaults to "Any days". */
+  emptyLabel?: string;
 };
 
 export function AttendanceDayRangePicker({
   startDate,
   endDate,
   onChange,
+  fieldLabel = "Days",
+  emptyLabel = "Any days",
 }: AttendanceDayRangePickerProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -432,15 +438,15 @@ export function AttendanceDayRangePicker({
     : "";
 
   const label = useMemo(() => {
-    if (!startDate && !endDate) return "Any days";
+    if (!startDate && !endDate) return emptyLabel;
     if (startDate && !endDate) return `${startDate} → …`;
     if (startDate && endDate) {
       const a = startDate <= endDate ? startDate : endDate;
       const b = startDate <= endDate ? endDate : startDate;
       return a === b ? a : `${a} → ${b}`;
     }
-    return "Any days";
-  }, [startDate, endDate]);
+    return emptyLabel;
+  }, [startDate, endDate, emptyLabel]);
 
   useEffect(() => {
     if (!open) return;
@@ -491,7 +497,7 @@ export function AttendanceDayRangePicker({
     <>
       <div ref={containerRef} className="flex flex-col gap-1">
         <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-          Days
+          {fieldLabel}
         </span>
         <button
           type="button"

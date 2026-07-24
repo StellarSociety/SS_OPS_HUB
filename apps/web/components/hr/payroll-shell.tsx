@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import {
   parsePayrollRunTab,
@@ -48,6 +49,15 @@ export function PayrollShell({
         <ModulePageTitle>Payroll</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">{venueSubtitle}</p>
         <hr className="mt-4 border-black/10" />
+      </div>
+
+      <div>
+        <Link
+          href="/hr/payroll"
+          className="text-sm font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 hover:underline"
+        >
+          ← All payroll runs
+        </Link>
       </div>
 
       <nav aria-label="Payroll run sections" className={pillSubNavShellClass}>

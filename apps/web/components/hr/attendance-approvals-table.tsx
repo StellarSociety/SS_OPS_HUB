@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
+  AttendanceDayRangePicker,
   AttendanceMultiWeekPicker,
-  mondayKeyForWorkDate,
 } from "@/components/hr/attendance-date-filters";
 import { usePersistedHrAttendanceValidationFilters } from "@/components/hr/use-persisted-hr-filters";
 import {
@@ -208,6 +208,22 @@ function datesForWeekKeys(weekKeys: string[]): string[] {
   return dates;
 }
 
+/** Inclusive calendar days from startDate → endDate (YYYY-MM-DD). */
+function datesForDayRange(startDate: string, endDate: string): string[] {
+  const startKey = startDate <= endDate ? startDate : endDate;
+  const endKey = startDate <= endDate ? endDate : startDate;
+  const start = parseIsoDate(startKey);
+  const end = parseIsoDate(endKey);
+  if (!start || !end) return [];
+  const dates: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dates.push(toDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
 function issueAfterRosterLabel(
   labelCode: ValidationRosterLabelCode,
   clockIn: string | null,
@@ -342,10 +358,13 @@ export function AttendanceApprovalsTable({
     departmentId,
     empNo,
     selectedWeekKeys,
+    dayStart,
+    dayEnd,
     hydrated,
     setDepartmentId,
     setEmpNo,
     setSelectedWeekKeys,
+    setDayRange,
     patchFilters,
   } = usePersistedHrAttendanceValidationFilters();
   /** Staged roster actions keyed by empNo::workDate — saved together. */
@@ -357,9 +376,35 @@ export function AttendanceApprovalsTable({
   const [loadingRange, setLoadingRange] = useState(false);
   const appliedInitialStaffRef = useRef<string | null>(null);
 
-  const weekRangeKey = useMemo(
-    () => [...selectedWeekKeys].sort().join(","),
-    [selectedWeekKeys],
+  const hasWeekFilter = selectedWeekKeys.length > 0;
+  const hasDayRange = Boolean(dayStart && dayEnd);
+  const rangeStart =
+    dayStart && dayEnd
+      ? dayStart <= dayEnd
+        ? dayStart
+        : dayEnd
+      : "";
+  const rangeEnd =
+    dayStart && dayEnd
+      ? dayStart <= dayEnd
+        ? dayEnd
+        : dayStart
+      : "";
+
+  const selectedDates = useMemo(() => {
+    if (hasWeekFilter) return datesForWeekKeys(selectedWeekKeys);
+    if (hasDayRange) return datesForDayRange(rangeStart, rangeEnd);
+    return [];
+  }, [hasWeekFilter, hasDayRange, selectedWeekKeys, rangeStart, rangeEnd]);
+
+  const periodKey = useMemo(
+    () =>
+      hasWeekFilter
+        ? `w:${[...selectedWeekKeys].sort().join(",")}`
+        : hasDayRange
+          ? `d:${rangeStart}:${rangeEnd}`
+          : "",
+    [hasWeekFilter, hasDayRange, selectedWeekKeys, rangeStart, rangeEnd],
   );
 
   useEffect(() => {
@@ -429,22 +474,17 @@ export function AttendanceApprovalsTable({
     [employees, empNo],
   );
 
-  const weekKeySet = useMemo(
-    () => new Set(selectedWeekKeys),
-    [selectedWeekKeys],
+  const ready = Boolean(
+    departmentId && empNo && (hasWeekFilter || hasDayRange),
   );
 
-  const ready = Boolean(departmentId && empNo && selectedWeekKeys.length > 0);
-
   useEffect(() => {
-    if (!ready || !empNo || selectedWeekKeys.length === 0) {
+    if (!ready || !empNo || selectedDates.length === 0) {
       setLoadingRange(false);
       return;
     }
 
-    const dates = datesForWeekKeys(selectedWeekKeys);
-    if (dates.length === 0) return;
-    const sorted = [...dates].sort();
+    const sorted = [...selectedDates].sort();
     const fromDate = sorted[0]!;
     const toDate = sorted[sorted.length - 1]!;
     const empKey = empNo.trim().toLowerCase();
@@ -478,27 +518,27 @@ export function AttendanceApprovalsTable({
     return () => {
       cancelled = true;
     };
-  }, [ready, empNo, departmentId, weekRangeKey, selectedWeekKeys]);
+  }, [ready, empNo, departmentId, periodKey, selectedDates]);
 
   const draftEntries = useMemo(() => Object.entries(drafts), [drafts]);
   const draftCount = draftEntries.length;
   const hasDrafts = draftCount > 0;
 
   const filtered = useMemo(() => {
-    if (!ready || !selectedEmployee) return [];
+    if (!ready || !selectedEmployee || selectedDates.length === 0) return [];
 
     const empKey = empNo.trim().toLowerCase();
     const byDate = new Map<string, AttendanceApprovalRow>();
+    const dateSet = new Set(selectedDates);
 
     for (const row of local) {
       if (row.empNo.trim().toLowerCase() !== empKey) continue;
       if (row.departmentId !== departmentId) continue;
-      const mondayKey = mondayKeyForWorkDate(row.workDate);
-      if (!mondayKey || !weekKeySet.has(mondayKey)) continue;
+      if (!dateSet.has(row.workDate)) continue;
       byDate.set(row.workDate, row);
     }
 
-    return datesForWeekKeys(selectedWeekKeys).map((workDate) => {
+    return selectedDates.map((workDate) => {
       const base =
         byDate.get(workDate) ??
         emptyRowForDay({
@@ -523,8 +563,7 @@ export function AttendanceApprovalsTable({
     ready,
     empNo,
     departmentId,
-    weekKeySet,
-    selectedWeekKeys,
+    selectedDates,
     selectedEmployee,
     drafts,
   ]);
@@ -830,6 +869,7 @@ export function AttendanceApprovalsTable({
     setDepartmentId(next);
     setEmpNo("");
     setSelectedWeekKeys([]);
+    setDayRange("", "");
     setDrafts({});
     setSelectedIds(new Set());
     setActionError(null);
@@ -842,7 +882,7 @@ export function AttendanceApprovalsTable({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3 overflow-x-hidden">
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-[12rem] flex-1 flex-col gap-1 sm:max-w-[16rem]">
           <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
@@ -887,6 +927,30 @@ export function AttendanceApprovalsTable({
             selectedWeekKeys={selectedWeekKeys}
             onChange={(keys) => {
               setSelectedWeekKeys(keys);
+              // Weeks and days are alternate period tools — using one clears the other.
+              if (keys.length > 0) {
+                setDayRange("", "");
+              }
+              setSelectedIds(new Set());
+            }}
+          />
+        </div>
+        <div
+          className={cn(
+            "shrink-0",
+            !empNo && "pointer-events-none opacity-45",
+          )}
+        >
+          <AttendanceDayRangePicker
+            fieldLabel="4. Days"
+            emptyLabel={empNo ? "Select date range" : "Select employee first"}
+            startDate={dayStart}
+            endDate={dayEnd}
+            onChange={({ startDate, endDate }) => {
+              setDayRange(startDate, endDate);
+              if (startDate || endDate) {
+                setSelectedWeekKeys([]);
+              }
               setSelectedIds(new Set());
             }}
           />
@@ -960,7 +1024,7 @@ export function AttendanceApprovalsTable({
       {!ready ? (
         <div className="rounded-xl border border-dashed border-black/15 bg-white/40 px-5 py-10 text-center">
           <p className="text-sm text-black/55">
-            Select a department, then an employee, then one or more weeks to
+            Select a department, then an employee, then weeks or a date range to
             load validation results. Stage actions on days, Save, then select
             rows and Approve Attendance for payroll and leave.
           </p>
@@ -968,39 +1032,39 @@ export function AttendanceApprovalsTable({
       ) : (
         <div
           className={cn(
-            "h-fit w-max max-w-full max-h-[calc(100dvh-18rem)] overflow-auto overscroll-contain rounded-xl border border-black/10 bg-white/70",
+            "w-full min-w-0 rounded-xl border border-black/10 bg-white/70",
             loadingRange && "opacity-60",
           )}
           aria-busy={loadingRange}
         >
-          <table className="w-max text-left text-sm">
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="sticky top-0 z-10 border-b border-black/10 bg-white/95 text-xs uppercase tracking-wide text-black/45 backdrop-blur-sm">
               <tr>
-                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="w-[5.5rem] whitespace-nowrap px-3 py-2.5 font-medium">
                   Date
                 </th>
-                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="w-[4.5rem] whitespace-nowrap px-3 py-2.5 font-medium">
                   Roster
                 </th>
-                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="w-[7rem] whitespace-nowrap px-3 py-2.5 font-medium">
                   Schedule
                 </th>
-                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="w-[5rem] whitespace-nowrap bg-black/[0.07] px-3 py-2.5 font-medium">
                   Clock in
                 </th>
-                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="w-[5.5rem] whitespace-nowrap bg-black/[0.07] px-3 py-2.5 font-medium">
                   Clock out
                 </th>
-                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="w-[4rem] whitespace-nowrap px-3 py-2.5 font-medium">
                   Hours
                 </th>
-                <th className="w-[14rem] min-w-[9rem] max-w-[14rem] px-3 py-2.5 font-medium">
+                <th className="w-[10rem] px-3 py-2.5 font-medium">
                   Issue
                 </th>
-                <th className="whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="px-3 py-2.5 font-medium">
                   Actions
                 </th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-center font-medium">
+                <th className="w-[3.25rem] whitespace-nowrap px-3 py-2.5 text-center font-medium">
                   <span className="sr-only">Select</span>
                   {canEditRoster && selectableKeys.length > 0 ? (
                     <input
@@ -1100,10 +1164,10 @@ export function AttendanceApprovalsTable({
                     <td className="whitespace-nowrap px-3 py-2 tabular-nums">
                       {row.scheduleTime ?? "—"}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">
+                    <td className="whitespace-nowrap bg-black/[0.07] px-3 py-2">
                       {formatTime(row.clockIn)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">
+                    <td className="whitespace-nowrap bg-black/[0.07] px-3 py-2">
                       {formatTime(row.clockOut)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">
@@ -1111,29 +1175,29 @@ export function AttendanceApprovalsTable({
                         ? "—"
                         : Number(row.totalHours).toFixed(2)}
                     </td>
-                    <td className="max-w-[14rem] px-3 py-2 text-xs text-amber-900">
+                    <td className="px-3 py-2 text-xs text-amber-900">
                       {row.issue ??
                         (row.attendanceStatus &&
                         row.attendanceStatus !== "complete"
                           ? row.attendanceStatus
                           : "—")}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <div className="flex flex-nowrap items-center gap-x-2">
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                         {canEditRoster && staffId
                           ? rosterActionGroups.map((group, groupIndex) => (
                               <div
                                 key={group.id}
-                                className="flex flex-nowrap items-center gap-1.5"
+                                className="flex flex-wrap items-center gap-1.5"
                               >
                                 {groupIndex > 0 ? (
                                   <span
-                                    className="mx-0.5 hidden h-6 w-px shrink-0 bg-black/15 sm:block"
+                                    className="mx-0.5 hidden h-6 w-px shrink-0 self-center bg-black/15 sm:block"
                                     aria-hidden
                                   />
                                 ) : null}
                                 <div
-                                  className="flex flex-nowrap items-center gap-1.5"
+                                  className="flex flex-wrap items-center gap-1.5"
                                   role="group"
                                   aria-label={group.label}
                                 >

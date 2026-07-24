@@ -37,7 +37,7 @@ export function AppShellLayout({
         showSettings={showSettings}
         open={sidebarOpen}
       />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <AppHeader
           venue={venue}
           user={user}
@@ -46,8 +46,8 @@ export function AppShellLayout({
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
         />
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          <main className="h-full overflow-y-auto px-4 pb-4 pt-3 md:px-8 md:pb-8 md:pt-4">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+          <main className="h-full overflow-y-auto overflow-x-hidden px-4 pb-4 pt-3 md:px-8 md:pb-8 md:pt-4">
             {children}
           </main>
           <Toaster />

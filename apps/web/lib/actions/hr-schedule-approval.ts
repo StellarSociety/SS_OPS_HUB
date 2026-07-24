@@ -8,8 +8,11 @@ import {
   canAdminLookups,
   canApproveSchedules,
   canAccessSchedules,
-  canEditSchedules,
 } from "@/lib/hr/permissions";
+import {
+  SCHEDULE_DEPARTMENTS,
+  type ScheduleDepartmentKey,
+} from "@/lib/hr/schedules";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import {
   DEFAULT_HR_SCHEDULE_APPROVAL_SETTINGS,
@@ -27,6 +30,25 @@ export type ScheduleApproverCandidate = {
   fullName: string;
   email: string;
 };
+
+const DEPARTMENT_KEYS = new Set<string>(
+  SCHEDULE_DEPARTMENTS.map((d) => d.key),
+);
+
+function normalizeDepartmentKey(
+  departmentKey: string,
+): ScheduleDepartmentKey | null {
+  const key = departmentKey.trim();
+  if (!DEPARTMENT_KEYS.has(key)) return null;
+  return key as ScheduleDepartmentKey;
+}
+
+function departmentLabel(departmentKey: ScheduleDepartmentKey): string {
+  return (
+    SCHEDULE_DEPARTMENTS.find((d) => d.key === departmentKey)?.label ??
+    departmentKey
+  );
+}
 
 async function getAuthContext() {
   const supabase = await createClient();
@@ -50,6 +72,18 @@ function normalizeWeekStart(weekStart: string): string | null {
   const trimmed = weekStart.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
   return trimmed;
+}
+
+function emptyApprovalsByDepartment(): Record<
+  ScheduleDepartmentKey,
+  ScheduleApprovalRequest | null
+> {
+  return {
+    kitchen: null,
+    bar: null,
+    floor: null,
+    office: null,
+  };
 }
 
 /** Active hub users with the Schedule Approval sensitive grant (approver pool candidates). */
@@ -142,8 +176,9 @@ export async function saveScheduleApprovalSettings(formData: FormData): Promise<
   revalidatePath("/hr/schedules");
 }
 
-export async function getScheduleApprovalForWeek(weekStart: string): Promise<{
-  request?: ScheduleApprovalRequest | null;
+/** Active pending/approved approval requests for each department in a week. */
+export async function getScheduleApprovalsForWeek(weekStart: string): Promise<{
+  requests?: Record<ScheduleDepartmentKey, ScheduleApprovalRequest | null>;
   error?: string;
 }> {
   const { supabase, venue, permissions } = await getAuthContext();
@@ -160,30 +195,60 @@ export async function getScheduleApprovalForWeek(weekStart: string): Promise<{
     .eq("venue_id", venue.id)
     .eq("week_start", week)
     .in("status", ["pending", "approved"])
-    .order("requested_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("requested_at", { ascending: false });
 
   if (error) {
-    // Table may not exist yet if migration is pending.
-    console.error("[hr] getScheduleApprovalForWeek:", error.message);
-    return { request: null, error: error.message };
+    console.error("[hr] getScheduleApprovalsForWeek:", error.message);
+    return { requests: emptyApprovalsByDepartment(), error: error.message };
   }
 
-  return { request: (data as ScheduleApprovalRequest | null) ?? null };
+  const requests = emptyApprovalsByDepartment();
+  for (const row of (data ?? []) as ScheduleApprovalRequest[]) {
+    const key = normalizeDepartmentKey(row.department_key ?? "");
+    if (!key) continue;
+    // First row wins (newest requested_at) per department.
+    if (requests[key] == null) {
+      requests[key] = row;
+    }
+  }
+
+  return { requests };
+}
+
+/** @deprecated Prefer getScheduleApprovalsForWeek — kept for transitional callers. */
+export async function getScheduleApprovalForWeek(weekStart: string): Promise<{
+  request?: ScheduleApprovalRequest | null;
+  error?: string;
+}> {
+  const result = await getScheduleApprovalsForWeek(weekStart);
+  if (result.error) return { request: null, error: result.error };
+  const requests = result.requests ?? emptyApprovalsByDepartment();
+  return {
+    request:
+      requests.kitchen ??
+      requests.bar ??
+      requests.floor ??
+      requests.office ??
+      null,
+  };
 }
 
 export async function requestScheduleApproval(params: {
   weekStart: string;
+  departmentKey: ScheduleDepartmentKey;
   approverUserIds: string[];
 }): Promise<{ request?: ScheduleApprovalRequest; error?: string }> {
   const { user, venue, permissions } = await getAuthContext();
-  if (!canEditSchedules(permissions, venue.id)) {
+  // Anyone with schedules access can request; approval itself stays entitlement-gated.
+  if (!canAccessSchedules(permissions, venue.id)) {
     return { error: "You do not have permission to request approval." };
   }
 
   const week = normalizeWeekStart(params.weekStart);
   if (!week) return { error: "Invalid week start." };
+
+  const departmentKey = normalizeDepartmentKey(params.departmentKey);
+  if (!departmentKey) return { error: "Invalid department." };
 
   const selected = [
     ...new Set(params.approverUserIds.map((id) => id.trim()).filter(Boolean)),
@@ -203,7 +268,7 @@ export async function requestScheduleApproval(params: {
 
   const service = createServiceClient();
 
-  // Cancel any existing pending for this week first (unique index allows one pending).
+  // Cancel any existing pending for this week + department first.
   await service
     .from("hr_schedule_approval_requests")
     .update({
@@ -212,20 +277,20 @@ export async function requestScheduleApproval(params: {
     })
     .eq("venue_id", venue.id)
     .eq("week_start", week)
+    .eq("department_key", departmentKey)
     .eq("status", "pending");
 
-  // Also block if already approved — send again only after cancel would be intentional;
-  // for this pass, require not already approved.
   const { data: existingApproved } = await service
     .from("hr_schedule_approval_requests")
     .select("id")
     .eq("venue_id", venue.id)
     .eq("week_start", week)
+    .eq("department_key", departmentKey)
     .eq("status", "approved")
     .maybeSingle();
 
   if (existingApproved) {
-    return { error: "This week is already approved." };
+    return { error: `The ${departmentLabel(departmentKey)} schedule for this week is already approved.` };
   }
 
   const { data, error } = await service
@@ -233,6 +298,7 @@ export async function requestScheduleApproval(params: {
     .insert({
       venue_id: venue.id,
       week_start: week,
+      department_key: departmentKey,
       status: "pending",
       requested_by: user.id,
       approver_user_ids: selected,
@@ -244,18 +310,18 @@ export async function requestScheduleApproval(params: {
     return { error: error?.message ?? "Could not create approval request." };
   }
 
-  const weekLabel = week;
+  const deptLabel = departmentLabel(departmentKey);
   const rows = selected.map((approverId) => ({
     user_id: approverId,
     venue_id: venue.id,
     module_key: "hr",
     type: "schedule_approval_requested",
-    title: "Schedule approval requested",
-    body: `Please revise and approve the schedule for week of ${weekLabel}.`,
+    title: `${deptLabel} schedule approval requested`,
+    body: `Please revise and approve the ${deptLabel} schedule for week of ${week}.`,
     entity: "schedule_week",
-    entity_id: week,
+    entity_id: `${week}:${departmentKey}`,
     severity: "warning" as const,
-    dedupe_key: `schedule-approval:${venue.id}:${week}:${approverId}`,
+    dedupe_key: `schedule-approval:${venue.id}:${week}:${departmentKey}:${approverId}`,
     read_at: null,
   }));
 
@@ -282,6 +348,7 @@ export async function requestScheduleApproval(params: {
 
 export async function approveScheduleWeek(params: {
   weekStart: string;
+  departmentKey: ScheduleDepartmentKey;
 }): Promise<{ request?: ScheduleApprovalRequest; error?: string }> {
   const { user, venue, permissions } = await getAuthContext();
   if (!canAccessSchedules(permissions, venue.id)) {
@@ -294,17 +361,25 @@ export async function approveScheduleWeek(params: {
   const week = normalizeWeekStart(params.weekStart);
   if (!week) return { error: "Invalid week start." };
 
+  const departmentKey = normalizeDepartmentKey(params.departmentKey);
+  if (!departmentKey) return { error: "Invalid department." };
+
   const service = createServiceClient();
   const { data: pending, error: loadError } = await service
     .from("hr_schedule_approval_requests")
     .select("*")
     .eq("venue_id", venue.id)
     .eq("week_start", week)
+    .eq("department_key", departmentKey)
     .eq("status", "pending")
     .maybeSingle();
 
   if (loadError) return { error: loadError.message };
-  if (!pending) return { error: "No pending approval request for this week." };
+  if (!pending) {
+    return {
+      error: `No pending approval request for ${departmentLabel(departmentKey)} this week.`,
+    };
+  }
 
   const approvers = (pending.approver_user_ids as string[]) ?? [];
   if (!approvers.includes(user.id)) {

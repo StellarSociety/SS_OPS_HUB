@@ -1,7 +1,9 @@
 "use client";
 
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -305,13 +307,27 @@ export function PayrollRunClient({
   function handleTransition(to: PayrollStatus) {
     const fromIdx = PAYROLL_STATUSES_ORDER.indexOf(run.status as PayrollStatus);
     const toIdx = PAYROLL_STATUSES_ORDER.indexOf(to);
-    const needsComment = fromIdx > toIdx;
-    const comment = needsComment
-      ? window.prompt("Comment for this transition (required):")
-      : (window.prompt("Optional comment:") ?? undefined);
-    if (needsComment && !comment?.trim()) return;
+    const isBackward = fromIdx > toIdx;
+
+    // Returning to draft is a common attendance fix path — don't block on a
+    // cancelable prompt (browser prompts often feel like a no-op when dismissed).
+    let comment: string | undefined;
+    if (to === "draft") {
+      comment = "Returned to draft";
+    } else if (isBackward) {
+      const entered = window.prompt(
+        "Comment for sending this run back (optional):",
+        `Returned to ${statusLabel(to)}`,
+      );
+      // Cancel → still proceed with a default note so the action isn't silent
+      comment = entered?.trim() || `Returned to ${statusLabel(to)}`;
+    } else {
+      const entered = window.prompt("Optional comment:");
+      comment = entered?.trim() || undefined;
+    }
+
     runAction(`Move to ${statusLabel(to)}`, () =>
-      transitionPayrollRun(run.id, to, comment?.trim() || undefined),
+      transitionPayrollRun(run.id, to, comment),
     );
   }
 
@@ -345,6 +361,9 @@ export function PayrollRunClient({
     : "";
   const countsHint = `${includedCount} included · ${excludedCount} excluded · ${joinerCount} joiners · ${leaverCount} leavers`;
 
+  const attendanceHref = `/hr/attendance/validation?from=${encodeURIComponent(run.period_start.slice(0, 10))}&to=${encodeURIComponent(run.period_end.slice(0, 10))}&payrollRunId=${encodeURIComponent(run.id)}`;
+  const canReturnToDraft = nextStatuses.includes("draft");
+
   return (
     <div className="space-y-6">
       <div className="space-y-4 rounded-xl border border-black/10 bg-white p-5 shadow-sm">
@@ -368,10 +387,17 @@ export function PayrollRunClient({
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <Link
+              href={attendanceHref}
+              className="inline-flex h-9 items-center justify-center rounded-md border border-black/15 bg-white px-3 text-sm font-medium text-[#3D421F] transition hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
+            >
+              Update attendance
+            </Link>
             <Button
               type="button"
               size="sm"
               variant="outline"
+              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
               disabled={pending || !editable}
               onClick={() =>
                 runAction("Recalculate", () => recalculatePayrollRun(run.id))
@@ -379,21 +405,36 @@ export function PayrollRunClient({
             >
               Recalculate
             </Button>
-            {nextStatuses.map((to) => (
+            {canReturnToDraft ? (
               <Button
-                key={to}
                 type="button"
                 size="sm"
+                variant="outline"
+                className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
                 disabled={pending || !canEdit || locked}
-                onClick={() => handleTransition(to)}
+                onClick={() => handleTransition("draft")}
               >
-                {`→ ${statusLabel(to)}`}
+                ← Back to draft
               </Button>
-            ))}
+            ) : null}
+            {nextStatuses
+              .filter((to) => to !== "draft")
+              .map((to) => (
+                <Button
+                  key={to}
+                  type="button"
+                  size="sm"
+                  disabled={pending || !canEdit || locked}
+                  onClick={() => handleTransition(to)}
+                >
+                  {`→ ${statusLabel(to)}`}
+                </Button>
+              ))}
             <Button
               type="button"
               size="sm"
               variant="outline"
+              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
               disabled={pending || !canEdit}
               onClick={() =>
                 downloadCsv("WPS file", () => generateWpsFile(run.id))
@@ -405,6 +446,7 @@ export function PayrollRunClient({
               type="button"
               size="sm"
               variant="outline"
+              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
               disabled={pending || !canEdit}
               onClick={() =>
                 runAction("Mark paid", () => markPayrollPaid(run.id))
@@ -416,6 +458,7 @@ export function PayrollRunClient({
               type="button"
               size="sm"
               variant="outline"
+              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
               disabled={pending || !canEdit}
               onClick={() =>
                 runAction("Generate payslips", () => generatePayslips(run.id))
@@ -427,6 +470,7 @@ export function PayrollRunClient({
               type="button"
               size="sm"
               variant="outline"
+              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
               disabled={pending || !canEdit}
               onClick={() =>
                 downloadCsv("GL export", () => exportPayrollGl(run.id))
@@ -590,32 +634,177 @@ function RunEmployeesTab({
   pending: boolean;
   onToggleIncluded: (id: string, included: boolean) => void;
 }) {
+  type SortKey =
+    | "emp_no"
+    | "full_name"
+    | "department_name"
+    | "paid_days"
+    | "unpaid_days"
+    | "fixed_earnings"
+    | "variable_earnings"
+    | "total_deductions"
+    | "net_salary"
+    | "included";
+  type SortDir = "asc" | "desc";
+
+  const [sortKey, setSortKey] = useState<SortKey>("emp_no");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function sortValue(
+    row: PayrollEmployeeRow,
+    key: SortKey,
+  ): string | number | boolean {
+    switch (key) {
+      case "emp_no":
+        return row.emp_no.toLowerCase();
+      case "full_name":
+        return row.full_name.toLowerCase();
+      case "department_name":
+        return (row.department_name ?? "").toLowerCase();
+      case "paid_days":
+        return Number(row.paid_days);
+      case "unpaid_days":
+        return Number(row.unpaid_days);
+      case "fixed_earnings":
+        return Number(row.fixed_earnings);
+      case "variable_earnings":
+        return Number(row.variable_earnings);
+      case "total_deductions":
+        return Number(row.total_deductions);
+      case "net_salary":
+        return Number(row.net_salary);
+      case "included":
+        return row.included;
+    }
+  }
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDir(
+      key === "emp_no" || key === "full_name" || key === "department_name"
+        ? "asc"
+        : "desc",
+    );
+  }
+
+  const sorted = useMemo(() => {
+    const rows = [...employees];
+    const dir = sortDir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
+      if (typeof av === "boolean" && typeof bv === "boolean") {
+        if (av === bv) return a.emp_no.localeCompare(b.emp_no);
+        return (av === bv ? 0 : av ? 1 : -1) * dir;
+      }
+      if (typeof av === "number" && typeof bv === "number") {
+        if (av === bv) return a.emp_no.localeCompare(b.emp_no);
+        return (av - bv) * dir;
+      }
+      const cmp = String(av).localeCompare(String(bv), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (cmp === 0) return a.emp_no.localeCompare(b.emp_no);
+      return cmp * dir;
+    });
+    return rows;
+  }, [employees, sortKey, sortDir]);
+
+  function SortLabel({
+    label,
+    column,
+    align = "start",
+  }: {
+    label: string;
+    column: SortKey;
+    align?: "start" | "center" | "end";
+  }) {
+    const active = sortKey === column;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(column)}
+        className={cn(
+          "inline-flex w-full items-center gap-1 whitespace-nowrap transition-colors hover:text-[#3D421F]",
+          align === "center" && "justify-center",
+          align === "end" && "justify-end",
+        )}
+        aria-label={`Sort by ${label}`}
+      >
+        <span>{label}</span>
+        {active ? (
+          sortDir === "asc" ? (
+            <ChevronUp className="h-3.5 w-3.5 shrink-0 text-[var(--venue-primary,#818a40)]" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--venue-primary,#818a40)]" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-black/25" />
+        )}
+      </button>
+    );
+  }
+
   return (
     <section className="space-y-3">
       <div>
         <h3 className="font-serif text-lg text-[#3D421F]">Employees</h3>
         <p className="text-sm text-black/55">
-          Expand a row to see earnings and deduction lines.
+          Expand a row to see earnings and deduction lines. Click a column
+          header to sort.
         </p>
       </div>
       <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
             <tr>
-              <th className="px-3 py-2.5 font-medium">Emp no</th>
-              <th className="px-3 py-2.5 font-medium">Name</th>
-              <th className="px-3 py-2.5 font-medium">Dept</th>
-              <th className="px-3 py-2.5 font-medium text-right">Paid days</th>
-              <th className="px-3 py-2.5 font-medium text-right">Unpaid</th>
-              <th className="px-3 py-2.5 font-medium text-right">Fixed</th>
-              <th className="px-3 py-2.5 font-medium text-right">Variable</th>
-              <th className="px-3 py-2.5 font-medium text-right">Deductions</th>
-              <th className="px-3 py-2.5 font-medium text-right">Net</th>
-              <th className="px-3 py-2.5 font-medium text-center">Included</th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Emp no" column="emp_no" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Name" column="full_name" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Dept" column="department_name" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Paid days" column="paid_days" align="end" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Unpaid" column="unpaid_days" align="end" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Fixed" column="fixed_earnings" align="end" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel
+                  label="Variable"
+                  column="variable_earnings"
+                  align="end"
+                />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel
+                  label="Deductions"
+                  column="total_deductions"
+                  align="end"
+                />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Net" column="net_salary" align="end" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Included" column="included" align="center" />
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-black/5">
-            {employees.length === 0 ? (
+            {sorted.length === 0 ? (
               <tr>
                 <td
                   colSpan={10}
@@ -625,7 +814,7 @@ function RunEmployeesTab({
                 </td>
               </tr>
             ) : (
-              employees.map((row) => {
+              sorted.map((row) => {
                 const open = expanded.has(row.id);
                 const empLines = linesByEmployee.get(row.id) ?? [];
                 return (

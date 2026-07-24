@@ -961,6 +961,99 @@ export async function getAttendanceCoverage(
   };
 }
 
+export type DeviceSyncSummary = {
+  punchCount: number;
+  employeeCount: number;
+  lastSyncedAt: string | null;
+  lastPunchAt: string | null;
+  deviceSerial: string | null;
+};
+
+/** Live ZKTeco agent ingest stats for a venue slug. */
+export async function getDeviceSyncSummary(
+  supabase: SupabaseClient,
+  venueSlug: string,
+): Promise<DeviceSyncSummary> {
+  const empty: DeviceSyncSummary = {
+    punchCount: 0,
+    employeeCount: 0,
+    lastSyncedAt: null,
+    lastPunchAt: null,
+    deviceSerial: null,
+  };
+
+  const slug = venueSlug.trim().toLowerCase();
+  if (!slug || slug === "global") return empty;
+
+  const [countRes, lastSyncRes, lastPunchRes] = await Promise.all([
+    supabase
+      .from("attendance_punches")
+      .select("*", { count: "exact", head: true })
+      .eq("venue", slug),
+    supabase
+      .from("attendance_punches")
+      .select("synced_at, device_serial")
+      .eq("venue", slug)
+      .order("synced_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("attendance_punches")
+      .select("timestamp, device_serial")
+      .eq("venue", slug)
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (countRes.error) {
+    console.error("[hr] getDeviceSyncSummary count:", countRes.error.message);
+    return empty;
+  }
+
+  const punchCount = countRes.count ?? 0;
+  if (punchCount === 0) return empty;
+
+  if (lastSyncRes.error) {
+    console.error("[hr] getDeviceSyncSummary last sync:", lastSyncRes.error.message);
+  }
+  if (lastPunchRes.error) {
+    console.error(
+      "[hr] getDeviceSyncSummary last punch:",
+      lastPunchRes.error.message,
+    );
+  }
+
+  // Distinct employees (paginate; PostgREST caps each page).
+  const employees = new Set<string>();
+  const pageSize = 1000;
+  for (let from = 0; from < 50_000; from += pageSize) {
+    const { data, error } = await supabase
+      .from("attendance_punches")
+      .select("employee_id")
+      .eq("venue", slug)
+      .range(from, from + pageSize - 1);
+    if (error) {
+      console.error("[hr] getDeviceSyncSummary employees:", error.message);
+      break;
+    }
+    if (!data?.length) break;
+    for (const row of data) employees.add(row.employee_id);
+    if (data.length < pageSize) break;
+  }
+
+  return {
+    punchCount,
+    employeeCount: employees.size,
+    lastSyncedAt: lastSyncRes.data?.synced_at ?? null,
+    lastPunchAt: lastPunchRes.data?.timestamp ?? null,
+    deviceSerial:
+      lastSyncRes.data?.device_serial ??
+      lastPunchRes.data?.device_serial ??
+      null,
+  };
+}
+
 export type AttendanceImportBatchSummary =
   import("@/lib/types/database").HrAttendanceImportBatch & {
     minWorkDate: string | null;

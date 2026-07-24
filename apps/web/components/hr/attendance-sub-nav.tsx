@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   ClipboardCheck,
   LineChart,
+  ListChecks,
 } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
@@ -26,6 +27,12 @@ const TABS = [
     href: "/hr/attendance/records",
     label: "Records",
     icon: CalendarCheck,
+    exact: true,
+  },
+  {
+    href: "/hr/attendance/approvals-check",
+    label: "Approvals Check",
+    icon: ListChecks,
     exact: true,
   },
 ] as const;

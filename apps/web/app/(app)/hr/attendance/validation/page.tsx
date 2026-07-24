@@ -1,4 +1,5 @@
 import { AttendanceApprovalsTable } from "@/components/hr/attendance-approvals-table";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { currentMonthKey } from "@/lib/hr/attendance-months";
 import {
   buildAttendanceValidationRows,
@@ -26,14 +27,28 @@ import {
 } from "@/lib/hr/types";
 
 type PageProps = {
-  searchParams?: Promise<{ staffId?: string }>;
+  searchParams?: Promise<{
+    staffId?: string;
+    from?: string;
+    to?: string;
+    payrollRunId?: string;
+  }>;
 };
+
+function isIsoDate(value: string | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
 
 export default async function AttendanceValidationPage({
   searchParams,
 }: PageProps) {
   const params = (await searchParams) ?? {};
   const initialStaffId = params.staffId?.trim() || null;
+  const payrollFrom = isIsoDate(params.from?.trim())
+    ? params.from!.trim()
+    : null;
+  const payrollTo = isIsoDate(params.to?.trim()) ? params.to!.trim() : null;
+  const payrollRunId = params.payrollRunId?.trim() || null;
 
   const { supabase, venue, permissions } = await getHrPageContext();
   const canEditRoster = canEditSchedules(permissions, venue.id);
@@ -44,33 +59,46 @@ export default async function AttendanceValidationPage({
       months.map((m) => m.month_key),
       currentMonthKey(),
     );
-    const fromDate = range.fromDate;
-    const toDate = range.toDate;
-    const holidayYear = Number(fromDate.slice(0, 4)) || new Date().getFullYear();
+    const fromDate =
+      payrollFrom && payrollTo && payrollFrom <= payrollTo
+        ? payrollFrom
+        : range.fromDate;
+    const toDate =
+      payrollFrom && payrollTo && payrollFrom <= payrollTo
+        ? payrollTo
+        : range.toDate;
+    const holidayYear =
+      Number(fromDate.slice(0, 4)) || new Date().getFullYear();
 
-    const [staff, departments, scheduleLabels, rows, publicHolidays, importRules] =
-      await Promise.all([
-        listStaffForVenue(supabase, venue.id).catch((err) => {
-          console.error("[hr] validation listStaffForVenue:", err);
-          return [];
-        }),
-        listDepartments(supabase, venue.id).catch((err) => {
-          console.error("[hr] validation listDepartments:", err);
-          return [];
-        }),
-        listScheduleDayLabels(supabase),
-        buildAttendanceValidationRows(supabase, venue.id, { fromDate, toDate }),
-        listPublicHolidays(supabase, venue.id, {
-          fromDate: `${holidayYear - 1}-01-01`,
-          toDate: `${holidayYear + 1}-12-31`,
-        }),
-        getHrVenueSetting<HrAttendanceImportRules>(
-          supabase,
-          venue.id,
-          HR_SETTINGS_KEYS.attendanceImportRules,
-          DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
-        ),
-      ]);
+    const [
+      staff,
+      departments,
+      scheduleLabels,
+      rows,
+      publicHolidays,
+      importRules,
+    ] = await Promise.all([
+      listStaffForVenue(supabase, venue.id).catch((err) => {
+        console.error("[hr] validation listStaffForVenue:", err);
+        return [];
+      }),
+      listDepartments(supabase, venue.id).catch((err) => {
+        console.error("[hr] validation listDepartments:", err);
+        return [];
+      }),
+      listScheduleDayLabels(supabase),
+      buildAttendanceValidationRows(supabase, venue.id, { fromDate, toDate }),
+      listPublicHolidays(supabase, venue.id, {
+        fromDate: `${holidayYear - 1}-01-01`,
+        toDate: `${holidayYear + 1}-12-31`,
+      }),
+      getHrVenueSetting<HrAttendanceImportRules>(
+        supabase,
+        venue.id,
+        HR_SETTINGS_KEYS.attendanceImportRules,
+        DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+      ),
+    ]);
 
     const departmentOptions = departments.map((d) => ({
       id: d.id,
@@ -102,6 +130,25 @@ export default async function AttendanceValidationPage({
 
     return (
       <div className="space-y-4">
+        {payrollRunId && payrollFrom && payrollTo ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--venue-primary,#818a40)]/25 bg-[var(--venue-secondary,#F0F3DD)]/50 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-[#3D421F]">
+                Updating attendance for payroll
+              </p>
+              <p className="mt-0.5 text-xs text-black/55">
+                Period {payrollFrom} → {payrollTo}. Approve days here, then
+                return and recalculate the payroll run.
+              </p>
+            </div>
+            <Link
+              href={`/hr/payroll/${payrollRunId}`}
+              className="inline-flex h-9 shrink-0 items-center rounded-md border border-black/15 bg-white px-3 text-sm font-medium text-[#3D421F] transition hover:bg-white/80"
+            >
+              Back to payroll
+            </Link>
+          </div>
+        ) : null}
         <div>
           <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
           <p className="mt-1 text-sm text-black/55">
@@ -129,8 +176,6 @@ export default async function AttendanceValidationPage({
       </div>
     );
   } catch (err) {
-    // Never let a data-load blip become an opaque Server Components digest
-    // after Save/Approve (Next may soft-refresh this page with the action).
     console.error(
       "[hr] validation page render:",
       err instanceof Error ? err.message : err,

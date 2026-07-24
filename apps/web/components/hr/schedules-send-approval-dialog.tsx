@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 type SchedulesSendApprovalDialogProps = {
   open: boolean;
   weekOffset: number;
+  departmentLabel: string;
   candidates: ScheduleApproverCandidate[];
   pending: boolean;
   error?: string | null;
@@ -18,6 +19,7 @@ type SchedulesSendApprovalDialogProps = {
 export function SchedulesSendApprovalDialog({
   open,
   weekOffset,
+  departmentLabel,
   candidates,
   pending,
   error,
@@ -65,8 +67,8 @@ export function SchedulesSendApprovalDialog({
           Send for approval
         </h2>
         <p className="mt-1 text-sm text-black/55">
-          Week of {rangeLabel}. Choose who should revise and approve this
-          schedule.
+          {departmentLabel} · week of {rangeLabel}. Choose who should revise and
+          approve this department schedule.
         </p>
 
         {candidates.length === 0 ? (

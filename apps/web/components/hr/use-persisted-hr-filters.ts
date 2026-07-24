@@ -130,6 +130,8 @@ export function usePersistedHrAttendanceValidationFilters() {
     departmentId: filters.departmentId,
     empNo: filters.empNo,
     selectedWeekKeys: filters.selectedWeekKeys,
+    dayStart: filters.dayStart,
+    dayEnd: filters.dayEnd,
     hydrated,
     setDepartmentId: (value: string) =>
       setFilters((prev) => ({
@@ -150,6 +152,12 @@ export function usePersistedHrAttendanceValidationFilters() {
             ? value(prev.selectedWeekKeys)
             : value,
       })),
+    setDayStart: (value: string) =>
+      setFilters((prev) => ({ ...prev, dayStart: value })),
+    setDayEnd: (value: string) =>
+      setFilters((prev) => ({ ...prev, dayEnd: value })),
+    setDayRange: (start: string, end: string) =>
+      setFilters((prev) => ({ ...prev, dayStart: start, dayEnd: end })),
     patchFilters: (patch: Partial<HrAttendanceValidationFilters>) =>
       setFilters((prev) => ({ ...prev, ...patch })),
   };

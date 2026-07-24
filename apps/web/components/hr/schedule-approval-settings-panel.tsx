@@ -46,11 +46,12 @@ export function ScheduleApprovalSettingsPanel({
     <Card className="p-5">
       <h2 className="font-serif text-lg text-[#3D421F]">Schedule Approval</h2>
       <p className="mt-1 text-sm text-black/55">
-        Choose who can be asked to approve weekly schedules. Only users with the
-        Schedule Approval sensitive grant (Settings → Users → Human Resources)
-        appear here. Editors pick from this list when sending a week for
-        approval. Approvers can revise the roster and confirm publish so Editors
-        can download the schedule PDF.
+        Choose who can be asked to approve department schedules. Only users with
+        the Schedule Approval sensitive grant (Settings → Users → Human
+        Resources) appear here. Anyone with Schedules access can send Kitchen,
+        Bar, Floor, or Office for approval separately; only people on this list
+        who are named on the request can approve. Editors can then publish PDFs
+        for approved departments.
       </p>
 
       <form action={saveScheduleApprovalSettings} className="mt-4 space-y-4">

@@ -20,7 +20,7 @@ import {
 } from "@/lib/actions/hr";
 import {
   approveScheduleWeek,
-  getScheduleApprovalForWeek,
+  getScheduleApprovalsForWeek,
   requestScheduleApproval,
   type ScheduleApproverCandidate,
 } from "@/lib/actions/hr-schedule-approval";
@@ -51,6 +51,11 @@ import { usePersistedHrSchedulesWeekOffset } from "@/components/hr/use-persisted
 
 type ScheduleViewMode = "roster" | "sections";
 
+type ApprovalsByDepartment = Record<
+  ScheduleDepartmentKey,
+  ScheduleApprovalRequest | null
+>;
+
 type SchedulesDepartmentTabsProps = {
   staffByDepartment: Record<ScheduleDepartmentKey, ScheduleStaffRow[]>;
   labels: ScheduleDayLabel[];
@@ -62,17 +67,34 @@ type SchedulesDepartmentTabsProps = {
   userDisplayName: string;
   currentUserId: string;
   approverPool: ScheduleApproverCandidate[];
-  initialApprovalByWeek?: Record<string, ScheduleApprovalRequest | null>;
+  initialApprovalsByWeek?: Record<string, ApprovalsByDepartment>;
   /** SSR-seeded roster cells for the current week (keys: staffId::date). */
   initialWeekCells?: Record<string, ScheduleCellValue>;
   initialWeekKey?: string | null;
 };
+
+function emptyApprovalsByDepartment(): ApprovalsByDepartment {
+  return {
+    kitchen: null,
+    bar: null,
+    floor: null,
+    office: null,
+  };
+}
 
 function approvalStatusLabel(request: ScheduleApprovalRequest | null | undefined) {
   if (!request) return "Draft";
   if (request.status === "pending") return "Pending approval";
   if (request.status === "approved") return "Approved";
   return "Draft";
+}
+
+function departmentApprovalStatus(
+  request: ScheduleApprovalRequest | null | undefined,
+): "draft" | "pending" | "approved" {
+  if (request?.status === "pending") return "pending";
+  if (request?.status === "approved") return "approved";
+  return "draft";
 }
 
 export function SchedulesDepartmentTabs({
@@ -86,7 +108,7 @@ export function SchedulesDepartmentTabs({
   userDisplayName,
   currentUserId,
   approverPool,
-  initialApprovalByWeek = {},
+  initialApprovalsByWeek = {},
   initialWeekCells,
   initialWeekKey = null,
 }: SchedulesDepartmentTabsProps) {
@@ -108,7 +130,7 @@ export function SchedulesDepartmentTabs({
   const [publishDepartments, setPublishDepartments] =
     useState<SchedulesPublishDepartments>(DEFAULT_SCHEDULES_PUBLISH_DEPARTMENTS);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [approvalByWeek, setApprovalByWeek] = useState(initialApprovalByWeek);
+  const [approvalsByWeek, setApprovalsByWeek] = useState(initialApprovalsByWeek);
   const [sendOpen, setSendOpen] = useState(false);
   const [approveOpen, setApproveOpen] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
@@ -140,15 +162,17 @@ export function SchedulesDepartmentTabs({
     }
     return map;
   }, [publicHolidays]);
-  const weekRequest = approvalByWeek[weekStart] ?? null;
+  const weekApprovals =
+    approvalsByWeek[weekStart] ?? emptyApprovalsByDepartment();
+  const activeRequest = weekApprovals[active] ?? null;
 
   useEffect(() => {
     let cancelled = false;
-    void getScheduleApprovalForWeek(weekStart).then((result) => {
+    void getScheduleApprovalsForWeek(weekStart).then((result) => {
       if (cancelled || result.error) return;
-      setApprovalByWeek((prev) => ({
+      setApprovalsByWeek((prev) => ({
         ...prev,
-        [weekStart]: result.request ?? null,
+        [weekStart]: result.requests ?? emptyApprovalsByDepartment(),
       }));
     });
     return () => {
@@ -156,15 +180,18 @@ export function SchedulesDepartmentTabs({
     };
   }, [weekStart]);
 
+  // Anyone on schedules can send; only configured named approvers can approve.
   const canSendApproval =
-    canEdit &&
     approverPool.length > 0 &&
-    weekRequest?.status !== "pending" &&
-    weekRequest?.status !== "approved";
+    activeRequest?.status !== "pending" &&
+    activeRequest?.status !== "approved";
   const canApprove =
-    weekRequest?.status === "pending" &&
-    (weekRequest.approver_user_ids ?? []).includes(currentUserId);
-  const canPublishPdf = canEdit && weekRequest?.status === "approved";
+    activeRequest?.status === "pending" &&
+    (activeRequest.approver_user_ids ?? []).includes(currentUserId);
+  const approvedDepartmentCount = SCHEDULE_DEPARTMENTS.filter(
+    (d) => weekApprovals[d.key]?.status === "approved",
+  ).length;
+  const canPublishPdf = canEdit && approvedDepartmentCount > 0;
 
   const staffByDepartmentForWeek = useMemo(() => {
     const next = {
@@ -202,6 +229,14 @@ export function SchedulesDepartmentTabs({
     if (!canPublishPdf) return;
     setExportError(null);
     setPublishWeekOffset(weekOffset);
+    // Default publish selection to departments already approved for this week.
+    const next: SchedulesPublishDepartments = {
+      kitchen: weekApprovals.kitchen?.status === "approved",
+      bar: weekApprovals.bar?.status === "approved",
+      floor: weekApprovals.floor?.status === "approved",
+      office: weekApprovals.office?.status === "approved",
+    };
+    setPublishDepartments(next);
     setPublishOpen(true);
   }
 
@@ -216,35 +251,44 @@ export function SchedulesDepartmentTabs({
   }
 
   function handleSendApproval(approverUserIds: string[]) {
+    const departmentKey = active;
     startApproval(async () => {
       setApprovalError(null);
       const result = await requestScheduleApproval({
         weekStart,
+        departmentKey,
         approverUserIds,
       });
       if (result.error) {
         setApprovalError(result.error);
         return;
       }
-      setApprovalByWeek((prev) => ({
+      setApprovalsByWeek((prev) => ({
         ...prev,
-        [weekStart]: result.request ?? null,
+        [weekStart]: {
+          ...(prev[weekStart] ?? emptyApprovalsByDepartment()),
+          [departmentKey]: result.request ?? null,
+        },
       }));
       setSendOpen(false);
     });
   }
 
   function handleApproveConfirm() {
+    const departmentKey = active;
     startApproval(async () => {
       setApprovalError(null);
-      const result = await approveScheduleWeek({ weekStart });
+      const result = await approveScheduleWeek({ weekStart, departmentKey });
       if (result.error) {
         setApprovalError(result.error);
         return;
       }
-      setApprovalByWeek((prev) => ({
+      setApprovalsByWeek((prev) => ({
         ...prev,
-        [weekStart]: result.request ?? null,
+        [weekStart]: {
+          ...(prev[weekStart] ?? emptyApprovalsByDepartment()),
+          [departmentKey]: result.request ?? null,
+        },
       }));
       setApproveOpen(false);
     });
@@ -255,6 +299,7 @@ export function SchedulesDepartmentTabs({
       setExportError(null);
       try {
         const monday = getMondayForWeekOffset(publishWeekOffset);
+        const publishWeekStart = weekStartKeyFromDate(monday);
         const days = getWeekDayColumns(monday, publicHolidayByDate);
         const fromDate = days[0]?.key;
         const toDate = days[days.length - 1]?.key;
@@ -263,10 +308,44 @@ export function SchedulesDepartmentTabs({
           return;
         }
 
+        const approvalsForPublishWeek =
+          publishWeekStart === weekStart
+            ? weekApprovals
+            : (approvalsByWeek[publishWeekStart] ?? null);
+
+        let resolvedApprovals = approvalsForPublishWeek;
+        if (!resolvedApprovals) {
+          const loaded = await getScheduleApprovalsForWeek(publishWeekStart);
+          if (loaded.error) {
+            setExportError(loaded.error);
+            return;
+          }
+          resolvedApprovals = loaded.requests ?? emptyApprovalsByDepartment();
+          setApprovalsByWeek((prev) => ({
+            ...prev,
+            [publishWeekStart]: resolvedApprovals!,
+          }));
+        }
+
         const knownCodes = new Set(labels.map((l) => l.code));
         const selectedDepts = SCHEDULE_DEPARTMENTS.filter(
           (d) => publishDepartments[d.key],
         );
+        if (selectedDepts.length === 0) {
+          setExportError("Select at least one department to publish.");
+          return;
+        }
+
+        const unapproved = selectedDepts.filter(
+          (d) => resolvedApprovals?.[d.key]?.status !== "approved",
+        );
+        if (unapproved.length > 0) {
+          setExportError(
+            `Approve ${unapproved.map((d) => d.label).join(", ")} before publishing.`,
+          );
+          return;
+        }
+
         const blocks: SchedulesPdfDepartmentBlock[] = [];
 
         for (const dept of selectedDepts) {
@@ -341,7 +420,7 @@ export function SchedulesDepartmentTabs({
 
   const activeDept = SCHEDULE_DEPARTMENTS.find((dept) => dept.key === active)!;
   const view = viewByDept[active];
-  const statusLabel = approvalStatusLabel(weekRequest);
+  const statusLabel = approvalStatusLabel(activeRequest);
 
   return (
     <div className="space-y-4">
@@ -355,6 +434,7 @@ export function SchedulesDepartmentTabs({
             >
               {SCHEDULE_DEPARTMENTS.map((dept) => {
                 const isActive = active === dept.key;
+                const status = departmentApprovalStatus(weekApprovals[dept.key]);
                 return (
                   <button
                     key={dept.key}
@@ -366,7 +446,17 @@ export function SchedulesDepartmentTabs({
                     onClick={() => selectDepartment(dept.key)}
                     className={segmentedSubNavLinkClass(isActive)}
                   >
-                    {dept.label}
+                    <span>{dept.label}</span>
+                    <span
+                      aria-hidden
+                      title={approvalStatusLabel(weekApprovals[dept.key])}
+                      className={cn(
+                        "h-1.5 w-1.5 shrink-0 rounded-full",
+                        status === "approved" && "bg-emerald-600",
+                        status === "pending" && "bg-amber-500",
+                        status === "draft" && "bg-black/20",
+                      )}
+                    />
                   </button>
                 );
               })}
@@ -376,36 +466,34 @@ export function SchedulesDepartmentTabs({
               <span
                 className={cn(
                   "inline-flex h-9 items-center rounded-full border px-3 text-xs font-medium",
-                  weekRequest?.status === "approved" &&
+                  activeRequest?.status === "approved" &&
                     "border-emerald-200 bg-emerald-50 text-emerald-800",
-                  weekRequest?.status === "pending" &&
+                  activeRequest?.status === "pending" &&
                     "border-amber-200 bg-amber-50 text-amber-800",
-                  !weekRequest && "border-black/10 bg-white text-black/55",
+                  !activeRequest && "border-black/10 bg-white text-black/55",
                 )}
               >
-                {statusLabel}
+                {activeDept.label}: {statusLabel}
               </span>
 
-              {canEdit ? (
-                <button
-                  type="button"
-                  onClick={openSendApproval}
-                  disabled={!canSendApproval || approvalPending}
-                  title={
-                    approverPool.length === 0
-                      ? "Configure approvers in HR Settings → Attendance → Schedule Approval"
-                      : weekRequest?.status === "approved"
-                        ? "This week is already approved"
-                        : weekRequest?.status === "pending"
-                          ? "Approval already requested"
-                          : undefined
-                  }
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-black/10 bg-white px-3.5 text-sm font-semibold text-[#3D421F] transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <Send className="h-4 w-4" aria-hidden />
-                  Send for approval
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={openSendApproval}
+                disabled={!canSendApproval || approvalPending}
+                title={
+                  approverPool.length === 0
+                    ? "Configure approvers in HR Settings → Attendance → Schedule Approval"
+                    : activeRequest?.status === "approved"
+                      ? `${activeDept.label} is already approved for this week`
+                      : activeRequest?.status === "pending"
+                        ? `${activeDept.label} approval already requested`
+                        : `Send ${activeDept.label} schedule for approval`
+                }
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-black/10 bg-white px-3.5 text-sm font-semibold text-[#3D421F] transition-colors hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Send className="h-4 w-4" aria-hidden />
+                Send for approval
+              </button>
 
               {canApprove ? (
                 <button
@@ -426,7 +514,7 @@ export function SchedulesDepartmentTabs({
                 title={
                   canPublishPdf
                     ? undefined
-                    : "Approve this week before publishing the PDF"
+                    : "Approve at least one department before publishing the PDF"
                 }
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-[var(--venue-primary)] px-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
               >
@@ -512,6 +600,7 @@ export function SchedulesDepartmentTabs({
       <SchedulesSendApprovalDialog
         open={sendOpen}
         weekOffset={weekOffset}
+        departmentLabel={activeDept.label}
         candidates={approverPool}
         pending={approvalPending}
         error={approvalError}
@@ -524,6 +613,7 @@ export function SchedulesDepartmentTabs({
       <SchedulesApproveConfirmDialog
         open={approveOpen}
         weekOffset={weekOffset}
+        departmentLabel={activeDept.label}
         pending={approvalPending}
         error={approvalError}
         onClose={() => {

@@ -5,6 +5,7 @@ import { formatWeekRangeLabel, getMondayForWeekOffset } from "@/lib/hr/schedules
 type SchedulesApproveConfirmDialogProps = {
   open: boolean;
   weekOffset: number;
+  departmentLabel: string;
   pending: boolean;
   error?: string | null;
   onClose: () => void;
@@ -14,6 +15,7 @@ type SchedulesApproveConfirmDialogProps = {
 export function SchedulesApproveConfirmDialog({
   open,
   weekOffset,
+  departmentLabel,
   pending,
   error,
   onClose,
@@ -45,9 +47,12 @@ export function SchedulesApproveConfirmDialog({
           Approve schedule
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-black/65">
-          Do you wish to approve the schedule and publish it?
+          Do you wish to approve the {departmentLabel} schedule so it can be
+          published?
         </p>
-        <p className="mt-1 text-xs text-black/45">Week of {rangeLabel}</p>
+        <p className="mt-1 text-xs text-black/45">
+          {departmentLabel} · week of {rangeLabel}
+        </p>
 
         {error ? (
           <p className="mt-3 text-sm text-red-700" role="alert">

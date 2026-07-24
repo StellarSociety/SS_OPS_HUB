@@ -146,3 +146,37 @@ export function formatPayrollMonthLabel(payrollMonth: string): string {
     timeZone: "UTC",
   });
 }
+
+/**
+ * Which named payroll month contains an ISO work date, given venue period
+ * settings (e.g. 25→24 cross-month windows).
+ */
+export function payrollMonthContainingDate(
+  isoDate: string,
+  settings: HrPayrollSettings = DEFAULT_HR_PAYROLL_SETTINGS,
+): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
+  if (!m) throw new Error(`Invalid ISO date: ${isoDate}`);
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+
+  if (settings.periodStartDay <= settings.periodEndDay) {
+    return payrollMonthKey(year, month);
+  }
+
+  // Cross-month: from startDay of month M through endDay of month M+1 is
+  // named as payroll month M+1. Dates on/after startDay belong to next month.
+  if (day >= settings.periodStartDay) {
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    return payrollMonthKey(nextYear, nextMonth);
+  }
+  return payrollMonthKey(year, month);
+}
+
+/** YYYY-MM for `<input type="month">` from a payroll month key (YYYY-MM-01). */
+export function payrollMonthInputValue(payrollMonth: string): string {
+  const { year, month } = parsePayrollMonth(payrollMonth);
+  return `${year}-${pad2(month)}`;
+}

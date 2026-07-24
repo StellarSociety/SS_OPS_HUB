@@ -52,11 +52,20 @@ type MonthSummaryRow = {
   flagged_count: number;
 };
 
+type DeviceSyncSummary = {
+  punchCount: number;
+  employeeCount: number;
+  lastSyncedAt: string | null;
+  lastPunchAt: string | null;
+  deviceSerial: string | null;
+};
+
 type Props = {
   canEdit: boolean;
   coverage: CoverageSummary;
   batches: ImportBatchRow[];
   months: MonthSummaryRow[];
+  deviceSync: DeviceSyncSummary;
 };
 
 function formatImportWhen(iso: string): string {
@@ -124,6 +133,7 @@ export function AttendanceImportPanel({
   coverage,
   batches,
   months,
+  deviceSync,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -136,7 +146,6 @@ export function AttendanceImportPanel({
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   async function handleDeleteBatch(batch: ImportBatchRow) {
     if (!canEdit) return;
@@ -206,23 +215,18 @@ export function AttendanceImportPanel({
     }
   }
 
-  async function handleSyncImport() {
-    if (!canEdit || syncLoading) return;
+  function handleSyncRefresh() {
+    if (syncLoading) return;
     setSyncLoading(true);
-    setSyncMessage(null);
-    try {
-      // Device sync API will be wired when the ZKTeco U350 endpoint is provided.
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      setSyncMessage(
-        "On-demand pull is not wired yet. The restaurant PC agent posts to /api/attendance/punch automatically.",
-      );
-    } finally {
-      setSyncLoading(false);
-    }
+    window.location.reload();
   }
 
   const hasCoverage =
     coverage.minWorkDate != null && coverage.maxWorkDate != null;
+  const hasDeviceSync = deviceSync.punchCount > 0;
+  const syncIsFresh =
+    deviceSync.lastSyncedAt != null &&
+    Date.now() - new Date(deviceSync.lastSyncedAt).getTime() < 15 * 60 * 1000;
 
   return (
     <div className="space-y-4">
@@ -305,49 +309,71 @@ export function AttendanceImportPanel({
         </Card>
 
         <Card className="p-5">
-          <div>
-            <h2 className="font-serif text-lg text-[#3D421F]">Sync Import</h2>
-            <p className="mt-1 text-sm text-black/55">
-              Automatic sync from the ZKTeco U350 via the restaurant PC agent
-              posting to <span className="font-mono text-xs">/api/attendance/punch</span>.
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-serif text-lg text-[#3D421F]">Sync Import</h2>
+              <p className="mt-1 text-sm text-black/55">
+                Automatic sync from the ZKTeco U350 (restaurant PC agent).
+              </p>
+            </div>
+            {hasDeviceSync ? (
+              <span
+                className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ${
+                  syncIsFresh
+                    ? "bg-emerald-50 text-emerald-800"
+                    : "bg-amber-50 text-amber-900"
+                }`}
+              >
+                {syncIsFresh ? "Live" : "Idle"}
+              </span>
+            ) : (
+              <span className="shrink-0 rounded-md bg-black/5 px-2 py-1 text-xs font-medium text-black/50">
+                Waiting
+              </span>
+            )}
           </div>
 
-          <div className="mt-4">
-            {!canEdit ? (
-              <p className="text-sm text-black/60">
-                View-only access. Ask an admin for edit permission to sync.
+          <div className="mt-4 space-y-3">
+            {hasDeviceSync ? (
+              <p className="text-sm text-[#3D421F]">
+                {deviceSync.punchCount.toLocaleString()} punches
+                {" · "}
+                {deviceSync.employeeCount.toLocaleString()} employees
+                {deviceSync.deviceSerial
+                  ? ` · ${deviceSync.deviceSerial}`
+                  : ""}
               </p>
             ) : (
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  type="button"
-                  disabled={syncLoading}
-                  onClick={() => {
-                    void handleSyncImport();
-                  }}
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${syncLoading ? "animate-spin" : ""}`}
-                  />
-                  {syncLoading ? "Syncing…" : "Import"}
-                </Button>
-                <span className="text-sm text-black/45">
-                  Device: ZKTeco U350 · agent-driven
-                </span>
-              </div>
-            )}
-            {syncMessage ? (
-              <p className="mt-3 text-sm text-amber-800/90" role="status">
-                {syncMessage}
-              </p>
-            ) : (
-              <p className="mt-3 text-sm text-black/45">
-                Punches appear in Attendance as the PC agent sends them (every
-                ~30s). Manual Import here is reserved for a future on-demand
-                pull.
+              <p className="text-sm text-black/55">
+                No device punches received yet. Confirm the PC agent is posting
+                to production.
               </p>
             )}
+
+            {deviceSync.lastSyncedAt ? (
+              <p className="text-sm text-black/55">
+                Last agent sync: {formatImportWhen(deviceSync.lastSyncedAt)}
+                {deviceSync.lastPunchAt
+                  ? ` · latest punch ${formatImportWhen(deviceSync.lastPunchAt)}`
+                  : ""}
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                disabled={syncLoading}
+                onClick={handleSyncRefresh}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${syncLoading ? "animate-spin" : ""}`}
+                />
+                {syncLoading ? "Refreshing…" : "Refresh"}
+              </Button>
+              <span className="text-sm text-black/45">
+                Data lands in Attendance automatically — no manual import needed.
+              </span>
+            </div>
           </div>
         </Card>
       </div>
@@ -367,6 +393,9 @@ export function AttendanceImportPanel({
             {" · "}
             {coverage.recordCount.toLocaleString()} employee-day{" "}
             {coverage.recordCount === 1 ? "record" : "records"}
+            {hasDeviceSync
+              ? ` · includes ${deviceSync.punchCount.toLocaleString()} device punches`
+              : ""}
           </p>
         ) : (
           <p className="mt-2 text-sm text-black/55">

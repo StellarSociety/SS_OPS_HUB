@@ -499,10 +499,18 @@ export const DEFAULT_HR_SCHEDULE_APPROVAL_SETTINGS: HrScheduleApprovalSettings =
 
 export type ScheduleApprovalStatus = "pending" | "approved" | "cancelled";
 
+export type ScheduleApprovalDepartmentKey =
+  | "kitchen"
+  | "bar"
+  | "floor"
+  | "office";
+
 export type ScheduleApprovalRequest = {
   id: string;
   venue_id: string;
   week_start: string;
+  /** Schedule department tab this approval applies to. */
+  department_key: ScheduleApprovalDepartmentKey;
   status: ScheduleApprovalStatus;
   requested_by: string;
   requested_at: string;
