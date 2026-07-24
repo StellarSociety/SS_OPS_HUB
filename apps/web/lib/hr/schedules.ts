@@ -827,6 +827,40 @@ export function isWorkDateAfterTermination(
   return day > term;
 }
 
+/**
+ * True when `workDate` is strictly before the joining (commencement) date.
+ * The joining day itself is a valid employment day.
+ */
+export function isWorkDateBeforeJoining(
+  workDate: string,
+  joiningDate: string | null | undefined,
+): boolean {
+  const day = workDate.trim();
+  const join = joiningDate?.trim() ?? "";
+  if (!isIsoDateKey(day) || !isIsoDateKey(join)) return false;
+  return day < join;
+}
+
+/**
+ * True when the staff member is employed on `workDate`
+ * (joining ≤ workDate ≤ termination, inclusive). Missing joining → not employed.
+ */
+export function isStaffEmployedOnWorkDate(
+  member: {
+    joiningDate?: string | null;
+    terminationDate?: string | null;
+  },
+  workDate: string,
+): boolean {
+  const day = workDate.trim();
+  if (!isIsoDateKey(day)) return false;
+  const joining = member.joiningDate?.trim() ?? "";
+  if (!isIsoDateKey(joining)) return false;
+  if (day < joining) return false;
+  if (isWorkDateAfterTermination(day, member.terminationDate)) return false;
+  return true;
+}
+
 /** Format YYYY-MM-DD as DD/MM/YYYY for user-facing messages. */
 export function formatIsoDateDisplay(value: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());

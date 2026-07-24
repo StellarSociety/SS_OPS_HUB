@@ -11,13 +11,16 @@ import {
   canCarryForwardLeaveCode,
   carryForwardAmount,
   computeOpeningCarryForward,
+  countApprovedUnpaidLeaveDays,
   countInclusiveDays,
   countPhReplacementCredits,
   currentLeaveYear,
   dateRangesOverlap,
   eachIsoDateInRange,
+  endOfLeaveYear,
   groupScheduledLeaveRanges,
   isScheduleLeaveLabel,
+  isoDateOnly,
   listPhReplacementCreditDates,
   mergeLeavePolicy,
   normalizeLeaveCalendarStatus,
@@ -25,6 +28,7 @@ import {
   overlayBalanceUsageFromSchedule,
   PH_WORKED_LABEL_CODES,
   policyCodeToScheduleLeaveCode,
+  resolveAnnualLeaveEvalDate,
   scheduleLeaveCodesFromPolicyOrder,
   scheduleLeaveDisplayName,
   seedEntitlementForType,
@@ -98,6 +102,11 @@ function toNumber(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Whole leave days — never persist/display fractional day balances. */
+function toDays(v: unknown): number {
+  return Math.round(toNumber(v));
+}
+
 function normalizeBalance(row: Record<string, unknown>): HrLeaveBalance {
   return {
     id: String(row.id),
@@ -105,14 +114,14 @@ function normalizeBalance(row: Record<string, unknown>): HrLeaveBalance {
     staff_id: String(row.staff_id),
     leave_year: toNumber(row.leave_year),
     leave_type_code: String(row.leave_type_code),
-    entitled: toNumber(row.entitled),
-    accrued: toNumber(row.accrued),
-    used: toNumber(row.used),
-    scheduled: toNumber(row.scheduled),
-    pending: toNumber(row.pending),
-    carried_forward: toNumber(row.carried_forward),
-    expired: toNumber(row.expired),
-    adjusted: toNumber(row.adjusted),
+    entitled: toDays(row.entitled),
+    accrued: toDays(row.accrued),
+    used: toDays(row.used),
+    scheduled: toDays(row.scheduled),
+    pending: toDays(row.pending),
+    carried_forward: toDays(row.carried_forward),
+    expired: toDays(row.expired),
+    adjusted: toDays(row.adjusted),
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };
@@ -325,17 +334,16 @@ export async function ensureLeaveBalancesForYear(
 
   const phCreditsByStaff = new Map<string, number>();
   if (holidayDates.length > 0 && staff.length > 0) {
-    const scheduleDays = await listStaffScheduleDays(supabase, venue.id, {
+    // Only holiday dates — a full-year roster scan times out under RLS.
+    const scheduleDays = await listStaffScheduleDays(service, venue.id, {
       staffIds: staff.map((s) => s.id),
-      fromDate: `${year}-01-01`,
-      toDate: `${year}-12-31`,
+      workDates: holidayDates,
     });
     const daysByStaff = new Map<
       string,
       Array<{ work_date: string; label_code: string }>
     >();
     for (const day of scheduleDays) {
-      if (!holidaySet.has(String(day.work_date).slice(0, 10))) continue;
       const list = daysByStaff.get(day.staff_id) ?? [];
       list.push({
         work_date: day.work_date,
@@ -351,6 +359,82 @@ export async function ensureLeaveBalancesForYear(
           scheduleDays: daysByStaff.get(member.id) ?? [],
         }),
       );
+    }
+  }
+
+  // Approved UPL days (Validation) excluded from AL service period.
+  const unpaidDatesByStaff = new Map<string, string[]>();
+  const approvedDatesByStaff = new Map<string, Set<string>>();
+  if (staff.length > 0) {
+    const joinDates = staff
+      .map((s) => (s.joining_date ? String(s.joining_date).slice(0, 10) : null))
+      .filter((d): d is string => Boolean(d && /^\d{4}-\d{2}-\d{2}$/.test(d)));
+    const fromDate =
+      joinDates.length > 0
+        ? joinDates.reduce((a, b) => (a < b ? a : b))
+        : `${year}-01-01`;
+    const toDateCandidates = staff.map((member) =>
+      isoDateOnly(
+        resolveAnnualLeaveEvalDate(year, new Date(), member.termination_date),
+      ),
+    );
+    const toDate =
+      toDateCandidates.length > 0
+        ? toDateCandidates.reduce((a, b) => (a > b ? a : b))
+        : `${year}-12-31`;
+
+    const uplScheduleDays = await listStaffScheduleDays(service, venue.id, {
+      staffIds: staff.map((s) => s.id),
+      fromDate,
+      toDate,
+      labelCodes: ["UPL"],
+    });
+
+    for (const day of uplScheduleDays) {
+      const date = String(day.work_date).slice(0, 10);
+      const list = unpaidDatesByStaff.get(day.staff_id) ?? [];
+      list.push(date);
+      unpaidDatesByStaff.set(day.staff_id, list);
+    }
+
+    // Only need approval flags for dates that are actually UPL on the roster.
+    const uplDateSet = new Set<string>();
+    for (const dates of unpaidDatesByStaff.values()) {
+      for (const d of dates) uplDateSet.add(d);
+    }
+
+    if (uplDateSet.size > 0) {
+      const approvedAttendance = await listAttendanceDaysForStaff(
+        service,
+        venue.id,
+        {
+          staffIds: staff.map((s) => s.id),
+          empNos: staff.map((s) => String(s.emp_no ?? "")).filter(Boolean),
+          fromDate,
+          toDate,
+          approvedOnly: true,
+        },
+      );
+
+      for (const day of approvedAttendance) {
+        const date = String(day.work_date).slice(0, 10);
+        if (!uplDateSet.has(date)) continue;
+        const staffId = day.staff_id ? String(day.staff_id) : null;
+        if (staffId) {
+          const set = approvedDatesByStaff.get(staffId) ?? new Set<string>();
+          set.add(date);
+          approvedDatesByStaff.set(staffId, set);
+        }
+        const emp = String(day.emp_no ?? "").trim().toLowerCase();
+        if (!emp) continue;
+        const member = staff.find(
+          (s) => String(s.emp_no ?? "").trim().toLowerCase() === emp,
+        );
+        if (!member) continue;
+        const set = approvedDatesByStaff.get(member.id) ?? new Set<string>();
+        set.add(date);
+        approvedDatesByStaff.set(member.id, set);
+      }
     }
   }
 
@@ -418,6 +502,31 @@ export async function ensureLeaveBalancesForYear(
   for (const member of staff) {
     const onProbation = isOnProbation(member.probation_status);
     const phCredits = phCreditsByStaff.get(member.id) ?? 0;
+    const evalDate = resolveAnnualLeaveEvalDate(
+      year,
+      new Date(),
+      member.termination_date,
+    );
+    const unpaidLeaveDates = unpaidDatesByStaff.get(member.id) ?? [];
+    const approvedDates =
+      approvedDatesByStaff.get(member.id) ?? new Set<string>();
+    const approvedUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+      joiningDate: member.joining_date,
+      asOfDate: isoDateOnly(evalDate),
+      unpaidLeaveDates,
+      approvedDates,
+    });
+    const priorYearEvalDate = resolveAnnualLeaveEvalDate(
+      year - 1,
+      endOfLeaveYear(year - 1),
+      member.termination_date,
+    );
+    const priorYearApprovedUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+      joiningDate: member.joining_date,
+      asOfDate: isoDateOnly(priorYearEvalDate),
+      unpaidLeaveDates,
+      approvedDates,
+    });
     for (const code of BALANCE_TRACKED_CODES) {
       const seed = seedEntitlementForType(
         code,
@@ -428,6 +537,7 @@ export async function ensureLeaveBalancesForYear(
           onProbation,
           phReplacementCredits: phCredits,
           terminationDate: member.termination_date,
+          approvedUnpaidLeaveDays,
         },
       );
       const openingCarry = canCarryForwardLeaveCode(code)
@@ -438,6 +548,8 @@ export async function ensureLeaveBalancesForYear(
             policy,
             priorBalance: priorByKey.get(`${member.id}:${code}`) ?? null,
             terminationDate: member.termination_date,
+            approvedUnpaidLeaveDays:
+              code === "AL" ? priorYearApprovedUnpaidLeaveDays : 0,
           })
         : 0;
       const key = `${member.id}:${code}`;
@@ -766,14 +878,19 @@ export async function listLeaveBalanceSummaries(
     Array<{ label_code: string; work_date: string }>
   >();
   if (staff.length > 0) {
-    const scheduleDays = await listStaffScheduleDays(supabase, venue.id, {
-      staffIds: staff.map((s) => s.id),
-      fromDate: `${year}-01-01`,
-      toDate: `${year}-12-31`,
-    });
-    const tracked = new Set(["UPL", "ABS", "PH-REPL", "AL", "LP", "SL"]);
+    const trackedCodes = ["UPL", "ABS", "PH-REPL", "AL", "LP", "SL"] as const;
+    // Service role after auth — full-year leave-label rows under RLS time out.
+    const scheduleDays = await listStaffScheduleDays(
+      createServiceClient(),
+      venue.id,
+      {
+        staffIds: staff.map((s) => s.id),
+        fromDate: `${year}-01-01`,
+        toDate: `${year}-12-31`,
+        labelCodes: [...trackedCodes],
+      },
+    );
     for (const day of scheduleDays) {
-      if (!tracked.has(day.label_code)) continue;
       const list = scheduleDaysByStaff.get(day.staff_id) ?? [];
       list.push({
         label_code: day.label_code,
@@ -1242,8 +1359,9 @@ export async function adjustLeaveBalance(input: {
 
   const reason = input.reason.trim();
   if (!reason) return { error: "A reason is required for adjustments." };
-  if (!Number.isFinite(input.delta) || input.delta === 0) {
-    return { error: "Adjustment delta must be a non-zero number." };
+  const delta = Math.round(Number(input.delta));
+  if (!Number.isFinite(delta) || delta === 0) {
+    return { error: "Adjustment must be a non-zero whole number of days." };
   }
 
   const field = input.field ?? "adjusted";
@@ -1271,7 +1389,7 @@ export async function adjustLeaveBalance(input: {
   }
 
   const previous = field === "carried_forward" ? bal.carried_forward : bal.adjusted;
-  const next = previous + input.delta;
+  const next = previous + delta;
   if (field === "carried_forward" && next < 0) {
     return { error: "Carried over days cannot go below zero." };
   }
@@ -1303,6 +1421,129 @@ export async function adjustLeaveBalance(input: {
     entity_id: bal.id,
     venue_id: venue.id,
     after: { field, previous, next, reason },
+  });
+
+  revalidatePath("/hr/attendance/leave", "layout");
+  return {};
+}
+
+/**
+ * Correct an existing adjustment audit row (reason and/or resulting value).
+ * When new_value changes, the live balance field is shifted by the same delta.
+ */
+export async function updateLeaveBalanceAdjustment(input: {
+  adjustmentId: string;
+  reason: string;
+  newValue: number;
+}): Promise<{ error?: string }> {
+  const { user, venue, permissions } = await getAuthContext();
+
+  if (!canEditStaff(permissions, venue.id) && !canAdminLookups(permissions, venue.id)) {
+    return { error: "You do not have permission to edit leave adjustments." };
+  }
+
+  const reason = input.reason.trim();
+  if (!reason) return { error: "A reason is required for adjustments." };
+
+  const newValue = Math.round(Number(input.newValue));
+  if (!Number.isFinite(newValue)) {
+    return { error: "New value must be a whole number of days." };
+  }
+
+  const service = createServiceClient();
+  const { data: adjRow, error: adjError } = await service
+    .from("hr_leave_balance_adjustments")
+    .select("*")
+    .eq("id", input.adjustmentId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (adjError || !adjRow) {
+    return { error: adjError?.message ?? "Adjustment not found." };
+  }
+
+  const field = String(adjRow.field);
+  if (field !== "adjusted" && field !== "carried_forward") {
+    return { error: "This adjustment cannot be edited." };
+  }
+
+  const previousValue = toDays(adjRow.previous_value);
+  const oldNewValue = toDays(adjRow.new_value);
+  const oldReason = String(adjRow.reason ?? "");
+
+  if (newValue === oldNewValue && reason === oldReason) {
+    return {};
+  }
+
+  if (field === "carried_forward" && newValue < 0) {
+    return { error: "Carried over days cannot go below zero." };
+  }
+
+  const { data: balRow, error: balError } = await service
+    .from("hr_leave_balances")
+    .select("*")
+    .eq("id", String(adjRow.balance_id))
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (balError || !balRow) {
+    return { error: balError?.message ?? "Balance not found." };
+  }
+
+  const bal = normalizeBalance(balRow as Record<string, unknown>);
+  if (field === "carried_forward" && !canCarryForwardLeaveCode(bal.leave_type_code)) {
+    return {
+      error: "Only AL and Public Holiday (PH-REPL) can carry days between years.",
+    };
+  }
+
+  const valueDelta = newValue - oldNewValue;
+  const currentFieldValue = field === "carried_forward" ? bal.carried_forward : bal.adjusted;
+  const nextFieldValue = currentFieldValue + valueDelta;
+
+  if (field === "carried_forward" && nextFieldValue < 0) {
+    return { error: "Carried over days cannot go below zero." };
+  }
+
+  const now = new Date().toISOString();
+
+  if (valueDelta !== 0) {
+    const { error: updBalError } = await service
+      .from("hr_leave_balances")
+      .update({ [field]: nextFieldValue, updated_at: now })
+      .eq("id", bal.id);
+
+    if (updBalError) return { error: updBalError.message };
+  }
+
+  const { error: updAdjError } = await service
+    .from("hr_leave_balance_adjustments")
+    .update({
+      new_value: newValue,
+      reason,
+    })
+    .eq("id", input.adjustmentId)
+    .eq("venue_id", venue.id);
+
+  if (updAdjError) return { error: updAdjError.message };
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "update",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_leave_balance_adjustments",
+    entity_id: input.adjustmentId,
+    venue_id: venue.id,
+    after: {
+      field,
+      previous_value: previousValue,
+      old_new_value: oldNewValue,
+      new_value: newValue,
+      old_reason: oldReason,
+      reason,
+      balance_field_before: currentFieldValue,
+      balance_field_after: nextFieldValue,
+    },
   });
 
   revalidatePath("/hr/attendance/leave", "layout");
@@ -1359,8 +1600,7 @@ export async function getStaffPhReplacementCredits(input: {
 
   const scheduleDays = await listStaffScheduleDays(supabase, venue.id, {
     staffIds: [input.staffId],
-    fromDate: `${year}-01-01`,
-    toDate: `${year}-12-31`,
+    workDates: holidayDates,
   });
 
   const dayRows = scheduleDays.map((d) => ({

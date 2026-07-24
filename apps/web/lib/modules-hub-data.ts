@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { canAccessModule } from "@/lib/module-access";
-import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import {
   fetchAppModuleStateMap,
   resolveModuleState,
@@ -16,7 +15,7 @@ import {
 } from "@/lib/modules-registry";
 import { isAppAdmin } from "@/lib/role-permissions";
 import type { UserPermission } from "@/lib/role-permissions";
-import { createClient } from "@/lib/supabase/server";
+import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 import type { Venue } from "@/lib/types/database";
 
 type VenueModuleRow = {
@@ -83,13 +82,11 @@ export function buildModuleGridItems(
 }
 
 export async function loadModulesHubContext() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
-  const venue = await resolveActiveVenue(supabase);
+  const venue = await getRenderVenue();
   if (!venue) redirect("/select-venue");
 
   const [{ data: permissions }, { data: venueModules }, appStateMap] =

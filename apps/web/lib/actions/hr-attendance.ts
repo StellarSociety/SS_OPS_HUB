@@ -654,7 +654,8 @@ export async function saveValidationRosterDays(params: {
   changes: {
     staffId: string;
     workDate: string;
-    labelCode: ValidationRosterLabelCode;
+    /** null clears the roster label for that day. */
+    labelCode: ValidationRosterLabelCode | null;
   }[];
 }) {
   if (params.changes.length === 0) {
@@ -669,7 +670,10 @@ export async function saveValidationRosterDays(params: {
       changes: params.changes.map((change) => ({
         staffId: change.staffId,
         workDate: change.workDate,
-        labelCode: scheduleLabelForValidation(change.labelCode),
+        labelCode:
+          change.labelCode == null
+            ? null
+            : scheduleLabelForValidation(change.labelCode),
         shiftTemplateId: null,
       })),
     });

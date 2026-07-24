@@ -2,17 +2,14 @@ import { redirect } from "next/navigation";
 import { ImportStaffForm } from "@/components/hr/import-staff";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canEditStaff } from "@/lib/hr/permissions";
-import { createClient } from "@/lib/supabase/server";
-import { resolveActiveVenue } from "@/lib/venue/active-venue";
+import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 
 export default async function HrImportPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
-  const venue = await resolveActiveVenue(supabase);
+  const venue = await getRenderVenue();
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase

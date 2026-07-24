@@ -2,8 +2,8 @@ import { AttendanceApprovalsCheckPanel } from "@/components/hr/attendance-approv
 import { attendanceDayRequiresApproval } from "@/lib/hr/attendance-approval";
 import { currentMonthKey } from "@/lib/hr/attendance-months";
 import {
+  approvalsCheckScope,
   buildAttendanceValidationRows,
-  validationEmployeeOptions,
 } from "@/lib/hr/build-attendance-validation-rows";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
@@ -14,6 +14,7 @@ import {
   resolvePayrollPeriod,
   type HrPayrollSettings,
 } from "@/lib/hr/payroll";
+import { isStaffEmployedOnWorkDate } from "@/lib/hr/schedules";
 import {
   getHrVenueSetting,
   listDepartments,
@@ -82,23 +83,31 @@ export default async function AttendanceApprovalsCheckPage({
       : payrollMonthContainingDate(todayIso(), payrollSettings);
 
     const period = resolvePayrollPeriod(payrollMonth, payrollSettings);
+    const scope = approvalsCheckScope(staff, period);
+    const employeeById = new Map(scope.employees.map((e) => [e.id, e]));
+    const eligibleIds = new Set(scope.employees.map((e) => e.id));
+
     const rows = await buildAttendanceValidationRows(supabase, venue.id, {
-      fromDate: period.periodStart,
-      toDate: period.periodEnd,
+      fromDate: scope.fromDate,
+      toDate: scope.toDate,
     });
 
-    const eligibleIds = new Set(
-      validationEmployeeOptions(staff).map((e) => e.id),
-    );
     const deptById = new Map(departments.map((d) => [d.id, d.name]));
 
     const pendingDays = rows
       .map((row) => {
-        if (row.staffId && !eligibleIds.has(row.staffId)) return null;
+        // Skip unmatched punches / schedule rows (e.g. emp "1", "2") that are
+        // not linked to a registered employee in this payroll scope.
+        if (!row.staffId || !eligibleIds.has(row.staffId)) return null;
+        const employee = employeeById.get(row.staffId);
+        if (!employee || !isStaffEmployedOnWorkDate(employee, row.workDate)) {
+          return null;
+        }
         const need = attendanceDayRequiresApproval({
           rosterLabel: row.rosterLabel,
           approvalStatus: row.approvalStatus,
           workDate: row.workDate,
+          attendanceId: row.id,
           scheduleStart: row.scheduleStartTime,
           scheduleEnd: row.scheduleEndTime,
           clockIn: row.clockIn,
@@ -130,21 +139,30 @@ export default async function AttendanceApprovalsCheckPage({
         <div>
           <h2 className="font-serif text-lg text-[#3D421F]">Approvals Check</h2>
           <p className="mt-1 text-sm text-black/55">
-            Per employee, leave and worked days in the payroll period (
+            Leave and worked days that still need Validation approval for staff
+            whose termination date falls in the selected payroll month (
             {payrollSettings.periodStartDay} → {payrollSettings.periodEndDay}{" "}
-            from Pay settings) that still need Validation approval. OFF and
-            calendar PH are excluded; SHIFT only appears when punches are
-            missing or outside the {rules.scheduleVarianceMinutes}-minute
-            schedule tolerance.
+            from Pay settings, including OUT). Active employees without a
+            termination date are not listed. OFF, calendar PH, and in-tolerance
+            SHIFT days are excluded. SHIFT only appears when an attendance row
+            has missing punches or times outside the{" "}
+            {rules.scheduleVarianceMinutes}-minute schedule tolerance
+            (roster-only no-shows are not listed — mark ABS/leave in Validation
+            first). If termination is after the usual period end, the date range
+            extends through that day.
           </p>
         </div>
         <AttendanceApprovalsCheckPanel
           days={pendingDays}
           departments={departments.map((d) => ({ id: d.id, name: d.name }))}
           payrollMonthInput={payrollMonthInputValue(period.payrollMonth)}
-          periodStart={period.periodStart}
-          periodEnd={period.periodEnd}
+          periodStartDay={payrollSettings.periodStartDay}
+          periodEndDay={payrollSettings.periodEndDay}
+          periodStart={scope.fromDate}
+          periodEnd={scope.toDate}
           periodLabel={formatPayrollMonthLabel(period.payrollMonth)}
+          periodExtended={scope.periodExtended}
+          settingsPeriodEnd={period.periodEnd}
         />
       </div>
     );

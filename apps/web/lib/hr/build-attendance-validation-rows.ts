@@ -5,6 +5,7 @@ import {
   DEFAULT_SCHEDULE_VARIANCE_MINUTES,
   measureShiftPunchVariance,
 } from "@/lib/hr/schedule-variance";
+import { calendarDateKeyInTimezone } from "@/lib/hr/schedules";
 import {
   getHrVenueSetting,
   listAttendanceDays,
@@ -102,6 +103,10 @@ export async function buildAttendanceValidationRows(
   ]);
 
   const timezone = importRules.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone;
+  /** Venue-local calendar today — punches/issues only apply through this date. */
+  const todayKey = calendarDateKeyInTimezone(new Date().toISOString(), timezone);
+  const isFutureWorkDate = (workDate: string) =>
+    Boolean(todayKey) && workDate > todayKey;
   const varianceMinutes =
     Number.isFinite(importRules.scheduleVarianceMinutes)
       ? Math.max(0, importRules.scheduleVarianceMinutes)
@@ -171,6 +176,8 @@ export async function buildAttendanceValidationRows(
   for (const day of days) {
     const empKey = day.emp_no.trim().toLowerCase();
     if (empFilter && empKey !== empFilter) continue;
+    // Future days: show roster/schedule only — do not attach punches or issues.
+    if (isFutureWorkDate(day.work_date)) continue;
     const key = `${empKey}::${day.work_date}`;
     const planned = rosterByKey.get(key);
     const person = staffByEmp.get(empKey);
@@ -236,7 +243,7 @@ export async function buildAttendanceValidationRows(
       planned.shift_template_id,
     );
     const issue =
-      planned.label_code === "SHIFT"
+      !isFutureWorkDate(planned.work_date) && planned.label_code === "SHIFT"
         ? "Scheduled shift with no attendance"
         : null;
 
@@ -265,9 +272,23 @@ export async function buildAttendanceValidationRows(
   );
 }
 
+export type ValidationEmployeeOption = {
+  id: string;
+  empNo: string;
+  fullName: string;
+  departmentId: string | null;
+  joiningDate: string | null;
+  terminationDate: string | null;
+};
+
+function isoDateOnly(value: string | null | undefined): string | null {
+  const raw = value?.trim() ? String(value).slice(0, 10) : "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
 export function validationEmployeeOptions(
   staff: Awaited<ReturnType<typeof listStaffForVenue>>,
-) {
+): ValidationEmployeeOption[] {
   return staff
     .filter((s) =>
       VALIDATION_ELIGIBLE_STATUS_NAMES.has(s.employment_status?.name ?? ""),
@@ -277,5 +298,55 @@ export function validationEmployeeOptions(
       empNo: s.emp_no,
       fullName: s.full_name,
       departmentId: s.department_id,
+      joiningDate: isoDateOnly(s.joining_date),
+      terminationDate: isoDateOnly(s.termination_date),
     }));
+}
+
+/**
+ * Approvals Check date window + staff list for a payroll period.
+ *
+ * Only staff with a termination date in the selected payroll calendar month
+ * (YYYY-MM of `payrollMonth`), any employment status including OUT.
+ * If that termination is after `periodEnd`, extend `toDate` through it.
+ * Active staff without a termination date are never included.
+ */
+export function approvalsCheckScope(
+  staff: Awaited<ReturnType<typeof listStaffForVenue>>,
+  period: { payrollMonth: string; periodStart: string; periodEnd: string },
+): {
+  fromDate: string;
+  toDate: string;
+  periodExtended: boolean;
+  employees: ValidationEmployeeOption[];
+} {
+  const payrollYm = period.payrollMonth.slice(0, 7);
+  let toDate = period.periodEnd;
+  const employees: ValidationEmployeeOption[] = [];
+
+  for (const s of staff) {
+    const terminationDate = isoDateOnly(s.termination_date);
+    if (!terminationDate || !terminationDate.startsWith(payrollYm)) continue;
+
+    const joiningDate = isoDateOnly(s.joining_date);
+    if (!joiningDate) continue;
+
+    if (terminationDate > toDate) toDate = terminationDate;
+
+    employees.push({
+      id: s.id,
+      empNo: s.emp_no,
+      fullName: s.full_name,
+      departmentId: s.department_id,
+      joiningDate,
+      terminationDate,
+    });
+  }
+
+  return {
+    fromDate: period.periodStart,
+    toDate,
+    periodExtended: toDate > period.periodEnd,
+    employees,
+  };
 }

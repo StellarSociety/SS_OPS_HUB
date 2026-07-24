@@ -284,31 +284,92 @@ export function resolvePositionId(
 export async function listStaffScheduleDays(
   supabase: SupabaseClient,
   venueId: string,
-  opts: { staffIds: string[]; fromDate: string; toDate: string },
+  opts: {
+    staffIds: string[];
+    fromDate?: string;
+    toDate?: string;
+    /**
+     * Exact work dates (e.g. public holidays). Prefer over a full-year range
+     * when only a small set of dates is needed — avoids statement timeouts.
+     */
+    workDates?: string[];
+    /** When set, only these roster label codes are returned. */
+    labelCodes?: string[];
+  },
 ) {
   if (opts.staffIds.length === 0) return [];
 
-  const { data, error } = await supabase
-    .from("hr_schedule_days")
-    .select("id, staff_id, emp_no, work_date, label_code, shift_template_id")
-    .eq("venue_id", venueId)
-    .in("staff_id", opts.staffIds)
-    .gte("work_date", opts.fromDate)
-    .lte("work_date", opts.toDate);
+  const workDates = [
+    ...new Set(
+      (opts.workDates ?? [])
+        .map((d) => String(d).slice(0, 10))
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    ),
+  ].sort();
+  const useExactDates = workDates.length > 0;
+  if (!useExactDates && (!opts.fromDate || !opts.toDate)) return [];
 
-  if (error) {
-    // Table may not exist until the migration is applied.
-    console.error("[hr] listStaffScheduleDays:", error.message);
-    return [];
-  }
+  const staffIdSet = new Set(opts.staffIds);
+  // Large `IN (staff_id…)` lists fight the venue/date index and bloat PostgREST
+  // URLs. Venue-scoped fetch + in-memory filter is faster for roster-wide reads.
+  const filterStaffInQuery = opts.staffIds.length <= 40;
 
-  return (data ?? []) as {
+  // Multi-year AL service windows can exceed PostgREST’s silent 1000-row cap.
+  const pageSize = 1000;
+  const maxRows = 50_000;
+  const rows: {
     staff_id: string;
     emp_no: string;
     work_date: string;
     label_code: string;
     shift_template_id: string | null;
-  }[];
+  }[] = [];
+  let from = 0;
+
+  while (rows.length < maxRows) {
+    const to = from + pageSize - 1;
+    let query = supabase
+      .from("hr_schedule_days")
+      .select("staff_id, emp_no, work_date, label_code, shift_template_id")
+      .eq("venue_id", venueId)
+      .order("work_date")
+      .order("staff_id")
+      .range(from, to);
+
+    if (useExactDates) {
+      query = query.in("work_date", workDates);
+    } else {
+      query = query
+        .gte("work_date", opts.fromDate!)
+        .lte("work_date", opts.toDate!);
+    }
+
+    if (filterStaffInQuery) {
+      query = query.in("staff_id", opts.staffIds);
+    }
+
+    if (opts.labelCodes && opts.labelCodes.length > 0) {
+      query = query.in("label_code", opts.labelCodes);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      // Table may not exist until the migration is applied.
+      console.error("[hr] listStaffScheduleDays:", error.message);
+      return rows;
+    }
+
+    const page = (data ?? []) as typeof rows;
+    for (const row of page) {
+      if (!filterStaffInQuery && !staffIdSet.has(row.staff_id)) continue;
+      rows.push(row);
+    }
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
 }
 
 export async function listShiftTemplates(
@@ -614,45 +675,9 @@ export async function listAttendanceDaysForStaff(
   const staffIdSet = new Set(staffIds);
   const empNoSet = new Set(empNos.map((empNo) => empNo.toLowerCase()));
 
-  let query = supabase
-    .from("hr_attendance_days")
-    .select(
-      "staff_id, emp_no, work_date, clock_in, clock_out, status, approval_status, total_hours",
-    )
-    .eq("venue_id", venueId)
-    .gte("work_date", opts.fromDate)
-    .lte("work_date", opts.toDate)
-    .order("work_date");
-
-  if (opts.approvedOnly) {
-    query = query.eq("approval_status", "approved");
-  }
-
-  if (staffIds.length > 0 && empNos.length > 0) {
-    query = query.or(
-      `staff_id.in.(${staffIds.join(",")}),emp_no.in.(${empNos.join(",")})`,
-    );
-  } else if (staffIds.length > 0) {
-    query = query.in("staff_id", staffIds);
-  } else {
-    query = query.in("emp_no", empNos);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("[hr] listAttendanceDaysForStaff:", error.message);
-    return [];
-  }
-
-  // Keep a defensive client filter in case PostgREST OR matching is loose.
-  return (data ?? []).filter((row) => {
-    if (row.staff_id && staffIdSet.has(row.staff_id as string)) return true;
-    const emp = String(row.emp_no ?? "")
-      .trim()
-      .toLowerCase();
-    return emp.length > 0 && empNoSet.has(emp);
-  }) as {
+  const pageSize = 1000;
+  const maxRows = 50_000;
+  const rows: {
     staff_id: string | null;
     emp_no: string;
     work_date: string;
@@ -661,7 +686,58 @@ export async function listAttendanceDaysForStaff(
     status: string;
     approval_status: string;
     total_hours: number | null;
-  }[];
+  }[] = [];
+  let from = 0;
+
+  while (rows.length < maxRows) {
+    const to = from + pageSize - 1;
+    let query = supabase
+      .from("hr_attendance_days")
+      .select(
+        "staff_id, emp_no, work_date, clock_in, clock_out, status, approval_status, total_hours",
+      )
+      .eq("venue_id", venueId)
+      .gte("work_date", opts.fromDate)
+      .lte("work_date", opts.toDate)
+      .order("work_date")
+      .order("emp_no")
+      .range(from, to);
+
+    if (opts.approvedOnly) {
+      query = query.eq("approval_status", "approved");
+    }
+
+    if (staffIds.length > 0 && empNos.length > 0) {
+      query = query.or(
+        `staff_id.in.(${staffIds.join(",")}),emp_no.in.(${empNos.join(",")})`,
+      );
+    } else if (staffIds.length > 0) {
+      query = query.in("staff_id", staffIds);
+    } else {
+      query = query.in("emp_no", empNos);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("[hr] listAttendanceDaysForStaff:", error.message);
+      return rows;
+    }
+
+    const page = (data ?? []) as typeof rows;
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+
+  // Keep a defensive client filter in case PostgREST OR matching is loose.
+  return rows.filter((row) => {
+    if (row.staff_id && staffIdSet.has(row.staff_id as string)) return true;
+    const emp = String(row.emp_no ?? "")
+      .trim()
+      .toLowerCase();
+    return emp.length > 0 && empNoSet.has(emp);
+  });
 }
 
 export async function listAttendancePunchesForStaff(

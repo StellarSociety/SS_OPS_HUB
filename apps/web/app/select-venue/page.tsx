@@ -2,15 +2,13 @@ import { redirect } from "next/navigation";
 import { SelectVenueWelcome } from "@/components/venue/select-venue-welcome";
 import { VenueGrid } from "@/components/venue/venue-grid";
 import { canAccessGlobal } from "@/lib/role-permissions";
-import { createClient } from "@/lib/supabase/server";
+import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { normalizeVenueRows } from "@/lib/venue/normalize";
 
 export default async function SelectVenuePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
 
   if (!user) {
     redirect("/login");

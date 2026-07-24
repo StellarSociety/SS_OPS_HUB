@@ -3,8 +3,10 @@ import { cn } from "@/lib/utils";
 const WORKING_STATUS_STYLES: Record<string, string> = {
   Active: "bg-emerald-100 text-emerald-800",
   "Paid Leave": "bg-sky-100 text-sky-800",
+  "Annual Leave": "bg-sky-100 text-sky-800",
   "Unpaid Leave": "bg-amber-100 text-amber-800",
   "OFF-Boarding": "bg-rose-100 text-rose-800",
+  "Off-boarding": "bg-rose-100 text-rose-800",
 };
 
 type WorkingStatusBadgeProps = {

@@ -216,9 +216,10 @@ export type HrLeaveAnnualPolicy = {
   /** Monthly accrual after 1 year (typically annualDaysAfterYear / 12). */
   monthlyAccrualAfterYear: number;
   /**
-   * How partial months count toward AL before 1 year of service.
-   * - full_months: only completed months (e.g. 9 × 2 = 18)
-   * - pro_rata: include the current partial month as a fraction
+   * How partial months count toward AL before 1 year of adjusted service
+   * (calendar days minus approved unpaid leave, measured in 30-day months).
+   * - full_months: floor(adjustedDays / 30) * daysPerMonthBeforeYear
+   * - pro_rata: adjustedDays / 30 * daysPerMonthBeforeYear (roundDays)
    * Employees with a termination date always use pro_rata (capped at that date).
    */
   partialMonthMethod: HrLeavePartialMonthMethod;

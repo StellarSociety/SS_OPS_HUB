@@ -28,6 +28,7 @@ import {
   adjustLeaveBalance,
   approveLeaveCalendarEntry,
   rejectLeaveCalendarEntry,
+  updateLeaveBalanceAdjustment,
 } from "@/lib/actions/hr-leave";
 import {
   availableBalance,
@@ -318,6 +319,13 @@ export function LeaveEmployeeDetail({
   const [scheduleActionKey, setScheduleActionKey] = useState<string | null>(
     null,
   );
+  const [editingAdjustmentId, setEditingAdjustmentId] = useState<string | null>(
+    null,
+  );
+  const [editAdjNewValue, setEditAdjNewValue] = useState("");
+  const [editAdjReason, setEditAdjReason] = useState("");
+  const [editAdjMessage, setEditAdjMessage] = useState<string | null>(null);
+  const [editAdjPending, startEditAdjTransition] = useTransition();
 
   const byCode = new Map(balances.map((b) => [b.leave_type_code, b]));
   const labelByCode = new Map(scheduleLabels.map((l) => [l.code, l]));
@@ -452,9 +460,9 @@ export function LeaveEmployeeDetail({
       setMessage("Only AL and Public Holiday can carry days between years.");
       return;
     }
-    const amount = Number(delta);
+    const amount = Math.round(Number(delta));
     if (!Number.isFinite(amount) || amount === 0) {
-      setMessage("Enter a non-zero adjustment.");
+      setMessage("Enter a non-zero whole-day adjustment.");
       return;
     }
     startTransition(async () => {
@@ -479,8 +487,49 @@ export function LeaveEmployeeDetail({
     });
   }
 
+  function beginEditAdjustment(a: HrLeaveBalanceAdjustment) {
+    setEditingAdjustmentId(a.id);
+    setEditAdjNewValue(String(Math.round(a.new_value)));
+    setEditAdjReason(a.reason);
+    setEditAdjMessage(null);
+  }
+
+  function cancelEditAdjustment() {
+    setEditingAdjustmentId(null);
+    setEditAdjNewValue("");
+    setEditAdjReason("");
+    setEditAdjMessage(null);
+  }
+
+  function saveEditAdjustment(a: HrLeaveBalanceAdjustment) {
+    setEditAdjMessage(null);
+    const nextValue = Math.round(Number(editAdjNewValue));
+    if (!Number.isFinite(nextValue)) {
+      setEditAdjMessage("Enter a whole number of days.");
+      return;
+    }
+    if (!editAdjReason.trim()) {
+      setEditAdjMessage("A reason is required.");
+      return;
+    }
+    startEditAdjTransition(async () => {
+      const result = await updateLeaveBalanceAdjustment({
+        adjustmentId: a.id,
+        newValue: nextValue,
+        reason: editAdjReason,
+      });
+      if (result.error) {
+        setEditAdjMessage(result.error);
+        return;
+      }
+      cancelEditAdjustment();
+      toast.saved("Adjustment updated.");
+      router.refresh();
+    });
+  }
+
   return (
-    <div className="mx-auto w-full max-w-[66.666%] space-y-6">
+    <div className="mx-auto w-full max-w-[83.333%] space-y-6">
       <button
         type="button"
         onClick={onBack}
@@ -699,13 +748,13 @@ export function LeaveEmployeeDetail({
                 <th className="px-3 py-2 font-medium">Type</th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Statutory total for this leave year (policy × service). Under 1 year: months × days-per-month. From 1 year with no termination: full annual days (e.g. 30)."
+                  title="Statutory total for this leave year from adjusted service days (calendar days minus approved UPL, ÷ 30). Under 1 year: day-based mid-band (termination always pro-rata). From 1 year: full annual days (e.g. 30)."
                 >
                   Entitled
                 </th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Amount earned so far toward the entitled total. Under 1 year of service this matches Entitled; after 1 year it grows month by month (e.g. 2.5/month toward 30)."
+                  title="Amount earned so far toward the entitled total. Under 1 adjusted year this matches Entitled; after 1 year it grows month by month in the leave year (e.g. 2.5/month toward 30)."
                 >
                   Accrued
                 </th>
@@ -941,8 +990,8 @@ export function LeaveEmployeeDetail({
                 </button>
                 <Input
                   type="number"
-                  step={0.5}
-                  inputMode="decimal"
+                  step={1}
+                  inputMode="numeric"
                   value={delta}
                   onChange={(e) => setDelta(e.target.value)}
                   placeholder="0"
@@ -1018,6 +1067,104 @@ export function LeaveEmployeeDetail({
               <ul className="mt-2 divide-y divide-black/5 rounded-lg border border-black/10 bg-white">
                 {adjustments.slice(0, 8).map((a) => {
                   const change = a.new_value - a.previous_value;
+                  const isEditing = editingAdjustmentId === a.id;
+                  if (isEditing) {
+                    const previewChange =
+                      Number.isFinite(Number(editAdjNewValue))
+                        ? Math.round(Number(editAdjNewValue)) - a.previous_value
+                        : change;
+                    return (
+                      <li key={a.id} className="space-y-2.5 px-3 py-2.5 text-sm">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <div>
+                            <span className="font-mono text-xs text-black/45">
+                              {a.field}
+                            </span>
+                            <span className="mx-1.5 text-black/30">·</span>
+                            <span className="tabular-nums text-[#3D421F]">
+                              {fmt(a.previous_value)} →{" "}
+                              {Number.isFinite(Number(editAdjNewValue))
+                                ? fmt(Math.round(Number(editAdjNewValue)))
+                                : "—"}
+                            </span>
+                            <span
+                              className={cn(
+                                "ml-2 tabular-nums text-xs font-medium",
+                                previewChange > 0
+                                  ? "text-emerald-700"
+                                  : previewChange < 0
+                                    ? "text-red-700"
+                                    : "text-black/45",
+                              )}
+                            >
+                              {previewChange > 0 ? "+" : ""}
+                              {fmt(previewChange)}
+                            </span>
+                          </div>
+                          <time className="text-xs text-black/40">
+                            {formatAdjustmentWhen(a.created_at)}
+                          </time>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_auto]">
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-black/45">
+                              New value
+                            </Label>
+                            <Input
+                              type="number"
+                              step={1}
+                              inputMode="numeric"
+                              value={editAdjNewValue}
+                              onChange={(e) =>
+                                setEditAdjNewValue(e.target.value)
+                              }
+                              className="h-9 text-center tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                              disabled={editAdjPending}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-black/45">
+                              Reason
+                            </Label>
+                            <Input
+                              value={editAdjReason}
+                              onChange={(e) => setEditAdjReason(e.target.value)}
+                              className="h-9"
+                              disabled={editAdjPending}
+                            />
+                          </div>
+                          <div className="flex items-end gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-9"
+                              disabled={
+                                editAdjPending || !editAdjReason.trim()
+                              }
+                              onClick={() => saveEditAdjustment(a)}
+                            >
+                              {editAdjPending ? "Saving…" : "Save"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-9 text-[#3D421F]"
+                              disabled={editAdjPending}
+                              onClick={cancelEditAdjustment}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                        {editAdjMessage ? (
+                          <p className="text-xs text-amber-800">
+                            {editAdjMessage}
+                          </p>
+                        ) : null}
+                      </li>
+                    );
+                  }
                   return (
                     <li
                       key={a.id}
@@ -1046,9 +1193,21 @@ export function LeaveEmployeeDetail({
                         </span>
                         <p className="mt-0.5 text-black/55">{a.reason}</p>
                       </div>
-                      <time className="text-xs text-black/40">
-                        {formatAdjustmentWhen(a.created_at)}
-                      </time>
+                      <div className="flex items-center gap-2">
+                        <time className="text-xs text-black/40">
+                          {formatAdjustmentWhen(a.created_at)}
+                        </time>
+                        <button
+                          type="button"
+                          aria-label="Edit adjustment"
+                          title="Edit adjustment"
+                          onClick={() => beginEditAdjustment(a)}
+                          disabled={editAdjPending || editingAdjustmentId != null}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-black/40 transition hover:bg-black/[0.04] hover:text-[#3D421F] disabled:opacity-40"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </li>
                   );
                 })}

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { resolveActiveVenue } from "@/lib/venue/active-venue";
+import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 
 /**
  * Shared server-side context loader for Human Resources pages: resolves the
@@ -8,13 +7,11 @@ import { resolveActiveVenue } from "@/lib/venue/active-venue";
  * login / venue picker when prerequisites are missing.
  */
 export async function getHrPageContext() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
-  const venue = await resolveActiveVenue(supabase);
+  const venue = await getRenderVenue();
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase

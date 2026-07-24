@@ -37,10 +37,15 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: {
     "/*": SHARP_TRACE_EXCLUDES,
   },
+  // sharp@0.35 dlopens libvips from a sibling package that NFT/Turbopack often
+  // miss. Include only the libvips store dir (not @img/sharp-linux-x64) — that
+  // package symlinks to libvips and Vercel rejects symlinked deploy packages.
+  // See https://github.com/lovell/sharp/issues/4567
   outputFileTracingIncludes: {
     "/*": [
-      "node_modules/.pnpm/@img+sharp-linux-x64@*/node_modules/@img/sharp-linux-x64/**/*",
       "node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/**/*",
+      // Also from apps/web when tracingRoot is ignored by some Turbopack paths.
+      "../../node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/**/*",
     ],
   },
   experimental: {

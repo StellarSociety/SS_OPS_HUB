@@ -5,10 +5,9 @@ import {
   listNotificationsForUser,
 } from "@/lib/notifications/store";
 import { isAppAdmin } from "@/lib/role-permissions";
-import { createClient } from "@/lib/supabase/server";
+import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 import { getUserRoleLabel } from "@/lib/user/display";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
-import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import { GLOBAL_BASE, venueBase } from "@/lib/venue/scope-routing";
 
 export default async function AppLayout({
@@ -16,16 +15,14 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const venue = await resolveActiveVenue(supabase);
+  const venue = await getRenderVenue();
   if (!venue) {
     redirect("/select-venue");
   }

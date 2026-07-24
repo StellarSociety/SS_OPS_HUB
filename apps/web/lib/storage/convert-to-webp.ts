@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import type { Sharp, SharpOptions } from "sharp";
 
 /**
@@ -10,13 +11,27 @@ import type { Sharp, SharpOptions } from "sharp";
  * when an image is actually being processed keeps non-image writes working.
  */
 export async function loadSharp(): Promise<
-  (input: Buffer, options?: SharpOptions) => Sharp
+  (input?: Buffer | ArrayBuffer | Uint8Array | string, options?: SharpOptions) => Sharp
 > {
-  const mod = await import("sharp");
-  return (mod.default ?? mod) as unknown as (
-    input: Buffer,
-    options?: SharpOptions,
-  ) => Sharp;
+  try {
+    const mod = await import("sharp");
+    return (mod.default ?? mod) as unknown as (
+      input?: Buffer | ArrayBuffer | Uint8Array | string,
+      options?: SharpOptions,
+    ) => Sharp;
+  } catch (dynamicErr) {
+    // Turbopack/Vercel sometimes fails dynamic import of the native binding;
+    // createRequire resolves the real package from disk as a fallback.
+    try {
+      const require = createRequire(import.meta.url);
+      return require("sharp") as (
+        input?: Buffer | ArrayBuffer | Uint8Array | string,
+        options?: SharpOptions,
+      ) => Sharp;
+    } catch {
+      throw dynamicErr;
+    }
+  }
 }
 
 /** Default lossy WebP quality for uploaded/imported raster images. */
@@ -60,37 +75,78 @@ export function isRasterImageMime(mimeType: string): boolean {
   return RASTER_MIME_TYPES.has(mimeType);
 }
 
+/** RIFF....WEBP header — client crops already produce this. */
+export function isWebpBuffer(input: Buffer): boolean {
+  return (
+    input.length >= 12 &&
+    input.toString("ascii", 0, 4) === "RIFF" &&
+    input.toString("ascii", 8, 12) === "WEBP"
+  );
+}
+
+function asNodeBuffer(input: Buffer | Uint8Array | ArrayBuffer): Buffer {
+  if (Buffer.isBuffer(input)) return input;
+  if (input instanceof ArrayBuffer) return Buffer.from(input);
+  return Buffer.from(input.buffer, input.byteOffset, input.byteLength);
+}
+
 /**
  * Convert any Sharp-supported raster buffer to WebP.
  * Used by all image upload / import paths before Supabase Storage writes.
+ *
+ * If sharp cannot load (known Next 16.2 + Turbopack + Vercel gap) and the
+ * input is already a WebP with no resize requested, the buffer is returned
+ * as-is so client-exported staff photos still persist.
  */
 export async function convertImageToWebp(
-  input: Buffer,
+  input: Buffer | Uint8Array | ArrayBuffer,
   options?: {
     quality?: number;
     maxWidth?: number;
     maxHeight?: number;
   },
 ): Promise<ConvertToWebpResult> {
-  const sharp = await loadSharp();
-  let pipeline = sharp(input, { failOn: "none" }).rotate();
-
-  if (options?.maxWidth || options?.maxHeight) {
-    pipeline = pipeline.resize({
-      width: options.maxWidth,
-      height: options.maxHeight,
-      fit: "inside",
-      withoutEnlargement: true,
-    });
+  const bytes = asNodeBuffer(input);
+  if (bytes.length === 0) {
+    throw new Error("Input Buffer is empty");
   }
 
-  const buffer = await pipeline
-    .webp({ quality: options?.quality ?? WEBP_QUALITY })
-    .toBuffer();
+  const needsResize = Boolean(options?.maxWidth || options?.maxHeight);
 
-  return {
-    buffer,
-    contentType: "image/webp",
-    extension: "webp",
-  };
+  try {
+    const sharp = await loadSharp();
+    let pipeline = sharp(bytes, { failOn: "none" }).rotate();
+
+    if (needsResize) {
+      pipeline = pipeline.resize({
+        width: options?.maxWidth,
+        height: options?.maxHeight,
+        fit: "inside",
+        withoutEnlargement: true,
+      });
+    }
+
+    const buffer = await pipeline
+      .webp({ quality: options?.quality ?? WEBP_QUALITY })
+      .toBuffer();
+
+    return {
+      buffer,
+      contentType: "image/webp",
+      extension: "webp",
+    };
+  } catch (err) {
+    if (!needsResize && isWebpBuffer(bytes)) {
+      console.warn(
+        "[convert-to-webp] sharp failed; using already-WebP input as-is:",
+        err instanceof Error ? err.message : err,
+      );
+      return {
+        buffer: bytes,
+        contentType: "image/webp",
+        extension: "webp",
+      };
+    }
+    throw err;
+  }
 }

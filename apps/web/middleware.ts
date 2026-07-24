@@ -68,25 +68,36 @@ export async function middleware(request: NextRequest) {
     rewriteTo,
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verify the session JWT LOCALLY (asymmetric signing keys) instead of making
+  // a network round-trip to the Supabase auth server on every request. This is
+  // the hot path for every navigation, prefetch and RSC fetch, so it must stay
+  // cheap. `getClaims` still refreshes an expired token when needed.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub ?? null;
 
   if (pathname.startsWith("/auth/") || pathname.startsWith("/api/")) {
     return supabaseResponse;
   }
 
-  if (!user && !isPublicRoute(pathname)) {
+  if (!userId && !isPublicRoute(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  if (user && !isPublicRoute(pathname)) {
+  // Enforce the "disabled account" gate. This is a DB round-trip, so skip it for
+  // link prefetches (which fire constantly across the sidebar and must never
+  // sign anyone out). Real navigations — soft or hard — still enforce it.
+  const isPrefetch =
+    request.headers.get("next-router-prefetch") === "1" ||
+    (request.headers.get("sec-purpose") ?? "").includes("prefetch") ||
+    (request.headers.get("purpose") ?? "") === "prefetch";
+
+  if (userId && !isPublicRoute(pathname) && !isPrefetch) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("status")
-      .eq("id", user.id)
+      .eq("id", userId)
       .maybeSingle();
 
     if (profile?.status === "disabled") {
@@ -98,13 +109,13 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (user && pathname === "/login") {
+  if (userId && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/select-venue";
     return NextResponse.redirect(url);
   }
 
-  if (user && pathname === "/") {
+  if (userId && pathname === "/") {
     const url = request.nextUrl.clone();
     const landing = defaultScopedUrl(request, "/dashboard");
     url.pathname = "/select-venue";
@@ -117,7 +128,7 @@ export async function middleware(request: NextRequest) {
 
   // A `/venue` or `/venue/<empty>` URL with no slug cannot be scoped.
   if (
-    user &&
+    userId &&
     (pathname === `/${VENUE_SEGMENT}` ||
       pathname === `/${VENUE_SEGMENT}/`) &&
     !resolution
@@ -129,7 +140,7 @@ export async function middleware(request: NextRequest) {
 
   // Bare (unscoped) canonical app routes — redirect to a scoped URL so every
   // navigation carries its venue/global context in the path.
-  if (user && !resolution && isBareAppRoute(pathname)) {
+  if (userId && !resolution && isBareAppRoute(pathname)) {
     const landing = defaultScopedUrl(request, pathname);
     const url = request.nextUrl.clone();
     if (landing) {

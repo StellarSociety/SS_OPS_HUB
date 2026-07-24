@@ -7,6 +7,8 @@ import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import {
   addPayrollAdjustment,
   exportPayrollGl,
@@ -57,6 +59,19 @@ function formatDate(value: string | null | undefined): string {
   return d;
 }
 
+/**
+ * Working status for payroll display.
+ * Leavers in this run are Off-boarding (final settlement through month end).
+ * Otherwise use the staff directory working status.
+ */
+export function resolvePayrollWorkingStatus(
+  row: Pick<PayrollEmployeeRow, "working_status" | "is_leaver">,
+): string {
+  if (row.is_leaver) return "OFF-Boarding";
+  const status = row.working_status?.trim();
+  return status || "Active";
+}
+
 function statusLabel(status: string): string {
   return (
     PAYROLL_STATUS_LABELS[status as PayrollStatus] ??
@@ -83,6 +98,8 @@ export type PayrollEmployeeRow = {
   emp_no: string;
   full_name: string;
   department_name: string | null;
+  /** Staff working status name (Active, Paid Leave, Unpaid Leave, OFF-Boarding). */
+  working_status: string | null;
   included: boolean;
   exclude_reason: string | null;
   is_new_joiner: boolean;
@@ -361,6 +378,44 @@ export function PayrollRunClient({
     : "";
   const countsHint = `${includedCount} included · ${excludedCount} excluded · ${joinerCount} joiners · ${leaverCount} leavers`;
 
+  const departmentSummary = useMemo(() => {
+    const byDept = new Map<
+      string,
+      { department: string; people: number; totalPay: number }
+    >();
+    for (const row of employees) {
+      if (!row.included) continue;
+      const name = row.department_name?.trim() || "No department";
+      const key = name.toLowerCase();
+      const existing = byDept.get(key);
+      if (existing) {
+        existing.people += 1;
+        existing.totalPay += Number(row.net_salary) || 0;
+      } else {
+        byDept.set(key, {
+          department: name,
+          people: 1,
+          totalPay: Number(row.net_salary) || 0,
+        });
+      }
+    }
+    return [...byDept.values()].sort((a, b) =>
+      a.department.localeCompare(b.department, undefined, {
+        sensitivity: "base",
+      }),
+    );
+  }, [employees]);
+
+  const departmentTotals = useMemo(() => {
+    let people = 0;
+    let totalPay = 0;
+    for (const row of departmentSummary) {
+      people += row.people;
+      totalPay += row.totalPay;
+    }
+    return { people, totalPay };
+  }, [departmentSummary]);
+
   const attendanceHref = `/hr/attendance/validation?from=${encodeURIComponent(run.period_start.slice(0, 10))}&to=${encodeURIComponent(run.period_end.slice(0, 10))}&payrollRunId=${encodeURIComponent(run.id)}`;
   const canReturnToDraft = nextStatuses.includes("draft");
 
@@ -518,6 +573,67 @@ export function PayrollRunClient({
         ) : null}
       </div>
 
+      <div className="space-y-3 rounded-xl border border-black/10 bg-white p-5 shadow-sm">
+        <div>
+          <h3 className="font-serif text-lg text-[#3D421F]">By department</h3>
+          <p className="text-sm text-black/55">
+            Included employees and net amount to pay per department.
+          </p>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-black/10">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
+              <tr>
+                <th className="px-3 py-2.5 font-medium">Department</th>
+                <th className="px-3 py-2.5 text-right font-medium">People</th>
+                <th className="px-3 py-2.5 text-right font-medium">
+                  Amount to pay
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black/5">
+              {departmentSummary.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="px-3 py-8 text-center text-sm text-black/45"
+                  >
+                    No included employees yet.
+                  </td>
+                </tr>
+              ) : (
+                departmentSummary.map((row) => (
+                  <tr key={row.department}>
+                    <td className="px-3 py-2.5 text-[#3D421F]">
+                      {row.department}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
+                      {row.people}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#3D421F]">
+                      {formatMoney(row.totalPay, canViewSalary)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {departmentSummary.length > 0 ? (
+              <tfoot className="border-t-2 border-black/10 bg-black/[0.03]">
+                <tr className="font-medium text-[#3D421F]">
+                  <td className="px-3 py-2.5">Total</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {departmentTotals.people}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    {formatMoney(departmentTotals.totalPay, canViewSalary)}
+                  </td>
+                </tr>
+              </tfoot>
+            ) : null}
+          </table>
+        </div>
+      </div>
+
       {tab === "run" ? (
         <RunEmployeesTab
           employees={employees}
@@ -638,6 +754,7 @@ function RunEmployeesTab({
     | "emp_no"
     | "full_name"
     | "department_name"
+    | "working_status"
     | "paid_days"
     | "unpaid_days"
     | "fixed_earnings"
@@ -649,6 +766,37 @@ function RunEmployeesTab({
 
   const [sortKey, setSortKey] = useState<SortKey>("emp_no");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [query, setQuery] = useState("");
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
+  const [selectedWorkingStatuses, setSelectedWorkingStatuses] = useState<
+    string[]
+  >([]);
+  const [selectedIncluded, setSelectedIncluded] = useState<string[]>([]);
+  const [netFilter, setNetFilter] = useState<"all" | "zero" | "nonzero">(
+    "all",
+  );
+
+  const departmentOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const row of employees) {
+      names.add(row.department_name?.trim() || "No department");
+    }
+    return [...names].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [employees]);
+
+  const workingStatusOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const row of employees) {
+      names.add(resolvePayrollWorkingStatus(row));
+    }
+    return [...names].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [employees]);
+
+  const includedOptions = ["Included", "Excluded"];
 
   function sortValue(
     row: PayrollEmployeeRow,
@@ -661,6 +809,8 @@ function RunEmployeesTab({
         return row.full_name.toLowerCase();
       case "department_name":
         return (row.department_name ?? "").toLowerCase();
+      case "working_status":
+        return resolvePayrollWorkingStatus(row).toLowerCase();
       case "paid_days":
         return Number(row.paid_days);
       case "unpaid_days":
@@ -685,14 +835,62 @@ function RunEmployeesTab({
     }
     setSortKey(key);
     setSortDir(
-      key === "emp_no" || key === "full_name" || key === "department_name"
+      key === "emp_no" ||
+        key === "full_name" ||
+        key === "department_name" ||
+        key === "working_status"
         ? "asc"
         : "desc",
     );
   }
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const deptSet =
+      selectedDepartments.length > 0 ? new Set(selectedDepartments) : null;
+    const statusSet =
+      selectedWorkingStatuses.length > 0
+        ? new Set(selectedWorkingStatuses)
+        : null;
+    const includedSet =
+      selectedIncluded.length > 0 ? new Set(selectedIncluded) : null;
+
+    return employees.filter((row) => {
+      const net = Number(row.net_salary) || 0;
+      const isZeroNet = Math.abs(net) < 0.005;
+      if (netFilter === "zero" && !isZeroNet) return false;
+      if (netFilter === "nonzero" && isZeroNet) return false;
+      if (deptSet) {
+        const dept = row.department_name?.trim() || "No department";
+        if (!deptSet.has(dept)) return false;
+      }
+      if (statusSet) {
+        if (!statusSet.has(resolvePayrollWorkingStatus(row))) return false;
+      }
+      if (includedSet) {
+        const label = row.included ? "Included" : "Excluded";
+        if (!includedSet.has(label)) return false;
+      }
+      if (!q) return true;
+      const status = resolvePayrollWorkingStatus(row).toLowerCase();
+      return (
+        row.full_name.toLowerCase().includes(q) ||
+        row.emp_no.toLowerCase().includes(q) ||
+        (row.department_name ?? "").toLowerCase().includes(q) ||
+        status.includes(q)
+      );
+    });
+  }, [
+    employees,
+    query,
+    selectedDepartments,
+    selectedWorkingStatuses,
+    selectedIncluded,
+    netFilter,
+  ]);
+
   const sorted = useMemo(() => {
-    const rows = [...employees];
+    const rows = [...filtered];
     const dir = sortDir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
       const av = sortValue(a, sortKey);
@@ -713,7 +911,43 @@ function RunEmployeesTab({
       return cmp * dir;
     });
     return rows;
-  }, [employees, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir]);
+
+  const columnTotals = useMemo(() => {
+    let paidDays = 0;
+    let unpaidDays = 0;
+    let fixedEarnings = 0;
+    let variableEarnings = 0;
+    let totalDeductions = 0;
+    let netSalary = 0;
+    let includedCount = 0;
+    for (const row of filtered) {
+      paidDays += Number(row.paid_days) || 0;
+      unpaidDays += Number(row.unpaid_days) || 0;
+      fixedEarnings += Number(row.fixed_earnings) || 0;
+      variableEarnings += Number(row.variable_earnings) || 0;
+      totalDeductions += Number(row.total_deductions) || 0;
+      netSalary += Number(row.net_salary) || 0;
+      if (row.included) includedCount += 1;
+    }
+    return {
+      employeeCount: filtered.length,
+      includedCount,
+      paidDays,
+      unpaidDays,
+      fixedEarnings,
+      variableEarnings,
+      totalDeductions,
+      netSalary,
+    };
+  }, [filtered]);
+
+  const hasActiveFilters =
+    query.trim().length > 0 ||
+    selectedDepartments.length > 0 ||
+    selectedWorkingStatuses.length > 0 ||
+    selectedIncluded.length > 0 ||
+    netFilter !== "all";
 
   function SortLabel({
     label,
@@ -759,6 +993,95 @@ function RunEmployeesTab({
           header to sort.
         </p>
       </div>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-black/10 bg-white/70 p-3">
+        <div className="min-w-[12rem] flex-1 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+            Search
+          </p>
+          <Input
+            className="h-9"
+            placeholder="Name or emp no…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[11rem] w-44 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+            Department
+          </p>
+          <MultiSelect
+            options={departmentOptions}
+            selected={selectedDepartments}
+            onChange={setSelectedDepartments}
+            placeholder="All departments"
+            searchPlaceholder="Search department…"
+            className="[&_button]:h-9 [&_button]:text-sm"
+          />
+        </div>
+        <div className="min-w-[10rem] w-40 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+            Working status
+          </p>
+          <MultiSelect
+            options={workingStatusOptions}
+            selected={selectedWorkingStatuses}
+            onChange={setSelectedWorkingStatuses}
+            placeholder="All statuses"
+            searchPlaceholder="Search status…"
+            className="[&_button]:h-9 [&_button]:text-sm"
+          />
+        </div>
+        <div className="min-w-[9rem] w-36 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+            Included
+          </p>
+          <MultiSelect
+            options={includedOptions}
+            selected={selectedIncluded}
+            onChange={setSelectedIncluded}
+            placeholder="All"
+            searchPlaceholder="Filter…"
+            className="[&_button]:h-9 [&_button]:text-sm"
+          />
+        </div>
+        <div className="min-w-[8rem] w-36 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+            Net
+          </p>
+          <select
+            className={cn(lightSelectClass, "h-9")}
+            value={netFilter}
+            onChange={(e) =>
+              setNetFilter(e.target.value as "all" | "zero" | "nonzero")
+            }
+            aria-label="Filter by net amount"
+          >
+            <option value="all">All</option>
+            <option value="zero">Zero</option>
+            <option value="nonzero">Non-zero</option>
+          </select>
+        </div>
+        {hasActiveFilters ? (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setSelectedDepartments([]);
+              setSelectedWorkingStatuses([]);
+              setSelectedIncluded([]);
+              setNetFilter("all");
+            }}
+            className="mb-1.5 text-xs font-medium text-black/45 transition hover:text-[#3D421F]"
+          >
+            Clear filters
+          </button>
+        ) : null}
+        <p className="mb-1.5 ml-auto text-xs text-black/45">
+          Showing {filtered.length} of {employees.length}
+        </p>
+      </div>
+
       <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
@@ -771,6 +1094,9 @@ function RunEmployeesTab({
               </th>
               <th className="px-3 py-2.5 font-medium">
                 <SortLabel label="Dept" column="department_name" />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel label="Status" column="working_status" />
               </th>
               <th className="px-3 py-2.5 font-medium">
                 <SortLabel label="Paid days" column="paid_days" align="end" />
@@ -804,13 +1130,22 @@ function RunEmployeesTab({
             </tr>
           </thead>
           <tbody className="divide-y divide-black/5">
-            {sorted.length === 0 ? (
+            {employees.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
                   No employees on this run yet. Recalculate to populate.
+                </td>
+              </tr>
+            ) : sorted.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={11}
+                  className="px-3 py-10 text-center text-sm text-black/45"
+                >
+                  No employees match the current filters.
                 </td>
               </tr>
             ) : (
@@ -840,6 +1175,43 @@ function RunEmployeesTab({
               })
             )}
           </tbody>
+          {sorted.length > 0 ? (
+            <tfoot className="border-t-2 border-black/10 bg-black/[0.03]">
+              <tr className="font-medium text-[#3D421F]">
+                <td colSpan={4} className="px-3 py-3 text-sm">
+                  Totals
+                  <span className="ml-2 text-xs font-normal text-black/50">
+                    {columnTotals.employeeCount} employee
+                    {columnTotals.employeeCount === 1 ? "" : "s"}
+                    {" · "}
+                    {columnTotals.includedCount} included
+                    {hasActiveFilters ? " (filtered)" : ""}
+                  </span>
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {columnTotals.paidDays.toFixed(2)}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {columnTotals.unpaidDays.toFixed(2)}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {formatMoney(columnTotals.fixedEarnings, canViewSalary)}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {formatMoney(columnTotals.variableEarnings, canViewSalary)}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {formatMoney(columnTotals.totalDeductions, canViewSalary)}
+                </td>
+                <td className="px-3 py-3 text-right tabular-nums">
+                  {formatMoney(columnTotals.netSalary, canViewSalary)}
+                </td>
+                <td className="px-3 py-3 text-center tabular-nums text-sm">
+                  {columnTotals.includedCount}/{columnTotals.employeeCount}
+                </td>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </div>
     </section>
@@ -875,7 +1247,16 @@ function FragmentRows({
         onClick={onToggleExpand}
       >
         <td className="px-3 py-2 font-mono text-xs text-[#3D421F]">
-          {row.emp_no}
+          <Link
+            href={`/hr/${row.staff_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open staff directory entry"
+            className="rounded text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:bg-[var(--venue-secondary,#F0F3DD)] hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {row.emp_no}
+          </Link>
         </td>
         <td className="px-3 py-2 text-[#3D421F]">
           {row.full_name}
@@ -892,6 +1273,9 @@ function FragmentRows({
         </td>
         <td className="px-3 py-2 text-black/60">
           {row.department_name ?? "—"}
+        </td>
+        <td className="px-3 py-2">
+          <WorkingStatusBadge status={resolvePayrollWorkingStatus(row)} />
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {Number(row.paid_days).toFixed(2)}
@@ -927,7 +1311,7 @@ function FragmentRows({
       </tr>
       {open ? (
         <tr className="bg-black/[0.015]">
-          <td colSpan={10} className="px-4 py-3">
+          <td colSpan={11} className="px-4 py-3">
             {empLines.length === 0 ? (
               <p className="text-xs text-black/45">No lines for this employee.</p>
             ) : (

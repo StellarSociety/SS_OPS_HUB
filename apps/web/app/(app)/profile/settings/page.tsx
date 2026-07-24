@@ -5,14 +5,12 @@ import { UserAvatarField } from "@/components/profile/user-avatar-field";
 import { Card } from "@/components/ui/card";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
-import { createClient } from "@/lib/supabase/server";
+import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
 import { ArrowLeft } from "lucide-react";
 
 export default async function ProfileSettingsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
   const { data: profile } = await supabase

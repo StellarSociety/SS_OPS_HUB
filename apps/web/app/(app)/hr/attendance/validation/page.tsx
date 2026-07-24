@@ -25,6 +25,10 @@ import {
   HR_SETTINGS_KEYS,
   type HrAttendanceImportRules,
 } from "@/lib/hr/types";
+import {
+  mergePayrollSettings,
+  type HrPayrollSettings,
+} from "@/lib/hr/payroll";
 
 type PageProps = {
   searchParams?: Promise<{
@@ -77,6 +81,7 @@ export default async function AttendanceValidationPage({
       rows,
       publicHolidays,
       importRules,
+      payrollRaw,
     ] = await Promise.all([
       listStaffForVenue(supabase, venue.id).catch((err) => {
         console.error("[hr] validation listStaffForVenue:", err);
@@ -97,6 +102,12 @@ export default async function AttendanceValidationPage({
         venue.id,
         HR_SETTINGS_KEYS.attendanceImportRules,
         DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+      ),
+      getHrVenueSetting<Partial<HrPayrollSettings>>(
+        supabase,
+        venue.id,
+        HR_SETTINGS_KEYS.payroll,
+        {},
       ),
     ]);
 
@@ -127,6 +138,7 @@ export default async function AttendanceValidationPage({
       ...DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
       ...importRules,
     };
+    const payrollSettings = mergePayrollSettings(payrollRaw);
 
     return (
       <div className="space-y-4">
@@ -172,6 +184,8 @@ export default async function AttendanceValidationPage({
           initialStaffId={initialStaffId}
           scheduleVarianceMinutes={rules.scheduleVarianceMinutes}
           timezone={rules.timezone}
+          payrollPeriodStartDay={payrollSettings.periodStartDay}
+          payrollPeriodEndDay={payrollSettings.periodEndDay}
         />
       </div>
     );

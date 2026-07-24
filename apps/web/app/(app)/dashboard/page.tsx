@@ -12,16 +12,13 @@ import {
 } from "@/lib/sales/daily-sales-store";
 import { canAccessSalesModule } from "@/lib/sales/permissions";
 import type { UserPermission } from "@/lib/role-permissions";
-import { createClient } from "@/lib/supabase/server";
-import { resolveActiveVenue } from "@/lib/venue/active-venue";
+import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
-  const venue = await resolveActiveVenue(supabase);
+  const venue = await getRenderVenue();
   if (!venue) redirect("/select-venue");
 
   const [{ sections }, { data: permissions }, { data: profile }] =

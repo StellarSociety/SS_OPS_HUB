@@ -19,10 +19,7 @@ import { getVenueLogoUrl } from "@/lib/venue/branding";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
 
 export default async function FiguresAlertsPage() {
-  const { supabase, venue, permissions } = await getSalesPageContext();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, venue, permissions, user } = await getSalesPageContext();
 
   if (!canAccessDailyVsWaiters(permissions, venue.id)) {
     return (

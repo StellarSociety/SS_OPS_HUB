@@ -17,11 +17,19 @@ import {
   ChevronRight,
 } from "lucide-react";
 import {
+  formatIsoDateShort,
   formatWeekRangeLabel,
   getIsoWeekNumber,
   getWeekMonday,
   weekStartKeyFromDate,
 } from "@/lib/hr/schedules";
+import {
+  formatPayrollMonthLabel,
+  mergePayrollSettings,
+  payrollMonthContainingDate,
+  payrollMonthInputValue,
+  resolvePayrollPeriod,
+} from "@/lib/hr/payroll";
 import { cn } from "@/lib/utils";
 
 const WEEKDAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] as const;
@@ -652,6 +660,286 @@ export function AttendanceDayRangePicker({
                     Clear
                   </button>
                 </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+type AttendancePayrollMonthPickerProps = {
+  /** Venue payroll period start day (1–28). */
+  periodStartDay: number;
+  /** Venue payroll period end day (1–28). */
+  periodEndDay: number;
+  /** Currently selected day range (used to highlight matching payroll month). */
+  startDate?: string;
+  endDate?: string;
+  onChange: (range: { startDate: string; endDate: string }) => void;
+  fieldLabel?: string;
+  /** Optional popover footer; omit to hide. */
+  footerHint?: string | null;
+};
+
+function todayIsoLocal(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Opens a month grid; picking a month applies that payroll period’s day range
+ * (e.g. July → 25 Jun–24 Jul when settings are 25→24).
+ */
+export function AttendancePayrollMonthPicker({
+  periodStartDay,
+  periodEndDay,
+  startDate = "",
+  endDate = "",
+  onChange,
+  fieldLabel = "Payroll",
+  footerHint,
+}: AttendancePayrollMonthPickerProps) {
+  const calendarId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const { position, update } = usePopoverPosition(open, containerRef);
+
+  const settings = useMemo(
+    () =>
+      mergePayrollSettings({
+        periodStartDay,
+        periodEndDay,
+      }),
+    [periodStartDay, periodEndDay],
+  );
+
+  const matchedMonth = useMemo(() => {
+    if (!startDate || !endDate) return null;
+    const a = startDate <= endDate ? startDate : endDate;
+    const b = startDate <= endDate ? endDate : startDate;
+    try {
+      const month = payrollMonthContainingDate(b, settings);
+      const period = resolvePayrollPeriod(month, settings);
+      if (period.periodStart === a && period.periodEnd === b) {
+        return payrollMonthInputValue(month);
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }, [startDate, endDate, settings]);
+
+  const currentMonthKey = useMemo(
+    () =>
+      matchedMonth ??
+      payrollMonthInputValue(
+        payrollMonthContainingDate(todayIsoLocal(), settings),
+      ),
+    [matchedMonth, settings],
+  );
+
+  const [viewYear, setViewYear] = useState(() => {
+    const [y] = currentMonthKey.split("-").map(Number);
+    return y || new Date().getFullYear();
+  });
+
+  const activePeriod = useMemo(() => {
+    try {
+      return resolvePayrollPeriod(currentMonthKey, settings);
+    } catch {
+      return null;
+    }
+  }, [currentMonthKey, settings]);
+
+  const triggerLabel = matchedMonth
+    ? formatPayrollMonthLabel(`${matchedMonth}-01`)
+    : "Select month";
+
+  const triggerTitle = activePeriod
+    ? matchedMonth
+      ? `${formatIsoDateShort(activePeriod.periodStart)} → ${formatIsoDateShort(activePeriod.periodEnd)}`
+      : `Current payroll: ${formatIsoDateShort(activePeriod.periodStart)} → ${formatIsoDateShort(activePeriod.periodEnd)}`
+    : `Payroll period ${periodStartDay} → ${periodEndDay}`;
+
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        containerRef.current?.contains(target) ||
+        popoverRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+    }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
+  function pickMonth(monthKey: string) {
+    try {
+      const period = resolvePayrollPeriod(monthKey, settings);
+      onChange({
+        startDate: period.periodStart,
+        endDate: period.periodEnd,
+      });
+      setOpen(false);
+    } catch {
+      // ignore invalid month
+    }
+  }
+
+  const months = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const date = new Date(viewYear, i, 1);
+      const key = monthKeyFromDate(date);
+      let periodLabel = "";
+      try {
+        const period = resolvePayrollPeriod(key, settings);
+        periodLabel = `${formatIsoDateShort(period.periodStart)} → ${formatIsoDateShort(period.periodEnd)}`;
+      } catch {
+        periodLabel = "";
+      }
+      return {
+        key,
+        label: date.toLocaleString(undefined, { month: "short" }),
+        periodLabel,
+      };
+    });
+  }, [viewYear, settings]);
+
+  const todayMonthKey = monthKeyFromDate(new Date());
+  const resolvedFooterHint =
+    footerHint === undefined
+      ? `Choosing a month sets Days to that payroll period (${periodStartDay}→${periodEndDay}).`
+      : footerHint;
+
+  return (
+    <>
+      <div ref={containerRef} className="flex flex-col gap-1">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+          {fieldLabel}
+        </span>
+        <button
+          type="button"
+          aria-controls={calendarId}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          title={triggerTitle}
+          onClick={() => {
+            if (open) {
+              setOpen(false);
+            } else {
+              const [y] = currentMonthKey.split("-").map(Number);
+              setViewYear(y || new Date().getFullYear());
+              update();
+              setOpen(true);
+            }
+          }}
+          className={cn(
+            "inline-flex h-10 max-w-[14rem] items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium tabular-nums transition-colors",
+            open || matchedMonth
+              ? "border-[var(--venue-primary)]/40 bg-white text-[#3D421F]"
+              : "border-black/10 bg-white text-[#3D421F] hover:bg-black/[0.02]",
+          )}
+        >
+          <CalendarDays
+            className="h-3.5 w-3.5 shrink-0 opacity-70"
+            aria-hidden
+          />
+          <span className="truncate">{triggerLabel}</span>
+        </button>
+      </div>
+
+      {open && position
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              id={calendarId}
+              role="dialog"
+              aria-label="Select payroll month"
+              className="fixed z-[250]"
+              style={{ top: position.top, left: position.left }}
+            >
+              <div className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewYear((y) => y - 1)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-black/10 text-[#3D421F] hover:bg-[var(--venue-secondary)]/30"
+                    aria-label="Previous year"
+                  >
+                    <ChevronLeft className="h-4 w-4" aria-hidden />
+                  </button>
+                  <p className="text-sm font-semibold text-[#3D421F]">
+                    {viewYear}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setViewYear((y) => y + 1)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-black/10 text-[#3D421F] hover:bg-[var(--venue-secondary)]/30"
+                    aria-label="Next year"
+                  >
+                    <ChevronRight className="h-4 w-4" aria-hidden />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  {months.map((month) => {
+                    const isActive = matchedMonth === month.key;
+                    const isCurrent = todayMonthKey === month.key;
+                    return (
+                      <button
+                        key={month.key}
+                        type="button"
+                        title={month.periodLabel}
+                        onClick={() => pickMonth(month.key)}
+                        className={cn(
+                          "flex flex-col items-center rounded-md px-2 py-2 text-center transition-colors",
+                          isActive
+                            ? "bg-[var(--venue-primary)] text-white"
+                            : isCurrent
+                              ? "bg-[var(--venue-secondary)]/50 text-[#3D421F] hover:bg-[var(--venue-secondary)]/80"
+                              : "text-[#3D421F] hover:bg-black/[0.04]",
+                        )}
+                      >
+                        <span className="text-sm font-semibold">
+                          {month.label}
+                        </span>
+                        {month.periodLabel ? (
+                          <span
+                            className={cn(
+                              "mt-0.5 text-[9px] leading-tight tabular-nums",
+                              isActive ? "text-white/80" : "text-black/45",
+                            )}
+                          >
+                            {month.periodLabel}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {resolvedFooterHint ? (
+                  <p className="mt-3 text-[11px] leading-snug text-black/45">
+                    {resolvedFooterHint}
+                  </p>
+                ) : null}
               </div>
             </div>,
             document.body,

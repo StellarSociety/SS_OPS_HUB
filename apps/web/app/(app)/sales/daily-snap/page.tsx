@@ -33,10 +33,7 @@ type DailySnapPageProps = {
 };
 
 export default async function SalesDailySnapPage({ searchParams }: DailySnapPageProps) {
-  const { venue, permissions, supabase } = await getSalesPageContext();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { venue, permissions, supabase, user } = await getSalesPageContext();
   const params = await searchParams;
   const selectedDate = params.date ?? getLocalTodayIsoDate();
 

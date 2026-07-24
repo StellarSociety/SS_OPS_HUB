@@ -1,13 +1,11 @@
 import { redirect } from "next/navigation";
 import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
-import { createClient } from "@/lib/supabase/server";
+import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
 import { scopedPath } from "@/lib/venue/active-venue";
 
 export async function requireAppAdmin() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
   const { data: permissions } = await supabase

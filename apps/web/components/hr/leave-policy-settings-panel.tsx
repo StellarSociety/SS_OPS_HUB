@@ -263,7 +263,7 @@ export function LeavePolicySettingsPanel({
 
           <Section
             title="Annual leave"
-            description="Statutory accrual. Defaults match UAE private-sector rules."
+            description="Statutory accrual. Defaults match UAE private-sector rules. Approved unpaid leave (UPL) days are excluded from the service period used for AL."
           >
             <div className="mb-4 rounded-lg border border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/40 px-4 py-3">
               <Label htmlFor="annual_partial_month_method">
@@ -271,8 +271,10 @@ export function LeavePolicySettingsPanel({
               </Label>
               <p className="mt-1 text-xs text-black/55">
                 Controls how incomplete months count toward AL for staff with
-                under 12 months of service. Employees with a termination date
-                always use pro-rata through that last day.
+                under 12 months of adjusted service (calendar days minus
+                approved unpaid leave). Employees with a termination date
+                always use day-based pro-rata through that last day:
+                adjusted days ÷ 30 × days per month before year.
               </p>
               <select
                 id="annual_partial_month_method"
@@ -283,17 +285,17 @@ export function LeavePolicySettingsPanel({
                 className={cn(lightSelectClass, "mt-2 max-w-md")}
               >
                 <option value="full_months">
-                  Full months only (e.g. 9 months × 2 = 18)
+                  Full months only (e.g. floor(270 ÷ 30) × 2 = 18)
                 </option>
                 <option value="pro_rata">
-                  Pro-rata — include partial month (e.g. 9.6 × 2 ≈ 19)
+                  Pro-rata days (e.g. 229 ÷ 30 × 2 = 15.27)
                 </option>
               </select>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field
                 label="No entitlement through (months)"
-                hint="Completed months with 0 statutory AL."
+                hint="Adjusted service months (excl. approved UPL) with 0 statutory AL."
               >
                 <Input
                   name="annual_zero_entitlement_months"

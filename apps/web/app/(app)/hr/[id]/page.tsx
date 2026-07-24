@@ -24,8 +24,7 @@ import {
   DEFAULT_HR_SALARY_DEFAULTS,
   HR_SETTINGS_KEYS,
 } from "@/lib/hr/types";
-import { createClient } from "@/lib/supabase/server";
-import { resolveActiveVenue } from "@/lib/venue/active-venue";
+import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 import { StatusBadge } from "@/components/hr/status-badge";
 
 export default async function StaffDetailPage({
@@ -34,13 +33,11 @@ export default async function StaffDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
-  const venue = await resolveActiveVenue(supabase);
+  const venue = await getRenderVenue();
   if (!venue) redirect("/select-venue");
 
   const { data: permissions } = await supabase

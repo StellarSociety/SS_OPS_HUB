@@ -21,6 +21,7 @@ import type { ModuleAccessRecord, UserListRow } from "@/lib/access/types";
 import { getModuleLabel } from "@/lib/modules-catalog";
 import { getModuleEntryHref, getOverviewModuleByKey } from "@/lib/modules-registry";
 import { createClient } from "@/lib/supabase/server";
+import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
 import { getUserInitials } from "@/lib/user/display";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { Card } from "@/components/ui/card";
@@ -42,10 +43,8 @@ async function loadOwnModuleAccess(
 }
 
 export default async function ProfilePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
   if (!user) redirect("/login");
 
   const STAFF_JOIN = `

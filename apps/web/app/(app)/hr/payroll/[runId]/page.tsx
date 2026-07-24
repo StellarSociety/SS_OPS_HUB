@@ -130,7 +130,40 @@ export default async function HrPayrollRunPage({
       .limit(40),
   ]);
 
-  const employees = (employeesRes.data ?? []) as PayrollEmployeeRow[];
+  const employeesRaw = (employeesRes.data ?? []) as Omit<
+    PayrollEmployeeRow,
+    "working_status"
+  >[];
+
+  const staffIds = [...new Set(employeesRaw.map((e) => e.staff_id))];
+  const workingStatusByStaffId = new Map<string, string>();
+  if (staffIds.length > 0) {
+    const { data: staffStatuses, error: staffStatusError } = await supabase
+      .from("staff")
+      .select("id, working_status:working_statuses(name)")
+      .in("id", staffIds);
+    if (staffStatusError) {
+      console.error(
+        "[hr/payroll/run] working status:",
+        staffStatusError.message,
+      );
+    } else {
+      for (const row of staffStatuses ?? []) {
+        const raw = row.working_status as
+          | { name: string }
+          | { name: string }[]
+          | null;
+        const name = Array.isArray(raw) ? raw[0]?.name : raw?.name;
+        if (name) workingStatusByStaffId.set(row.id, name);
+      }
+    }
+  }
+
+  const employees: PayrollEmployeeRow[] = employeesRaw.map((e) => ({
+    ...e,
+    working_status: workingStatusByStaffId.get(e.staff_id) ?? null,
+  }));
+
   const staffOptions: PayrollStaffOption[] = employees.map((e) => ({
     id: e.staff_id,
     emp_no: e.emp_no,

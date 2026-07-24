@@ -6,6 +6,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   AttendanceDayRangePicker,
   AttendanceMultiWeekPicker,
+  AttendancePayrollMonthPicker,
 } from "@/components/hr/attendance-date-filters";
 import { usePersistedHrAttendanceValidationFilters } from "@/components/hr/use-persisted-hr-filters";
 import {
@@ -14,14 +15,21 @@ import {
   saveValidationRosterDays,
   type ValidationRosterLabelCode,
 } from "@/lib/actions/hr-attendance";
-import { ATTENDANCE_APPROVED_STATUS } from "@/lib/hr/attendance-approval";
-import { isScheduleLeaveLabel } from "@/lib/hr/leave";
+import {
+  ATTENDANCE_APPROVED_STATUS,
+  attendanceDayRequiresApproval,
+} from "@/lib/hr/attendance-approval";
 import {
   DEFAULT_SCHEDULE_VARIANCE_MINUTES,
   shiftNeedsApproval,
 } from "@/lib/hr/schedule-variance";
 import { clearAllCachedScheduleDays } from "@/lib/hr/schedules-client-cache";
-import { scheduleDayLabelStyle, formatIsoDateShort } from "@/lib/hr/schedules";
+import {
+  calendarDateKeyInTimezone,
+  formatIsoDateShort,
+  isStaffEmployedOnWorkDate,
+  scheduleDayLabelStyle,
+} from "@/lib/hr/schedules";
 import { DEFAULT_HR_ATTENDANCE_IMPORT_RULES } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
@@ -51,7 +59,12 @@ type EmployeeOption = {
   empNo: string;
   fullName: string;
   departmentId: string | null;
+  joiningDate?: string | null;
+  terminationDate?: string | null;
 };
+
+/** Staged roster edit: a label code, or null to clear the saved roster day. */
+type RosterDraft = ValidationRosterLabelCode | null;
 
 type ScheduleLabelOption = {
   code: string;
@@ -75,6 +88,9 @@ type Props = {
   /** Grace minutes between schedule and punches (default 40). */
   scheduleVarianceMinutes?: number;
   timezone?: string;
+  /** Venue payroll period window (e.g. 25 → 24). */
+  payrollPeriodStartDay?: number;
+  payrollPeriodEndDay?: number;
 };
 
 type RosterActionGroupId = "duty" | "paid" | "unpaid";
@@ -244,14 +260,6 @@ function draftKey(empNo: string, workDate: string): string {
   return `${empNo.trim().toLowerCase()}::${workDate}`;
 }
 
-/** Roster labels that never need Validation approval (paid rest days). */
-const NO_APPROVAL_ROSTER_LABELS = new Set(["OFF", "PH"]);
-
-function isLeaveOrAbsenceLabel(label: string | null | undefined): boolean {
-  if (!label) return false;
-  return isScheduleLeaveLabel(label) || label === "ABS";
-}
-
 /** Next.js opaque flight/RSC errors after a successful server action. */
 function isNextFlightDigestError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -272,42 +280,28 @@ function selectionKey(
   row: AttendanceApprovalRow,
   opts?: { varianceMinutes: number; timezone: string } | null,
 ): string | null {
-  // Day off / calendar holiday taken — no payroll decision.
-  if (row.rosterLabel && NO_APPROVAL_ROSTER_LABELS.has(row.rosterLabel)) {
-    return null;
-  }
+  const need = attendanceDayRequiresApproval({
+    rosterLabel: row.rosterLabel,
+    approvalStatus: row.approvalStatus,
+    workDate: row.workDate,
+    attendanceId: row.id,
+    scheduleStart: row.scheduleStartTime ?? null,
+    scheduleEnd: row.scheduleEndTime ?? null,
+    clockIn: row.clockIn,
+    clockOut: row.clockOut,
+    issue: row.issue,
+    timezone: opts?.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
+    varianceMinutes:
+      opts?.varianceMinutes ??
+      DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes,
+  });
+  if (!need.needs) return null;
 
-  // Leave / ABS always need approval (even without punches).
-  if (isLeaveOrAbsenceLabel(row.rosterLabel)) {
-    if (row.id) return `id:${row.id}`;
-    if (row.staffId) return `day:${draftKey(row.empNo, row.workDate)}`;
-    return null;
-  }
-
-  // SHIFT: only when punches are missing or differ from schedule beyond grace.
-  if (row.rosterLabel === "SHIFT") {
-    const needs = shiftNeedsApproval({
-      rosterLabel: row.rosterLabel,
-      workDate: row.workDate,
-      scheduleStart: row.scheduleStartTime ?? null,
-      scheduleEnd: row.scheduleEndTime ?? null,
-      clockIn: row.clockIn,
-      clockOut: row.clockOut,
-      timezone:
-        opts?.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
-      varianceMinutes:
-        opts?.varianceMinutes ??
-        DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes,
-    });
-    if (!needs) return null;
-    if (row.id) return `id:${row.id}`;
-    // No attendance row yet (e.g. incomplete) — not selectable until punches exist
-    // or the day is reclassified (ABS / leave).
-    return null;
-  }
-
-  // Other punch rows (e.g. attendance with no roster) still need a review.
   if (row.id) return `id:${row.id}`;
+  // Leave / ABS without an attendance row — approve via staff+date stub.
+  if (need.kind === "leave" && row.staffId) {
+    return `day:${draftKey(row.empNo, row.workDate)}`;
+  }
   return null;
 }
 
@@ -348,6 +342,8 @@ export function AttendanceApprovalsTable({
   initialStaffId = null,
   scheduleVarianceMinutes = DEFAULT_SCHEDULE_VARIANCE_MINUTES,
   timezone = DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
+  payrollPeriodStartDay = 25,
+  payrollPeriodEndDay = 24,
 }: Props) {
   const [pending, startTransition] = useTransition();
   const [busyAction, setBusyAction] = useState<"save" | "approve" | null>(
@@ -367,10 +363,8 @@ export function AttendanceApprovalsTable({
     setDayRange,
     patchFilters,
   } = usePersistedHrAttendanceValidationFilters();
-  /** Staged roster actions keyed by empNo::workDate — saved together. */
-  const [drafts, setDrafts] = useState<
-    Record<string, ValidationRosterLabelCode>
-  >({});
+  /** Staged roster actions keyed by empNo::workDate — saved together. null = clear. */
+  const [drafts, setDrafts] = useState<Record<string, RosterDraft>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [loadingRange, setLoadingRange] = useState(false);
@@ -548,8 +542,19 @@ export function AttendanceApprovalsTable({
           fullName: selectedEmployee.fullName,
           departmentId,
         });
-      const draft = drafts[draftKey(empNo, workDate)];
-      if (!draft) return base;
+      const key = draftKey(empNo, workDate);
+      if (!(key in drafts)) return base;
+      const draft = drafts[key];
+      if (draft == null) {
+        return {
+          ...base,
+          rosterLabel: null,
+          scheduleTime: null,
+          scheduleStartTime: null,
+          scheduleEndTime: null,
+          issue: null,
+        };
+      }
 
       return {
         ...base,
@@ -576,16 +581,27 @@ export function AttendanceApprovalsTable({
     [scheduleVarianceMinutes, timezone],
   );
 
+  const todayKey = useMemo(
+    () => calendarDateKeyInTimezone(new Date().toISOString(), timezone),
+    [timezone],
+  );
+
   const selectableKeys = useMemo(
     () =>
       filtered
         .map((row) => {
           const key = draftKey(row.empNo, row.workDate);
-          if (drafts[key]) return null;
+          if (key in drafts) return null;
+          if (
+            selectedEmployee &&
+            !isStaffEmployedOnWorkDate(selectedEmployee, row.workDate)
+          ) {
+            return null;
+          }
           return selectionKey(row, varianceOpts);
         })
         .filter((key): key is string => Boolean(key)),
-    [filtered, drafts, varianceOpts],
+    [filtered, drafts, varianceOpts, selectedEmployee],
   );
   const selectedCount = useMemo(
     () => selectableKeys.filter((key) => selectedIds.has(key)).length,
@@ -599,16 +615,43 @@ export function AttendanceApprovalsTable({
     labelCode: ValidationRosterLabelCode,
   ) {
     const key = draftKey(row.empNo, row.workDate);
-    setDrafts((prev) => {
-      const next = { ...prev };
-      // Clicking the same staged action again clears the draft for that day.
-      if (next[key] === labelCode) {
+    // Base (saved) roster — ignore the draft overlay on `row`.
+    const savedLabel =
+      local.find(
+        (r) =>
+          r.empNo.trim().toLowerCase() === row.empNo.trim().toLowerCase() &&
+          r.workDate === row.workDate,
+      )?.rosterLabel ?? null;
+    const action = ROSTER_ACTION_DEFS.find((a) => a.code === labelCode);
+    const matchesSaved = action
+      ? rosterMatchesAction(savedLabel, action)
+      : false;
+
+    // Use render-time `drafts` (value set, not functional updater) so Strict
+    // Mode cannot double-apply a non-idempotent toggle.
+    const hasDraft = key in drafts;
+    const staged = hasDraft ? drafts[key] : undefined;
+    const visuallySelected =
+      (hasDraft && staged === labelCode) || (!hasDraft && matchesSaved);
+
+    const next = { ...drafts };
+
+    // Clicking the currently selected action always unselects it.
+    // If the saved roster matches, stage an explicit clear (null) — deleting
+    // the draft would just fall back to the saved label and keep the stroke.
+    if (visuallySelected) {
+      if (matchesSaved) {
+        next[key] = null;
+      } else {
         delete next[key];
-        return next;
       }
-      next[key] = labelCode;
-      return next;
-    });
+      setDrafts(next);
+      return;
+    }
+
+    // Select this action (also used after a staged clear).
+    next[key] = labelCode;
+    setDrafts(next);
   }
 
   function toggleRowSelected(key: string) {
@@ -644,7 +687,7 @@ export function AttendanceApprovalsTable({
       staffId: string;
       empNo: string;
       workDate: string;
-      labelCode: ValidationRosterLabelCode;
+      labelCode: ValidationRosterLabelCode | null;
     }[] = [];
 
     for (const [key, labelCode] of draftEntries) {
@@ -659,6 +702,8 @@ export function AttendanceApprovalsTable({
       );
       const staffId = row?.staffId ?? person?.id ?? null;
       if (!staffId || !person || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) continue;
+      // Clearing a day that already has no roster is a no-op.
+      if (labelCode == null && !row?.rosterLabel) continue;
       changes.push({
         staffId,
         empNo: person.empNo,
@@ -710,13 +755,27 @@ export function AttendanceApprovalsTable({
                   departmentId: person?.departmentId ?? null,
                 })),
               staffId: change.staffId,
-              rosterLabel: rosterCodeForAction(change.labelCode),
+              rosterLabel:
+                change.labelCode == null
+                  ? null
+                  : rosterCodeForAction(change.labelCode),
               scheduleTime: null,
-              issue: issueAfterRosterLabel(
-                change.labelCode,
-                existing?.clockIn ?? null,
-                existing?.clockOut ?? null,
-              ),
+              scheduleStartTime:
+                change.labelCode == null
+                  ? null
+                  : (existing?.scheduleStartTime ?? null),
+              scheduleEndTime:
+                change.labelCode == null
+                  ? null
+                  : (existing?.scheduleEndTime ?? null),
+              issue:
+                change.labelCode == null
+                  ? null
+                  : issueAfterRosterLabel(
+                      change.labelCode,
+                      existing?.clockIn ?? null,
+                      existing?.clockOut ?? null,
+                    ),
             });
           }
 
@@ -747,13 +806,27 @@ export function AttendanceApprovalsTable({
                     departmentId: person?.departmentId ?? null,
                   })),
                 staffId: change.staffId,
-                rosterLabel: rosterCodeForAction(change.labelCode),
+                rosterLabel:
+                  change.labelCode == null
+                    ? null
+                    : rosterCodeForAction(change.labelCode),
                 scheduleTime: null,
-                issue: issueAfterRosterLabel(
-                  change.labelCode,
-                  existing?.clockIn ?? null,
-                  existing?.clockOut ?? null,
-                ),
+                scheduleStartTime:
+                  change.labelCode == null
+                    ? null
+                    : (existing?.scheduleStartTime ?? null),
+                scheduleEndTime:
+                  change.labelCode == null
+                    ? null
+                    : (existing?.scheduleEndTime ?? null),
+                issue:
+                  change.labelCode == null
+                    ? null
+                    : issueAfterRosterLabel(
+                        change.labelCode,
+                        existing?.clockIn ?? null,
+                        existing?.clockOut ?? null,
+                      ),
               });
             }
             return [...byKey.values()];
@@ -955,8 +1028,27 @@ export function AttendanceApprovalsTable({
             }}
           />
         </div>
+        <div
+          className={cn(
+            "shrink-0",
+            !empNo && "pointer-events-none opacity-45",
+          )}
+        >
+          <AttendancePayrollMonthPicker
+            fieldLabel="Payroll"
+            periodStartDay={payrollPeriodStartDay}
+            periodEndDay={payrollPeriodEndDay}
+            startDate={dayStart}
+            endDate={dayEnd}
+            onChange={({ startDate, endDate }) => {
+              setDayRange(startDate, endDate);
+              setSelectedWeekKeys([]);
+              setSelectedIds(new Set());
+            }}
+          />
+        </div>
         {canEditRoster ? (
-          <div className="ml-auto flex shrink-0 items-end gap-2">
+          <div className="flex shrink-0 items-end gap-2">
             <div className="flex flex-col gap-1">
               <span className="text-[11px] font-medium uppercase tracking-wide text-transparent">
                 Select
@@ -1093,15 +1185,20 @@ export function AttendanceApprovalsTable({
               {filtered.map((row) => {
                 const staffId = row.staffId ?? selectedEmployee?.id ?? null;
                 const key = draftKey(row.empNo, row.workDate);
-                const draft = drafts[key];
-                const hasDraft = Boolean(draft);
+                const hasDraft = key in drafts;
+                const draft = hasDraft ? drafts[key] : undefined;
+                const employedOnDay = selectedEmployee
+                  ? isStaffEmployedOnWorkDate(selectedEmployee, row.workDate)
+                  : false;
                 const weekEnd = isSundayIso(row.workDate);
+                const isToday = Boolean(todayKey) && row.workDate === todayKey;
                 const holidayName = publicHolidayByDate[row.workDate] ?? null;
                 const isPublicHoliday = Boolean(holidayName);
                 const isApproved = row.approvalStatus === ATTENDANCE_APPROVED_STATUS;
-                const rowSelectionKey = !hasDraft
-                  ? selectionKey(row, varianceOpts)
-                  : null;
+                const rowSelectionKey =
+                  !hasDraft && employedOnDay
+                    ? selectionKey(row, varianceOpts)
+                    : null;
                 const canSelect = Boolean(rowSelectionKey);
                 const isSelected = Boolean(
                   rowSelectionKey && selectedIds.has(rowSelectionKey),
@@ -1119,19 +1216,38 @@ export function AttendanceApprovalsTable({
                     timezone,
                     varianceMinutes: scheduleVarianceMinutes,
                   });
+                const savedRosterLabel =
+                  local.find(
+                    (r) =>
+                      r.empNo.trim().toLowerCase() ===
+                        row.empNo.trim().toLowerCase() &&
+                      r.workDate === row.workDate,
+                  )?.rosterLabel ?? null;
+                const canClearOutsideEmployment =
+                  !employedOnDay &&
+                  canEditRoster &&
+                  Boolean(staffId) &&
+                  (savedRosterLabel != null || draft === null);
                 return (
                   <tr
                     key={`${row.empNo}-${row.workDate}`}
                     title={
-                      holidayName
-                        ? `${holidayName} · Public holiday`
-                        : undefined
+                      !employedOnDay
+                        ? "Not employed on this date — actions unavailable"
+                        : holidayName
+                          ? `${holidayName} · Public holiday`
+                          : isToday
+                            ? "Today"
+                            : undefined
                     }
                     className={cn(
                       "hover:bg-black/[0.02]",
-                      isPublicHoliday
-                        ? "bg-[#ede9fe]/45"
-                        : hasDraft && "bg-[var(--venue-secondary)]/25",
+                      !employedOnDay && "opacity-70",
+                      hasDraft
+                        ? "bg-[var(--venue-secondary)]/25"
+                        : isPublicHoliday
+                          ? "bg-[#ede9fe]/45"
+                          : isToday && "bg-orange-50",
                       isSelected && "bg-[var(--venue-primary)]/[0.06]",
                       weekEnd
                         ? "[&>td]:border-b-2 [&>td]:border-black/40"
@@ -1142,6 +1258,9 @@ export function AttendanceApprovalsTable({
                       <span
                         className={cn(
                           isPublicHoliday && "font-medium text-[#5b21b6]",
+                          isToday &&
+                            !isPublicHoliday &&
+                            "font-semibold text-orange-700",
                         )}
                       >
                         {formatIsoDateShort(row.workDate)}
@@ -1149,11 +1268,6 @@ export function AttendanceApprovalsTable({
                       {isPublicHoliday ? (
                         <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-[#5b21b6]">
                           · PH
-                        </span>
-                      ) : null}
-                      {hasDraft ? (
-                        <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-[var(--venue-primary)]">
-                          draft
                         </span>
                       ) : null}
                     </td>
@@ -1176,47 +1290,90 @@ export function AttendanceApprovalsTable({
                         : Number(row.totalHours).toFixed(2)}
                     </td>
                     <td className="px-3 py-2 text-xs text-amber-900">
-                      {row.issue ??
-                        (row.attendanceStatus &&
-                        row.attendanceStatus !== "complete"
-                          ? row.attendanceStatus
-                          : "—")}
+                      {!employedOnDay && savedRosterLabel
+                        ? "Roster outside employment — clear if incorrect"
+                        : (row.issue ??
+                          (row.attendanceStatus &&
+                          row.attendanceStatus !== "complete"
+                            ? row.attendanceStatus
+                            : "—"))}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                        {canEditRoster && staffId
-                          ? rosterActionGroups.map((group, groupIndex) => (
-                              <div
-                                key={group.id}
-                                className="flex flex-wrap items-center gap-1.5"
+                        {!canEditRoster || !staffId ? (
+                          <span className="text-xs text-black/40">—</span>
+                        ) : !employedOnDay ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className="text-xs text-black/45"
+                              title="Joining/termination window — no validation actions"
+                            >
+                              Not employed
+                            </span>
+                            {canClearOutsideEmployment ? (
+                              <button
+                                type="button"
+                                disabled={pending}
+                                title={
+                                  draft === null
+                                    ? "Undo clear — click Save to keep current roster"
+                                    : "Clear erroneous roster for a day outside employment"
+                                }
+                                onClick={() => {
+                                  const next = { ...drafts };
+                                  if (key in next && next[key] === null) {
+                                    delete next[key];
+                                  } else {
+                                    next[key] = null;
+                                  }
+                                  setDrafts(next);
+                                }}
+                                className={cn(
+                                  "inline-flex h-7 items-center justify-center rounded-md border px-2 text-[11px] font-semibold uppercase tracking-wide transition-opacity hover:opacity-90 disabled:opacity-45",
+                                  draft === null
+                                    ? "border-2 border-black bg-white text-black"
+                                    : "border-black/20 bg-white/80 text-black/70",
+                                )}
                               >
-                                {groupIndex > 0 ? (
-                                  <span
-                                    className="mx-0.5 hidden h-6 w-px shrink-0 self-center bg-black/15 sm:block"
-                                    aria-hidden
-                                  />
-                                ) : null}
-                                <div
-                                  className="flex flex-wrap items-center gap-1.5"
-                                  role="group"
-                                  aria-label={group.label}
-                                >
-                                  {group.actions.map((action) => {
-                                    const selected =
-                                      draft === action.code ||
-                                      (!draft &&
-                                        rosterMatchesAction(
-                                          row.rosterLabel,
-                                          action,
-                                        ));
-                                    const label = labelsByCode.get(
-                                      action.rosterCode,
-                                    );
-                                    const phReplOnHoliday =
-                                      action.code === "PH-REPL" &&
-                                      isPublicHoliday;
-                                    const tooltip = phReplOnHoliday
-                                      ? "Calendar public holiday — use OFF (holiday taken) or SH (work to earn a PH-REPL credit). PH-REPL is for taking a banked day on a normal date."
+                                {draft === null ? "Clear*" : "Clear"}
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : (
+                          rosterActionGroups.map((group, groupIndex) => (
+                            <div
+                              key={group.id}
+                              className="flex flex-wrap items-center gap-1.5"
+                            >
+                              {groupIndex > 0 ? (
+                                <span
+                                  className="mx-0.5 hidden h-6 w-px shrink-0 self-center bg-black/15 sm:block"
+                                  aria-hidden
+                                />
+                              ) : null}
+                              <div
+                                className="flex flex-wrap items-center gap-1.5"
+                                role="group"
+                                aria-label={group.label}
+                              >
+                                {group.actions.map((action) => {
+                                  const selected =
+                                    draft === action.code ||
+                                    (draft === undefined &&
+                                      rosterMatchesAction(
+                                        row.rosterLabel,
+                                        action,
+                                      ));
+                                  const label = labelsByCode.get(
+                                    action.rosterCode,
+                                  );
+                                  const phReplOnHoliday =
+                                    action.code === "PH-REPL" &&
+                                    isPublicHoliday;
+                                  const tooltip = phReplOnHoliday
+                                    ? "Calendar public holiday — use OFF (holiday taken) or SH (work to earn a PH-REPL credit). PH-REPL is for taking a banked day on a normal date."
+                                    : selected
+                                      ? `Click again to unselect ${action.code}`
                                       : action.code === "SH"
                                         ? isPublicHoliday
                                           ? `${label?.name ?? action.fallbackTitle} — work on this holiday to earn +1 PH-REPL credit`
@@ -1227,57 +1384,64 @@ export function AttendanceApprovalsTable({
                                             : `${label?.name ?? action.fallbackTitle} — paid day off`
                                           : (label?.name ??
                                             action.fallbackTitle);
-                                    return (
-                                      <button
-                                        key={action.code}
-                                        type="button"
-                                        title={tooltip}
-                                        aria-label={tooltip}
-                                        disabled={pending || phReplOnHoliday}
-                                        onClick={() =>
-                                          stageAction(row, action.code)
-                                        }
-                                        className={cn(
-                                          "inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded-md border px-2 text-[11px] font-semibold uppercase tracking-wide transition-opacity hover:opacity-90 disabled:opacity-45",
-                                          selected && "border-2",
-                                        )}
-                                        style={
-                                          label
-                                            ? {
-                                                ...scheduleDayLabelStyle(label),
-                                                ...(selected
-                                                  ? {
-                                                      borderColor: "#000000",
-                                                      boxShadow:
-                                                        "0 0 0 1px #000000",
-                                                    }
-                                                  : {}),
-                                              }
-                                            : {
-                                                backgroundColor: "#f5f5f5",
-                                                color: "#404040",
-                                                borderColor: selected
-                                                  ? "#000000"
-                                                  : "#d4d4d4",
-                                                ...(selected
-                                                  ? {
-                                                      boxShadow:
-                                                        "0 0 0 1px #000000",
-                                                    }
-                                                  : {}),
-                                              }
-                                        }
-                                      >
-                                        {action.code}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+                                  return (
+                                    <button
+                                      key={action.code}
+                                      type="button"
+                                      title={tooltip}
+                                      aria-label={tooltip}
+                                      aria-pressed={selected}
+                                      disabled={pending || phReplOnHoliday}
+                                      onClick={() =>
+                                        stageAction(row, action.code)
+                                      }
+                                      className={cn(
+                                        "inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded-md border px-2 text-[11px] font-semibold uppercase tracking-wide transition-opacity hover:opacity-90 disabled:opacity-45",
+                                        selected && "border-2",
+                                      )}
+                                      style={
+                                        label
+                                          ? {
+                                              ...scheduleDayLabelStyle(label),
+                                              ...(selected
+                                                ? {
+                                                    borderColor: "#000000",
+                                                    boxShadow:
+                                                      "0 0 0 1px #000000",
+                                                  }
+                                                : {}),
+                                            }
+                                          : {
+                                              backgroundColor: "#f5f5f5",
+                                              color: "#404040",
+                                              borderColor: selected
+                                                ? "#000000"
+                                                : "#d4d4d4",
+                                              ...(selected
+                                                ? {
+                                                    boxShadow:
+                                                      "0 0 0 1px #000000",
+                                                  }
+                                                : {}),
+                                            }
+                                      }
+                                    >
+                                      {action.code}
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            ))
-                          : (
-                            <span className="text-xs text-black/40">—</span>
-                          )}
+                            </div>
+                          ))
+                        )}
+                        {hasDraft ? (
+                          <span
+                            data-roster-draft-badge
+                            className="ml-auto text-[10px] font-medium uppercase tracking-wide text-[var(--venue-primary)]"
+                          >
+                            draft
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-3 py-2">
@@ -1295,21 +1459,23 @@ export function AttendanceApprovalsTable({
                           <span
                             className="inline-block h-4 w-4 shrink-0 rounded border border-dashed border-black/15"
                             title={
-                              hasDraft
-                                ? "Save roster edits before approving"
-                                : row.rosterLabel === "OFF" ||
-                                    row.rosterLabel === "PH"
-                                  ? "Day off — no approval needed"
-                                  : shiftWithinTolerance
-                                    ? `Within ${scheduleVarianceMinutes} min of schedule — no approval needed`
-                                    : row.rosterLabel === "SHIFT" && !row.id
-                                      ? "Mark ABS (or leave) and Save before approving a no-show"
-                                      : "Set a roster action (e.g. ABS) and Save before approving"
+                              !employedOnDay
+                                ? "Not employed on this date — no approval"
+                                : hasDraft
+                                  ? "Save roster edits before approving"
+                                  : row.rosterLabel === "OFF" ||
+                                      row.rosterLabel === "PH"
+                                    ? "Day off — no approval needed"
+                                    : shiftWithinTolerance
+                                      ? `Within ${scheduleVarianceMinutes} min of schedule — no approval needed`
+                                      : row.rosterLabel === "SHIFT" && !row.id
+                                        ? "Mark ABS (or leave) and Save before approving a no-show"
+                                        : "Set a roster action (e.g. ABS) and Save before approving"
                             }
                             aria-hidden
                           />
                         )}
-                        {isApproved ? (
+                        {isApproved && !hasDraft ? (
                           <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-800">
                             approved
                           </span>

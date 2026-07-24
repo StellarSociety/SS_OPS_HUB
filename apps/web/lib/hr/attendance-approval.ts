@@ -41,11 +41,21 @@ function isLeaveOrAbsenceLabel(label: string | null | undefined): boolean {
 /**
  * Whether a Validation day still needs approval (leave / ABS / out-of-tolerance
  * worked shifts). Already-approved days return needs: false.
+ *
+ * Matches Validation selectability:
+ * - OFF / calendar PH → never
+ * - Leave / ABS → yes (even without an attendance row — stub created on approve)
+ * - SHIFT within schedule tolerance → no
+ * - SHIFT missing punches / over tolerance → only when an attendance row exists
+ *   (roster-only no-shows must be marked ABS/leave first)
+ * - Other punch rows → only when an attendance row exists
  */
 export function attendanceDayRequiresApproval(input: {
   rosterLabel: string | null | undefined;
   approvalStatus: string | null | undefined;
   workDate: string;
+  /** Present when `hr_attendance_days` has a row for this emp/date. */
+  attendanceId?: string | null;
   scheduleStart?: string | null;
   scheduleEnd?: string | null;
   clockIn?: string | null;
@@ -87,6 +97,11 @@ export function attendanceDayRequiresApproval(input: {
       varianceMinutes,
     });
     if (!needs) return { needs: false, kind: null, reason: null };
+    // Roster-only SHIFT (no attendance row) is not approvable yet — mark ABS
+    // or leave in Validation first.
+    if (!input.attendanceId) {
+      return { needs: false, kind: null, reason: null };
+    }
     return {
       needs: true,
       kind: "worked",
@@ -98,9 +113,8 @@ export function attendanceDayRequiresApproval(input: {
     };
   }
 
-  // Attendance with no roster (or unknown label) still needs a review when
-  // there is something to approve (punches or an existing attendance row issue).
-  if (input.clockIn || input.clockOut || input.issue) {
+  // Attendance with no roster (or unknown label) — only when a row exists.
+  if (input.attendanceId && (input.clockIn || input.clockOut || input.issue)) {
     return {
       needs: true,
       kind: "worked",

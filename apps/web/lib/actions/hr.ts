@@ -58,7 +58,9 @@ import {
   DEFAULT_SCHEDULE_SECTIONS,
   DEFAULT_SHIFT_TEMPLATES,
   deriveScheduleLabelColors,
+  formatIsoDateDisplay,
   isWorkDateAfterTermination,
+  isWorkDateBeforeJoining,
   normalizeShiftTime,
   postTerminationBlockMessage,
   shiftSpansMidnight,
@@ -1039,12 +1041,18 @@ async function resolveStaffPhotoUpdate({
     }
 
     // Canonical cropped WebP per staff member — public URL only in the DB.
+    // Client already exports WebP; convertImageToWebp re-encodes when sharp
+    // works, or passes through a valid WebP if sharp/libvips is unavailable.
     const bytes = Buffer.from(await photo.arrayBuffer());
 
     let webp: Awaited<ReturnType<typeof convertImageToWebp>>;
     try {
       webp = await convertImageToWebp(bytes);
-    } catch {
+    } catch (err) {
+      console.error(
+        "[hr] staff photo WebP convert failed:",
+        err instanceof Error ? err.message : err,
+      );
       return { error: "Could not convert staff photo to WebP." };
     }
 
@@ -1069,30 +1077,34 @@ async function resolveStaffPhotoUpdate({
     }
 
     // Optional uncropped original — enables Adjust after the form is saved.
+    // Failure here must not block the cropped photo save.
     if (photoSource instanceof File && photoSource.size > 0) {
       if (photoSource.size > STAFF_PHOTO_SOURCE_MAX_BYTES) {
-        return { error: "Staff photo source must be 8 MB or smaller." };
-      }
-      if (!isRasterImageMime(photoSource.type)) {
-        return { error: "Staff photo source must be a PNG, JPEG, or WebP image." };
-      }
-      try {
-        const sourceWebp = await convertImageToWebp(
-          Buffer.from(await photoSource.arrayBuffer()),
-          {
-            maxWidth: STAFF_PHOTO_SOURCE_MAX_EDGE,
-            maxHeight: STAFF_PHOTO_SOURCE_MAX_EDGE,
-          },
-        );
-        await service.storage
-          .from(STAFF_PHOTOS_BUCKET)
-          .upload(paths.source, sourceWebp.buffer, {
-            contentType: sourceWebp.contentType,
-            upsert: true,
-            cacheControl: "31536000",
-          });
-      } catch {
-        return { error: "Could not store staff photo source for re-editing." };
+        console.warn("[hr] staff photo source too large; skipping source store");
+      } else if (!isRasterImageMime(photoSource.type)) {
+        console.warn("[hr] staff photo source mime not raster; skipping source store");
+      } else {
+        try {
+          const sourceWebp = await convertImageToWebp(
+            Buffer.from(await photoSource.arrayBuffer()),
+            {
+              maxWidth: STAFF_PHOTO_SOURCE_MAX_EDGE,
+              maxHeight: STAFF_PHOTO_SOURCE_MAX_EDGE,
+            },
+          );
+          await service.storage
+            .from(STAFF_PHOTOS_BUCKET)
+            .upload(paths.source, sourceWebp.buffer, {
+              contentType: sourceWebp.contentType,
+              upsert: true,
+              cacheControl: "31536000",
+            });
+        } catch (err) {
+          console.warn(
+            "[hr] staff photo source store skipped:",
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
     }
 
@@ -1258,7 +1270,9 @@ async function saveScheduleDayChangesInner(params: {
   const [staffResult, labelsResult, templatesResult] = await Promise.all([
     service
       .from("staff")
-      .select("id, emp_no, full_name, department_id, termination_date")
+      .select(
+        "id, emp_no, full_name, department_id, joining_date, termination_date",
+      )
       .eq("home_venue_id", venue.id)
       .in("id", staffIds),
     service.from("schedule_day_labels").select("code"),
@@ -1279,12 +1293,27 @@ async function saveScheduleDayChangesInner(params: {
     staffResult.data.map((row) => [row.id as string, row] as const),
   );
 
-  // Block setting labels after termination (clearing those days is still allowed).
+  // Block setting labels outside employment (clearing those days is still allowed).
   for (const change of changes) {
     if (change.labelCode === null) continue;
     const staffRow = staffById.get(change.staffId);
+    const joiningDate =
+      (staffRow?.joining_date as string | null | undefined) ?? null;
     const terminationDate =
       (staffRow?.termination_date as string | null | undefined) ?? null;
+    if (isWorkDateBeforeJoining(change.workDate, joiningDate)) {
+      const when = joiningDate
+        ? formatIsoDateDisplay(joiningDate)
+        : "unknown";
+      const who =
+        (staffRow?.full_name as string | null)?.trim() ||
+        ((staffRow?.emp_no as string | null)?.trim()
+          ? `Employee ${(staffRow?.emp_no as string).trim()}`
+          : "This employee");
+      return {
+        error: `${who} joins on ${when}. Roster labels before the joining date are not valid and cannot be saved.`,
+      };
+    }
     if (
       isWorkDateAfterTermination(change.workDate, terminationDate) &&
       terminationDate

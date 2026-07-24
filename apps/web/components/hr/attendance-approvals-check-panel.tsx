@@ -4,10 +4,16 @@ import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { AttendancePayrollMonthPicker } from "@/components/hr/attendance-date-filters";
 import type { AttendanceApprovalKind } from "@/lib/hr/attendance-approval";
+import {
+  mergePayrollSettings,
+  payrollMonthContainingDate,
+  payrollMonthInputValue,
+  resolvePayrollPeriod,
+} from "@/lib/hr/payroll";
 import { formatIsoDateShort } from "@/lib/hr/schedules";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 export type ApprovalsCheckDay = {
   staffId: string | null;
@@ -28,9 +34,14 @@ type Props = {
   days: ApprovalsCheckDay[];
   departments: DepartmentOption[];
   payrollMonthInput: string;
+  periodStartDay: number;
+  periodEndDay: number;
   periodStart: string;
   periodEnd: string;
   periodLabel: string;
+  /** True when toDate was extended past Pay settings period end for leavers. */
+  periodExtended?: boolean;
+  settingsPeriodEnd?: string;
 };
 
 function kindLabel(kind: AttendanceApprovalKind): string {
@@ -47,9 +58,13 @@ export function AttendanceApprovalsCheckPanel({
   days,
   departments,
   payrollMonthInput,
+  periodStartDay,
+  periodEndDay,
   periodStart,
   periodEnd,
   periodLabel,
+  periodExtended = false,
+  settingsPeriodEnd,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -58,6 +73,27 @@ export function AttendanceApprovalsCheckPanel({
     "all",
   );
   const [query, setQuery] = useState("");
+
+  const payrollSettings = useMemo(
+    () =>
+      mergePayrollSettings({
+        periodStartDay,
+        periodEndDay,
+      }),
+    [periodStartDay, periodEndDay],
+  );
+
+  const pickerRange = useMemo(() => {
+    try {
+      const period = resolvePayrollPeriod(payrollMonthInput, payrollSettings);
+      return {
+        startDate: period.periodStart,
+        endDate: period.periodEnd,
+      };
+    } catch {
+      return { startDate: "", endDate: "" };
+    }
+  }, [payrollMonthInput, payrollSettings]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -129,16 +165,25 @@ export function AttendanceApprovalsCheckPanel({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-black/10 bg-white/60 p-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="approvals_check_month">Payroll month</Label>
-          <Input
-            id="approvals_check_month"
-            type="month"
-            className="h-8 w-44"
-            value={payrollMonthInput}
-            onChange={(e) => onMonthChange(e.target.value)}
-          />
-        </div>
+        <AttendancePayrollMonthPicker
+          fieldLabel="Payroll month"
+          periodStartDay={periodStartDay}
+          periodEndDay={periodEndDay}
+          startDate={pickerRange.startDate}
+          endDate={pickerRange.endDate}
+          footerHint={`Uses Pay settings period ${periodStartDay}→${periodEndDay}.`}
+          onChange={({ endDate }) => {
+            try {
+              const month = payrollMonthContainingDate(
+                endDate,
+                payrollSettings,
+              );
+              onMonthChange(payrollMonthInputValue(month));
+            } catch {
+              // ignore invalid range
+            }
+          }}
+        />
         <div className="min-w-[12rem] flex-1 space-y-1.5">
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
             Period from settings
@@ -146,6 +191,9 @@ export function AttendanceApprovalsCheckPanel({
           <p className="text-sm text-[#3D421F]">
             {periodLabel}: {formatIsoDateShort(periodStart)} →{" "}
             {formatIsoDateShort(periodEnd)}
+            {periodExtended && settingsPeriodEnd
+              ? ` (includes leavers through ${formatIsoDateShort(periodEnd)}; pay window ends ${formatIsoDateShort(settingsPeriodEnd)})`
+              : ""}
           </p>
         </div>
         <div className="text-sm text-black/55">
@@ -196,11 +244,12 @@ export function AttendanceApprovalsCheckPanel({
       {groups.length === 0 ? (
         <div className="rounded-lg border border-dashed border-black/15 bg-white/40 px-4 py-10 text-center">
           <p className="text-sm font-medium text-[#3D421F]">
-            Nothing waiting for approval
+            No leavers need approval this month
           </p>
           <p className="mt-1 text-sm text-black/55">
-            Leave and out-of-tolerance worked days in this payroll period are
-            clear.
+            Only staff with a termination date in this payroll month appear
+            here. Leave, ABS, and out-of-tolerance worked days for those
+            leavers are clear.
           </p>
         </div>
       ) : (
