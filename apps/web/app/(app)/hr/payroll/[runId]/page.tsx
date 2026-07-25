@@ -75,7 +75,7 @@ export default async function HrPayrollRunPage({
     supabase
       .from("hr_payroll_run_employees")
       .select(
-        "id, staff_id, emp_no, full_name, department_name, included, exclude_reason, is_new_joiner, is_leaver, paid_days, unpaid_days, fixed_earnings, variable_earnings, total_deductions, net_salary",
+        "id, staff_id, emp_no, full_name, department_name, included, exclude_reason, is_new_joiner, is_leaver, paid_days, unpaid_days, basic_salary, accom_allowance, transp_allowance, fixed_earnings, variable_earnings, total_deductions, net_salary, snapshot",
       )
       .eq("run_id", runId)
       .order("emp_no"),
@@ -130,17 +130,24 @@ export default async function HrPayrollRunPage({
       .limit(40),
   ]);
 
-  const employeesRaw = (employeesRes.data ?? []) as Omit<
-    PayrollEmployeeRow,
-    "working_status"
-  >[];
+  const employeesRaw = (employeesRes.data ?? []) as Array<
+    Omit<PayrollEmployeeRow, "working_status" | "joining_date" | "termination_date" | "day_fractions"> & {
+      snapshot?: {
+        dayFractions?: PayrollEmployeeRow["day_fractions"];
+        joiningDate?: string | null;
+        terminationDate?: string | null;
+      } | null;
+    }
+  >;
 
   const staffIds = [...new Set(employeesRaw.map((e) => e.staff_id))];
   const workingStatusByStaffId = new Map<string, string>();
+  const joiningByStaffId = new Map<string, string | null>();
+  const terminationByStaffId = new Map<string, string | null>();
   if (staffIds.length > 0) {
     const { data: staffStatuses, error: staffStatusError } = await supabase
       .from("staff")
-      .select("id, working_status:working_statuses(name)")
+      .select("id, joining_date, termination_date, working_status:working_statuses(name)")
       .in("id", staffIds);
     if (staffStatusError) {
       console.error(
@@ -155,14 +162,66 @@ export default async function HrPayrollRunPage({
           | null;
         const name = Array.isArray(raw) ? raw[0]?.name : raw?.name;
         if (name) workingStatusByStaffId.set(row.id, name);
+        joiningByStaffId.set(
+          row.id,
+          row.joining_date ? String(row.joining_date).slice(0, 10) : null,
+        );
+        terminationByStaffId.set(
+          row.id,
+          row.termination_date
+            ? String(row.termination_date).slice(0, 10)
+            : null,
+        );
       }
     }
   }
 
-  const employees: PayrollEmployeeRow[] = employeesRaw.map((e) => ({
-    ...e,
-    working_status: workingStatusByStaffId.get(e.staff_id) ?? null,
-  }));
+  const employees: PayrollEmployeeRow[] = employeesRaw.map((e) => {
+    const snap = e.snapshot ?? null;
+    const snapJoining = snap?.joiningDate
+      ? String(snap.joiningDate).slice(0, 10)
+      : null;
+    const snapTermination = snap?.terminationDate
+      ? String(snap.terminationDate).slice(0, 10)
+      : null;
+    return {
+      id: e.id,
+      staff_id: e.staff_id,
+      emp_no: e.emp_no,
+      full_name: e.full_name,
+      department_name: e.department_name,
+      included: e.included,
+      exclude_reason: e.exclude_reason,
+      is_new_joiner: e.is_new_joiner,
+      is_leaver: e.is_leaver,
+      paid_days: e.paid_days,
+      unpaid_days: e.unpaid_days,
+      basic_salary:
+        e.basic_salary != null && !Number.isNaN(Number(e.basic_salary))
+          ? Number(e.basic_salary)
+          : null,
+      accom_allowance:
+        e.accom_allowance != null && !Number.isNaN(Number(e.accom_allowance))
+          ? Number(e.accom_allowance)
+          : null,
+      transp_allowance:
+        e.transp_allowance != null && !Number.isNaN(Number(e.transp_allowance))
+          ? Number(e.transp_allowance)
+          : null,
+      fixed_earnings: e.fixed_earnings,
+      variable_earnings: e.variable_earnings,
+      total_deductions: e.total_deductions,
+      net_salary: e.net_salary,
+      working_status: workingStatusByStaffId.get(e.staff_id) ?? null,
+      joining_date:
+        snapJoining ?? joiningByStaffId.get(e.staff_id) ?? null,
+      termination_date:
+        snapTermination ?? terminationByStaffId.get(e.staff_id) ?? null,
+      day_fractions: Array.isArray(snap?.dayFractions)
+        ? snap.dayFractions
+        : [],
+    };
+  });
 
   const staffOptions: PayrollStaffOption[] = employees.map((e) => ({
     id: e.staff_id,

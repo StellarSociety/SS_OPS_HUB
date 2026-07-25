@@ -1,4 +1,10 @@
-/** Attendance day approval — payroll / leave must only use approved rows. */
+/**
+ * Attendance day approval rules shared by Validation UI and payroll.
+ *
+ * Payroll pays a day when Validation does not require approval for that day
+ * (same `attendanceDayRequiresApproval` gate). Leave usage still mirrors
+ * approved attendance rows when recording leave balances.
+ */
 
 import { isScheduleLeaveLabel } from "@/lib/hr/leave";
 import {
@@ -26,11 +32,47 @@ export type AttendanceApprovalNeed = {
   reason: string | null;
 };
 
-/** True when an attendance day may feed payroll or leave calculations. */
+export type AttendanceClearanceInput = {
+  rosterLabel: string | null | undefined;
+  approvalStatus: string | null | undefined;
+  workDate: string;
+  attendanceId?: string | null;
+  scheduleStart?: string | null;
+  scheduleEnd?: string | null;
+  clockIn?: string | null;
+  clockOut?: string | null;
+  issue?: string | null;
+  timezone?: string;
+  varianceMinutes?: number;
+};
+
+/** True when an attendance day was explicitly approved in Validation. */
 export function isAttendanceApprovedForPayroll(
   approvalStatus: string | null | undefined,
 ): boolean {
   return approvalStatus === ATTENDANCE_APPROVED_STATUS;
+}
+
+/**
+ * Whether a roster day is cleared for payroll pay.
+ *
+ * Same gate as Validation: if `attendanceDayRequiresApproval` says the day
+ * does **not** need approval, it is cleared to pay. That includes:
+ *
+ * - Explicitly approved days
+ * - OFF / calendar PH
+ * - SHIFT within schedule variance
+ * - Roster SHIFT with no attendance row yet (not selectable in Validation —
+ *   pay unless HR marks ABS/leave; those leave labels then need approval)
+ *
+ * Not cleared when Validation still requires approval (leave/ABS pending,
+ * out-of-tolerance punches) or when the day was rejected.
+ */
+export function isDayClearedForPayroll(
+  input: AttendanceClearanceInput,
+): boolean {
+  if (input.approvalStatus === "rejected") return false;
+  return !attendanceDayRequiresApproval(input).needs;
 }
 
 function isLeaveOrAbsenceLabel(label: string | null | undefined): boolean {
@@ -50,20 +92,9 @@ function isLeaveOrAbsenceLabel(label: string | null | undefined): boolean {
  *   (roster-only no-shows must be marked ABS/leave first)
  * - Other punch rows → only when an attendance row exists
  */
-export function attendanceDayRequiresApproval(input: {
-  rosterLabel: string | null | undefined;
-  approvalStatus: string | null | undefined;
-  workDate: string;
-  /** Present when `hr_attendance_days` has a row for this emp/date. */
-  attendanceId?: string | null;
-  scheduleStart?: string | null;
-  scheduleEnd?: string | null;
-  clockIn?: string | null;
-  clockOut?: string | null;
-  issue?: string | null;
-  timezone?: string;
-  varianceMinutes?: number;
-}): AttendanceApprovalNeed {
+export function attendanceDayRequiresApproval(
+  input: AttendanceClearanceInput,
+): AttendanceApprovalNeed {
   if (isAttendanceApprovedForPayroll(input.approvalStatus)) {
     return { needs: false, kind: null, reason: null };
   }

@@ -1,8 +1,10 @@
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
 import { HrOverview } from "@/components/hr/hr-overview";
+import { OffBoardingWidgets } from "@/components/hr/offboarding-widgets";
 import { ProbationWidgets } from "@/components/hr/probation-widgets";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { buildHrOverviewStats } from "@/lib/hr/overview";
+import { listOffBoardingItems } from "@/lib/hr/offboarding";
 import { listOnProbationItems } from "@/lib/hr/probation";
 import {
   getExpiryItems,
@@ -34,6 +36,7 @@ export default async function StaffInsightsPage() {
 
   const stats = buildHrOverviewStats(staff, expiryItems);
   const onProbation = listOnProbationItems(staff);
+  const offBoarding = listOffBoardingItems(staff);
 
   return (
     <div className="space-y-6">
@@ -48,6 +51,8 @@ export default async function StaffInsightsPage() {
       />
 
       <ProbationWidgets items={onProbation} title="On probation" />
+
+      <OffBoardingWidgets items={offBoarding} title="Off boarding" />
     </div>
   );
 }

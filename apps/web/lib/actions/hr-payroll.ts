@@ -29,18 +29,20 @@ import {
   getHrVenueSetting,
   listAttendanceDaysForStaff,
   listScheduleDaysByDateRange,
+  listShiftTemplates,
   listStaffForVenue,
 } from "@/lib/hr/store";
 import {
+  DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
   DEFAULT_HR_SALARY_DEFAULTS,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
+  type HrAttendanceImportRules,
   type HrLeavePolicySettings,
   type HrSalaryDefaults,
 } from "@/lib/hr/types";
 import { mergeLeavePolicy } from "@/lib/hr/leave";
 import { createServiceClient } from "@/lib/supabase/service";
-import { ATTENDANCE_APPROVED_STATUS } from "@/lib/hr/attendance-approval";
 
 export type PayrollActionResult =
   | { ok: true }
@@ -147,13 +149,19 @@ async function persistCalculatedRun(opts: {
     HR_SETTINGS_KEYS.salaryDefaults,
     DEFAULT_HR_SALARY_DEFAULTS,
   );
+  const importRules = await getHrVenueSetting<HrAttendanceImportRules>(
+    supabase,
+    venueId,
+    HR_SETTINGS_KEYS.attendanceImportRules,
+    DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+  );
 
   const staffRows = await listStaffForVenue(supabase, venueId);
   const staffInputs = toStaffInput(staffRows);
   const staffIds = staffInputs.map((s) => s.id);
   const empNos = staffInputs.map((s) => s.emp_no);
 
-  const [scheduleDays, attendanceDays, adjustmentsRes, benefitsRes] =
+  const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
     await Promise.all([
       listScheduleDaysByDateRange(supabase, venueId, {
         fromDate: period.periodStart,
@@ -165,6 +173,7 @@ async function persistCalculatedRun(opts: {
         fromDate: period.periodStart,
         toDate: period.periodEnd,
       }),
+      listShiftTemplates(supabase, venueId, { includeInactive: true }),
       service
         .from("hr_payroll_adjustments")
         .select("*")
@@ -178,11 +187,11 @@ async function persistCalculatedRun(opts: {
         .in("status", ["finalized", "applied_to_payroll"]),
     ]);
 
-  const approved = attendanceDays.filter(
-    (d) => d.approval_status === ATTENDANCE_APPROVED_STATUS,
-  );
-  const pending = attendanceDays.filter(
-    (d) => d.approval_status !== ATTENDANCE_APPROVED_STATUS,
+  const shiftTemplateMap = Object.fromEntries(
+    (shiftTemplates ?? []).map((t) => [
+      t.id,
+      { startTime: t.startTime, endTime: t.endTime },
+    ]),
   );
 
   const adjustments = (adjustmentsRes.data ?? []).map((a) => ({
@@ -216,8 +225,12 @@ async function persistCalculatedRun(opts: {
     },
     staff: staffInputs,
     scheduleDays,
-    approvedAttendance: approved,
-    pendingAttendance: pending,
+    attendanceDays,
+    shiftTemplates: shiftTemplateMap,
+    timezone: importRules.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
+    varianceMinutes:
+      importRules.scheduleVarianceMinutes ??
+      DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes,
     benefits,
     adjustments,
   });
@@ -264,7 +277,13 @@ async function persistCalculatedRun(opts: {
       total_deductions: e.totalDeductions,
       gross_earnings: e.grossEarnings,
       net_salary: e.netSalary,
-      snapshot: { dayFractions: e.dayFractions },
+      snapshot: {
+        dayFractions: e.dayFractions,
+        joiningDate:
+          staffInputs.find((s) => s.id === e.staffId)?.joining_date ?? null,
+        terminationDate:
+          staffInputs.find((s) => s.id === e.staffId)?.termination_date ?? null,
+      },
       updated_at: new Date().toISOString(),
     }));
 

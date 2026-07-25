@@ -131,10 +131,21 @@ export type PayrollPeriod = {
 export type PayrollDayFraction = {
   workDate: string;
   labelCode: string;
+  /** Cleared for pay (explicit approval or Validation no-approval-needed rule). */
   approved: boolean;
   payFraction: number;
   unpaidFraction: number;
   isLeave: boolean;
+  /** Present on newly calculated runs; older snapshots may omit. */
+  paidStatus?:
+    | "paid"
+    | "unpaid"
+    | "half_pay"
+    | "variable"
+    | "paid_plus_compensation"
+    | "worked"
+    | "off"
+    | "unknown";
 };
 
 export type CalculatedPayrollLine = {

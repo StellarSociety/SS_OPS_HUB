@@ -28,6 +28,8 @@ import {
   canEditPayrollRun,
   formatPayrollMonthLabel,
   isPayrollLocked,
+  summarizePayrollLeave,
+  type PayrollDayFraction,
   type PayrollLineCategory,
   type PayrollStatus,
 } from "@/lib/hr/payroll";
@@ -57,6 +59,28 @@ function formatDate(value: string | null | undefined): string {
   const d = value.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return value;
   return d;
+}
+
+/** Full-month contracted package amount for a fixed pay line code. */
+function contractedAmountForLine(
+  code: string,
+  row: Pick<
+    PayrollEmployeeRow,
+    "basic_salary" | "accom_allowance" | "transp_allowance"
+  >,
+): number | null {
+  switch (code) {
+    case "BASIC":
+      return row.basic_salary;
+    case "ACCOM":
+    case "ACCOM_WITHHELD":
+      return row.accom_allowance;
+    case "TRANSP":
+    case "TRANSP_WITHHELD":
+      return row.transp_allowance;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -106,10 +130,18 @@ export type PayrollEmployeeRow = {
   is_leaver: boolean;
   paid_days: number;
   unpaid_days: number;
+  /** Contracted monthly package components (full month). */
+  basic_salary: number | null;
+  accom_allowance: number | null;
+  transp_allowance: number | null;
   fixed_earnings: number;
   variable_earnings: number;
   total_deductions: number;
   net_salary: number;
+  joining_date: string | null;
+  termination_date: string | null;
+  /** Day-fraction snapshot from calculation (leave breakdown source). */
+  day_fractions: PayrollDayFraction[];
 };
 
 export type PayrollLineRow = {
@@ -1237,6 +1269,25 @@ function FragmentRows({
   onToggleExpand: () => void;
   onToggleIncluded: (id: string, included: boolean) => void;
 }) {
+  const leaveSummary = summarizePayrollLeave(row.day_fractions);
+  const paidKinds = leaveSummary.kinds.filter((k) => k.bucket === "paid");
+  const halfPayKinds = leaveSummary.kinds.filter((k) => k.bucket === "half_pay");
+  const unpaidKinds = leaveSummary.kinds.filter((k) => k.bucket === "unpaid");
+  const totalLeaveDays =
+    leaveSummary.paidDays + leaveSummary.halfPayDays + leaveSummary.unpaidDays;
+
+  const sortedPayLines = [...empLines].sort(
+    (a, b) => a.sort_order - b.sort_order,
+  );
+  const contractedPayTotal = sortedPayLines.reduce((sum, line) => {
+    const contracted = contractedAmountForLine(line.code, row);
+    return contracted != null ? sum + contracted : sum;
+  }, 0);
+  const payrollPayTotal = sortedPayLines.reduce(
+    (sum, line) => sum + Number(line.amount || 0),
+    0,
+  );
+
   return (
     <>
       <tr
@@ -1312,45 +1363,192 @@ function FragmentRows({
       {open ? (
         <tr className="bg-black/[0.015]">
           <td colSpan={11} className="px-4 py-3">
-            {empLines.length === 0 ? (
-              <p className="text-xs text-black/45">No lines for this employee.</p>
-            ) : (
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-black/45">
-                    <th className="py-1 font-medium">Category</th>
-                    <th className="py-1 font-medium">Code</th>
-                    <th className="py-1 font-medium">Label</th>
-                    <th className="py-1 text-right font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...empLines]
-                    .sort((a, b) => a.sort_order - b.sort_order)
-                    .map((line) => (
-                      <tr key={line.id} className="border-t border-black/5">
-                        <td className="py-1.5 capitalize text-black/55">
-                          {line.category}
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[#3D421F]">
+                <p>
+                  <span className="text-black/45">Joining date</span>{" "}
+                  <span className="tabular-nums font-medium">
+                    {formatDate(row.joining_date)}
+                  </span>
+                </p>
+                <p>
+                  <span className="text-black/45">Termination date</span>{" "}
+                  <span className="tabular-nums font-medium">
+                    {formatDate(row.termination_date)}
+                  </span>
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-[#3D421F]">
+                  Leave this period
+                  <span className="ml-1.5 font-normal text-black/45">
+                    {totalLeaveDays === 0
+                      ? "· none taken"
+                      : `· ${totalLeaveDays} day${totalLeaveDays === 1 ? "" : "s"} total`}
+                  </span>
+                </p>
+                {totalLeaveDays === 0 ? (
+                  <p className="text-xs text-black/45">
+                    No approved leave days in this payroll period.
+                  </p>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <LeaveBucketPanel
+                      title="Paid leave"
+                      subtitle="Salary continues (full daily rate)"
+                      totalDays={leaveSummary.paidDays}
+                      kinds={paidKinds}
+                      emptyLabel="No paid leave days"
+                    />
+                    <LeaveBucketPanel
+                      title="Unpaid leave"
+                      subtitle="No salary for these days (reduces paid days)"
+                      totalDays={leaveSummary.unpaidDays}
+                      kinds={unpaidKinds}
+                      emptyLabel="No unpaid leave days"
+                    />
+                    {leaveSummary.halfPayDays > 0 ? (
+                      <LeaveBucketPanel
+                        title="Half-pay leave"
+                        subtitle="50% of daily rate for these days"
+                        totalDays={leaveSummary.halfPayDays}
+                        kinds={halfPayKinds}
+                        emptyLabel="No half-pay leave days"
+                        className="sm:col-span-2"
+                      />
+                    ) : null}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-1.5 text-xs font-medium text-[#3D421F]">
+                  Pay lines
+                </p>
+                {sortedPayLines.length === 0 ? (
+                  <p className="text-xs text-black/45">
+                    No lines for this employee.
+                  </p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-black/45">
+                        <th className="py-1 font-medium">Category</th>
+                        <th className="py-1 font-medium">Code</th>
+                        <th className="py-1 font-medium">Label</th>
+                        <th className="py-1 text-right font-medium">
+                          Contracted
+                        </th>
+                        <th className="py-1 text-right font-medium">
+                          Payroll Amount
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedPayLines.map((line) => (
+                        <tr key={line.id} className="border-t border-black/5">
+                          <td className="py-1.5 capitalize text-black/55">
+                            {line.category}
+                          </td>
+                          <td className="py-1.5 font-mono">{line.code}</td>
+                          <td className="py-1.5">{line.label}</td>
+                          <td className="py-1.5 text-right tabular-nums text-black/55">
+                            {formatMoney(
+                              contractedAmountForLine(line.code, row),
+                              canViewSalary,
+                            )}
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums">
+                            {formatMoney(line.amount, canViewSalary)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-black/10 font-medium text-[#3D421F]">
+                        <td className="py-1.5" colSpan={3}>
+                          Total
                         </td>
-                        <td className="py-1.5 font-mono">{line.code}</td>
-                        <td className="py-1.5">{line.label}</td>
                         <td className="py-1.5 text-right tabular-nums">
-                          {formatMoney(line.amount, canViewSalary)}
+                          {formatMoney(contractedPayTotal, canViewSalary)}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums">
+                          {formatMoney(payrollPayTotal, canViewSalary)}
                         </td>
                       </tr>
-                    ))}
-                </tbody>
-              </table>
-            )}
-            {row.exclude_reason ? (
-              <p className="mt-2 text-xs text-amber-800/80">
-                Exclude reason: {row.exclude_reason}
-              </p>
-            ) : null}
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+
+              {row.exclude_reason ? (
+                <p className="text-xs text-amber-800/80">
+                  Exclude reason: {row.exclude_reason}
+                </p>
+              ) : null}
+            </div>
           </td>
         </tr>
       ) : null}
     </>
+  );
+}
+
+function LeaveBucketPanel({
+  title,
+  subtitle,
+  totalDays,
+  kinds,
+  emptyLabel,
+  className,
+}: {
+  title: string;
+  subtitle: string;
+  totalDays: number;
+  kinds: ReturnType<typeof summarizePayrollLeave>["kinds"];
+  emptyLabel: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border border-black/10 bg-white/70 px-3 py-2.5",
+        className,
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-xs font-medium text-[#3D421F]">{title}</p>
+        <p className="tabular-nums text-xs font-medium text-[#3D421F]">
+          {totalDays} day{totalDays === 1 ? "" : "s"}
+        </p>
+      </div>
+      <p className="mt-0.5 text-[11px] text-black/45">{subtitle}</p>
+      {kinds.length === 0 ? (
+        <p className="mt-2 text-[11px] text-black/40">{emptyLabel}</p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {kinds.map((kind) => (
+            <li key={`${kind.bucket}:${kind.code}`} className="text-xs">
+              <div className="flex items-baseline justify-between gap-2 text-[#3D421F]">
+                <span>
+                  <span className="font-mono text-[11px] text-black/50">
+                    {kind.code}
+                  </span>{" "}
+                  {kind.name}
+                </span>
+                <span className="shrink-0 tabular-nums text-black/70">
+                  {kind.days}d
+                </span>
+              </div>
+              <p className="text-[11px] leading-snug text-black/45">
+                {kind.explanation}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

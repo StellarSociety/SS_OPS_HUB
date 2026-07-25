@@ -1,8 +1,22 @@
-/** Daily rate = Salary to pay × 12 / 365 (UAE calendar-day model). */
+/**
+ * Daily rate for a payroll period.
+ *
+ * Monthly salary is fixed: full attendance in the period pays salaryToPay in
+ * full, whether the period has 30 or 31 calendar days.
+ *
+ * dailyRate = salaryToPay / periodCalendarDays
+ * fixedPay  = dailyRate × paidDays
+ */
 
-export function computeDailyRate(salaryToPay: number | null | undefined): number | null {
+export function computeDailyRate(
+  salaryToPay: number | null | undefined,
+  periodCalendarDays: number,
+): number | null {
   if (salaryToPay == null || Number.isNaN(salaryToPay)) return null;
-  return round6((salaryToPay * 12) / 365);
+  if (!Number.isFinite(periodCalendarDays) || periodCalendarDays <= 0) {
+    return null;
+  }
+  return round6(salaryToPay / periodCalendarDays);
 }
 
 export function round2(n: number): number {

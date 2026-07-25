@@ -3,7 +3,11 @@ import {
   isInAccommodation,
   type SalaryPercentages,
 } from "@/lib/hr/derived";
-import type { HrLeavePolicySettings } from "@/lib/hr/types";
+import { isDayClearedForPayroll } from "@/lib/hr/attendance-approval";
+import {
+  DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+  type HrLeavePolicySettings,
+} from "@/lib/hr/types";
 import { computeDailyRate, round2 } from "./daily-rate";
 import { payFractionForLabel } from "./pay-fraction";
 import {
@@ -51,6 +55,7 @@ export type ScheduleDayInput = {
   emp_no: string;
   work_date: string;
   label_code: string;
+  shift_template_id?: string | null;
 };
 
 export type AttendanceDayInput = {
@@ -58,6 +63,14 @@ export type AttendanceDayInput = {
   emp_no: string;
   work_date: string;
   approval_status: string;
+  id?: string | null;
+  clock_in?: string | null;
+  clock_out?: string | null;
+};
+
+export type ShiftTemplateTimes = {
+  startTime: string;
+  endTime: string;
 };
 
 export type BenefitAllocationInput = {
@@ -92,8 +105,22 @@ function statusExcluded(
   );
 }
 
+function resolveShiftTemplateMap(
+  templates:
+    | Map<string, ShiftTemplateTimes>
+    | Record<string, ShiftTemplateTimes>
+    | undefined,
+): Map<string, ShiftTemplateTimes> {
+  if (!templates) return new Map();
+  if (templates instanceof Map) return templates;
+  return new Map(Object.entries(templates));
+}
+
 /**
- * Build per-employee payroll from approved attendance + roster labels + salaryToPay.
+ * Build per-employee payroll from roster labels + Validation clearance + salaryToPay.
+ *
+ * A day is payable when Validation does not require approval for it
+ * (`isDayClearedForPayroll` / `attendanceDayRequiresApproval`).
  */
 export function calculateVenuePayroll(input: {
   period: PayrollPeriod;
@@ -102,8 +129,10 @@ export function calculateVenuePayroll(input: {
   salaryPct: SalaryPercentages;
   staff: PayrollStaffInput[];
   scheduleDays: ScheduleDayInput[];
-  approvedAttendance: AttendanceDayInput[];
-  pendingAttendance?: AttendanceDayInput[];
+  attendanceDays: AttendanceDayInput[];
+  shiftTemplates?: Map<string, ShiftTemplateTimes> | Record<string, ShiftTemplateTimes>;
+  timezone?: string;
+  varianceMinutes?: number;
   benefits?: BenefitAllocationInput[];
   adjustments?: ManualAdjustmentInput[];
 }): {
@@ -118,32 +147,36 @@ export function calculateVenuePayroll(input: {
     salaryPct,
     staff,
     scheduleDays,
-    approvedAttendance,
-    pendingAttendance = [],
+    attendanceDays,
     benefits = [],
     adjustments = [],
   } = input;
 
-  const scheduleByEmpDate = new Map<string, string>();
+  const timezone =
+    input.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone;
+  const varianceMinutes =
+    input.varianceMinutes ??
+    DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes;
+  const shiftTemplates = resolveShiftTemplateMap(input.shiftTemplates);
+  const periodCalendarDays = calendarDaysInclusive(
+    period.periodStart,
+    period.periodEnd,
+  );
+
+  const scheduleByEmpDate = new Map<
+    string,
+    { label: string; shiftTemplateId: string | null }
+  >();
   for (const day of scheduleDays) {
-    scheduleByEmpDate.set(
-      `${empKey(day.emp_no)}:${day.work_date}`,
-      day.label_code,
-    );
+    scheduleByEmpDate.set(`${empKey(day.emp_no)}:${day.work_date}`, {
+      label: day.label_code,
+      shiftTemplateId: day.shift_template_id ?? null,
+    });
   }
 
-  const approvedSet = new Set<string>();
-  for (const day of approvedAttendance) {
-    approvedSet.add(`${empKey(day.emp_no)}:${day.work_date}`);
-  }
-
-  const pendingByEmp = new Map<string, AttendanceDayInput[]>();
-  for (const day of pendingAttendance) {
-    if (day.approval_status === "approved") continue;
-    const k = empKey(day.emp_no);
-    const list = pendingByEmp.get(k) ?? [];
-    list.push(day);
-    pendingByEmp.set(k, list);
+  const attendanceByEmpDate = new Map<string, AttendanceDayInput>();
+  for (const day of attendanceDays) {
+    attendanceByEmpDate.set(`${empKey(day.emp_no)}:${day.work_date}`, day);
   }
 
   const benefitsByStaff = new Map<string, BenefitAllocationInput[]>();
@@ -186,7 +219,7 @@ export function calculateVenuePayroll(input: {
     const accom = s.accom_all_25 ?? breakdown.accom;
     const transp = s.transp_all_15 ?? breakdown.transp;
     const salaryToPay = breakdown.salaryToPay;
-    const dailyRate = computeDailyRate(salaryToPay);
+    const dailyRate = computeDailyRate(salaryToPay, periodCalendarDays);
 
     const isNewJoiner = Boolean(joining && joining >= period.periodStart && joining <= period.periodEnd);
     const isLeaver = Boolean(
@@ -239,8 +272,12 @@ export function calculateVenuePayroll(input: {
 
     for (const workDate of eachIsoDate(windowStart, windowEnd)) {
       const key = `${empKey(s.emp_no)}:${workDate}`;
-      const label = scheduleByEmpDate.get(key) ?? null;
-      const approved = approvedSet.has(key);
+      const schedule = scheduleByEmpDate.get(key) ?? null;
+      const label = schedule?.label ?? null;
+      const attendance = attendanceByEmpDate.get(key) ?? null;
+      const template = schedule?.shiftTemplateId
+        ? shiftTemplates.get(schedule.shiftTemplateId)
+        : undefined;
 
       if (!label) {
         exceptions.push({
@@ -258,19 +295,33 @@ export function calculateVenuePayroll(input: {
           payFraction: 0,
           unpaidFraction: 1,
           isLeave: false,
+          paidStatus: "unknown",
         });
         missingApproval += 1;
         continue;
       }
 
-      if (!approved) {
+      const cleared = isDayClearedForPayroll({
+        rosterLabel: label,
+        approvalStatus: attendance?.approval_status ?? null,
+        workDate,
+        attendanceId: attendance?.id ?? null,
+        scheduleStart: template?.startTime ?? null,
+        scheduleEnd: template?.endTime ?? null,
+        clockIn: attendance?.clock_in ?? null,
+        clockOut: attendance?.clock_out ?? null,
+        timezone,
+        varianceMinutes,
+      });
+
+      if (!cleared) {
         missingApproval += 1;
         exceptions.push({
           staffId: s.id,
           empNo: s.emp_no,
           severity: "blocking",
           exceptionType: "attendance_not_approved",
-          message: `${s.full_name}: attendance not approved for ${workDate} (${label}).`,
+          message: `${s.full_name}: attendance not cleared for pay on ${workDate} (${label}).`,
           workDate,
           meta: { label },
         });
@@ -280,13 +331,14 @@ export function calculateVenuePayroll(input: {
       dayFractions.push({
         workDate,
         labelCode: label,
-        approved,
-        payFraction: approved ? frac.payFraction : 0,
-        unpaidFraction: approved ? frac.unpaidFraction : 1,
+        approved: cleared,
+        payFraction: cleared ? frac.payFraction : 0,
+        unpaidFraction: cleared ? frac.unpaidFraction : 1,
         isLeave: frac.isLeave,
+        paidStatus: cleared ? frac.paidStatus : "unknown",
       });
 
-      if (approved) {
+      if (cleared) {
         paidDays += frac.payFraction;
         unpaidDays += frac.unpaidFraction;
         if (frac.paidStatus === "half_pay") halfPayDays += 1;
@@ -529,7 +581,7 @@ export function calculateVenuePayroll(input: {
         empNo: s.emp_no,
         severity: "blocking",
         exceptionType: "attendance_incomplete",
-        message: `${s.full_name}: ${missingApproval} day(s) missing approval or roster in period.`,
+        message: `${s.full_name}: ${missingApproval} day(s) not cleared for pay (need approval or roster) in period.`,
         meta: { missingApproval },
       });
     }

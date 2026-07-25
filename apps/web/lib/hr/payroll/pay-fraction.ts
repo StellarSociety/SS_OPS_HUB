@@ -14,7 +14,7 @@ export type PayFractionResult = {
 /**
  * Map a roster label + leave policy to a pay fraction for one calendar day.
  *
- * - SHIFT / OFF → fully payable employment day (365 daily-rate model)
+ * - SHIFT / OFF → fully payable employment day (period daily-rate model)
  * - Leave codes → follow leave policy paidStatus
  * - ABS / unknown unpaid → 0
  */
