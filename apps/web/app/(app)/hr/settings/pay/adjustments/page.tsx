@@ -1,14 +1,14 @@
-import { PayrollSettingsForm } from "@/components/hr/payroll-settings-form";
+import { PayrollAdjustmentCodesPanel } from "@/components/hr/payroll-adjustment-codes-panel";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
-  DEFAULT_HR_PAYROLL_SETTINGS,
-  mergePayrollSettings,
+  mergePayrollAdjustmentCodes,
+  type HrPayrollAdjustmentCodesSettings,
 } from "@/lib/hr/payroll";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
 import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
 
-export default async function HrPaySettingsPage() {
+export default async function HrPayAdjustmentsSettingsPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
 
   const canConfigure =
@@ -16,17 +16,17 @@ export default async function HrPaySettingsPage() {
     canAdminLookups(permissions, venue.id);
 
   const stored = await getHrVenueSetting<
-    Partial<typeof DEFAULT_HR_PAYROLL_SETTINGS>
-  >(supabase, venue.id, HR_SETTINGS_KEYS.payroll, {});
-  const settings = mergePayrollSettings(stored);
+    Partial<HrPayrollAdjustmentCodesSettings>
+  >(supabase, venue.id, HR_SETTINGS_KEYS.payrollAdjustmentCodes, {});
+  const codes = mergePayrollAdjustmentCodes(stored);
 
   return (
     <div className="space-y-4">
       {canConfigure ? (
-        <PayrollSettingsForm settings={settings} />
+        <PayrollAdjustmentCodesPanel codes={codes} />
       ) : (
         <p className="text-sm text-black/55">
-          You need payroll edit access to change these settings.
+          You need payroll edit access to change adjustment codes.
         </p>
       )}
     </div>

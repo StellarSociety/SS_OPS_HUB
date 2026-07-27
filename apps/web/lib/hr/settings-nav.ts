@@ -6,6 +6,8 @@
 export const HR_SETTINGS_STAFF_DETAILS_HREF = "/hr/settings/staff-details";
 export const HR_SETTINGS_ATTENDANCE_HREF = "/hr/settings/attendance";
 export const HR_SETTINGS_PAY_HREF = "/hr/settings/pay";
+export const HR_SETTINGS_PAY_ADJUSTMENTS_HREF =
+  `${HR_SETTINGS_PAY_HREF}/adjustments`;
 export const HR_SETTINGS_BOARDING_HREF = "/hr/settings/boarding";
 export const HR_SETTINGS_SCHEDULE_APPROVAL_HREF =
   "/hr/settings/attendance/schedule-approval";

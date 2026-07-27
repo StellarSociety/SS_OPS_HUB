@@ -21,6 +21,7 @@ import {
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { parsePayrollRunTab, sumVenueNetRevenueForPeriod } from "@/lib/hr/payroll";
 import type { PayrollPeriodNetRevenue } from "@/lib/hr/payroll/period-revenue";
+import { loadPayrollAdjustmentCodes } from "@/lib/hr/payroll/persist-run";
 import { createServiceClient } from "@/lib/supabase/service";
 
 type Props = {
@@ -77,6 +78,7 @@ export default async function HrPayrollRunPage({
     settlementsRes,
     paymentsRes,
     eventsRes,
+    adjustmentCodes,
   ] = await Promise.all([
     supabase
       .from("hr_payroll_run_employees")
@@ -134,6 +136,7 @@ export default async function HrPayrollRunPage({
       .eq("run_id", runId)
       .order("created_at", { ascending: false })
       .limit(40),
+    loadPayrollAdjustmentCodes(supabase, venue.id),
   ]);
 
   if (adjustmentsRes.error) {
@@ -318,6 +321,7 @@ export default async function HrPayrollRunPage({
           canViewSalary={showSalary}
           canEdit={canEdit}
           periodNetRevenue={periodNetRevenue}
+          adjustmentCodes={adjustmentCodes}
         />
       </PayrollShell>
     </Suspense>

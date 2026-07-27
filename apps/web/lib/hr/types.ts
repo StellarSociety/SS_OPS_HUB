@@ -185,6 +185,7 @@ export const HR_SETTINGS_KEYS = {
   scheduleApproval: "schedule_approval",
   leavePolicy: "leave_policy",
   payroll: "payroll",
+  payrollAdjustmentCodes: "payroll_adjustment_codes",
 } as const;
 
 /** Paid status for leave type configuration. */

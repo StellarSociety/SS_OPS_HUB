@@ -13,7 +13,7 @@ import {
   resolveManualAdjustmentAmount,
   round2,
 } from "./daily-rate";
-import { isInternalAdjustmentCode, adjustmentFoldsIntoFixedPay } from "./adjustment-codes";
+import { isInternalAdjustmentCode, adjustmentFoldsIntoFixedPay, type PayrollAdjustmentCodeConfig } from "./adjustment-codes";
 import { payFractionForLabel } from "./pay-fraction";
 import {
   calendarDaysInclusive,
@@ -88,7 +88,7 @@ export type BenefitAllocationInput = {
 
 export type ManualAdjustmentInput = {
   staffId: string;
-  category: "fixed" | "variable" | "deduction";
+  category: "fixed" | "variable" | "deduction" | "addon";
   code: string;
   label: string;
   amount: number;
@@ -179,6 +179,7 @@ export function calculateVenuePayroll(input: {
   varianceMinutes?: number;
   benefits?: BenefitAllocationInput[];
   adjustments?: ManualAdjustmentInput[];
+  adjustmentCodes?: PayrollAdjustmentCodeConfig[];
 }): {
   employees: CalculatedEmployeePayroll[];
   exceptions: PayrollExceptionDraft[];
@@ -194,6 +195,7 @@ export function calculateVenuePayroll(input: {
     attendanceDays,
     benefits = [],
     adjustments = [],
+    adjustmentCodes,
   } = input;
 
   const timezone =
@@ -389,21 +391,27 @@ export function calculateVenuePayroll(input: {
 
     const staffAdjustments = adjustmentsByStaff.get(s.id) ?? [];
     const foldedAdjs = staffAdjustments.filter((a) =>
-      adjustmentFoldsIntoFixedPay({
-        code: a.code,
-        category: a.category,
-        daysApplied: a.daysApplied,
-        percentOfDailyRate: a.percentOfDailyRate,
-      }),
-    );
-    const regularAdjs = staffAdjustments.filter(
-      (a) =>
-        !adjustmentFoldsIntoFixedPay({
+      adjustmentFoldsIntoFixedPay(
+        {
           code: a.code,
           category: a.category,
           daysApplied: a.daysApplied,
           percentOfDailyRate: a.percentOfDailyRate,
-        }),
+        },
+        adjustmentCodes,
+      ),
+    );
+    const regularAdjs = staffAdjustments.filter(
+      (a) =>
+        !adjustmentFoldsIntoFixedPay(
+          {
+            code: a.code,
+            category: a.category,
+            daysApplied: a.daysApplied,
+            percentOfDailyRate: a.percentOfDailyRate,
+          },
+          adjustmentCodes,
+        ),
     );
 
     // Folded adjustments with days recalculate fixed pay (basic / accom / transp).
@@ -615,7 +623,7 @@ export function calculateVenuePayroll(input: {
     );
     const variableEarnings = round2(
       lines
-        .filter((l) => l.category === "variable")
+        .filter((l) => l.category === "variable" || l.category === "addon")
         .reduce((sum, l) => sum + l.amount, 0),
     );
     const totalDeductions = round2(

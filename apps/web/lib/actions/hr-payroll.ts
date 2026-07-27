@@ -16,6 +16,7 @@ import {
   buildWpsCsv,
   glLinesToCsv,
   mergePayrollSettings,
+  mergePayrollAdjustmentCodes,
   resolvePayrollPeriod,
   resolveManualAdjustmentAmount,
   excludeAdjustmentFromPayslip,
@@ -26,7 +27,7 @@ import {
   type PayrollStatus,
 } from "@/lib/hr/payroll";
 import { HR_MODULE_KEY, HR_SETTINGS_KEYS } from "@/lib/hr/types";
-import { persistCalculatedPayrollRun, loadPayrollSettings } from "@/lib/hr/payroll/persist-run";
+import { persistCalculatedPayrollRun, persistSingleEmployeePayroll, loadPayrollSettings, loadPayrollAdjustmentCodes } from "@/lib/hr/payroll/persist-run";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export type PayrollActionResult =
@@ -221,6 +222,39 @@ export async function recalculatePayrollRun(
     });
 
     revalidatePayroll(runId);
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Recalculate failed",
+    };
+  }
+}
+
+/** Fast path: recalculate one employee after an adjustment change. */
+async function recalculatePayrollRunEmployee(opts: {
+  runId: string;
+  staffId: string;
+  payrollMonth: string;
+  venueId: string;
+  userId: string;
+}): Promise<PayrollActionResult> {
+  try {
+    const service = createServiceClient();
+    const settings = await loadPayrollSettings(
+      service as unknown as import("@supabase/supabase-js").SupabaseClient,
+      opts.venueId,
+    );
+    const period = resolvePayrollPeriod(opts.payrollMonth, settings);
+    await persistSingleEmployeePayroll({
+      service,
+      venueId: opts.venueId,
+      runId: opts.runId,
+      staffId: opts.staffId,
+      period,
+      userId: opts.userId,
+    });
+    revalidatePayroll(opts.runId);
     return { ok: true };
   } catch (e) {
     return {
@@ -432,9 +466,14 @@ export async function addPayrollAdjustment(input: {
 
   if (error) return { ok: false, error: error.message };
 
-  // Recalculate to fold adjustment into lines
-  const recalc = await recalculatePayrollRun(input.runId);
-  return recalc;
+  // Recalculate only this employee — full-run rebuild is too slow for edits.
+  return recalculatePayrollRunEmployee({
+    runId: input.runId,
+    staffId: input.staffId,
+    payrollMonth: run.payroll_month,
+    venueId: venue.id,
+    userId: user.id,
+  });
 }
 
 export async function updatePayrollAdjustment(input: {
@@ -451,7 +490,7 @@ export async function updatePayrollAdjustment(input: {
 }): Promise<PayrollActionResult> {
   const auth = await getPayrollAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
-  const { venue, permissions, supabase } = auth;
+  const { user, venue, permissions, supabase } = auth;
 
   if (!canEditPayroll(permissions, venue.id)) {
     return { ok: false, error: "No permission." };
@@ -462,7 +501,7 @@ export async function updatePayrollAdjustment(input: {
 
   const { data: run } = await supabase
     .from("hr_payroll_runs")
-    .select("id, status")
+    .select("id, status, payroll_month")
     .eq("id", input.runId)
     .eq("venue_id", venue.id)
     .maybeSingle();
@@ -527,8 +566,13 @@ export async function updatePayrollAdjustment(input: {
 
   if (error) return { ok: false, error: error.message };
 
-  const recalc = await recalculatePayrollRun(input.runId);
-  return recalc;
+  return recalculatePayrollRunEmployee({
+    runId: input.runId,
+    staffId: input.staffId,
+    payrollMonth: run.payroll_month,
+    venueId: venue.id,
+    userId: user.id,
+  });
 }
 
 export async function deletePayrollAdjustment(input: {
@@ -537,7 +581,7 @@ export async function deletePayrollAdjustment(input: {
 }): Promise<PayrollActionResult> {
   const auth = await getPayrollAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
-  const { venue, permissions, supabase } = auth;
+  const { user, venue, permissions, supabase } = auth;
 
   if (!canEditPayroll(permissions, venue.id)) {
     return { ok: false, error: "No permission." };
@@ -545,7 +589,7 @@ export async function deletePayrollAdjustment(input: {
 
   const { data: run } = await supabase
     .from("hr_payroll_runs")
-    .select("id, status")
+    .select("id, status, payroll_month")
     .eq("id", input.runId)
     .eq("venue_id", venue.id)
     .maybeSingle();
@@ -557,7 +601,7 @@ export async function deletePayrollAdjustment(input: {
 
   const { data: existing } = await supabase
     .from("hr_payroll_adjustments")
-    .select("id, source")
+    .select("id, source, staff_id")
     .eq("id", input.adjustmentId)
     .eq("run_id", input.runId)
     .eq("venue_id", venue.id)
@@ -567,6 +611,8 @@ export async function deletePayrollAdjustment(input: {
   if (existing.source !== "manual") {
     return { ok: false, error: "Only manual adjustments can be deleted." };
   }
+
+  const staffId = existing.staff_id as string;
 
   const service = createServiceClient();
   const { error } = await service
@@ -578,8 +624,13 @@ export async function deletePayrollAdjustment(input: {
 
   if (error) return { ok: false, error: error.message };
 
-  const recalc = await recalculatePayrollRun(input.runId);
-  return recalc;
+  return recalculatePayrollRunEmployee({
+    runId: input.runId,
+    staffId,
+    payrollMonth: run.payroll_month,
+    venueId: venue.id,
+    userId: user.id,
+  });
 }
 
 export async function generateWpsFile(
@@ -736,6 +787,7 @@ export async function generatePayslips(
   }
 
   const service = createServiceClient();
+  const adjustmentCodes = await loadPayrollAdjustmentCodes(supabase, venue.id);
 
   for (const emp of employees ?? []) {
     const { data: existing } = await service
@@ -748,7 +800,7 @@ export async function generatePayslips(
 
     const version = (existing?.version ?? 0) + 1;
     const empLines = (linesByEmp.get(emp.id as string) ?? []).filter(
-      (l) => !excludeAdjustmentFromPayslip(l.code as string),
+      (l) => !excludeAdjustmentFromPayslip(l.code as string, adjustmentCodes),
     );
 
     const empSnapshot = (emp.snapshot ?? {}) as {
@@ -777,7 +829,9 @@ export async function generatePayslips(
       allowances: empLines.filter(
         (l) => l.code === "ACCOM" || l.code === "TRANSP",
       ),
-      variables: empLines.filter((l) => l.category === "variable"),
+      variables: empLines.filter(
+        (l) => l.category === "variable" || l.category === "addon",
+      ),
       deductions: empLines.filter((l) => l.category === "deduction"),
       fixed: empLines.filter((l) => l.category === "fixed"),
       grossEarnings: emp.gross_earnings,
@@ -895,7 +949,7 @@ export async function exportPayrollGl(
     grossEarnings: Number(e.gross_earnings),
     netSalary: Number(e.net_salary),
     lines: (linesByEmp.get(e.id as string) ?? []).map((l, i) => ({
-      category: l.category as "fixed" | "variable" | "deduction",
+      category: l.category as "fixed" | "variable" | "deduction" | "addon",
       code: l.code as string,
       label: l.label as string,
       amount: Number(l.amount),
@@ -1268,4 +1322,62 @@ export async function saveHrPayrollSettings(
   });
 
   revalidatePayroll();
+}
+
+export async function saveHrPayrollAdjustmentCodesSettings(
+  formData: FormData,
+): Promise<void> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) throw new Error(auth.error);
+  const { user, venue, permissions } = auth;
+
+  if (
+    !canAdminLookups(permissions, venue.id) &&
+    !canEditPayroll(permissions, venue.id)
+  ) {
+    throw new Error("No permission to save payroll adjustment codes.");
+  }
+
+  const codesJson = String(formData.get("codes_json") ?? "");
+  let parsed: unknown = [];
+  try {
+    parsed = JSON.parse(codesJson);
+  } catch {
+    throw new Error("Invalid adjustment codes payload.");
+  }
+
+  const codes = mergePayrollAdjustmentCodes({
+    codes: Array.isArray(parsed) ? parsed : [],
+  });
+
+  if (codes.length === 0) {
+    throw new Error("At least one adjustment code is required.");
+  }
+
+  const value = { codes };
+
+  const service = createServiceClient();
+  const { error } = await service.from("hr_venue_settings").upsert(
+    {
+      venue_id: venue.id,
+      key: HR_SETTINGS_KEYS.payrollAdjustmentCodes,
+      value,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "venue_id,key" },
+  );
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actor_id: user.id,
+    venue_id: venue.id,
+    action: "payroll.adjustment_codes_saved",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_venue_settings",
+    entity_id: venue.id,
+  });
+
+  revalidatePath("/hr/settings/pay", "page");
+  revalidatePath("/hr/settings/pay/adjustments", "page");
+  revalidatePath("/hr/payroll", "page");
 }

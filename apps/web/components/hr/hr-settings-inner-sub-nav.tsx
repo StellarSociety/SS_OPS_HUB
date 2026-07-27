@@ -12,6 +12,8 @@ import {
   Flag,
   GraduationCap,
   Heart,
+  ListTree,
+  Settings2,
   ShieldCheck,
   Tags,
   UserCheck,
@@ -27,6 +29,8 @@ import {
   HR_SETTINGS_ATTENDANCE_LEAVE_HREF,
   HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
   HR_SETTINGS_NOTIFICATIONS_HREF,
+  HR_SETTINGS_PAY_ADJUSTMENTS_HREF,
+  HR_SETTINGS_PAY_HREF,
   HR_SETTINGS_STAFF_DETAILS_HREF,
 } from "@/lib/hr/settings-nav";
 
@@ -167,6 +171,19 @@ const NOTIFICATIONS_TABS: Tab[] = [
   },
 ];
 
+const PAY_TABS: Tab[] = [
+  {
+    href: HR_SETTINGS_PAY_HREF,
+    label: "Period & Payment",
+    icon: Settings2,
+  },
+  {
+    href: HR_SETTINGS_PAY_ADJUSTMENTS_HREF,
+    label: "Adjustments & Codes",
+    icon: ListTree,
+  },
+];
+
 function pathMatchesTab(pathname: string, href: string, exact = false) {
   if (exact) return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -256,6 +273,16 @@ export function HrNotificationsSettingsSubNav() {
       tabs={NOTIFICATIONS_TABS}
       ariaLabel="Notification settings"
       exactHrefs={[HR_SETTINGS_NOTIFICATIONS_HREF]}
+    />
+  );
+}
+
+export function HrPaySettingsSubNav() {
+  return (
+    <InnerSubNav
+      tabs={PAY_TABS}
+      ariaLabel="Pay settings"
+      exactHrefs={[HR_SETTINGS_PAY_HREF]}
     />
   );
 }

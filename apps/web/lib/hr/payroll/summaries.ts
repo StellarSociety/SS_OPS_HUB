@@ -49,7 +49,7 @@ export function buildGlExportLines(opts: {
       if (line.code === "BASIC") row.basic = round2(row.basic + line.amount);
       else if (line.code === "ACCOM" || line.code === "TRANSP") {
         row.allowances = round2(row.allowances + line.amount);
-      } else if (line.category === "variable") {
+      } else if (line.category === "variable" || line.category === "addon") {
         row.variables = round2(row.variables + line.amount);
       } else if (line.category === "deduction") {
         row.deductions = round2(row.deductions + line.amount);

@@ -35,17 +35,20 @@ import {
   isInternalAdjustmentCode,
   adjustmentFoldsIntoFixedPay,
   isSalaryCorrectionCode,
+  isNewJoinerCorrectionCode,
   inferOrphanedInternalAdjustment,
   isOrphanPayrollAdjustment,
   formatPayrollMonthLabel,
-  PAYROLL_ADJUSTMENT_CODES,
+  DEFAULT_PAYROLL_ADJUSTMENT_CODES,
   resolveManualAdjustmentAmount,
   isPayrollLocked,
   summarizePayrollLeave,
   parsePayrollRunTab,
   payrollOverRevenuePct,
+  type PayrollAdjustmentCodeConfig,
   type PayrollDayFraction,
   type PayrollLineCategory,
+  PAYROLL_LINE_CATEGORY_LABELS,
   type PayrollPeriodNetRevenue,
   type PayrollRunTab,
   type PayrollStatus,
@@ -240,6 +243,12 @@ function formatPayLineDays(days: number | null): string {
   return days.toFixed(2);
 }
 
+function payrollCategoryLabel(category: string): string {
+  return (
+    PAYROLL_LINE_CATEGORY_LABELS[category as PayrollLineCategory] ?? category
+  );
+}
+
 const SYSTEM_PAYROLL_LINE_CODES = new Set([
   "BASIC",
   "ACCOM",
@@ -253,10 +262,13 @@ const SYSTEM_PAYROLL_LINE_CODES = new Set([
   "BENEFIT_OTHER",
 ]);
 
-function isEditablePayLine(line: Pick<PayrollLineRow, "code" | "category" | "source">): boolean {
+function isEditablePayLine(
+  line: Pick<PayrollLineRow, "code" | "category" | "source">,
+  catalog: PayrollAdjustmentCodeConfig[] = DEFAULT_PAYROLL_ADJUSTMENT_CODES,
+): boolean {
   if (line.source === "adjustment" || line.source === "manual") return true;
   if (SYSTEM_PAYROLL_LINE_CODES.has(line.code)) return false;
-  return PAYROLL_ADJUSTMENT_CODES.some(
+  return catalog.some(
     (c) => c.code === line.code && c.category === line.category,
   );
 }
@@ -361,6 +373,7 @@ type PayrollRunClientProps = {
   canViewSalary: boolean;
   canEdit: boolean;
   periodNetRevenue: PayrollPeriodNetRevenue | null;
+  adjustmentCodes?: PayrollAdjustmentCodeConfig[];
 };
 
 type PayrollActionOutcome =
@@ -400,6 +413,7 @@ export function PayrollRunClient({
   canViewSalary,
   canEdit,
   periodNetRevenue,
+  adjustmentCodes = DEFAULT_PAYROLL_ADJUSTMENT_CODES,
 }: PayrollRunClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -412,6 +426,7 @@ export function PayrollRunClient({
   );
   const [departmentSummaryOpen, setDepartmentSummaryOpen] = useState(false);
   const [budgetSectionOpen, setBudgetSectionOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
 
   const venueNetRevenue =
     periodNetRevenue?.netRevenue ?? run.revenue_amount ?? null;
@@ -866,6 +881,7 @@ export function PayrollRunClient({
           employees={employees}
           linesByEmployee={linesByEmployee}
           adjustments={adjustments}
+          adjustmentCodes={adjustmentCodes}
           periodStart={run.period_start}
           periodEnd={run.period_end}
           expanded={expanded}
@@ -921,6 +937,7 @@ export function PayrollRunClient({
         <AdjustmentsTab
           adjustments={adjustments}
           employeeByStaff={employeeByStaff}
+          adjustmentCodes={adjustmentCodes}
           canViewSalary={canViewSalary}
           editable={editable}
           pending={pending}
@@ -974,22 +991,42 @@ export function PayrollRunClient({
 
       {events.length > 0 ? (
         <section className="space-y-2">
-          <h3 className="font-serif text-lg text-[#3D421F]">Activity</h3>
-          <ul className="divide-y divide-black/5 rounded-lg border border-black/10 bg-white text-sm">
-            {events.map((ev) => (
-              <li key={ev.id} className="px-3 py-2.5 text-black/65">
-                <span className="font-medium text-[#3D421F]">
-                  {ev.from_status
-                    ? `${statusLabel(ev.from_status)} → ${statusLabel(ev.to_status)}`
-                    : statusLabel(ev.to_status)}
-                </span>
-                {ev.comment ? ` · ${ev.comment}` : ""}
-                <span className="ml-2 text-xs text-black/40">
-                  {new Date(ev.created_at).toLocaleString("en-AE")}
-                </span>
-              </li>
-            ))}
-          </ul>
+          <button
+            type="button"
+            aria-expanded={activityOpen}
+            onClick={() => setActivityOpen((open) => !open)}
+            className="flex w-full items-center justify-between gap-3 rounded-md text-left transition hover:bg-black/[0.02] -m-1 p-1"
+          >
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 className="font-serif text-lg text-[#3D421F]">Activity</h3>
+              <span className="text-sm text-black/55">
+                {events.length} event{events.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <ChevronDown
+              className={cn(
+                "h-5 w-5 shrink-0 text-black/45 transition-transform",
+                activityOpen && "rotate-180",
+              )}
+            />
+          </button>
+          {activityOpen ? (
+            <ul className="divide-y divide-black/5 rounded-lg border border-black/10 bg-white text-sm">
+              {events.map((ev) => (
+                <li key={ev.id} className="px-3 py-2.5 text-black/65">
+                  <span className="font-medium text-[#3D421F]">
+                    {ev.from_status
+                      ? `${statusLabel(ev.from_status)} → ${statusLabel(ev.to_status)}`
+                      : statusLabel(ev.to_status)}
+                  </span>
+                  {ev.comment ? ` · ${ev.comment}` : ""}
+                  <span className="ml-2 text-xs text-black/40">
+                    {new Date(ev.created_at).toLocaleString("en-AE")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </section>
       ) : null}
     </div>
@@ -1109,7 +1146,9 @@ function EmployeeAdjustmentsTable({
               key={adj.id || `orphan-${adj.code}-${adj.days_applied}`}
               className={cn("border-t border-black/5", orphan && "bg-amber-50/50")}
             >
-              <td className="py-1.5 capitalize text-zinc-600">{adj.category}</td>
+              <td className="py-1.5 text-zinc-600">
+                {payrollCategoryLabel(adj.category)}
+              </td>
               <td className="py-1.5 font-mono text-zinc-700">{adj.code}</td>
               <td className="py-1.5 text-zinc-700">
                 {adj.label}
@@ -1221,6 +1260,7 @@ function RunEmployeesTab({
   employees,
   linesByEmployee,
   adjustments,
+  adjustmentCodes,
   periodStart,
   periodEnd,
   expanded,
@@ -1237,6 +1277,7 @@ function RunEmployeesTab({
   employees: PayrollEmployeeRow[];
   linesByEmployee: Map<string, PayrollLineRow[]>;
   adjustments: PayrollAdjustmentRow[];
+  adjustmentCodes: PayrollAdjustmentCodeConfig[];
   periodStart: string;
   periodEnd: string;
   expanded: Set<string>;
@@ -1324,7 +1365,7 @@ function RunEmployeesTab({
       case "working_status":
         return resolvePayrollWorkingStatus(row).toLowerCase();
       case "paid_days":
-        return Number(row.paid_days);
+        return Number(row.effective_paid_days);
       case "unpaid_days":
         return Number(row.unpaid_days);
       case "fixed_earnings":
@@ -1437,7 +1478,7 @@ function RunEmployeesTab({
     let netSalary = 0;
     let includedCount = 0;
     for (const row of filtered) {
-      paidDays += Number(row.paid_days) || 0;
+      paidDays += Number(row.effective_paid_days) || 0;
       unpaidDays += Number(row.unpaid_days) || 0;
       fixedEarnings += Number(row.fixed_earnings) || 0;
       variableEarnings += Number(row.variable_earnings) || 0;
@@ -1697,6 +1738,7 @@ function RunEmployeesTab({
                     open={open}
                     empLines={empLines}
                     empAdjustments={empAdjustments}
+                    adjustmentCodes={adjustmentCodes}
                     periodStart={periodStart}
                     periodEnd={periodEnd}
                     canViewSalary={canViewSalary}
@@ -1768,6 +1810,7 @@ function FragmentRows({
   open,
   empLines,
   empAdjustments,
+  adjustmentCodes,
   periodStart,
   periodEnd,
   canViewSalary,
@@ -1784,6 +1827,7 @@ function FragmentRows({
   open: boolean;
   empLines: PayrollLineRow[];
   empAdjustments: PayrollAdjustmentRow[];
+  adjustmentCodes: PayrollAdjustmentCodeConfig[];
   periodStart: string;
   periodEnd: string;
   canViewSalary: boolean;
@@ -1889,7 +1933,19 @@ function FragmentRows({
           <WorkingStatusBadge status={resolvePayrollWorkingStatus(row)} />
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
-          {Number(row.paid_days).toFixed(2)}
+          <span
+            className={cn(
+              Math.abs(row.effective_paid_days - row.paid_days) >= 0.005 &&
+                "font-medium text-[#3D421F]",
+            )}
+            title={
+              Math.abs(row.effective_paid_days - row.paid_days) >= 0.005
+                ? `Attendance ${Number(row.paid_days).toFixed(2)} · Adjusted for payroll`
+                : undefined
+            }
+          >
+            {Number(row.effective_paid_days).toFixed(2)}
+          </span>
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {Number(row.unpaid_days).toFixed(2)}
@@ -2035,7 +2091,8 @@ function FragmentRows({
                           line,
                           empAdjustments,
                         );
-                        const canEditLine = editable && isEditablePayLine(line);
+                        const canEditLine =
+                          editable && isEditablePayLine(line, adjustmentCodes);
                         const editTarget =
                           linkedAdjustment ??
                           (canEditLine
@@ -2043,8 +2100,8 @@ function FragmentRows({
                             : null);
                         return (
                         <tr key={line.id} className="border-t border-white/10">
-                          <td className="py-1.5 capitalize text-zinc-300">
-                            {line.category}
+                          <td className="py-1.5 text-zinc-300">
+                            {payrollCategoryLabel(line.category)}
                           </td>
                           <td className="py-1.5 font-mono">{line.code}</td>
                           <td className="py-1.5">{line.label}</td>
@@ -2178,6 +2235,7 @@ function FragmentRows({
         staffId={row.staff_id}
         staffLabel={`${row.emp_no} — ${row.full_name}`}
         dailyRate={row.daily_rate}
+        adjustmentCodes={adjustmentCodes}
         pending={pending}
         onClose={() => {
           setDialogOpen(false);
@@ -2364,6 +2422,7 @@ function AdjustmentDialog({
   staffId,
   staffLabel,
   dailyRate,
+  adjustmentCodes,
   pending,
   onClose,
   onSubmit,
@@ -2373,6 +2432,7 @@ function AdjustmentDialog({
   staffId: string;
   staffLabel: string;
   dailyRate: number | null;
+  adjustmentCodes: PayrollAdjustmentCodeConfig[];
   pending: boolean;
   onClose: () => void;
   onSubmit: (input: AdjustmentInput) => void;
@@ -2439,11 +2499,16 @@ function AdjustmentDialog({
 
   const codeSelectOptions = useMemo(
     () =>
-      adjustmentCodesForCategory(category).map((c) => ({
+      adjustmentCodesForCategory(category, adjustmentCodes).map((c) => ({
         value: c.code,
         label: `${c.code} — ${c.label}`,
       })),
-    [category],
+    [category, adjustmentCodes],
+  );
+
+  const selectedCodeConfig = useMemo(
+    () => adjustmentCodes.find((c) => c.code === code) ?? null,
+    [adjustmentCodes, code],
   );
 
   function resetForm() {
@@ -2459,7 +2524,9 @@ function AdjustmentDialog({
 
   function handleCategoryChange(next: PayrollLineCategory) {
     setCategory(next);
-    const valid = adjustmentCodesForCategory(next).some((c) => c.code === code);
+    const valid = adjustmentCodesForCategory(next, adjustmentCodes).some(
+      (c) => c.code === code,
+    );
     if (!valid) {
       setCode("");
       setLabel("");
@@ -2469,7 +2536,7 @@ function AdjustmentDialog({
   function handleCodeChange(next: string) {
     setCode(next);
     if (!isEdit) {
-      const defaultLabel = defaultLabelForAdjustmentCode(next);
+      const defaultLabel = defaultLabelForAdjustmentCode(next, adjustmentCodes);
       if (defaultLabel) setLabel(defaultLabel);
     }
   }
@@ -2591,6 +2658,7 @@ function AdjustmentDialog({
             >
               <option value="fixed">Fixed</option>
               <option value="variable">Variable</option>
+              <option value="addon">Add-Ons</option>
               <option value="deduction">Deduction</option>
             </select>
           </div>
@@ -2612,43 +2680,54 @@ function AdjustmentDialog({
               onChange={(e) => setLabel(e.target.value)}
               required
             />
+            {selectedCodeConfig?.behaviorExplanation ? (
+              <p className="text-xs text-black/45">
+                {selectedCodeConfig.behaviorExplanation}
+              </p>
+            ) : null}
           </div>
-          <div className="space-y-1.5">
-            <Label>Amount (AED)</Label>
-            <Input
-              className="h-8"
-              type="number"
-              step="0.01"
-              min="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="e.g. 250"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>% of daily rate</Label>
-            <Input
-              className="h-8"
-              type="number"
-              step="0.01"
-              min="0"
-              value={percent}
-              onChange={(e) => setPercent(e.target.value)}
-              placeholder="Optional"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Days applied</Label>
-            <Input
-              className="h-8"
-              type="number"
-              step="0.01"
-              min="0"
-              value={days}
-              onChange={(e) => setDays(e.target.value)}
-              placeholder="e.g. 2"
-            />
-          </div>
+          {(selectedCodeConfig?.allowAmountInput ?? true) ? (
+            <div className="space-y-1.5">
+              <Label>Amount (AED)</Label>
+              <Input
+                className="h-8"
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="e.g. 250"
+              />
+            </div>
+          ) : null}
+          {(selectedCodeConfig?.allowPercentInput ?? true) ? (
+            <div className="space-y-1.5">
+              <Label>% of daily rate</Label>
+              <Input
+                className="h-8"
+                type="number"
+                step="0.01"
+                min="0"
+                value={percent}
+                onChange={(e) => setPercent(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+          ) : null}
+          {(selectedCodeConfig?.allowDaysInput ?? true) ? (
+            <div className="space-y-1.5">
+              <Label>Days applied</Label>
+              <Input
+                className="h-8"
+                type="number"
+                step="0.01"
+                min="0"
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+                placeholder="e.g. 2"
+              />
+            </div>
+          ) : null}
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Reason</Label>
             <Input
@@ -2700,6 +2779,12 @@ function AdjustmentDialog({
               to prorate fixed pay; use amount to adjust fixed components
               directly.
             </p>
+          ) : isNewJoinerCorrectionCode(code) ? (
+            <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
+              With days or % of daily rate, this updates paid days and folds into
+              basic, accommodation, and transport on the payslip. Use amount only
+              when you need a separate Add-On line.
+            </p>
           ) : isSalaryCorrectionCode(code) ||
               code.trim().toUpperCase() === "ALLOWANCE_ADJ" ? (
             <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
@@ -2741,6 +2826,7 @@ function AdjustmentDialog({
 function AdjustmentsTab({
   adjustments,
   employeeByStaff,
+  adjustmentCodes,
   canViewSalary,
   editable,
   pending,
@@ -2749,6 +2835,7 @@ function AdjustmentsTab({
 }: {
   adjustments: PayrollAdjustmentRow[];
   employeeByStaff: Map<string, PayrollEmployeeRow>;
+  adjustmentCodes: PayrollAdjustmentCodeConfig[];
   canViewSalary: boolean;
   editable: boolean;
   pending: boolean;
@@ -2808,7 +2895,9 @@ function AdjustmentsTab({
                         ? `${emp.emp_no} — ${emp.full_name}`
                         : adj.staff_id.slice(0, 8)}
                     </td>
-                    <td className="px-3 py-2 capitalize">{adj.category}</td>
+                    <td className="px-3 py-2">
+                      {payrollCategoryLabel(adj.category)}
+                    </td>
                     <td className="px-3 py-2 font-mono text-xs">{adj.code}</td>
                     <td className="px-3 py-2">{adj.label}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
@@ -2843,6 +2932,7 @@ function AdjustmentsTab({
           staffId={editingAdjustment.staff_id}
           staffLabel={`${editingEmployee.emp_no} — ${editingEmployee.full_name}`}
           dailyRate={editingEmployee.daily_rate}
+          adjustmentCodes={adjustmentCodes}
           pending={pending}
           onClose={() => setEditingAdjustment(null)}
           onSubmit={(input) => {

@@ -39,7 +39,19 @@ export const PAYROLL_STATUS_TRANSITIONS: Record<
   locked: [],
 };
 
-export type PayrollLineCategory = "fixed" | "variable" | "deduction";
+export type PayrollLineCategory =
+  | "fixed"
+  | "variable"
+  | "deduction"
+  | "addon";
+
+export const PAYROLL_LINE_CATEGORY_LABELS: Record<PayrollLineCategory, string> =
+  {
+    fixed: "Fixed",
+    variable: "Variable",
+    deduction: "Deduction",
+    addon: "Add-Ons",
+  };
 
 export type PayrollLineSource =
   | "system"

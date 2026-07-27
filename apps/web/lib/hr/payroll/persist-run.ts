@@ -26,6 +26,11 @@ import { mergePayrollSettings, resolvePayrollPeriod } from "./period";
 import { sumVenueNetRevenueForPeriod } from "./period-revenue";
 import type { CalculatedEmployeePayroll, HrPayrollSettings, PayrollRunTotals } from "./types";
 import { emptyPayrollTotals } from "./types";
+import {
+  mergePayrollAdjustmentCodes,
+  type HrPayrollAdjustmentCodesSettings,
+  type PayrollAdjustmentCodeConfig,
+} from "./adjustment-codes";
 
 export async function loadPayrollSettings(
   supabase: SupabaseClient,
@@ -38,6 +43,16 @@ export async function loadPayrollSettings(
     {},
   );
   return mergePayrollSettings(raw);
+}
+
+export async function loadPayrollAdjustmentCodes(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<PayrollAdjustmentCodeConfig[]> {
+  const raw = await getHrVenueSetting<
+    Partial<HrPayrollAdjustmentCodesSettings>
+  >(supabase, venueId, HR_SETTINGS_KEYS.payrollAdjustmentCodes, {});
+  return mergePayrollAdjustmentCodes(raw);
 }
 
 function toStaffInput(
@@ -81,6 +96,7 @@ export async function persistCalculatedPayrollRun(opts: {
 
   const supabase = service as unknown as SupabaseClient;
   const settings = await loadPayrollSettings(supabase, venueId);
+  const adjustmentCodes = await loadPayrollAdjustmentCodes(supabase, venueId);
   const leaveRaw = await getHrVenueSetting<Partial<HrLeavePolicySettings>>(
     supabase,
     venueId,
@@ -141,7 +157,7 @@ export async function persistCalculatedPayrollRun(opts: {
 
   const adjustments = (adjustmentsRes.data ?? []).map((a) => ({
     staffId: a.staff_id as string,
-    category: a.category as "fixed" | "variable" | "deduction",
+    category: a.category as "fixed" | "variable" | "deduction" | "addon",
     code: a.code as string,
     label: a.label as string,
     amount: Number(a.amount),
@@ -178,6 +194,7 @@ export async function persistCalculatedPayrollRun(opts: {
       DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes,
     benefits,
     adjustments,
+    adjustmentCodes,
   });
 
   await service.from("hr_payroll_lines").delete().eq("run_id", runId);
@@ -258,13 +275,16 @@ export async function persistCalculatedPayrollRun(opts: {
       }))
       .filter((r) => r.staff_id && r.run_employee_id);
 
-    for (const row of relinkPayload) {
-      await service
-        .from("hr_payroll_adjustments")
-        .update({ run_employee_id: row.run_employee_id })
-        .eq("run_id", runId)
-        .eq("staff_id", row.staff_id);
-    }
+    // Batch relink — avoid sequential updates (one round-trip per employee).
+    await Promise.all(
+      relinkPayload.map((row) =>
+        service
+          .from("hr_payroll_adjustments")
+          .update({ run_employee_id: row.run_employee_id })
+          .eq("run_id", runId)
+          .eq("staff_id", row.staff_id),
+      ),
+    );
 
     const linePayload: Record<string, unknown>[] = [];
     for (const e of employees) {
@@ -402,4 +422,431 @@ export async function persistCalculatedPayrollRun(opts: {
   if (runErr) throw new Error(runErr.message);
 
   return { totals, employeeCount: employees.length };
+}
+
+async function loadPayrollCalcContext(
+  supabase: SupabaseClient,
+  venueId: string,
+) {
+  const [settings, adjustmentCodes, leaveRaw, salaryDefaults, importRules] =
+    await Promise.all([
+      loadPayrollSettings(supabase, venueId),
+      loadPayrollAdjustmentCodes(supabase, venueId),
+      getHrVenueSetting<Partial<HrLeavePolicySettings>>(
+        supabase,
+        venueId,
+        HR_SETTINGS_KEYS.leavePolicy,
+        {},
+      ),
+      getHrVenueSetting<HrSalaryDefaults>(
+        supabase,
+        venueId,
+        HR_SETTINGS_KEYS.salaryDefaults,
+        DEFAULT_HR_SALARY_DEFAULTS,
+      ),
+      getHrVenueSetting<HrAttendanceImportRules>(
+        supabase,
+        venueId,
+        HR_SETTINGS_KEYS.attendanceImportRules,
+        DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
+      ),
+    ]);
+
+  return {
+    settings,
+    adjustmentCodes,
+    leavePolicy: mergeLeavePolicy(leaveRaw),
+    salaryDefaults,
+    importRules,
+  };
+}
+
+function staffRowToInput(
+  s: Awaited<ReturnType<typeof getStaffById>>,
+): PayrollStaffInput {
+  return {
+    id: s.id,
+    emp_no: s.emp_no,
+    full_name: s.full_name,
+    department_id: s.department_id,
+    department_name: s.department?.name ?? null,
+    position_id: s.position_id,
+    position_name: s.position?.name ?? null,
+    joining_date: s.joining_date,
+    termination_date: s.termination_date,
+    employment_status: s.employment_status?.name ?? null,
+    working_status: s.working_status?.name ?? null,
+    wps_employee_id:
+      (s as { wps_employee_id?: string | null }).wps_employee_id ?? null,
+    iban: s.iban,
+    bank_name: s.bank_name,
+    swift_code: s.swift_code,
+    wage_package: s.wage_package,
+    company_accommodation: s.company_accommodation,
+    basic_salary_60: s.basic_salary_60,
+    accom_all_25: s.accom_all_25,
+    transp_all_15: s.transp_all_15,
+    fly_home_ticket_per_year: s.fly_home_ticket_per_year,
+  };
+}
+
+async function recomputeRunTotalsFromDb(
+  service: ReturnType<typeof createServiceClient>,
+  runId: string,
+): Promise<PayrollRunTotals> {
+  const [{ data: empRows }, { data: lineRows }] = await Promise.all([
+    service
+      .from("hr_payroll_run_employees")
+      .select(
+        "id, included, is_new_joiner, is_leaver, gross_earnings, net_salary, total_deductions",
+      )
+      .eq("run_id", runId),
+    service
+      .from("hr_payroll_lines")
+      .select("run_employee_id, code, amount")
+      .eq("run_id", runId),
+  ]);
+
+  const linesByEmp = new Map<string, { code: string; amount: number }[]>();
+  for (const line of lineRows ?? []) {
+    const empId = line.run_employee_id as string;
+    const list = linesByEmp.get(empId) ?? [];
+    list.push({ code: line.code as string, amount: Number(line.amount) });
+    linesByEmp.set(empId, list);
+  }
+
+  const employees = (empRows ?? []).map((e) => ({
+    staffId: e.id as string,
+    empNo: "",
+    fullName: "",
+    departmentId: null,
+    departmentName: null,
+    positionId: null,
+    positionName: null,
+    included: Boolean(e.included),
+    excludeReason: null,
+    isNewJoiner: Boolean(e.is_new_joiner),
+    isLeaver: Boolean(e.is_leaver),
+    employmentStatus: null,
+    wpsEmployeeId: null,
+    iban: null,
+    bankName: null,
+    swiftCode: null,
+    wagePackage: null,
+    basicSalary: null,
+    accomAllowance: null,
+    transpAllowance: null,
+    salaryToPay: null,
+    companyAccommodation: false,
+    dailyRate: null,
+    calendarDays: 0,
+    paidDays: 0,
+    unpaidDays: 0,
+    halfPayDays: 0,
+    effectivePaidDays: 0,
+    fixedEarnings: 0,
+    variableEarnings: 0,
+    totalDeductions: Number(e.total_deductions ?? 0),
+    grossEarnings: Number(e.gross_earnings ?? 0),
+    netSalary: Number(e.net_salary ?? 0),
+    lines: (linesByEmp.get(e.id as string) ?? []).map((l, i) => ({
+      category: "fixed" as const,
+      code: l.code,
+      label: l.code,
+      amount: l.amount,
+      source: "system" as const,
+      sortOrder: i,
+    })),
+    dayFractions: [],
+  })) as CalculatedEmployeePayroll[];
+
+  if (employees.length === 0) return emptyPayrollTotals();
+  return summarizeEmployees(employees);
+}
+
+/**
+ * Fast path after add/edit/delete adjustment: recalculate one employee in place.
+ * Avoids wiping the whole run (attendance + all staff + lines rebuild).
+ */
+export async function persistSingleEmployeePayroll(opts: {
+  service: ReturnType<typeof createServiceClient>;
+  venueId: string;
+  runId: string;
+  staffId: string;
+  period: ReturnType<typeof resolvePayrollPeriod>;
+  userId: string;
+}): Promise<{ totals: PayrollRunTotals }> {
+  const { service, venueId, runId, staffId, period, userId } = opts;
+  const supabase = service as unknown as SupabaseClient;
+
+  const { data: runEmp, error: runEmpErr } = await service
+    .from("hr_payroll_run_employees")
+    .select("id")
+    .eq("run_id", runId)
+    .eq("staff_id", staffId)
+    .maybeSingle();
+
+  if (runEmpErr) throw new Error(runEmpErr.message);
+  if (!runEmp?.id) {
+    // Employee not on this run yet — fall back to full rebuild.
+    return persistCalculatedPayrollRun({
+      service,
+      venueId,
+      runId,
+      period,
+      userId,
+    });
+  }
+
+  const runEmployeeId = runEmp.id as string;
+  const ctx = await loadPayrollCalcContext(supabase, venueId);
+  const staff = staffRowToInput(await getStaffById(supabase, staffId, venueId));
+
+  const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
+    await Promise.all([
+      listScheduleDaysByDateRange(supabase, venueId, {
+        fromDate: period.periodStart,
+        toDate: period.periodEnd,
+        staffIds: [staff.id],
+        empNos: [staff.emp_no],
+      }),
+      listAttendanceDaysForStaff(supabase, venueId, {
+        staffIds: [staff.id],
+        empNos: [staff.emp_no],
+        fromDate: period.periodStart,
+        toDate: period.periodEnd,
+      }),
+      listShiftTemplates(supabase, venueId, { includeInactive: true }),
+      service
+        .from("hr_payroll_adjustments")
+        .select("*")
+        .eq("run_id", runId)
+        .eq("staff_id", staffId),
+      service
+        .from("hr_benefit_allocations")
+        .select("staff_id, benefit_type, amount, status")
+        .eq("venue_id", venueId)
+        .eq("staff_id", staffId)
+        .lte("period_start", period.periodEnd)
+        .gte("period_end", period.periodStart)
+        .in("status", ["finalized", "applied_to_payroll"]),
+    ]);
+
+  const shiftTemplateMap = Object.fromEntries(
+    (shiftTemplates ?? []).map((t) => [
+      t.id,
+      { startTime: t.startTime, endTime: t.endTime },
+    ]),
+  );
+
+  const adjustments = (adjustmentsRes.data ?? []).map((a) => ({
+    staffId: a.staff_id as string,
+    category: a.category as "fixed" | "variable" | "deduction" | "addon",
+    code: a.code as string,
+    label: a.label as string,
+    amount: Number(a.amount),
+    percentOfDailyRate:
+      a.percent_of_daily_rate != null
+        ? Number(a.percent_of_daily_rate)
+        : null,
+    daysApplied: a.days_applied != null ? Number(a.days_applied) : null,
+    source: "adjustment" as const,
+  }));
+
+  const benefits = (benefitsRes.data ?? []).map((b) => ({
+    staff_id: b.staff_id as string,
+    benefit_type: b.benefit_type as string,
+    amount: Number(b.amount),
+  }));
+
+  const { employees, exceptions } = calculateVenuePayroll({
+    period,
+    settings: ctx.settings,
+    leavePolicy: ctx.leavePolicy,
+    salaryPct: {
+      basic: ctx.salaryDefaults.basicPct,
+      accom: ctx.salaryDefaults.accomPct,
+      transp: ctx.salaryDefaults.transpPct,
+    },
+    staff: [staff],
+    scheduleDays,
+    attendanceDays,
+    shiftTemplates: shiftTemplateMap,
+    timezone:
+      ctx.importRules.timezone || DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
+    varianceMinutes:
+      ctx.importRules.scheduleVarianceMinutes ??
+      DEFAULT_HR_ATTENDANCE_IMPORT_RULES.scheduleVarianceMinutes,
+    benefits,
+    adjustments,
+    adjustmentCodes: ctx.adjustmentCodes,
+  });
+
+  const e = employees[0];
+  if (!e) throw new Error("Employee calculation returned no result.");
+
+  const { error: empUpdateErr } = await service
+    .from("hr_payroll_run_employees")
+    .update({
+      emp_no: e.empNo,
+      full_name: e.fullName,
+      department_id: e.departmentId,
+      department_name: e.departmentName,
+      position_id: e.positionId,
+      position_name: e.positionName,
+      included: e.included,
+      exclude_reason: e.excludeReason,
+      is_new_joiner: e.isNewJoiner,
+      is_leaver: e.isLeaver,
+      employment_status: e.employmentStatus,
+      wps_employee_id: e.wpsEmployeeId,
+      iban: e.iban,
+      bank_name: e.bankName,
+      swift_code: e.swiftCode,
+      wage_package: e.wagePackage,
+      basic_salary: e.basicSalary,
+      accom_allowance: e.accomAllowance,
+      transp_allowance: e.transpAllowance,
+      salary_to_pay: e.salaryToPay,
+      company_accommodation: e.companyAccommodation,
+      daily_rate: e.dailyRate,
+      calendar_days: e.calendarDays,
+      paid_days: e.paidDays,
+      unpaid_days: e.unpaidDays,
+      half_pay_days: e.halfPayDays,
+      fixed_earnings: e.fixedEarnings,
+      variable_earnings: e.variableEarnings,
+      total_deductions: e.totalDeductions,
+      gross_earnings: e.grossEarnings,
+      net_salary: e.netSalary,
+      snapshot: {
+        dayFractions: e.dayFractions,
+        effectivePaidDays: e.effectivePaidDays,
+        joiningDate: staff.joining_date,
+        terminationDate: staff.termination_date,
+        workingStatus: staff.working_status,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runEmployeeId);
+
+  if (empUpdateErr) throw new Error(empUpdateErr.message);
+
+  // Keep adjustment FK stable (same run_employee row).
+  await service
+    .from("hr_payroll_adjustments")
+    .update({ run_employee_id: runEmployeeId })
+    .eq("run_id", runId)
+    .eq("staff_id", staffId);
+
+  await Promise.all([
+    service
+      .from("hr_payroll_lines")
+      .delete()
+      .eq("run_id", runId)
+      .eq("run_employee_id", runEmployeeId),
+    service
+      .from("hr_payroll_payments")
+      .delete()
+      .eq("run_id", runId)
+      .eq("run_employee_id", runEmployeeId),
+    service
+      .from("hr_payroll_exceptions")
+      .delete()
+      .eq("run_id", runId)
+      .eq("staff_id", staffId),
+  ]);
+
+  if (e.lines.length > 0) {
+    const { error: lineErr } = await service.from("hr_payroll_lines").insert(
+      e.lines.map((line) => ({
+        venue_id: venueId,
+        run_id: runId,
+        run_employee_id: runEmployeeId,
+        category: line.category,
+        code: line.code,
+        label: line.label,
+        amount: line.amount,
+        quantity: line.quantity ?? null,
+        rate: line.rate ?? null,
+        meta: line.meta ?? {},
+        source: line.source,
+        sort_order: line.sortOrder,
+      })),
+    );
+    if (lineErr) throw new Error(lineErr.message);
+  }
+
+  if (e.included) {
+    const { error: payErr } = await service.from("hr_payroll_payments").insert({
+      venue_id: venueId,
+      run_id: runId,
+      run_employee_id: runEmployeeId,
+      staff_id: e.staffId,
+      wps_employee_id: e.wpsEmployeeId,
+      iban: e.iban,
+      bank_name: e.bankName,
+      fixed_salary: e.fixedEarnings,
+      variable_salary: e.variableEarnings,
+      days_paid: e.paidDays,
+      leave_days: e.dayFractions.filter((d) => d.isLeave && d.approved).length,
+      net_salary: e.netSalary,
+      payment_method: "wps",
+      status: "pending",
+      updated_at: new Date().toISOString(),
+    });
+    if (payErr) throw new Error(payErr.message);
+  }
+
+  if (exceptions.length > 0) {
+    const { error: exErr } = await service.from("hr_payroll_exceptions").insert(
+      exceptions.map((ex) => ({
+        venue_id: venueId,
+        run_id: runId,
+        staff_id: ex.staffId,
+        emp_no: ex.empNo,
+        severity: ex.severity,
+        exception_type: ex.exceptionType,
+        message: ex.message,
+        work_date: ex.workDate ?? null,
+        meta: ex.meta ?? {},
+      })),
+    );
+    if (exErr) throw new Error(exErr.message);
+  }
+
+  if (e.isLeaver) {
+    await service.from("hr_payroll_settlements").upsert(
+      {
+        venue_id: venueId,
+        run_id: runId,
+        run_employee_id: runEmployeeId,
+        staff_id: e.staffId,
+        termination_date: staff.termination_date ?? null,
+        leave_encashment: 0,
+        outstanding_advances: 0,
+        eosb_amount: 0,
+        other_amount: 0,
+        net_settlement: e.netSalary,
+        include_in_run: true,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "run_id,staff_id" },
+    );
+  }
+
+  const totals = await recomputeRunTotalsFromDb(service, runId);
+  const { error: runErr } = await service
+    .from("hr_payroll_runs")
+    .update({
+      totals,
+      updated_by: userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId)
+    .eq("venue_id", venueId);
+
+  if (runErr) throw new Error(runErr.message);
+
+  return { totals };
 }
