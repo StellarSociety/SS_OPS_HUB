@@ -50,6 +50,11 @@ import {
   type ShiftTemplate,
 } from "@/lib/hr/schedules";
 import {
+  isOffBoardingForWeek,
+  resolveWorkingStatus,
+  weekLabelCodesForMember,
+} from "@/lib/hr/working-status";
+import {
   clearCachedScheduleSectionsAfter,
   getCachedScheduleAttendance,
   getCachedScheduleDaysForStaff,
@@ -1569,6 +1574,22 @@ export function SchedulesWeekCalendar({
       staffReorderTarget?.staffId === member.id &&
       staffReorderTarget.edge === "after";
     const colSpanTotal = canEdit ? days.length + 2 : days.length + 1;
+    const resolvedWorkingStatus = resolveWorkingStatus({
+      workingStatus: member.workingStatus,
+      isOffBoarding: isOffBoardingForWeek(
+        member.terminationDate,
+        fromDate,
+        toDate,
+      ),
+      weekLabelCodes: weekLabelCodesForMember({
+        staffId: member.id,
+        joiningDate: member.joiningDate,
+        terminationDate: member.terminationDate,
+        weekDates: weekDateKeys,
+        cells: displayAssignments,
+        cellKey: scheduleCellKey,
+      }),
+    });
 
     return (
       <Fragment key={member.id}>
@@ -1712,7 +1733,7 @@ export function SchedulesWeekCalendar({
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate">{member.fullName}</span>
-                <WorkingStatusBadge status={member.workingStatus} />
+                <WorkingStatusBadge status={resolvedWorkingStatus} />
               </span>
               <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-black/50">
                 <span className="shrink-0 tabular-nums text-black/40">

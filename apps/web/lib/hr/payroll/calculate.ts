@@ -8,11 +8,17 @@ import {
   DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
   type HrLeavePolicySettings,
 } from "@/lib/hr/types";
-import { computeDailyRate, round2 } from "./daily-rate";
+import {
+  computeDailyRate,
+  resolveManualAdjustmentAmount,
+  round2,
+} from "./daily-rate";
+import { isInternalAdjustmentCode, adjustmentFoldsIntoFixedPay } from "./adjustment-codes";
 import { payFractionForLabel } from "./pay-fraction";
 import {
   calendarDaysInclusive,
   eachIsoDate,
+  isPayrollLeaver,
   maxIsoDate,
   minIsoDate,
 } from "./period";
@@ -38,6 +44,7 @@ export type PayrollStaffInput = {
   joining_date: string | null;
   termination_date: string | null;
   employment_status: string | null;
+  working_status: string | null;
   wps_employee_id: string | null;
   iban: string | null;
   bank_name: string | null;
@@ -92,6 +99,43 @@ export type ManualAdjustmentInput = {
 
 function empKey(empNo: string | null | undefined): string {
   return (empNo ?? "").trim().toLowerCase();
+}
+
+/** Spread a signed delta across BASIC / ACCOM / TRANSP fixed lines. */
+function applyProportionalFixedDelta(
+  lines: CalculatedPayrollLine[],
+  delta: number,
+  salaryToPay: number,
+  basic: number,
+  accom: number,
+  transp: number,
+  inAccom: boolean,
+): void {
+  if (delta === 0) return;
+
+  const basicLine = lines.find((l) => l.code === "BASIC");
+  if (!basicLine) return;
+
+  if (inAccom || !salaryToPay) {
+    basicLine.amount = round2(Math.max(0, basicLine.amount + delta));
+    return;
+  }
+
+  const basicDelta = round2(delta * ((basic ?? 0) / salaryToPay));
+  const accomDelta = round2(delta * ((accom ?? 0) / salaryToPay));
+  let transpDelta = round2(delta * ((transp ?? 0) / salaryToPay));
+  const drift = round2(delta - basicDelta - accomDelta - transpDelta);
+  transpDelta = round2(transpDelta + drift);
+
+  basicLine.amount = round2(Math.max(0, basicLine.amount + basicDelta));
+  const accomLine = lines.find((l) => l.code === "ACCOM");
+  const transpLine = lines.find((l) => l.code === "TRANSP");
+  if (accomLine) {
+    accomLine.amount = round2(Math.max(0, accomLine.amount + accomDelta));
+  }
+  if (transpLine) {
+    transpLine.amount = round2(Math.max(0, transpLine.amount + transpDelta));
+  }
 }
 
 function statusExcluded(
@@ -222,9 +266,7 @@ export function calculateVenuePayroll(input: {
     const dailyRate = computeDailyRate(salaryToPay, periodCalendarDays);
 
     const isNewJoiner = Boolean(joining && joining >= period.periodStart && joining <= period.periodEnd);
-    const isLeaver = Boolean(
-      termination && termination >= period.periodStart && termination <= period.periodEnd,
-    );
+    const isLeaver = isPayrollLeaver(termination, period);
 
     let included = true;
     let excludeReason: string | null = null;
@@ -241,16 +283,6 @@ export function calculateVenuePayroll(input: {
         severity: "blocking",
         exceptionType: "missing_salary",
         message: `${s.full_name}: Salary to pay is missing or zero.`,
-      });
-    }
-
-    if (included && !s.wps_employee_id?.trim()) {
-      exceptions.push({
-        staffId: s.id,
-        empNo: s.emp_no,
-        severity: "warning",
-        exceptionType: "missing_wps_id",
-        message: `${s.full_name}: WPS employee ID is missing.`,
       });
     }
 
@@ -355,11 +387,53 @@ export function calculateVenuePayroll(input: {
       excludeReason = "Fully unpaid leave in period";
     }
 
+    const staffAdjustments = adjustmentsByStaff.get(s.id) ?? [];
+    const foldedAdjs = staffAdjustments.filter((a) =>
+      adjustmentFoldsIntoFixedPay({
+        code: a.code,
+        category: a.category,
+        daysApplied: a.daysApplied,
+        percentOfDailyRate: a.percentOfDailyRate,
+      }),
+    );
+    const regularAdjs = staffAdjustments.filter(
+      (a) =>
+        !adjustmentFoldsIntoFixedPay({
+          code: a.code,
+          category: a.category,
+          daysApplied: a.daysApplied,
+          percentOfDailyRate: a.percentOfDailyRate,
+        }),
+    );
+
+    // Folded adjustments with days recalculate fixed pay (basic / accom / transp).
+    let fixedPayDaysDelta = 0;
+    if (included && dailyRate != null && dailyRate > 0) {
+      for (const adj of foldedAdjs) {
+        if (adj.daysApplied == null && adj.percentOfDailyRate == null) continue;
+        const resolved = resolveManualAdjustmentAmount(
+          {
+            amount: adj.amount,
+            percentOfDailyRate: adj.percentOfDailyRate,
+            daysApplied: adj.daysApplied,
+          },
+          dailyRate,
+        );
+        if (!resolved.ok) continue;
+        const sign = adj.category === "deduction" ? -1 : 1;
+        if (resolved.value.daysApplied != null) {
+          const dayEquivalent = resolved.value.amount / dailyRate;
+          fixedPayDaysDelta += sign * dayEquivalent;
+        }
+      }
+    }
+    const effectivePaidDays = round2(Math.max(0, paidDays + fixedPayDaysDelta));
+
     const lines: CalculatedPayrollLine[] = [];
     let sort = 0;
 
     const fixedPay =
-      dailyRate != null && included ? round2(dailyRate * paidDays) : 0;
+      dailyRate != null && included ? round2(dailyRate * effectivePaidDays) : 0;
 
     if (included && dailyRate != null) {
       // Split fixed pay across basic / accom / transport proportional to salaryToPay components
@@ -384,7 +458,7 @@ export function calculateVenuePayroll(input: {
         code: "BASIC",
         label: "Basic salary",
         amount: payableBasic,
-        quantity: paidDays,
+        quantity: effectivePaidDays,
         rate: dailyRate,
         source: "system",
         sortOrder: sort++,
@@ -396,7 +470,7 @@ export function calculateVenuePayroll(input: {
           code: "ACCOM",
           label: "Accommodation allowance",
           amount: payableAccom,
-          quantity: paidDays,
+          quantity: effectivePaidDays,
           rate: dailyRate,
           source: "system",
           sortOrder: sort++,
@@ -406,7 +480,7 @@ export function calculateVenuePayroll(input: {
           code: "TRANSP",
           label: "Transportation allowance",
           amount: payableTransp,
-          quantity: paidDays,
+          quantity: effectivePaidDays,
           rate: dailyRate,
           source: "system",
           sortOrder: sort++,
@@ -430,6 +504,34 @@ export function calculateVenuePayroll(input: {
           sortOrder: sort++,
           meta: { packageTransp: transp },
         });
+      }
+
+      // Amount-only internal adjustments (no days / percent) — fold into fixed lines.
+      for (const adj of foldedAdjs) {
+        if (!isInternalAdjustmentCode(adj.code)) continue;
+        if (adj.daysApplied != null || adj.percentOfDailyRate != null) continue;
+        const resolved = resolveManualAdjustmentAmount(
+          {
+            amount: adj.amount,
+            percentOfDailyRate: adj.percentOfDailyRate,
+            daysApplied: adj.daysApplied,
+          },
+          dailyRate,
+        );
+        if (!resolved.ok) continue;
+        const signedDelta =
+          adj.category === "deduction"
+            ? -resolved.value.amount
+            : resolved.value.amount;
+        applyProportionalFixedDelta(
+          lines,
+          signedDelta,
+          salaryToPay ?? 0,
+          basic ?? 0,
+          accom ?? 0,
+          transp ?? 0,
+          inAccom,
+        );
       }
     }
 
@@ -474,31 +576,36 @@ export function calculateVenuePayroll(input: {
       });
     }
 
-    // Manual / retro adjustments
-    for (const adj of adjustmentsByStaff.get(s.id) ?? []) {
+    // Manual / retro adjustments (folded adjustments are applied to fixed lines above)
+    for (const adj of regularAdjs) {
       if (!included) continue;
-      let amount = adj.amount;
-      if (
-        adj.percentOfDailyRate != null &&
-        dailyRate != null &&
-        adj.daysApplied != null
-      ) {
-        amount = round2(
-          dailyRate * (adj.percentOfDailyRate / 100) * adj.daysApplied,
-        );
-      }
+      const resolved = resolveManualAdjustmentAmount(
+        {
+          amount: adj.amount,
+          percentOfDailyRate: adj.percentOfDailyRate,
+          daysApplied: adj.daysApplied,
+        },
+        dailyRate,
+      );
+      const amount = resolved.ok ? resolved.value.amount : adj.amount;
+      const daysApplied = resolved.ok
+        ? resolved.value.daysApplied
+        : adj.daysApplied ?? null;
+      const percentOfDailyRate = resolved.ok
+        ? resolved.value.percentOfDailyRate
+        : adj.percentOfDailyRate ?? null;
       lines.push({
         category: adj.category,
         code: adj.code,
         label: adj.label,
         amount: round2(Math.abs(amount)),
-        quantity: adj.daysApplied ?? null,
+        quantity: daysApplied,
         rate: dailyRate,
         source: adj.source ?? "adjustment",
         sortOrder: sort++,
         meta:
-          adj.percentOfDailyRate != null
-            ? { percentOfDailyRate: adj.percentOfDailyRate }
+          percentOfDailyRate != null
+            ? { percentOfDailyRate }
             : undefined,
       });
     }
@@ -560,6 +667,7 @@ export function calculateVenuePayroll(input: {
       dailyRate,
       calendarDays: calendarDaysInclusive(windowStart, windowEnd),
       paidDays: round2(paidDays),
+      effectivePaidDays,
       unpaidDays: round2(unpaidDays),
       halfPayDays: round2(halfPayDays),
       fixedEarnings: included ? fixedEarnings : 0,

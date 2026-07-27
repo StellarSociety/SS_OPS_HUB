@@ -16,6 +16,8 @@ type StaffProfilePhotoEditorProps = {
   onPhotoFileChange: (file: File | null) => void;
   /** Uncropped original — kept so framing can be re-edited after save. */
   onSourceFileChange?: (file: File | null) => void;
+  /** True while the crop export is still running (disable Save upstream). */
+  onPhotoBusyChange?: (busy: boolean) => void;
   onCleared: () => void;
   readOnly?: boolean;
   className?: string;
@@ -59,6 +61,7 @@ export function StaffProfilePhotoEditor({
   onPhotoUrlChange,
   onPhotoFileChange,
   onSourceFileChange,
+  onPhotoBusyChange,
   onCleared,
   readOnly = false,
   className,
@@ -83,10 +86,20 @@ export function StaffProfilePhotoEditor({
   } | null>(null);
   const objectUrlsRef = useRef<Set<string>>(new Set());
   const prevPhotoUrlRef = useRef(photoUrl);
+  const hasExportedRef = useRef(false);
+  const [exportPending, setExportPending] = useState(false);
 
   const hasSource = Boolean(sourceUrl);
   const displayUrl = sourceUrl ?? (photoUrl || null);
   const canAdjust = Boolean(displayUrl) && !readOnly;
+  const photoBusy =
+    !readOnly &&
+    Boolean(sourceUrl) &&
+    (!naturalSize || exportPending);
+
+  useEffect(() => {
+    onPhotoBusyChange?.(photoBusy);
+  }, [photoBusy, onPhotoBusyChange]);
 
   useEffect(() => {
     const el = frameRef.current;
@@ -197,32 +210,37 @@ export function StaffProfilePhotoEditor({
     ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
     ctx.drawImage(img, left, top, displayW, displayH);
 
-    const blob =
-      (await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/webp", WEBP_QUALITY),
-      )) ??
-      (await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", WEBP_QUALITY),
-      ));
-    if (!blob) return null;
-    const isWebp = blob.type === "image/webp";
-    return new File([blob], isWebp ? "staff-photo.webp" : "staff-photo.jpg", {
-      type: isWebp ? "image/webp" : "image/jpeg",
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/webp", WEBP_QUALITY),
+    );
+    if (!blob || blob.type !== "image/webp") return null;
+    return new File([blob], "staff-photo.webp", {
+      type: "image/webp",
     });
   }
 
   useEffect(() => {
-    if (!sourceUrl || !naturalSize || readOnly) return;
+    if (!sourceUrl || !naturalSize || readOnly) {
+      setExportPending(false);
+      return;
+    }
     let cancelled = false;
+    setExportPending(true);
+    const delay = hasExportedRef.current ? 180 : 0;
     const timer = window.setTimeout(() => {
       void exportCropped().then((file) => {
-        if (!cancelled && file) {
+        if (cancelled) return;
+        setExportPending(false);
+        if (file) {
+          hasExportedRef.current = true;
           onPhotoFileChange(file);
           const preview = trackObjectUrl(URL.createObjectURL(file));
           onPhotoUrlChange(preview);
+        } else {
+          onPhotoFileChange(null);
         }
       });
-    }, 180);
+    }, delay);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -232,6 +250,7 @@ export function StaffProfilePhotoEditor({
 
   function handleFile(file: File | null) {
     if (!file || !file.type.startsWith("image/")) return;
+    hasExportedRef.current = false;
     const url = trackObjectUrl(URL.createObjectURL(file));
     revokeTracked(sourceUrl);
     setSourceUrl(url);

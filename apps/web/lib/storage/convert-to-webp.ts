@@ -75,6 +75,32 @@ export function isRasterImageMime(mimeType: string): boolean {
   return RASTER_MIME_TYPES.has(mimeType);
 }
 
+/** Some browsers omit File.type on canvas exports; infer from the filename. */
+export function resolveRasterImageMime(
+  file: Pick<File, "type" | "name">,
+): string | null {
+  if (isRasterImageMime(file.type)) return file.type;
+  const ext = file.name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  switch (ext) {
+    case "webp":
+      return "image/webp";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "avif":
+      return "image/avif";
+    case "tif":
+    case "tiff":
+      return "image/tiff";
+    default:
+      return null;
+  }
+}
+
 /** RIFF....WEBP header — client crops already produce this. */
 export function isWebpBuffer(input: Buffer): boolean {
   return (
@@ -112,6 +138,16 @@ export async function convertImageToWebp(
   }
 
   const needsResize = Boolean(options?.maxWidth || options?.maxHeight);
+
+  // Client-cropped staff photos are already WebP — skip sharp entirely when no
+  // resize is needed so uploads still work if libvips fails to load on Vercel.
+  if (!needsResize && isWebpBuffer(bytes)) {
+    return {
+      buffer: bytes,
+      contentType: "image/webp",
+      extension: "webp",
+    };
+  }
 
   try {
     const sharp = await loadSharp();

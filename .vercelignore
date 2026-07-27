@@ -6,4 +6,5 @@ Arattai.app
 node_modules
 .next
 .git
-data
+# Root-only local data imports (do not use bare `data` — it excludes App Router pages like hr/staff/data).
+/data

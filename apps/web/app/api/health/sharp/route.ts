@@ -3,22 +3,26 @@ import { convertImageToWebp, loadSharp } from "@/lib/storage/convert-to-webp";
 
 export const dynamic = "force-dynamic";
 
+/** 1×1 PNG — exercises convertImageToWebp without sharp({ create }). */
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 export async function GET() {
+  let sharpLoaded = false;
   try {
-    const sharp = await loadSharp();
-    const input = await sharp({
-      create: {
-        width: 16,
-        height: 16,
-        channels: 3,
-        background: { r: 10, g: 20, b: 30 },
-      },
-    })
-      .png()
-      .toBuffer();
-    const webp = await convertImageToWebp(input);
+    await loadSharp();
+    sharpLoaded = true;
+  } catch {
+    /* libvips may be missing on some deploy targets */
+  }
+
+  try {
+    const webp = await convertImageToWebp(PNG_1X1);
     return NextResponse.json({
       ok: true,
+      sharpLoaded,
       bytes: webp.buffer.length,
       contentType: webp.contentType,
     });
@@ -26,6 +30,7 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: false,
+        sharpLoaded,
         error: err instanceof Error ? err.message : String(err),
         stack: err instanceof Error ? err.stack : undefined,
       },

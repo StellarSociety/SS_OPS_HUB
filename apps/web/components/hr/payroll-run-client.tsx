@@ -1,16 +1,20 @@
 "use client";
 
-import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import {
   addPayrollAdjustment,
+  updatePayrollAdjustment,
+  deletePayrollAdjustment,
   exportPayrollGl,
   generatePayslips,
   generateWpsFile,
@@ -25,20 +29,41 @@ import {
 import {
   PAYROLL_STATUS_LABELS,
   PAYROLL_STATUS_TRANSITIONS,
+  adjustmentCodesForCategory,
   canEditPayrollRun,
+  defaultLabelForAdjustmentCode,
+  isInternalAdjustmentCode,
+  adjustmentFoldsIntoFixedPay,
+  isSalaryCorrectionCode,
+  inferOrphanedInternalAdjustment,
+  isOrphanPayrollAdjustment,
   formatPayrollMonthLabel,
+  PAYROLL_ADJUSTMENT_CODES,
+  resolveManualAdjustmentAmount,
   isPayrollLocked,
   summarizePayrollLeave,
+  parsePayrollRunTab,
+  payrollOverRevenuePct,
   type PayrollDayFraction,
   type PayrollLineCategory,
+  type PayrollPeriodNetRevenue,
+  type PayrollRunTab,
   type PayrollStatus,
 } from "@/lib/hr/payroll";
+import {
+  resolveWorkingStatus,
+  type WorkingStatusLabel,
+} from "@/lib/hr/working-status";
 import { downloadTextFile } from "@/lib/sales/vouchers-export";
 import { cn } from "@/lib/utils";
-import type { PayrollRunTab } from "@/lib/hr/payroll";
 
 const lightSelectClass =
   "flex h-8 w-full rounded-md border border-black/10 bg-white px-2 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20";
+
+function formatPct(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `${Number(value).toFixed(1)}%`;
+}
 
 function formatMoney(
   amount: number | null | undefined,
@@ -59,6 +84,32 @@ function formatDate(value: string | null | undefined): string {
   const d = value.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return value;
   return d;
+}
+
+/** Signed payroll line amount — deductions reduce the net total. */
+function signedPayrollLineAmount(
+  line: Pick<PayrollLineRow, "category" | "amount">,
+): number {
+  const amount = Number(line.amount || 0);
+  return line.category === "deduction" ? -amount : amount;
+}
+
+function adjustmentForPayLine(
+  line: PayrollLineRow,
+  adjustments: PayrollAdjustmentRow[],
+): PayrollAdjustmentRow | undefined {
+  const byCode = adjustments.find(
+    (adj) =>
+      adj.code.toUpperCase() === line.code.toUpperCase() &&
+      adj.category === line.category,
+  );
+  if (byCode) return byCode;
+  return adjustments.find(
+    (adj) =>
+      adj.code.toUpperCase() === line.code.toUpperCase() &&
+      adj.category === line.category &&
+      Math.abs(Number(adj.amount) - Number(line.amount)) < 0.01,
+  );
 }
 
 /** Full-month contracted package amount for a fixed pay line code. */
@@ -83,17 +134,19 @@ function contractedAmountForLine(
   }
 }
 
-/**
- * Working status for payroll display.
- * Leavers in this run are Off-boarding (final settlement through month end).
- * Otherwise use the staff directory working status.
- */
+/** @see resolveWorkingStatus */
 export function resolvePayrollWorkingStatus(
-  row: Pick<PayrollEmployeeRow, "working_status" | "is_leaver">,
-): string {
-  if (row.is_leaver) return "OFF-Boarding";
-  const status = row.working_status?.trim();
-  return status || "Active";
+  row: Pick<
+    PayrollEmployeeRow,
+    "working_status" | "is_leaver" | "paid_days" | "unpaid_days"
+  >,
+): WorkingStatusLabel {
+  return resolveWorkingStatus({
+    workingStatus: row.working_status,
+    isOffBoarding: row.is_leaver,
+    paidDays: row.paid_days,
+    unpaidDays: row.unpaid_days,
+  });
 }
 
 function statusLabel(status: string): string {
@@ -129,7 +182,10 @@ export type PayrollEmployeeRow = {
   is_new_joiner: boolean;
   is_leaver: boolean;
   paid_days: number;
+  /** Paid days after internal adjustments (payslip); falls back to paid_days. */
+  effective_paid_days: number;
   unpaid_days: number;
+  daily_rate: number | null;
   /** Contracted monthly package components (full month). */
   basic_salary: number | null;
   accom_allowance: number | null;
@@ -151,8 +207,77 @@ export type PayrollLineRow = {
   code: string;
   label: string;
   amount: number;
+  quantity?: number | null;
   sort_order: number;
+  source?: string | null;
 };
+
+/** Days used to calculate this pay line (paid days for fixed, leave days for deductions, etc.). */
+function payLineDays(
+  line: Pick<PayrollLineRow, "code" | "quantity">,
+  row: Pick<
+    PayrollEmployeeRow,
+    "paid_days" | "effective_paid_days" | "unpaid_days"
+  >,
+): number | null {
+  if (line.quantity != null && !Number.isNaN(Number(line.quantity))) {
+    return Number(line.quantity);
+  }
+  switch (line.code) {
+    case "BASIC":
+    case "ACCOM":
+    case "TRANSP":
+      return row.effective_paid_days;
+    case "UNPAID_LEAVE":
+      return row.unpaid_days;
+    default:
+      return null;
+  }
+}
+
+function formatPayLineDays(days: number | null): string {
+  if (days == null) return "—";
+  return days.toFixed(2);
+}
+
+const SYSTEM_PAYROLL_LINE_CODES = new Set([
+  "BASIC",
+  "ACCOM",
+  "TRANSP",
+  "ACCOM_WITHHELD",
+  "TRANSP_WITHHELD",
+  "UNPAID_LEAVE",
+  "TIPS",
+  "SERVICE_CHARGE",
+  "COMPENSATION",
+  "BENEFIT_OTHER",
+]);
+
+function isEditablePayLine(line: Pick<PayrollLineRow, "code" | "category" | "source">): boolean {
+  if (line.source === "adjustment" || line.source === "manual") return true;
+  if (SYSTEM_PAYROLL_LINE_CODES.has(line.code)) return false;
+  return PAYROLL_ADJUSTMENT_CODES.some(
+    (c) => c.code === line.code && c.category === line.category,
+  );
+}
+
+function draftAdjustmentFromLine(
+  line: PayrollLineRow,
+  staffId: string,
+): PayrollAdjustmentRow {
+  return {
+    id: "",
+    staff_id: staffId,
+    category: line.category,
+    code: line.code,
+    label: line.label,
+    amount: Number(line.amount),
+    percent_of_daily_rate: null,
+    days_applied: null,
+    reason: "",
+    created_at: "",
+  };
+}
 
 export type PayrollExceptionRow = {
   id: string;
@@ -235,6 +360,7 @@ type PayrollRunClientProps = {
   staffOptions: PayrollStaffOption[];
   canViewSalary: boolean;
   canEdit: boolean;
+  periodNetRevenue: PayrollPeriodNetRevenue | null;
 };
 
 type PayrollActionOutcome =
@@ -261,7 +387,7 @@ const PAYROLL_STATUSES_ORDER: PayrollStatus[] = [
 ];
 
 export function PayrollRunClient({
-  tab,
+  tab: _tab,
   run,
   employees,
   lines,
@@ -270,19 +396,28 @@ export function PayrollRunClient({
   settlements,
   payments,
   events,
-  staffOptions,
+  staffOptions: _staffOptions,
   canViewSalary,
   canEdit,
+  periodNetRevenue,
 }: PayrollRunClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tab = parsePayrollRunTab(searchParams.get("tab"));
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [budget, setBudget] = useState(
     run.budget_amount != null ? String(run.budget_amount) : "",
   );
-  const [revenue, setRevenue] = useState(
-    run.revenue_amount != null ? String(run.revenue_amount) : "",
+  const [departmentSummaryOpen, setDepartmentSummaryOpen] = useState(false);
+  const [budgetSectionOpen, setBudgetSectionOpen] = useState(false);
+
+  const venueNetRevenue =
+    periodNetRevenue?.netRevenue ?? run.revenue_amount ?? null;
+  const payrollRevenuePct = payrollOverRevenuePct(
+    (run.totals as Record<string, number> | null)?.netPayroll,
+    venueNetRevenue,
   );
 
   const totals = (run.totals ?? {}) as Record<string, number>;
@@ -382,17 +517,12 @@ export function PayrollRunClient({
 
   function handleSaveBudget() {
     const b = budget.trim() === "" ? null : Number(budget);
-    const r = revenue.trim() === "" ? null : Number(revenue);
     if (b != null && Number.isNaN(b)) {
       setMessage("Budget must be a number");
       return;
     }
-    if (r != null && Number.isNaN(r)) {
-      setMessage("Revenue must be a number");
-      return;
-    }
-    runAction("Update budget/revenue", () =>
-      updatePayrollBudgetRevenue(run.id, b, r),
+    runAction("Update budget", () =>
+      updatePayrollBudgetRevenue(run.id, b, venueNetRevenue),
     );
   }
 
@@ -568,37 +698,87 @@ export function PayrollRunClient({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-3 border-t border-black/5 pt-4">
-          <div className="space-y-1">
-            <Label className="text-xs text-black/50">Budget (AED)</Label>
-            <Input
-              className="h-8 w-36"
-              value={budget}
-              disabled={!editable || pending}
-              onChange={(e) => setBudget(e.target.value)}
-            />
+        <button
+          type="button"
+          aria-expanded={budgetSectionOpen}
+          onClick={() => setBudgetSectionOpen((open) => !open)}
+          className="flex w-full items-center justify-between gap-3 border-t border-black/5 pt-4 text-left transition hover:bg-black/[0.02] -mx-1 px-1 rounded-md"
+        >
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="text-sm font-medium text-[#3D421F]">
+              Budget & revenue
+            </span>
+            <span className="text-sm text-black/55">
+              Net Payroll {formatMoney(totals.netPayroll ?? null, canViewSalary)}
+            </span>
+            {venueNetRevenue != null ? (
+              <span className="text-sm text-black/55">
+                Revenue {formatMoney(venueNetRevenue, canViewSalary)}
+              </span>
+            ) : null}
+            {payrollRevenuePct != null ? (
+              <span className="text-sm font-medium text-[#3D421F]">
+                {formatPct(payrollRevenuePct)} payroll / revenue
+              </span>
+            ) : null}
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-black/50">Revenue (AED)</Label>
-            <Input
-              className="h-8 w-36"
-              value={revenue}
+          <ChevronDown
+            className={cn(
+              "h-5 w-5 shrink-0 text-black/45 transition-transform",
+              budgetSectionOpen && "rotate-180",
+            )}
+          />
+        </button>
+        {budgetSectionOpen ? (
+          <div className="flex flex-wrap items-end gap-4 pt-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-black/50">Budget (AED)</Label>
+              <Input
+                className="h-8 w-36"
+                value={budget}
+                disabled={!editable || pending}
+                onChange={(e) => setBudget(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-black/50">
+                Venue net revenue (AED)
+              </Label>
+              <p className="flex h-8 items-center tabular-nums text-sm font-medium text-[#3D421F]">
+                {formatMoney(venueNetRevenue, canViewSalary)}
+              </p>
+              {periodNetRevenue ? (
+                <p className="text-[11px] text-black/45">
+                  From daily sales · {periodNetRevenue.daysWithSales} of{" "}
+                  {periodNetRevenue.daysInPeriod} days in period
+                </p>
+              ) : (
+                <p className="text-[11px] text-black/45">
+                  No daily sales loaded for this period
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-black/50">
+                Payroll / revenue
+              </Label>
+              <p className="flex h-8 items-center tabular-nums text-sm font-medium text-[#3D421F]">
+                {formatPct(payrollRevenuePct)}
+              </p>
+              <p className="text-[11px] text-black/45">
+                Net payroll ÷ venue net revenue
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
               disabled={!editable || pending}
-              onChange={(e) => setRevenue(e.target.value)}
-            />
+              onClick={handleSaveBudget}
+            >
+              Save budget
+            </Button>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={!editable || pending}
-            onClick={handleSaveBudget}
-          >
-            Save budget
-          </Button>
-          <p className="ml-auto text-sm text-black/55">
-            Net {formatMoney(totals.netPayroll ?? null, canViewSalary)}
-          </p>
-        </div>
+        ) : null}
 
         {message ? (
           <p className="text-sm text-[#3D421F]">{message}</p>
@@ -606,13 +786,27 @@ export function PayrollRunClient({
       </div>
 
       <div className="space-y-3 rounded-xl border border-black/10 bg-white p-5 shadow-sm">
-        <div>
-          <h3 className="font-serif text-lg text-[#3D421F]">By department</h3>
-          <p className="text-sm text-black/55">
-            Included employees and net amount to pay per department.
-          </p>
-        </div>
-        <div className="overflow-x-auto rounded-lg border border-black/10">
+        <button
+          type="button"
+          aria-expanded={departmentSummaryOpen}
+          onClick={() => setDepartmentSummaryOpen((open) => !open)}
+          className="flex w-full items-start justify-between gap-3 rounded-md text-left transition hover:bg-black/[0.02] -m-1 p-1"
+        >
+          <div>
+            <h3 className="font-serif text-lg text-[#3D421F]">By department</h3>
+            <p className="text-sm text-black/55">
+              Included employees and net amount to pay per department.
+            </p>
+          </div>
+          <ChevronDown
+            className={cn(
+              "mt-1 h-5 w-5 shrink-0 text-black/45 transition-transform",
+              departmentSummaryOpen && "rotate-180",
+            )}
+          />
+        </button>
+        {departmentSummaryOpen ? (
+          <div className="overflow-x-auto rounded-lg border border-black/10">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
               <tr>
@@ -664,18 +858,47 @@ export function PayrollRunClient({
             ) : null}
           </table>
         </div>
+        ) : null}
       </div>
 
       {tab === "run" ? (
         <RunEmployeesTab
           employees={employees}
           linesByEmployee={linesByEmployee}
+          adjustments={adjustments}
+          periodStart={run.period_start}
+          periodEnd={run.period_end}
           expanded={expanded}
           setExpanded={setExpanded}
           canViewSalary={canViewSalary}
           editable={editable}
           pending={pending}
           onToggleIncluded={handleToggleIncluded}
+          onAddAdjustment={(input) =>
+            runAction("Add adjustment", () =>
+              addPayrollAdjustment({ runId: run.id, ...input }),
+            )
+          }
+          onUpdateAdjustment={(adjustmentId, input) =>
+            runAction("Update adjustment", () =>
+              updatePayrollAdjustment({
+                runId: run.id,
+                adjustmentId,
+                ...input,
+              }),
+            )
+          }
+          onDeleteAdjustment={(adjustmentId) =>
+            runAction("Delete adjustment", () =>
+              deletePayrollAdjustment({
+                runId: run.id,
+                adjustmentId,
+              }),
+            )
+          }
+          onRecalculateRun={() =>
+            runAction("Recalculate", () => recalculatePayrollRun(run.id))
+          }
         />
       ) : null}
 
@@ -697,14 +920,25 @@ export function PayrollRunClient({
       {tab === "adjustments" ? (
         <AdjustmentsTab
           adjustments={adjustments}
-          staffOptions={staffOptions}
           employeeByStaff={employeeByStaff}
           canViewSalary={canViewSalary}
           editable={editable}
           pending={pending}
-          onAdd={(input) =>
-            runAction("Add adjustment", () =>
-              addPayrollAdjustment({ runId: run.id, ...input }),
+          onUpdateAdjustment={(adjustmentId, input) =>
+            runAction("Update adjustment", () =>
+              updatePayrollAdjustment({
+                runId: run.id,
+                adjustmentId,
+                ...input,
+              }),
+            )
+          }
+          onDeleteAdjustment={(adjustmentId) =>
+            runAction("Delete adjustment", () =>
+              deletePayrollAdjustment({
+                runId: run.id,
+                adjustmentId,
+              }),
             )
           }
         />
@@ -763,25 +997,268 @@ export function PayrollRunClient({
 
 }
 
+type AdjustmentInput = {
+  staffId: string;
+  category: PayrollLineCategory;
+  code: string;
+  label: string;
+  amount?: number | null;
+  percentOfDailyRate?: number | null;
+  daysApplied?: number | null;
+  reason: string;
+};
+
+function formValuesFromAdjustment(adj: PayrollAdjustmentRow): {
+  category: PayrollLineCategory;
+  code: string;
+  label: string;
+  amount: string;
+  percent: string;
+  days: string;
+  reason: string;
+} {
+  const hasRateBased =
+    adj.percent_of_daily_rate != null || adj.days_applied != null;
+  return {
+    category: adj.category as PayrollLineCategory,
+    code: adj.code,
+    label: adj.label,
+    amount: hasRateBased ? "" : String(adj.amount),
+    percent:
+      adj.percent_of_daily_rate != null
+        ? String(adj.percent_of_daily_rate)
+        : "",
+    days: adj.days_applied != null ? String(adj.days_applied) : "",
+    reason: adj.reason,
+  };
+}
+
+function formatAdjustmentMeta(adj: PayrollAdjustmentRow): string | null {
+  const parts: string[] = [];
+  if (adj.days_applied != null) {
+    parts.push(`${adj.days_applied} day${adj.days_applied === 1 ? "" : "s"}`);
+  }
+  if (adj.percent_of_daily_rate != null) {
+    parts.push(`${adj.percent_of_daily_rate}% of daily rate`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function EmployeeAdjustmentsTable({
+  adjustments,
+  canViewSalary,
+  editable,
+  pending,
+  onEdit,
+  onDelete,
+  onCreate,
+}: {
+  adjustments: PayrollAdjustmentRow[];
+  canViewSalary: boolean;
+  editable: boolean;
+  pending: boolean;
+  onEdit: (adj: PayrollAdjustmentRow) => void;
+  onDelete: (adj: PayrollAdjustmentRow) => void;
+  onCreate?: () => void;
+}) {
+  if (adjustments.length === 0) return null;
+
+  return (
+    <div className="rounded-md border border-black/10 bg-white/80 px-3 py-2.5 text-zinc-700">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium text-zinc-800">
+          Adjustments
+          <span className="ml-1.5 font-normal text-zinc-500">
+            · {adjustments.length}
+          </span>
+        </p>
+        {editable && onCreate ? (
+          <button
+            type="button"
+            disabled={pending}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-black/10 bg-white px-2 text-xs font-medium text-[#3D421F] transition hover:bg-black/[0.03] disabled:opacity-50"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreate();
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Create adjustment
+          </button>
+        ) : null}
+      </div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-zinc-500">
+            <th className="py-1 font-medium">Category</th>
+            <th className="py-1 font-medium">Code</th>
+            <th className="py-1 font-medium">Label</th>
+            <th className="py-1 text-center font-medium">Days / rate</th>
+            <th className="py-1 text-center font-medium">Amount</th>
+            <th className="py-1 font-medium">Reason</th>
+            {editable ? (
+              <th className="py-1 text-right font-medium w-20" />
+            ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {adjustments.map((adj) => {
+            const orphan = isOrphanPayrollAdjustment(adj);
+            return (
+            <tr
+              key={adj.id || `orphan-${adj.code}-${adj.days_applied}`}
+              className={cn("border-t border-black/5", orphan && "bg-amber-50/50")}
+            >
+              <td className="py-1.5 capitalize text-zinc-600">{adj.category}</td>
+              <td className="py-1.5 font-mono text-zinc-700">{adj.code}</td>
+              <td className="py-1.5 text-zinc-700">
+                {adj.label}
+                {isInternalAdjustmentCode(adj.code) ? (
+                  <span className="ml-1.5 inline-flex rounded bg-[var(--venue-secondary,#F0F3DD)] px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/50">
+                    Not on payslip
+                  </span>
+                ) : adjustmentFoldsIntoFixedPay({
+                    code: adj.code,
+                    category: adj.category as PayrollLineCategory,
+                    daysApplied: adj.days_applied,
+                    percentOfDailyRate: adj.percent_of_daily_rate,
+                  }) ? (
+                  <span className="ml-1.5 inline-flex rounded bg-[var(--venue-secondary,#F0F3DD)] px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/50">
+                    In fixed pay
+                  </span>
+                ) : null}
+                {orphan ? (
+                  <span className="ml-1.5 inline-flex rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
+                    Unsaved record
+                  </span>
+                ) : null}
+              </td>
+              <td className="py-1.5 text-center text-zinc-600">
+                {formatAdjustmentMeta(adj) ?? "—"}
+              </td>
+              <td className="py-1.5 text-center tabular-nums text-zinc-800">
+                {formatMoney(
+                  adj.category === "deduction" ? -adj.amount : adj.amount,
+                  canViewSalary,
+                )}
+              </td>
+              <td className="py-1.5 text-zinc-600">{adj.reason}</td>
+              {editable ? (
+                <td className="py-1.5 text-right">
+                  <AdjustmentActions
+                    adjustment={adj}
+                    pending={pending}
+                    isOrphan={orphan}
+                    onEdit={() => onEdit(adj)}
+                    onDelete={() => onDelete(adj)}
+                  />
+                </td>
+              ) : null}
+            </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function confirmDeleteAdjustment(adj: Pick<PayrollAdjustmentRow, "code" | "label">): boolean {
+  return window.confirm(
+    `Delete adjustment ${adj.code} — ${adj.label}? Payroll will be recalculated.`,
+  );
+}
+
+function AdjustmentActions({
+  adjustment,
+  pending,
+  isOrphan = false,
+  onEdit,
+  onDelete,
+}: {
+  adjustment: PayrollAdjustmentRow;
+  pending: boolean;
+  isOrphan?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="inline-flex items-center justify-end gap-0.5">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={(e) => {
+          e.stopPropagation();
+          onEdit();
+        }}
+        className="inline-flex items-center rounded p-1 text-black/40 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
+        aria-label={`Edit ${adjustment.code} adjustment`}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={(e) => {
+          e.stopPropagation();
+          const message = isOrphan
+            ? "Remove this internal adjustment effect and recalculate from attendance days?"
+            : undefined;
+          if (message ? window.confirm(message) : confirmDeleteAdjustment(adjustment)) {
+            onDelete();
+          }
+        }}
+        className="inline-flex items-center rounded p-1 text-black/40 transition hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+        aria-label={`Delete ${adjustment.code} adjustment`}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function RunEmployeesTab({
   employees,
   linesByEmployee,
+  adjustments,
+  periodStart,
+  periodEnd,
   expanded,
   setExpanded,
   canViewSalary,
   editable,
   pending,
   onToggleIncluded,
+  onAddAdjustment,
+  onUpdateAdjustment,
+  onDeleteAdjustment,
+  onRecalculateRun,
 }: {
   employees: PayrollEmployeeRow[];
   linesByEmployee: Map<string, PayrollLineRow[]>;
+  adjustments: PayrollAdjustmentRow[];
+  periodStart: string;
+  periodEnd: string;
   expanded: Set<string>;
   setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>;
   canViewSalary: boolean;
   editable: boolean;
   pending: boolean;
   onToggleIncluded: (id: string, included: boolean) => void;
+  onAddAdjustment: (input: AdjustmentInput) => void;
+  onUpdateAdjustment: (adjustmentId: string, input: AdjustmentInput) => void;
+  onDeleteAdjustment: (adjustmentId: string) => void;
+  onRecalculateRun: () => void;
 }) {
+  const adjustmentsByStaff = useMemo(() => {
+    const map = new Map<string, PayrollAdjustmentRow[]>();
+    for (const adj of adjustments) {
+      const list = map.get(adj.staff_id) ?? [];
+      list.push(adj);
+      map.set(adj.staff_id, list);
+    }
+    return map;
+  }, [adjustments]);
   type SortKey =
     | "emp_no"
     | "full_name"
@@ -807,6 +1284,9 @@ function RunEmployeesTab({
   const [netFilter, setNetFilter] = useState<"all" | "zero" | "nonzero">(
     "all",
   );
+  const [joinerLeaverFilter, setJoinerLeaverFilter] = useState<
+    "all" | "joiner" | "leaver"
+  >("all");
 
   const departmentOptions = useMemo(() => {
     const names = new Set<string>();
@@ -903,6 +1383,8 @@ function RunEmployeesTab({
         const label = row.included ? "Included" : "Excluded";
         if (!includedSet.has(label)) return false;
       }
+      if (joinerLeaverFilter === "joiner" && !row.is_new_joiner) return false;
+      if (joinerLeaverFilter === "leaver" && !row.is_leaver) return false;
       if (!q) return true;
       const status = resolvePayrollWorkingStatus(row).toLowerCase();
       return (
@@ -919,6 +1401,7 @@ function RunEmployeesTab({
     selectedWorkingStatuses,
     selectedIncluded,
     netFilter,
+    joinerLeaverFilter,
   ]);
 
   const sorted = useMemo(() => {
@@ -979,7 +1462,8 @@ function RunEmployeesTab({
     selectedDepartments.length > 0 ||
     selectedWorkingStatuses.length > 0 ||
     selectedIncluded.length > 0 ||
-    netFilter !== "all";
+    netFilter !== "all" ||
+    joinerLeaverFilter !== "all";
 
   function SortLabel({
     label,
@@ -1037,6 +1521,25 @@ function RunEmployeesTab({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+        </div>
+        <div className="min-w-[8rem] w-36 space-y-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+            Joiner / leaver
+          </p>
+          <select
+            className={cn(lightSelectClass, "h-9")}
+            value={joinerLeaverFilter}
+            onChange={(e) =>
+              setJoinerLeaverFilter(
+                e.target.value as "all" | "joiner" | "leaver",
+              )
+            }
+            aria-label="Filter by joiner or leaver"
+          >
+            <option value="all">All</option>
+            <option value="joiner">Joiner</option>
+            <option value="leaver">Leaver</option>
+          </select>
         </div>
         <div className="min-w-[11rem] w-44 space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
@@ -1103,6 +1606,7 @@ function RunEmployeesTab({
               setSelectedWorkingStatuses([]);
               setSelectedIncluded([]);
               setNetFilter("all");
+              setJoinerLeaverFilter("all");
             }}
             className="mb-1.5 text-xs font-medium text-black/45 transition hover:text-[#3D421F]"
           >
@@ -1184,12 +1688,17 @@ function RunEmployeesTab({
               sorted.map((row) => {
                 const open = expanded.has(row.id);
                 const empLines = linesByEmployee.get(row.id) ?? [];
+                const empAdjustments =
+                  adjustmentsByStaff.get(row.staff_id) ?? [];
                 return (
                   <FragmentRows
                     key={row.id}
                     row={row}
                     open={open}
                     empLines={empLines}
+                    empAdjustments={empAdjustments}
+                    periodStart={periodStart}
+                    periodEnd={periodEnd}
                     canViewSalary={canViewSalary}
                     editable={editable}
                     pending={pending}
@@ -1202,6 +1711,10 @@ function RunEmployeesTab({
                       })
                     }
                     onToggleIncluded={onToggleIncluded}
+                    onAddAdjustment={onAddAdjustment}
+                    onUpdateAdjustment={onUpdateAdjustment}
+                    onDeleteAdjustment={onDeleteAdjustment}
+                    onRecalculateRun={onRecalculateRun}
                   />
                 );
               })
@@ -1254,21 +1767,38 @@ function FragmentRows({
   row,
   open,
   empLines,
+  empAdjustments,
+  periodStart,
+  periodEnd,
   canViewSalary,
   editable,
   pending,
   onToggleExpand,
   onToggleIncluded,
+  onAddAdjustment,
+  onUpdateAdjustment,
+  onDeleteAdjustment,
+  onRecalculateRun,
 }: {
   row: PayrollEmployeeRow;
   open: boolean;
   empLines: PayrollLineRow[];
+  empAdjustments: PayrollAdjustmentRow[];
+  periodStart: string;
+  periodEnd: string;
   canViewSalary: boolean;
   editable: boolean;
   pending: boolean;
   onToggleExpand: () => void;
   onToggleIncluded: (id: string, included: boolean) => void;
+  onAddAdjustment: (input: AdjustmentInput) => void;
+  onUpdateAdjustment: (adjustmentId: string, input: AdjustmentInput) => void;
+  onDeleteAdjustment: (adjustmentId: string) => void;
+  onRecalculateRun: () => void;
 }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingAdjustment, setEditingAdjustment] =
+    useState<PayrollAdjustmentRow | null>(null);
   const leaveSummary = summarizePayrollLeave(row.day_fractions);
   const paidKinds = leaveSummary.kinds.filter((k) => k.bucket === "paid");
   const halfPayKinds = leaveSummary.kinds.filter((k) => k.bucket === "half_pay");
@@ -1284,9 +1814,39 @@ function FragmentRows({
     return contracted != null ? sum + contracted : sum;
   }, 0);
   const payrollPayTotal = sortedPayLines.reduce(
-    (sum, line) => sum + Number(line.amount || 0),
+    (sum, line) => sum + signedPayrollLineAmount(line),
     0,
   );
+  const paidDaysAdjusted =
+    Math.abs(row.effective_paid_days - row.paid_days) >= 0.005;
+
+  const displayAdjustments = useMemo(() => {
+    const basicLine = sortedPayLines.find((l) => l.code === "BASIC");
+    const orphan = inferOrphanedInternalAdjustment({
+      staffId: row.staff_id,
+      paidDays: Number(row.paid_days),
+      effectivePaidDays: Number(row.effective_paid_days),
+      dailyRate: row.daily_rate,
+      fixedLineDays: basicLine?.quantity ?? null,
+      existingAdjustments: empAdjustments,
+    });
+    if (!orphan) return empAdjustments;
+    return [
+      ...empAdjustments,
+      {
+        id: "",
+        staff_id: orphan.staff_id,
+        category: orphan.category,
+        code: orphan.code,
+        label: orphan.label,
+        amount: orphan.amount,
+        percent_of_daily_rate: orphan.percent_of_daily_rate,
+        days_applied: orphan.days_applied,
+        reason: orphan.reason,
+        created_at: "",
+      },
+    ];
+  }, [empAdjustments, sortedPayLines, row]);
 
   return (
     <>
@@ -1361,18 +1921,19 @@ function FragmentRows({
         </td>
       </tr>
       {open ? (
-        <tr className="bg-black/[0.015]">
-          <td colSpan={11} className="px-4 py-3">
+        <tr className="bg-zinc-600">
+          <td colSpan={11} className="border-t border-white/10 p-0">
+            <div className="max-h-[min(70vh,720px)] overflow-y-auto bg-zinc-600 px-4 py-3 text-zinc-100">
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[#3D421F]">
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                 <p>
-                  <span className="text-black/45">Joining date</span>{" "}
+                  <span className="text-zinc-400">Joining date</span>{" "}
                   <span className="tabular-nums font-medium">
                     {formatDate(row.joining_date)}
                   </span>
                 </p>
                 <p>
-                  <span className="text-black/45">Termination date</span>{" "}
+                  <span className="text-zinc-400">Termination date</span>{" "}
                   <span className="tabular-nums font-medium">
                     {formatDate(row.termination_date)}
                   </span>
@@ -1380,16 +1941,16 @@ function FragmentRows({
               </div>
 
               <div className="space-y-2">
-                <p className="text-xs font-medium text-[#3D421F]">
+                <p className="text-xs font-medium">
                   Leave this period
-                  <span className="ml-1.5 font-normal text-black/45">
+                  <span className="ml-1.5 font-normal text-zinc-400">
                     {totalLeaveDays === 0
                       ? "· none taken"
                       : `· ${totalLeaveDays} day${totalLeaveDays === 1 ? "" : "s"} total`}
                   </span>
                 </p>
                 {totalLeaveDays === 0 ? (
-                  <p className="text-xs text-black/45">
+                  <p className="text-xs text-zinc-400">
                     No approved leave days in this payroll period.
                   </p>
                 ) : (
@@ -1423,74 +1984,215 @@ function FragmentRows({
               </div>
 
               <div>
-                <p className="mb-1.5 text-xs font-medium text-[#3D421F]">
-                  Pay lines
-                </p>
+                <div className="mb-1.5">
+                  <p className="text-xs font-medium">
+                    Pay lines
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                    Period {formatDate(periodStart)}
+                    {" → "}
+                    {formatDate(periodEnd)}
+                    {paidDaysAdjusted ? (
+                      <>
+                        {" · Paid days on payslip: "}
+                        <span className="tabular-nums font-medium text-zinc-100">
+                          {row.effective_paid_days.toFixed(2)}
+                        </span>
+                        <span className="text-zinc-500">
+                          {" "}
+                          (attendance {row.paid_days.toFixed(2)})
+                        </span>
+                      </>
+                    ) : null}
+                  </p>
+                </div>
                 {sortedPayLines.length === 0 ? (
-                  <p className="text-xs text-black/45">
+                  <p className="text-xs text-zinc-400">
                     No lines for this employee.
                   </p>
                 ) : (
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="text-left text-black/45">
+                      <tr className="text-left text-zinc-400">
                         <th className="py-1 font-medium">Category</th>
                         <th className="py-1 font-medium">Code</th>
                         <th className="py-1 font-medium">Label</th>
                         <th className="py-1 text-right font-medium">
                           Contracted
                         </th>
+                        <th className="py-1 text-right font-medium">Days</th>
                         <th className="py-1 text-right font-medium">
                           Payroll Amount
                         </th>
+                        {editable ? (
+                          <th className="py-1 text-right font-medium w-20" />
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedPayLines.map((line) => (
-                        <tr key={line.id} className="border-t border-black/5">
-                          <td className="py-1.5 capitalize text-black/55">
+                      {sortedPayLines.map((line) => {
+                        const linkedAdjustment = adjustmentForPayLine(
+                          line,
+                          empAdjustments,
+                        );
+                        const canEditLine = editable && isEditablePayLine(line);
+                        const editTarget =
+                          linkedAdjustment ??
+                          (canEditLine
+                            ? draftAdjustmentFromLine(line, row.staff_id)
+                            : null);
+                        return (
+                        <tr key={line.id} className="border-t border-white/10">
+                          <td className="py-1.5 capitalize text-zinc-300">
                             {line.category}
                           </td>
                           <td className="py-1.5 font-mono">{line.code}</td>
                           <td className="py-1.5">{line.label}</td>
-                          <td className="py-1.5 text-right tabular-nums text-black/55">
+                          <td className="py-1.5 text-right tabular-nums text-zinc-300">
                             {formatMoney(
                               contractedAmountForLine(line.code, row),
                               canViewSalary,
                             )}
                           </td>
-                          <td className="py-1.5 text-right tabular-nums">
-                            {formatMoney(line.amount, canViewSalary)}
+                          <td className="py-1.5 text-right tabular-nums text-zinc-300">
+                            {formatPayLineDays(payLineDays(line, row))}
                           </td>
+                          <td className="py-1.5 text-right tabular-nums">
+                            {formatMoney(
+                              signedPayrollLineAmount(line),
+                              canViewSalary,
+                            )}
+                          </td>
+                          {editable ? (
+                            <td className="py-1.5 text-right">
+                              {linkedAdjustment ? (
+                                <AdjustmentActions
+                                  adjustment={linkedAdjustment}
+                                  pending={pending}
+                                  onEdit={() => {
+                                    setEditingAdjustment(linkedAdjustment);
+                                    setDialogOpen(true);
+                                  }}
+                                  onDelete={() =>
+                                    onDeleteAdjustment(linkedAdjustment.id)
+                                  }
+                                />
+                              ) : editTarget ? (
+                                <button
+                                  type="button"
+                                  disabled={pending}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingAdjustment(editTarget);
+                                    setDialogOpen(true);
+                                  }}
+                                  className="inline-flex items-center rounded p-1 text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 disabled:opacity-50"
+                                  aria-label={`Edit ${line.code} adjustment`}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </td>
+                          ) : null}
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                     <tfoot>
-                      <tr className="border-t border-black/10 font-medium text-[#3D421F]">
+                      <tr className="border-t border-white/15 font-medium">
                         <td className="py-1.5" colSpan={3}>
                           Total
                         </td>
                         <td className="py-1.5 text-right tabular-nums">
                           {formatMoney(contractedPayTotal, canViewSalary)}
                         </td>
+                        <td className="py-1.5 text-right tabular-nums text-zinc-300">
+                          {formatPayLineDays(row.effective_paid_days)}
+                        </td>
                         <td className="py-1.5 text-right tabular-nums">
                           {formatMoney(payrollPayTotal, canViewSalary)}
                         </td>
+                        {editable ? <td /> : null}
                       </tr>
                     </tfoot>
                   </table>
                 )}
               </div>
 
+              {displayAdjustments.length > 0 ? (
+                <EmployeeAdjustmentsTable
+                  adjustments={displayAdjustments}
+                  canViewSalary={canViewSalary}
+                  editable={editable}
+                  pending={pending}
+                  onCreate={() => {
+                    setEditingAdjustment(null);
+                    setDialogOpen(true);
+                  }}
+                  onEdit={(adj) => {
+                    setEditingAdjustment(adj);
+                    setDialogOpen(true);
+                  }}
+                  onDelete={(adj) => {
+                    if (isOrphanPayrollAdjustment(adj)) {
+                      onRecalculateRun();
+                      return;
+                    }
+                    onDeleteAdjustment(adj.id);
+                  }}
+                />
+              ) : editable ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-white/20 bg-white/10 px-3 py-2.5">
+                  <p className="text-xs text-zinc-400">
+                    No adjustments yet for this employee.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-black/10 bg-white px-2 text-xs font-medium text-[#3D421F] transition hover:bg-black/[0.03] disabled:opacity-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingAdjustment(null);
+                      setDialogOpen(true);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Create adjustment
+                  </button>
+                </div>
+              ) : null}
+
               {row.exclude_reason ? (
-                <p className="text-xs text-amber-800/80">
+                <p className="text-xs text-amber-300/90">
                   Exclude reason: {row.exclude_reason}
                 </p>
               ) : null}
             </div>
+            </div>
           </td>
         </tr>
       ) : null}
+      <AdjustmentDialog
+        open={dialogOpen}
+        adjustment={editingAdjustment}
+        staffId={row.staff_id}
+        staffLabel={`${row.emp_no} — ${row.full_name}`}
+        dailyRate={row.daily_rate}
+        pending={pending}
+        onClose={() => {
+          setDialogOpen(false);
+          setEditingAdjustment(null);
+        }}
+        onSubmit={(input) => {
+          if (editingAdjustment?.id) {
+            onUpdateAdjustment(editingAdjustment.id, input);
+          } else {
+            onAddAdjustment(input);
+          }
+          setDialogOpen(false);
+          setEditingAdjustment(null);
+        }}
+      />
     </>
   );
 }
@@ -1566,9 +2268,9 @@ function ExceptionsTab({
   return (
     <section className="space-y-3">
       <div>
-        <h3 className="font-serif text-lg text-[#3D421F]">Exceptions</h3>
+        <h3 className="font-serif text-lg text-[#3D421F]">Alerts</h3>
         <p className="text-sm text-black/55">
-          Blocking items should be resolved or waived before advancing the run.
+          Blocking alerts should be resolved or waived before advancing the run.
         </p>
       </div>
       <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">
@@ -1590,7 +2292,7 @@ function ExceptionsTab({
                   colSpan={6}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
-                  No exceptions for this run.
+                  No alerts for this run.
                 </td>
               </tr>
             ) : (
@@ -1656,33 +2358,26 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
-function AdjustmentsTab({
-  adjustments,
-  staffOptions,
-  employeeByStaff,
-  canViewSalary,
-  editable,
+function AdjustmentDialog({
+  open,
+  adjustment,
+  staffId,
+  staffLabel,
+  dailyRate,
   pending,
-  onAdd,
+  onClose,
+  onSubmit,
 }: {
-  adjustments: PayrollAdjustmentRow[];
-  staffOptions: PayrollStaffOption[];
-  employeeByStaff: Map<string, PayrollEmployeeRow>;
-  canViewSalary: boolean;
-  editable: boolean;
+  open: boolean;
+  adjustment?: PayrollAdjustmentRow | null;
+  staffId: string;
+  staffLabel: string;
+  dailyRate: number | null;
   pending: boolean;
-  onAdd: (input: {
-    staffId: string;
-    category: PayrollLineCategory;
-    code: string;
-    label: string;
-    amount?: number | null;
-    percentOfDailyRate?: number | null;
-    daysApplied?: number | null;
-    reason: string;
-  }) => void;
+  onClose: () => void;
+  onSubmit: (input: AdjustmentInput) => void;
 }) {
-  const [staffId, setStaffId] = useState(staffOptions[0]?.id ?? "");
+  const isEdit = adjustment != null && adjustment.id.trim() !== "";
   const [category, setCategory] = useState<PayrollLineCategory>("variable");
   const [code, setCode] = useState("");
   const [label, setLabel] = useState("");
@@ -1690,71 +2385,208 @@ function AdjustmentsTab({
   const [percent, setPercent] = useState("");
   const [days, setDays] = useState("");
   const [reason, setReason] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
 
-  return (
-    <section className="space-y-4">
-      <div>
-        <h3 className="font-serif text-lg text-[#3D421F]">Adjustments</h3>
-        <p className="text-sm text-black/55">
-          Manual earnings or deductions. Use amount, or percent of daily rate ×
-          days.
-        </p>
-      </div>
+  useEffect(() => {
+    if (!open) return;
+    if (adjustment) {
+      const values = formValuesFromAdjustment(adjustment);
+      setCategory(values.category);
+      setCode(values.code);
+      setLabel(values.label);
+      setAmount(values.amount);
+      setPercent(values.percent);
+      setDays(values.days);
+      setReason(values.reason);
+    } else {
+      setCategory("variable");
+      setCode("");
+      setLabel("");
+      setAmount("");
+      setPercent("");
+      setDays("");
+      setReason("");
+    }
+    setFormError(null);
+  }, [open, adjustment]);
 
-      {editable ? (
+  const parsedAmount = amount.trim() === "" ? null : Number(amount);
+  const parsedPercent = percent.trim() === "" ? null : Number(percent);
+  const parsedDays = days.trim() === "" ? null : Number(days);
+
+  const resolvedPreview = useMemo(() => {
+    if (parsedAmount != null && !Number.isNaN(parsedAmount)) {
+      return resolveManualAdjustmentAmount(
+        { amount: parsedAmount, percentOfDailyRate: parsedPercent, daysApplied: parsedDays },
+        dailyRate,
+      );
+    }
+    if (
+      (parsedPercent == null || Number.isNaN(parsedPercent)) &&
+      (parsedDays == null || Number.isNaN(parsedDays))
+    ) {
+      return null;
+    }
+    return resolveManualAdjustmentAmount(
+      { percentOfDailyRate: parsedPercent, daysApplied: parsedDays },
+      dailyRate,
+    );
+  }, [parsedAmount, parsedPercent, parsedDays, dailyRate]);
+
+  const showCalculatedAmount =
+    resolvedPreview?.ok === true &&
+    (parsedAmount == null || Number.isNaN(parsedAmount));
+
+  const codeSelectOptions = useMemo(
+    () =>
+      adjustmentCodesForCategory(category).map((c) => ({
+        value: c.code,
+        label: `${c.code} — ${c.label}`,
+      })),
+    [category],
+  );
+
+  function resetForm() {
+    setCategory("variable");
+    setCode("");
+    setLabel("");
+    setAmount("");
+    setPercent("");
+    setDays("");
+    setReason("");
+    setFormError(null);
+  }
+
+  function handleCategoryChange(next: PayrollLineCategory) {
+    setCategory(next);
+    const valid = adjustmentCodesForCategory(next).some((c) => c.code === code);
+    if (!valid) {
+      setCode("");
+      setLabel("");
+    }
+  }
+
+  function handleCodeChange(next: string) {
+    setCode(next);
+    if (!isEdit) {
+      const defaultLabel = defaultLabelForAdjustmentCode(next);
+      if (defaultLabel) setLabel(defaultLabel);
+    }
+  }
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (!pending && event.target === event.currentTarget) {
+          resetForm();
+          onClose();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="adjustment-dialog-title"
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-black/10 bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2
+              id="adjustment-dialog-title"
+              className="font-serif text-xl text-[#3D421F]"
+            >
+              {isEdit ? "Edit adjustment" : "Create adjustment"}
+            </h2>
+            <p className="mt-1 text-sm text-black/55">{staffLabel}</p>
+          </div>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              resetForm();
+              onClose();
+            }}
+            className="rounded-md p-1 text-black/40 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
         <form
-          className="grid gap-3 rounded-xl border border-black/10 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
+          className="mt-4 grid gap-3 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!staffId || !code.trim() || !label.trim() || !reason.trim()) {
+            if (!code.trim()) {
+              setFormError("Select a code.");
+              return;
+            }
+            if (!label.trim()) {
+              setFormError("Label is required.");
+              return;
+            }
+            if (!reason.trim()) {
+              setFormError("Reason is required.");
               return;
             }
             const amountNum = amount.trim() === "" ? null : Number(amount);
             const percentNum = percent.trim() === "" ? null : Number(percent);
             const daysNum = days.trim() === "" ? null : Number(days);
-            if (amountNum == null && (percentNum == null || daysNum == null)) {
+            if (
+              amountNum != null &&
+              (Number.isNaN(amountNum) || amountNum < 0)
+            ) {
+              setFormError("Amount must be a valid number.");
               return;
             }
-            onAdd({
+            if (
+              percentNum != null &&
+              (Number.isNaN(percentNum) || percentNum < 0)
+            ) {
+              setFormError("% of daily rate must be a valid number.");
+              return;
+            }
+            if (daysNum != null && (Number.isNaN(daysNum) || daysNum < 0)) {
+              setFormError("Days applied must be a valid number.");
+              return;
+            }
+            const resolved = resolveManualAdjustmentAmount(
+              {
+                amount: amountNum,
+                percentOfDailyRate: percentNum,
+                daysApplied: daysNum,
+              },
+              dailyRate,
+            );
+            if (!resolved.ok) {
+              setFormError(resolved.error);
+              return;
+            }
+            onSubmit({
               staffId,
               category,
               code: code.trim(),
               label: label.trim(),
-              amount: amountNum,
-              percentOfDailyRate: percentNum,
-              daysApplied: daysNum,
+              amount: resolved.value.amount,
+              percentOfDailyRate: resolved.value.percentOfDailyRate,
+              daysApplied: resolved.value.daysApplied,
               reason: reason.trim(),
             });
-            setCode("");
-            setLabel("");
-            setAmount("");
-            setPercent("");
-            setDays("");
-            setReason("");
+            resetForm();
           }}
         >
-          <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
-            <Label>Staff</Label>
-            <select
-              className={lightSelectClass}
-              value={staffId}
-              onChange={(e) => setStaffId(e.target.value)}
-              required
-            >
-              {staffOptions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.emp_no} — {s.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
           <div className="space-y-1.5">
             <Label>Category</Label>
             <select
               className={lightSelectClass}
               value={category}
               onChange={(e) =>
-                setCategory(e.target.value as PayrollLineCategory)
+                handleCategoryChange(e.target.value as PayrollLineCategory)
               }
             >
               <option value="fixed">Fixed</option>
@@ -1764,14 +2596,15 @@ function AdjustmentsTab({
           </div>
           <div className="space-y-1.5">
             <Label>Code</Label>
-            <Input
-              className="h-8"
+            <SearchableSelect
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              required
+              onChange={handleCodeChange}
+              options={codeSelectOptions}
+              placeholder="Select code…"
+              searchPlaceholder="Search code…"
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Label</Label>
             <Input
               className="h-8"
@@ -1786,8 +2619,10 @@ function AdjustmentsTab({
               className="h-8"
               type="number"
               step="0.01"
+              min="0"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              placeholder="e.g. 250"
             />
           </div>
           <div className="space-y-1.5">
@@ -1796,8 +2631,10 @@ function AdjustmentsTab({
               className="h-8"
               type="number"
               step="0.01"
+              min="0"
               value={percent}
               onChange={(e) => setPercent(e.target.value)}
+              placeholder="Optional"
             />
           </div>
           <div className="space-y-1.5">
@@ -1806,8 +2643,10 @@ function AdjustmentsTab({
               className="h-8"
               type="number"
               step="0.01"
+              min="0"
               value={days}
               onChange={(e) => setDays(e.target.value)}
+              placeholder="e.g. 2"
             />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
@@ -1816,16 +2655,122 @@ function AdjustmentsTab({
               className="h-8"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              placeholder="Why this adjustment?"
               required
             />
           </div>
-          <div className="flex items-end">
-            <Button type="submit" size="sm" disabled={pending || !staffId}>
-              Add adjustment
+
+          {formError ? (
+            <p className="sm:col-span-2 text-sm text-red-700" role="alert">
+              {formError}
+            </p>
+          ) : showCalculatedAmount ? (
+            <p className="sm:col-span-2 text-xs text-[#3D421F]">
+              Calculated amount:{" "}
+              <span className="font-medium tabular-nums">
+                {formatMoney(resolvedPreview.value.amount, true)}
+              </span>
+              {dailyRate != null ? (
+                <span className="text-black/45">
+                  {" "}
+                  (daily rate {formatMoney(dailyRate, true)}
+                  {resolvedPreview.value.percentOfDailyRate != null
+                    ? ` × ${resolvedPreview.value.percentOfDailyRate}%`
+                    : null}
+                  {resolvedPreview.value.daysApplied != null
+                    ? ` × ${resolvedPreview.value.daysApplied} day${
+                        resolvedPreview.value.daysApplied === 1 ? "" : "s"
+                      }`
+                    : null}
+                  )
+                </span>
+              ) : null}
+            </p>
+          ) : (
+            <p className="sm:col-span-2 text-xs text-black/45">
+              Enter one of: amount (AED), % of daily rate, or days applied. Days
+              alone use 100% of the daily rate; percent alone uses 1 day.
+            </p>
+          )}
+
+          {isInternalAdjustmentCode(code) ? (
+            <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
+              Internal adjustments fold into basic, accommodation, and transport
+              on the payslip — they are not shown as a separate line. Use days
+              to prorate fixed pay; use amount to adjust fixed components
+              directly.
+            </p>
+          ) : isSalaryCorrectionCode(code) ||
+              code.trim().toUpperCase() === "ALLOWANCE_ADJ" ? (
+            <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
+              With days or % of daily rate, this updates basic, accommodation,
+              and transport on the payslip — not added as a separate line. Use
+              amount only when you need an extra fixed pay line.
+            </p>
+          ) : null}
+
+          <div className="flex justify-end gap-2 sm:col-span-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                resetForm();
+                onClose();
+              }}
+              className="h-8 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <Button type="submit" size="sm" disabled={pending || !code}>
+              {pending
+                ? isEdit
+                  ? "Saving…"
+                  : "Adding…"
+                : isEdit
+                  ? "Save changes"
+                  : "Add adjustment"}
             </Button>
           </div>
         </form>
-      ) : null}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function AdjustmentsTab({
+  adjustments,
+  employeeByStaff,
+  canViewSalary,
+  editable,
+  pending,
+  onUpdateAdjustment,
+  onDeleteAdjustment,
+}: {
+  adjustments: PayrollAdjustmentRow[];
+  employeeByStaff: Map<string, PayrollEmployeeRow>;
+  canViewSalary: boolean;
+  editable: boolean;
+  pending: boolean;
+  onUpdateAdjustment: (adjustmentId: string, input: AdjustmentInput) => void;
+  onDeleteAdjustment: (adjustmentId: string) => void;
+}) {
+  const [editingAdjustment, setEditingAdjustment] =
+    useState<PayrollAdjustmentRow | null>(null);
+
+  const editingEmployee = editingAdjustment
+    ? employeeByStaff.get(editingAdjustment.staff_id)
+    : null;
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h3 className="font-serif text-lg text-[#3D421F]">Adjustments</h3>
+        <p className="text-sm text-black/55">
+          All manual adjustments for this run. Create them from an employee row
+          on the Run tab.
+        </p>
+      </div>
 
       <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">
         <table className="min-w-full text-left text-sm">
@@ -1837,16 +2782,20 @@ function AdjustmentsTab({
               <th className="px-3 py-2.5 font-medium">Label</th>
               <th className="px-3 py-2.5 font-medium text-right">Amount</th>
               <th className="px-3 py-2.5 font-medium">Reason</th>
+              {editable ? (
+                <th className="px-3 py-2.5 font-medium text-right w-20" />
+              ) : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-black/5">
             {adjustments.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={editable ? 7 : 6}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
-                  No adjustments yet.
+                  No adjustments yet. Expand an employee on the Run tab and use
+                  Create Adjustment.
                 </td>
               </tr>
             ) : (
@@ -1863,9 +2812,22 @@ function AdjustmentsTab({
                     <td className="px-3 py-2 font-mono text-xs">{adj.code}</td>
                     <td className="px-3 py-2">{adj.label}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {formatMoney(adj.amount, canViewSalary)}
+                      {formatMoney(
+                        adj.category === "deduction" ? -adj.amount : adj.amount,
+                        canViewSalary,
+                      )}
                     </td>
                     <td className="px-3 py-2 text-black/60">{adj.reason}</td>
+                    {editable ? (
+                      <td className="px-3 py-2 text-right">
+                        <AdjustmentActions
+                          adjustment={adj}
+                          pending={pending}
+                          onEdit={() => setEditingAdjustment(adj)}
+                          onDelete={() => onDeleteAdjustment(adj.id)}
+                        />
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })
@@ -1873,6 +2835,22 @@ function AdjustmentsTab({
           </tbody>
         </table>
       </div>
+
+      {editingAdjustment && editingEmployee ? (
+        <AdjustmentDialog
+          open
+          adjustment={editingAdjustment}
+          staffId={editingAdjustment.staff_id}
+          staffLabel={`${editingEmployee.emp_no} — ${editingEmployee.full_name}`}
+          dailyRate={editingEmployee.daily_rate}
+          pending={pending}
+          onClose={() => setEditingAdjustment(null)}
+          onSubmit={(input) => {
+            onUpdateAdjustment(editingAdjustment.id, input);
+            setEditingAdjustment(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

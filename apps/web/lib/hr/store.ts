@@ -17,6 +17,7 @@ const STAFF_SELECT = `
   department:departments(id, venue_id, name, sort_order),
   position:positions(id, venue_id, department_id, name, sort_order),
   employment_status:employment_statuses(id, name, sort_order),
+  working_status:working_statuses(id, name, sort_order),
   nationality:nationalities(id, name, fly_home_ticket_value)
 `;
 
@@ -1181,7 +1182,12 @@ export async function listAttendanceImportBatches(
 export async function listScheduleDaysByDateRange(
   supabase: SupabaseClient,
   venueId: string,
-  opts: { fromDate: string; toDate: string },
+  opts: {
+    fromDate: string;
+    toDate: string;
+    staffIds?: string[];
+    empNos?: string[];
+  },
 ) {
   // One week × full venue roster can exceed PostgREST’s silent 1000-row cap.
   const pageSize = 1000;
@@ -1195,9 +1201,16 @@ export async function listScheduleDaysByDateRange(
   }[] = [];
   let from = 0;
 
+  const staffIds = [...new Set((opts.staffIds ?? []).filter(Boolean))];
+  const empNos = [
+    ...new Set(
+      (opts.empNos ?? []).map((empNo) => empNo.trim()).filter(Boolean),
+    ),
+  ];
+
   while (rows.length < maxRows) {
     const to = from + pageSize - 1;
-    const { data, error } = await supabase
+    let query = supabase
       .from("hr_schedule_days")
       .select("staff_id, emp_no, work_date, label_code, shift_template_id")
       .eq("venue_id", venueId)
@@ -1206,6 +1219,18 @@ export async function listScheduleDaysByDateRange(
       .order("work_date")
       .order("staff_id")
       .range(from, to);
+
+    if (staffIds.length > 0 && empNos.length > 0) {
+      query = query.or(
+        `staff_id.in.(${staffIds.join(",")}),emp_no.in.(${empNos.join(",")})`,
+      );
+    } else if (staffIds.length > 0) {
+      query = query.in("staff_id", staffIds);
+    } else if (empNos.length > 0) {
+      query = query.in("emp_no", empNos);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error("[hr] listScheduleDaysByDateRange:", error.message);

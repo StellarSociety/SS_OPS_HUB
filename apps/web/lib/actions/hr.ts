@@ -73,6 +73,7 @@ import { getActionAuthContext, diagnosePersistenceAccess } from "@/lib/auth/acti
 import {
   convertImageToWebp,
   isRasterImageMime,
+  resolveRasterImageMime,
 } from "@/lib/storage/convert-to-webp";
 
 async function getAuthContext() {
@@ -387,7 +388,11 @@ async function updateStaffInner(
   revalidatePath(`/hr/${staffId}`);
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
-  return { success: true };
+  const savedPhotoUrl =
+    photoResult.photo_url !== undefined
+      ? photoResult.photo_url
+      : ((before as { photo_url?: string | null }).photo_url ?? null);
+  return { success: true, photo_url: savedPhotoUrl };
 }
 
 export async function createStaff(formData: FormData) {
@@ -486,7 +491,11 @@ async function createStaffInner(formData: FormData) {
   revalidatePath("/hr/staff/data");
   revalidatePath("/dashboard");
 
-  return { success: true, id: created.id as string };
+  return {
+    success: true,
+    id: created.id as string,
+    photo_url: photoResult.photo_url ?? null,
+  };
 }
 
 export async function deleteStaff(staffId: string) {
@@ -1036,7 +1045,7 @@ async function resolveStaffPhotoUpdate({
     if (photo.size > STAFF_PHOTO_MAX_BYTES) {
       return { error: "Staff photo must be 512 KB or smaller." };
     }
-    if (!isRasterImageMime(photo.type)) {
+    if (!resolveRasterImageMime(photo)) {
       return { error: "Staff photo must be a PNG, JPEG, or WebP image." };
     }
 
@@ -1081,7 +1090,7 @@ async function resolveStaffPhotoUpdate({
     if (photoSource instanceof File && photoSource.size > 0) {
       if (photoSource.size > STAFF_PHOTO_SOURCE_MAX_BYTES) {
         console.warn("[hr] staff photo source too large; skipping source store");
-      } else if (!isRasterImageMime(photoSource.type)) {
+      } else if (!resolveRasterImageMime(photoSource)) {
         console.warn("[hr] staff photo source mime not raster; skipping source store");
       } else {
         try {

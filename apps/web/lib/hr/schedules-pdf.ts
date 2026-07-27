@@ -21,6 +21,11 @@ import {
   type ShiftTemplate,
   type WeekDayColumn,
 } from "@/lib/hr/schedules";
+import {
+  isOffBoardingForWeek,
+  resolveWorkingStatus,
+  weekLabelCodesForMember,
+} from "@/lib/hr/working-status";
 
 export type SchedulesPublishView = "roster" | "sections";
 
@@ -264,9 +269,30 @@ type TableRowMeta =
 
 type CellValue = string | { content: string; colSpan?: number };
 
-function staffNameCell(member: ScheduleStaffRow): string {
-  const status = member.workingStatus?.trim();
-  return status ? `${member.fullName} · ${status}` : member.fullName;
+function staffNameCell(
+  member: ScheduleStaffRow,
+  days: WeekDayColumn[],
+  cells: Record<string, ScheduleCellValue>,
+): string {
+  const weekStart = days[0]?.key ?? "";
+  const weekEnd = days[days.length - 1]?.key ?? "";
+  const status = resolveWorkingStatus({
+    workingStatus: member.workingStatus,
+    isOffBoarding: isOffBoardingForWeek(
+      member.terminationDate,
+      weekStart,
+      weekEnd,
+    ),
+    weekLabelCodes: weekLabelCodesForMember({
+      staffId: member.id,
+      joiningDate: member.joiningDate,
+      terminationDate: member.terminationDate,
+      weekDates: days.map((day) => day.key),
+      cells,
+      cellKey: scheduleCellKey,
+    }),
+  });
+  return `${member.fullName} · ${status}`;
 }
 
 function buildRosterRows(
@@ -288,7 +314,7 @@ function buildRosterRows(
       ),
     );
     body.push([
-      staffNameCell(member),
+      staffNameCell(member, days, cells),
       member.position ?? "—",
       ...presentationByDay.map((p) => p?.abbreviation ?? "·"),
     ]);
@@ -330,7 +356,7 @@ function buildSectionsRows(
         ),
       );
       body.push([
-        staffNameCell(member),
+        staffNameCell(member, days, cells),
         member.position ?? "—",
         ...presentationByDay.map((p) => p?.abbreviation ?? "·"),
       ]);
@@ -360,7 +386,7 @@ function buildSectionsRows(
         ),
       );
       body.push([
-        staffNameCell(member),
+        staffNameCell(member, days, cells),
         member.position ?? "—",
         ...presentationByDay.map((p) => p?.abbreviation ?? "·"),
       ]);

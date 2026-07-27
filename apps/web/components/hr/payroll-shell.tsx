@@ -23,7 +23,7 @@ const TAB_META: {
   icon: typeof Users;
 }[] = [
   { id: "run", label: "Run", icon: Users },
-  { id: "exceptions", label: "Exceptions", icon: AlertTriangle },
+  { id: "exceptions", label: "Alerts", icon: AlertTriangle },
   { id: "adjustments", label: "Adjustments", icon: SlidersHorizontal },
   { id: "settlements", label: "Settlements", icon: ClipboardList },
   { id: "payments", label: "Payments", icon: Banknote },

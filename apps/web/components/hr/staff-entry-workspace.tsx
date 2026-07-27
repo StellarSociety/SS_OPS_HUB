@@ -90,6 +90,7 @@ export function StaffEntryWorkspace({
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoSourceFile, setPhotoSourceFile] = useState<File | null>(null);
   const [photoCleared, setPhotoCleared] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   const readOnly = loadedStaffId != null && !editing;
 
@@ -115,6 +116,18 @@ export function StaffEntryWorkspace({
   }
 
   async function handleSubmit(formData: FormData) {
+    if (photoBusy) {
+      toast.error("Photo is still processing — wait a moment, then save again.");
+      return;
+    }
+    if (
+      value.photo_url.startsWith("blob:") &&
+      !photoFile &&
+      !photoCleared
+    ) {
+      toast.error("Photo is still processing — wait a moment, then save again.");
+      return;
+    }
     if (photoFile) formData.set("photo", photoFile);
     if (photoSourceFile) formData.set("photo_source", photoSourceFile);
     setSaving(true);
@@ -129,6 +142,12 @@ export function StaffEntryWorkspace({
         setPhotoFile(null);
         setPhotoSourceFile(null);
         setPhotoCleared(false);
+        if (result.photo_url !== undefined) {
+          setValue((current) => ({
+            ...current,
+            photo_url: result.photo_url ?? "",
+          }));
+        }
         router.refresh();
         return;
       }
@@ -209,7 +228,7 @@ export function StaffEntryWorkspace({
                   <button
                     type="submit"
                     form={STAFF_ENTRY_FORM_ID}
-                    disabled={saving}
+                    disabled={saving || photoBusy}
                     className="inline-flex h-10 items-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
                   >
                     <Save className="h-4 w-4" />
@@ -250,6 +269,7 @@ export function StaffEntryWorkspace({
             onSubmit={handleSubmit}
             onPhotoFileChange={setPhotoFile}
             onPhotoSourceFileChange={setPhotoSourceFile}
+            onPhotoBusyChange={setPhotoBusy}
             photoCleared={photoCleared}
             onPhotoClearedChange={setPhotoCleared}
             readOnly={readOnly}

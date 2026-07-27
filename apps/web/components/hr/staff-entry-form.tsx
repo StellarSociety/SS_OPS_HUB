@@ -41,6 +41,7 @@ type StaffEntryFormProps = {
   onSubmit: (formData: FormData) => void;
   onPhotoFileChange: (file: File | null) => void;
   onPhotoSourceFileChange?: (file: File | null) => void;
+  onPhotoBusyChange?: (busy: boolean) => void;
   photoCleared: boolean;
   onPhotoClearedChange: (cleared: boolean) => void;
   readOnly: boolean;
@@ -108,6 +109,7 @@ export function StaffEntryForm({
   onSubmit,
   onPhotoFileChange,
   onPhotoSourceFileChange,
+  onPhotoBusyChange,
   photoCleared,
   onPhotoClearedChange,
   readOnly,
@@ -912,6 +914,7 @@ export function StaffEntryForm({
         }}
         onPhotoFileChange={onPhotoFileChange}
         onSourceFileChange={onPhotoSourceFileChange}
+        onPhotoBusyChange={onPhotoBusyChange}
         onCleared={() => {
           onPhotoClearedChange(true);
           onChange({ photo_url: "" });

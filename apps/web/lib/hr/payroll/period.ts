@@ -138,6 +138,22 @@ export function minIsoDate(a: string, b: string): string {
   return a <= b ? a : b;
 }
 
+/**
+ * True when termination makes this employee a leaver for the named payroll month.
+ * Covers in-period terminations and terminations after `periodEnd` that still
+ * fall in the payroll calendar month (e.g. Jul 31 with a 25→24 window ending Jul 24).
+ */
+export function isPayrollLeaver(
+  termination: string | null | undefined,
+  period: Pick<PayrollPeriod, "periodStart" | "periodEnd" | "payrollMonth">,
+): boolean {
+  const t = termination?.trim();
+  if (!t || t < period.periodStart) return false;
+  if (t <= period.periodEnd) return true;
+  const payrollYm = period.payrollMonth.slice(0, 7);
+  return t.slice(0, 7) === payrollYm;
+}
+
 export function formatPayrollMonthLabel(payrollMonth: string): string {
   const { year, month } = parsePayrollMonth(payrollMonth);
   return new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-GB", {

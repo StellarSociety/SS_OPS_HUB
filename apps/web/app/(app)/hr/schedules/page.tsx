@@ -1,5 +1,4 @@
 import { SchedulesDepartmentTabs } from "@/components/hr/schedules-department-tabs";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
 import {
   getScheduleApprovalSettings,
@@ -56,33 +55,6 @@ function compareByPositionThenName(a: ScheduleStaffRow, b: ScheduleStaffRow) {
     return a.positionSortOrder - b.positionSortOrder;
   }
   return a.fullName.localeCompare(b.fullName);
-}
-
-/** Best-effort Working Status map; safe before the lookup migration is applied. */
-async function loadWorkingStatusByStaffId(
-  supabase: SupabaseClient,
-  staffIds: string[],
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  if (staffIds.length === 0) return map;
-
-  const { data, error } = await supabase
-    .from("staff")
-    .select("id, working_status:working_statuses(name)")
-    .in("id", staffIds);
-
-  if (error || !data) return map;
-
-  for (const row of data as {
-    id: string;
-    working_status: { name: string } | { name: string }[] | null;
-  }[]) {
-    const raw = row.working_status;
-    const name = Array.isArray(raw) ? raw[0]?.name : raw?.name;
-    if (name?.trim()) map.set(row.id, name.trim());
-  }
-
-  return map;
 }
 
 export default async function SchedulesPage() {
@@ -148,10 +120,6 @@ export default async function SchedulesPage() {
       member.employment_status?.name ?? "",
     );
   });
-  const workingStatusById = await loadWorkingStatusByStaffId(
-    supabase,
-    scheduleStaff.map((member) => member.id),
-  );
 
   const staffByDepartment = emptyStaffByDepartment();
 
@@ -163,7 +131,8 @@ export default async function SchedulesPage() {
       empNo: member.emp_no,
       position: member.position?.name ?? null,
       positionSortOrder: member.position?.sort_order ?? MISSING_POSITION_SORT,
-      workingStatus: workingStatusById.get(member.id) ?? DEFAULT_WORKING_STATUS,
+      workingStatus:
+        member.working_status?.name?.trim() || DEFAULT_WORKING_STATUS,
       joiningDate: member.joining_date?.trim() || null,
       terminationDate: member.termination_date?.trim() || null,
     });

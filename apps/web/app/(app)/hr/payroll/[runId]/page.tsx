@@ -19,12 +19,16 @@ import {
   canViewSalary,
 } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
-import { parsePayrollRunTab } from "@/lib/hr/payroll";
+import { parsePayrollRunTab, sumVenueNetRevenueForPeriod } from "@/lib/hr/payroll";
+import type { PayrollPeriodNetRevenue } from "@/lib/hr/payroll/period-revenue";
+import { createServiceClient } from "@/lib/supabase/service";
 
 type Props = {
   params: Promise<{ runId: string }>;
   searchParams: Promise<{ tab?: string }>;
 };
+
+export const dynamic = "force-dynamic";
 
 export default async function HrPayrollRunPage({
   params,
@@ -48,6 +52,8 @@ export default async function HrPayrollRunPage({
 
   const showSalary = canViewSalary(permissions, venue.id);
   const canEdit = canEditPayroll(permissions, venue.id);
+  const payrollDataClient =
+    canEdit || showSalary ? createServiceClient() : supabase;
 
   const { data: run, error: runError } = await supabase
     .from("hr_payroll_runs")
@@ -75,7 +81,7 @@ export default async function HrPayrollRunPage({
     supabase
       .from("hr_payroll_run_employees")
       .select(
-        "id, staff_id, emp_no, full_name, department_name, included, exclude_reason, is_new_joiner, is_leaver, paid_days, unpaid_days, basic_salary, accom_allowance, transp_allowance, fixed_earnings, variable_earnings, total_deductions, net_salary, snapshot",
+        "id, staff_id, emp_no, full_name, department_name, included, exclude_reason, is_new_joiner, is_leaver, paid_days, unpaid_days, daily_rate, basic_salary, accom_allowance, transp_allowance, fixed_earnings, variable_earnings, total_deductions, net_salary, snapshot",
       )
       .eq("run_id", runId)
       .order("emp_no"),
@@ -83,7 +89,7 @@ export default async function HrPayrollRunPage({
       ? supabase
           .from("hr_payroll_lines")
           .select(
-            "id, run_employee_id, category, code, label, amount, sort_order",
+            "id, run_employee_id, category, code, label, amount, quantity, sort_order, source",
           )
           .eq("run_id", runId)
           .order("sort_order")
@@ -95,17 +101,17 @@ export default async function HrPayrollRunPage({
             "id, emp_no, severity, exception_type, message, work_date, waived, waive_comment",
           )
           .eq("run_id", runId)
+          .neq("exception_type", "missing_wps_id")
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [] as PayrollExceptionRow[], error: null }),
-    tab === "adjustments"
-      ? supabase
-          .from("hr_payroll_adjustments")
-          .select(
-            "id, staff_id, category, code, label, amount, percent_of_daily_rate, days_applied, reason, created_at",
-          )
-          .eq("run_id", runId)
-          .order("created_at", { ascending: false })
-      : Promise.resolve({ data: [] as PayrollAdjustmentRow[], error: null }),
+    payrollDataClient
+      .from("hr_payroll_adjustments")
+      .select(
+        "id, staff_id, category, code, label, amount, percent_of_daily_rate, days_applied, reason, created_at",
+      )
+      .eq("run_id", runId)
+      .eq("venue_id", venue.id)
+      .order("created_at", { ascending: false }),
     tab === "settlements"
       ? supabase
           .from("hr_payroll_settlements")
@@ -130,12 +136,21 @@ export default async function HrPayrollRunPage({
       .limit(40),
   ]);
 
+  if (adjustmentsRes.error) {
+    console.error(
+      "[hr/payroll/run] adjustments:",
+      adjustmentsRes.error.message,
+    );
+  }
+
   const employeesRaw = (employeesRes.data ?? []) as Array<
     Omit<PayrollEmployeeRow, "working_status" | "joining_date" | "termination_date" | "day_fractions"> & {
       snapshot?: {
         dayFractions?: PayrollEmployeeRow["day_fractions"];
+        effectivePaidDays?: number;
         joiningDate?: string | null;
         terminationDate?: string | null;
+        workingStatus?: string | null;
       } | null;
     }
   >;
@@ -184,6 +199,7 @@ export default async function HrPayrollRunPage({
     const snapTermination = snap?.terminationDate
       ? String(snap.terminationDate).slice(0, 10)
       : null;
+    const snapWorkingStatus = snap?.workingStatus?.trim() || null;
     return {
       id: e.id,
       staff_id: e.staff_id,
@@ -195,7 +211,16 @@ export default async function HrPayrollRunPage({
       is_new_joiner: e.is_new_joiner,
       is_leaver: e.is_leaver,
       paid_days: e.paid_days,
+      effective_paid_days:
+        snap?.effectivePaidDays != null &&
+        !Number.isNaN(Number(snap.effectivePaidDays))
+          ? Number(snap.effectivePaidDays)
+          : Number(e.paid_days),
       unpaid_days: e.unpaid_days,
+      daily_rate:
+        e.daily_rate != null && !Number.isNaN(Number(e.daily_rate))
+          ? Number(e.daily_rate)
+          : null,
       basic_salary:
         e.basic_salary != null && !Number.isNaN(Number(e.basic_salary))
           ? Number(e.basic_salary)
@@ -212,7 +237,10 @@ export default async function HrPayrollRunPage({
       variable_earnings: e.variable_earnings,
       total_deductions: e.total_deductions,
       net_salary: e.net_salary,
-      working_status: workingStatusByStaffId.get(e.staff_id) ?? null,
+      working_status:
+        snapWorkingStatus ??
+        workingStatusByStaffId.get(e.staff_id) ??
+        null,
       joining_date:
         snapJoining ?? joiningByStaffId.get(e.staff_id) ?? null,
       termination_date:
@@ -223,11 +251,47 @@ export default async function HrPayrollRunPage({
     };
   });
 
+  const adjustments: PayrollAdjustmentRow[] = (adjustmentsRes.data ?? []).map(
+    (a) => ({
+      id: a.id as string,
+      staff_id: a.staff_id as string,
+      category: a.category as string,
+      code: a.code as string,
+      label: a.label as string,
+      amount: Number(a.amount),
+      percent_of_daily_rate:
+        a.percent_of_daily_rate != null
+          ? Number(a.percent_of_daily_rate)
+          : null,
+      days_applied:
+        a.days_applied != null ? Number(a.days_applied) : null,
+      reason: (a.reason as string) ?? "",
+      created_at: a.created_at as string,
+    }),
+  );
+
   const staffOptions: PayrollStaffOption[] = employees.map((e) => ({
     id: e.staff_id,
     emp_no: e.emp_no,
     full_name: e.full_name,
   }));
+
+  let periodNetRevenue: PayrollPeriodNetRevenue | null = null;
+  if (showSalary || canEdit) {
+    try {
+      periodNetRevenue = await sumVenueNetRevenueForPeriod(
+        createServiceClient(),
+        venue.id,
+        String(run.period_start).slice(0, 10),
+        String(run.period_end).slice(0, 10),
+      );
+    } catch (err) {
+      console.error(
+        "[hr/payroll/run] period revenue:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 
   const venueSubtitle = venue.is_global
     ? "Payroll across venues"
@@ -246,13 +310,14 @@ export default async function HrPayrollRunPage({
           employees={employees}
           lines={(linesRes.data ?? []) as PayrollLineRow[]}
           exceptions={(exceptionsRes.data ?? []) as PayrollExceptionRow[]}
-          adjustments={(adjustmentsRes.data ?? []) as PayrollAdjustmentRow[]}
+          adjustments={adjustments}
           settlements={(settlementsRes.data ?? []) as PayrollSettlementRow[]}
           payments={(paymentsRes.data ?? []) as PayrollPaymentRow[]}
           events={(eventsRes.data ?? []) as PayrollEventRow[]}
           staffOptions={staffOptions}
           canViewSalary={showSalary}
           canEdit={canEdit}
+          periodNetRevenue={periodNetRevenue}
         />
       </PayrollShell>
     </Suspense>

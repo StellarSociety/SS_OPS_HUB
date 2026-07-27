@@ -186,6 +186,8 @@ export type CalculatedEmployeePayroll = {
   dailyRate: number | null;
   calendarDays: number;
   paidDays: number;
+  /** Paid days after internal adjustments (for payslip display). */
+  effectivePaidDays: number;
   unpaidDays: number;
   halfPayDays: number;
   fixedEarnings: number;

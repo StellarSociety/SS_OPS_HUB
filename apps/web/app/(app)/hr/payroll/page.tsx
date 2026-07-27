@@ -113,7 +113,7 @@ export default async function HrPayrollPage() {
         <div>
           <h2 className="font-serif text-lg text-[#3D421F]">Payroll runs</h2>
           <p className="text-sm text-black/55">
-            Open a run to review employees, exceptions, adjustments, and
+            Open a run to review employees, alerts, adjustments, and
             payments.
           </p>
         </div>
