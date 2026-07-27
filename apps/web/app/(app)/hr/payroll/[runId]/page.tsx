@@ -109,7 +109,7 @@ export default async function HrPayrollRunPage({
     payrollDataClient
       .from("hr_payroll_adjustments")
       .select(
-        "id, staff_id, category, code, label, amount, percent_of_daily_rate, days_applied, reason, created_at",
+        "id, staff_id, category, code, label, amount, percent_of_daily_rate, days_applied, reason, created_at, bulk_group_id",
       )
       .eq("run_id", runId)
       .eq("venue_id", venue.id)
@@ -270,6 +270,8 @@ export default async function HrPayrollRunPage({
         a.days_applied != null ? Number(a.days_applied) : null,
       reason: (a.reason as string) ?? "",
       created_at: a.created_at as string,
+      bulk_group_id:
+        a.bulk_group_id != null ? (a.bulk_group_id as string) : null,
     }),
   );
 

@@ -344,7 +344,7 @@ export const DEFAULT_PAYROLL_ADJUSTMENT_CODES: PayrollAdjustmentCodeConfig[] = [
     description: "Catch-all deduction when no specific code fits.",
     applyBehavior: "separate_line",
     behaviorExplanation:
-      "Generic separate deduction line. Prefer a specific code when possible for reporting.",
+      "Generic deduction. A flat amount or percent×days posts as its own line. Percent with no days discounts the daily rate for all paid days (BASIC / ACCOM / TRANSP), with no separate deduction line.",
     excludeFromPayslip: false,
     allowAmountInput: true,
     allowDaysInput: true,

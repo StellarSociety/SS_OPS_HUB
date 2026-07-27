@@ -10,8 +10,10 @@ import {
 } from "@/lib/hr/types";
 import {
   computeDailyRate,
+  isDailyRateDiscountAdjustment,
   resolveManualAdjustmentAmount,
   round2,
+  round6,
 } from "./daily-rate";
 import { isInternalAdjustmentCode, adjustmentFoldsIntoFixedPay, type PayrollAdjustmentCodeConfig } from "./adjustment-codes";
 import { payFractionForLabel } from "./pay-fraction";
@@ -390,19 +392,34 @@ export function calculateVenuePayroll(input: {
     }
 
     const staffAdjustments = adjustmentsByStaff.get(s.id) ?? [];
-    const foldedAdjs = staffAdjustments.filter((a) =>
-      adjustmentFoldsIntoFixedPay(
-        {
-          code: a.code,
-          category: a.category,
-          daysApplied: a.daysApplied,
-          percentOfDailyRate: a.percentOfDailyRate,
-        },
-        adjustmentCodes,
-      ),
+    // Percent-only deductions discount the daily rate for all paid days.
+    const rateDiscountPercent = Math.min(
+      100,
+      staffAdjustments
+        .filter(isDailyRateDiscountAdjustment)
+        .reduce((sum, a) => sum + (a.percentOfDailyRate ?? 0), 0),
+    );
+    const effectiveDailyRate =
+      dailyRate != null
+        ? round6(dailyRate * Math.max(0, 1 - rateDiscountPercent / 100))
+        : null;
+
+    const foldedAdjs = staffAdjustments.filter(
+      (a) =>
+        !isDailyRateDiscountAdjustment(a) &&
+        adjustmentFoldsIntoFixedPay(
+          {
+            code: a.code,
+            category: a.category,
+            daysApplied: a.daysApplied,
+            percentOfDailyRate: a.percentOfDailyRate,
+          },
+          adjustmentCodes,
+        ),
     );
     const regularAdjs = staffAdjustments.filter(
       (a) =>
+        !isDailyRateDiscountAdjustment(a) &&
         !adjustmentFoldsIntoFixedPay(
           {
             code: a.code,
@@ -424,6 +441,7 @@ export function calculateVenuePayroll(input: {
             amount: adj.amount,
             percentOfDailyRate: adj.percentOfDailyRate,
             daysApplied: adj.daysApplied,
+            rateDiscountWhenPercentOnly: adj.category === "deduction",
           },
           dailyRate,
         );
@@ -441,9 +459,11 @@ export function calculateVenuePayroll(input: {
     let sort = 0;
 
     const fixedPay =
-      dailyRate != null && included ? round2(dailyRate * effectivePaidDays) : 0;
+      effectiveDailyRate != null && included
+        ? round2(effectiveDailyRate * effectivePaidDays)
+        : 0;
 
-    if (included && dailyRate != null) {
+    if (included && effectiveDailyRate != null) {
       // Split fixed pay across basic / accom / transport proportional to salaryToPay components
       const payableBasic =
         inAccom || !salaryToPay
@@ -461,16 +481,19 @@ export function calculateVenuePayroll(input: {
       const drift = round2(fixedPay - payableBasic - payableAccom - payableTransp);
       payableTransp = round2(payableTransp + drift);
 
+      const rateDiscountMeta =
+        rateDiscountPercent > 0 ? { rateDiscountPercent } : undefined;
+
       lines.push({
         category: "fixed",
         code: "BASIC",
         label: "Basic salary",
         amount: payableBasic,
         quantity: effectivePaidDays,
-        rate: dailyRate,
+        rate: effectiveDailyRate,
         source: "system",
         sortOrder: sort++,
-        meta: { companyAccommodation: inAccom },
+        meta: { companyAccommodation: inAccom, ...rateDiscountMeta },
       });
       if (!inAccom) {
         lines.push({
@@ -479,9 +502,10 @@ export function calculateVenuePayroll(input: {
           label: "Accommodation allowance",
           amount: payableAccom,
           quantity: effectivePaidDays,
-          rate: dailyRate,
+          rate: effectiveDailyRate,
           source: "system",
           sortOrder: sort++,
+          meta: rateDiscountMeta,
         });
         lines.push({
           category: "fixed",
@@ -489,9 +513,10 @@ export function calculateVenuePayroll(input: {
           label: "Transportation allowance",
           amount: payableTransp,
           quantity: effectivePaidDays,
-          rate: dailyRate,
+          rate: effectiveDailyRate,
           source: "system",
           sortOrder: sort++,
+          meta: rateDiscountMeta,
         });
       } else {
         lines.push({
@@ -584,7 +609,7 @@ export function calculateVenuePayroll(input: {
       });
     }
 
-    // Manual / retro adjustments (folded adjustments are applied to fixed lines above)
+    // Manual / retro adjustments (folded / rate-discount applied above)
     for (const adj of regularAdjs) {
       if (!included) continue;
       const resolved = resolveManualAdjustmentAmount(
@@ -592,6 +617,7 @@ export function calculateVenuePayroll(input: {
           amount: adj.amount,
           percentOfDailyRate: adj.percentOfDailyRate,
           daysApplied: adj.daysApplied,
+          rateDiscountWhenPercentOnly: adj.category === "deduction",
         },
         dailyRate,
       );
@@ -626,15 +652,22 @@ export function calculateVenuePayroll(input: {
         .filter((l) => l.category === "variable" || l.category === "addon")
         .reduce((sum, l) => sum + l.amount, 0),
     );
-    const totalDeductions = round2(
-      lines
-        .filter((l) => l.category === "deduction")
-        .reduce((sum, l) => sum + l.amount, 0),
-    );
+    // Rate-discount deductions reduce fixed pay in place; still report their
+    // AED impact under total deductions (without changing net math below).
+    const rateDiscountAmount =
+      included &&
+      dailyRate != null &&
+      dailyRate > 0 &&
+      rateDiscountPercent > 0
+        ? round2(
+            dailyRate * (rateDiscountPercent / 100) * effectivePaidDays,
+          )
+        : 0;
     const grossEarnings = round2(fixedEarnings + variableEarnings);
     // Unpaid leave is already reflected by paying only paidDays; if we also
     // added an UNPAID_LEAVE deduction line it would double-count. Prefer
     // reducing payable days only — strip UNPAID_LEAVE from net math.
+    // Rate-discount is already baked into fixedEarnings, so do not subtract again.
     const deductionForNet = round2(
       lines
         .filter((l) => l.category === "deduction" && l.code !== "UNPAID_LEAVE")
@@ -646,7 +679,8 @@ export function calculateVenuePayroll(input: {
     const displayDeductions = round2(
       lines
         .filter((l) => l.category === "deduction")
-        .reduce((sum, l) => sum + (l.code === "UNPAID_LEAVE" ? 0 : l.amount), 0),
+        .reduce((sum, l) => sum + (l.code === "UNPAID_LEAVE" ? 0 : l.amount), 0) +
+        rateDiscountAmount,
     );
 
     employees.push({

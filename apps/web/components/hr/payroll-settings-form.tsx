@@ -186,6 +186,26 @@ export function PayrollSettingsForm({
         </Section>
 
         <Section
+          title="Payment without bank account"
+          description="When an employee has no IBAN, payroll payment rows use this method instead of WPS."
+        >
+          <Field
+            label="No-bank payment method"
+            hint="Applied when IBAN is blank. Staff with an IBAN stay on WPS."
+          >
+            <select
+              name="no_bank_payment_method"
+              defaultValue={settings.noBankPaymentMethod}
+              className={lightSelectClass}
+            >
+              <option value="cash">Cash</option>
+              <option value="cheque">Cheque</option>
+              <option value="other">Other</option>
+            </select>
+          </Field>
+        </Section>
+
+        <Section
           title="GL accounts"
           description="Used when exporting payroll journal lines."
         >

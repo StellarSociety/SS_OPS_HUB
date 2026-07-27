@@ -43,12 +43,19 @@ export type ManualAdjustmentAmountInput = {
   amount?: number | null;
   percentOfDailyRate?: number | null;
   daysApplied?: number | null;
+  /**
+   * Deduction + % with no days → period-wide daily-rate discount
+   * (amount 0, daysApplied null). Earnings keep the 1-day default.
+   */
+  rateDiscountWhenPercentOnly?: boolean;
 };
 
 export type ResolvedManualAdjustment = {
   amount: number;
   percentOfDailyRate: number | null;
   daysApplied: number | null;
+  /** Set when this adjustment discounts the daily rate for all paid days. */
+  rateDiscountPercent: number | null;
 };
 
 function parseOptionalNumber(value: number | null | undefined): number | null {
@@ -57,9 +64,28 @@ function parseOptionalNumber(value: number | null | undefined): number | null {
 }
 
 /**
+ * True when a stored deduction is a percent-only daily-rate discount
+ * (no days, no fixed AED amount).
+ */
+export function isDailyRateDiscountAdjustment(adj: {
+  category: string;
+  percentOfDailyRate?: number | null;
+  daysApplied?: number | null;
+  amount?: number | null;
+}): boolean {
+  if (adj.category !== "deduction") return false;
+  if (adj.percentOfDailyRate == null || adj.percentOfDailyRate <= 0) return false;
+  if (adj.daysApplied != null) return false;
+  if (adj.amount != null && adj.amount > 0) return false;
+  return true;
+}
+
+/**
  * Resolve a manual adjustment from one of three inputs:
  * - fixed amount (AED)
- * - % of daily rate (defaults to 1 day when days omitted)
+ * - % of daily rate
+ *   - deductions with no days → rate discount (amount 0, days null)
+ *   - otherwise defaults to 1 day when days omitted
  * - days applied (defaults to 100% of daily rate when percent omitted)
  */
 export function resolveManualAdjustmentAmount(
@@ -80,6 +106,7 @@ export function resolveManualAdjustmentAmount(
         amount: round2(amountNum),
         percentOfDailyRate: percentNum,
         daysApplied: daysNum,
+        rateDiscountPercent: null,
       },
     };
   }
@@ -94,6 +121,31 @@ export function resolveManualAdjustmentAmount(
     };
   }
 
+  if (percentNum != null && percentNum < 0) {
+    return { ok: false, error: "Percent and days must be zero or greater." };
+  }
+  if (daysNum != null && daysNum < 0) {
+    return { ok: false, error: "Percent and days must be zero or greater." };
+  }
+
+  // Deduction: % alone discounts the daily rate for all paid days.
+  if (
+    input.rateDiscountWhenPercentOnly &&
+    hasPercent &&
+    !hasDays &&
+    percentNum != null
+  ) {
+    return {
+      ok: true,
+      value: {
+        amount: 0,
+        percentOfDailyRate: percentNum,
+        daysApplied: null,
+        rateDiscountPercent: percentNum,
+      },
+    };
+  }
+
   if (dailyRate == null || dailyRate <= 0) {
     return {
       ok: false,
@@ -102,15 +154,8 @@ export function resolveManualAdjustmentAmount(
     };
   }
 
-  const effectivePercent = hasPercent ? percentNum : 100;
-  const effectiveDays = hasDays ? daysNum : 1;
-
-  if (effectivePercent < 0 || effectiveDays < 0) {
-    return {
-      ok: false,
-      error: "Percent and days must be zero or greater.",
-    };
-  }
+  const effectivePercent = hasPercent ? percentNum! : 100;
+  const effectiveDays = hasDays ? daysNum! : 1;
 
   return {
     ok: true,
@@ -122,6 +167,7 @@ export function resolveManualAdjustmentAmount(
       ),
       percentOfDailyRate: effectivePercent,
       daysApplied: effectiveDays,
+      rateDiscountPercent: null,
     },
   };
 }

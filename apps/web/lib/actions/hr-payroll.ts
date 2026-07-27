@@ -13,7 +13,9 @@ import {
 import {
   calculateVenuePayroll,
   buildGlExportLines,
-  buildWpsCsv,
+  buildPayrollExport,
+  buildPayrollExportFilename,
+  dayFractionsFromSnapshot,
   glLinesToCsv,
   mergePayrollSettings,
   mergePayrollAdjustmentCodes,
@@ -35,7 +37,14 @@ export type PayrollActionResult =
   | { ok: false; error: string };
 
 export type PayrollCsvResult =
-  | { ok: true; csv: string; filename: string }
+  | {
+      ok: true;
+      csv?: string;
+      base64?: string;
+      filename: string;
+      mimeType?: string;
+      warnings?: string[];
+    }
   | { ok: false; error: string };
 
 export type PayslipListItem = {
@@ -439,6 +448,7 @@ export async function addPayrollAdjustment(input: {
       amount: input.amount ?? null,
       percentOfDailyRate: input.percentOfDailyRate ?? null,
       daysApplied: input.daysApplied ?? null,
+      rateDiscountWhenPercentOnly: input.category === "deduction",
     },
     dailyRate,
   );
@@ -538,6 +548,7 @@ export async function updatePayrollAdjustment(input: {
       amount: input.amount ?? null,
       percentOfDailyRate: input.percentOfDailyRate ?? null,
       daysApplied: input.daysApplied ?? null,
+      rateDiscountWhenPercentOnly: input.category === "deduction",
     },
     dailyRate,
   );
@@ -633,6 +644,367 @@ export async function deletePayrollAdjustment(input: {
   });
 }
 
+type BulkAdjustmentFields = {
+  category: PayrollLineCategory;
+  code: string;
+  label: string;
+  amount?: number | null;
+  percentOfDailyRate?: number | null;
+  daysApplied?: number | null;
+  reason: string;
+};
+
+async function recalculatePayrollRunEmployees(opts: {
+  runId: string;
+  staffIds: string[];
+  payrollMonth: string;
+  venueId: string;
+  userId: string;
+}): Promise<PayrollActionResult> {
+  const unique = [...new Set(opts.staffIds.filter(Boolean))];
+  for (const staffId of unique) {
+    const result = await recalculatePayrollRunEmployee({
+      runId: opts.runId,
+      staffId,
+      payrollMonth: opts.payrollMonth,
+      venueId: opts.venueId,
+      userId: opts.userId,
+    });
+    if (!result.ok) return result;
+  }
+  if (unique.length === 0) {
+    revalidatePayroll(opts.runId);
+  }
+  return { ok: true };
+}
+
+export async function addBulkPayrollAdjustment(input: {
+  runId: string;
+  staffIds: string[];
+} & BulkAdjustmentFields): Promise<PayrollActionResult> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions, supabase } = auth;
+
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+  if (!input.reason.trim()) {
+    return { ok: false, error: "Reason is required." };
+  }
+  const staffIds = [...new Set(input.staffIds.filter(Boolean))];
+  if (staffIds.length === 0) {
+    return { ok: false, error: "Select at least one employee." };
+  }
+
+  const { data: run } = await supabase
+    .from("hr_payroll_runs")
+    .select("id, status, payroll_month")
+    .eq("id", input.runId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (!run) return { ok: false, error: "Run not found." };
+  if (isPayrollLocked(run.status)) {
+    return { ok: false, error: "Payroll is locked." };
+  }
+
+  const { data: runEmps } = await supabase
+    .from("hr_payroll_run_employees")
+    .select("id, staff_id, daily_rate")
+    .eq("run_id", input.runId)
+    .in("staff_id", staffIds);
+
+  const empByStaff = new Map(
+    (runEmps ?? []).map((e) => [e.staff_id as string, e]),
+  );
+
+  const bulkGroupId = crypto.randomUUID();
+  const rows: Record<string, unknown>[] = [];
+  for (const staffId of staffIds) {
+    const runEmp = empByStaff.get(staffId);
+    const dailyRate =
+      runEmp?.daily_rate != null ? Number(runEmp.daily_rate) : null;
+    const resolved = resolveManualAdjustmentAmount(
+      {
+        amount: input.amount ?? null,
+        percentOfDailyRate: input.percentOfDailyRate ?? null,
+        daysApplied: input.daysApplied ?? null,
+        rateDiscountWhenPercentOnly: input.category === "deduction",
+      },
+      dailyRate,
+    );
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        error: `Could not resolve amount for an employee: ${resolved.error}`,
+      };
+    }
+    rows.push({
+      venue_id: venue.id,
+      run_id: input.runId,
+      run_employee_id: runEmp?.id ?? null,
+      staff_id: staffId,
+      category: input.category,
+      code: input.code.trim().toUpperCase(),
+      label: input.label.trim(),
+      amount: Math.round(Math.abs(resolved.value.amount) * 100) / 100,
+      percent_of_daily_rate: resolved.value.percentOfDailyRate,
+      days_applied: resolved.value.daysApplied,
+      reason: input.reason.trim(),
+      source: "manual",
+      bulk_group_id: bulkGroupId,
+      created_by: user.id,
+    });
+  }
+
+  const service = createServiceClient();
+  const { error } = await service.from("hr_payroll_adjustments").insert(rows);
+  if (error) return { ok: false, error: error.message };
+
+  return recalculatePayrollRunEmployees({
+    runId: input.runId,
+    staffIds,
+    payrollMonth: run.payroll_month,
+    venueId: venue.id,
+    userId: user.id,
+  });
+}
+
+export async function updateBulkPayrollAdjustment(input: {
+  runId: string;
+  bulkGroupId: string;
+  staffIds: string[];
+} & BulkAdjustmentFields): Promise<PayrollActionResult> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions, supabase } = auth;
+
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+  if (!input.reason.trim()) {
+    return { ok: false, error: "Reason is required." };
+  }
+  const nextStaffIds = [...new Set(input.staffIds.filter(Boolean))];
+  if (nextStaffIds.length === 0) {
+    return { ok: false, error: "Select at least one employee." };
+  }
+
+  const { data: run } = await supabase
+    .from("hr_payroll_runs")
+    .select("id, status, payroll_month")
+    .eq("id", input.runId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (!run) return { ok: false, error: "Run not found." };
+  if (isPayrollLocked(run.status)) {
+    return { ok: false, error: "Payroll is locked." };
+  }
+
+  const { data: existing } = await supabase
+    .from("hr_payroll_adjustments")
+    .select("id, staff_id, source")
+    .eq("run_id", input.runId)
+    .eq("venue_id", venue.id)
+    .eq("bulk_group_id", input.bulkGroupId);
+
+  if (!existing?.length) {
+    return { ok: false, error: "Bulk adjustment not found." };
+  }
+  if (existing.some((row) => row.source !== "manual")) {
+    return { ok: false, error: "Only manual adjustments can be edited." };
+  }
+
+  const previousStaffIds = existing.map((row) => row.staff_id as string);
+  const previousSet = new Set(previousStaffIds);
+  const nextSet = new Set(nextStaffIds);
+  const toRemove = existing.filter(
+    (row) => !nextSet.has(row.staff_id as string),
+  );
+  const toKeepStaffIds = nextStaffIds.filter((id) => previousSet.has(id));
+  const toAddStaffIds = nextStaffIds.filter((id) => !previousSet.has(id));
+  const affectedStaffIds = [
+    ...new Set([...previousStaffIds, ...nextStaffIds]),
+  ];
+
+  const allNeededStaffIds = [...new Set([...toKeepStaffIds, ...toAddStaffIds])];
+  const { data: runEmps } = await supabase
+    .from("hr_payroll_run_employees")
+    .select("id, staff_id, daily_rate")
+    .eq("run_id", input.runId)
+    .in("staff_id", allNeededStaffIds);
+
+  const empByStaff = new Map(
+    (runEmps ?? []).map((e) => [e.staff_id as string, e]),
+  );
+
+  const service = createServiceClient();
+
+  if (toRemove.length > 0) {
+    const { error: deleteError } = await service
+      .from("hr_payroll_adjustments")
+      .delete()
+      .eq("run_id", input.runId)
+      .eq("venue_id", venue.id)
+      .eq("bulk_group_id", input.bulkGroupId)
+      .in(
+        "id",
+        toRemove.map((row) => row.id as string),
+      );
+    if (deleteError) return { ok: false, error: deleteError.message };
+  }
+
+  for (const staffId of toKeepStaffIds) {
+    const runEmp = empByStaff.get(staffId);
+    const dailyRate =
+      runEmp?.daily_rate != null ? Number(runEmp.daily_rate) : null;
+    const resolved = resolveManualAdjustmentAmount(
+      {
+        amount: input.amount ?? null,
+        percentOfDailyRate: input.percentOfDailyRate ?? null,
+        daysApplied: input.daysApplied ?? null,
+        rateDiscountWhenPercentOnly: input.category === "deduction",
+      },
+      dailyRate,
+    );
+    if (!resolved.ok) {
+      return {
+        ok: false,
+        error: `Could not resolve amount for an employee: ${resolved.error}`,
+      };
+    }
+    const { error: updateError } = await service
+      .from("hr_payroll_adjustments")
+      .update({
+        run_employee_id: runEmp?.id ?? null,
+        category: input.category,
+        code: input.code.trim().toUpperCase(),
+        label: input.label.trim(),
+        amount: Math.round(Math.abs(resolved.value.amount) * 100) / 100,
+        percent_of_daily_rate: resolved.value.percentOfDailyRate,
+        days_applied: resolved.value.daysApplied,
+        reason: input.reason.trim(),
+      })
+      .eq("run_id", input.runId)
+      .eq("venue_id", venue.id)
+      .eq("bulk_group_id", input.bulkGroupId)
+      .eq("staff_id", staffId);
+    if (updateError) return { ok: false, error: updateError.message };
+  }
+
+  if (toAddStaffIds.length > 0) {
+    const rows: Record<string, unknown>[] = [];
+    for (const staffId of toAddStaffIds) {
+      const runEmp = empByStaff.get(staffId);
+      const dailyRate =
+        runEmp?.daily_rate != null ? Number(runEmp.daily_rate) : null;
+      const resolved = resolveManualAdjustmentAmount(
+        {
+          amount: input.amount ?? null,
+          percentOfDailyRate: input.percentOfDailyRate ?? null,
+          daysApplied: input.daysApplied ?? null,
+          rateDiscountWhenPercentOnly: input.category === "deduction",
+        },
+        dailyRate,
+      );
+      if (!resolved.ok) {
+        return {
+          ok: false,
+          error: `Could not resolve amount for an employee: ${resolved.error}`,
+        };
+      }
+      rows.push({
+        venue_id: venue.id,
+        run_id: input.runId,
+        run_employee_id: runEmp?.id ?? null,
+        staff_id: staffId,
+        category: input.category,
+        code: input.code.trim().toUpperCase(),
+        label: input.label.trim(),
+        amount: Math.round(Math.abs(resolved.value.amount) * 100) / 100,
+        percent_of_daily_rate: resolved.value.percentOfDailyRate,
+        days_applied: resolved.value.daysApplied,
+        reason: input.reason.trim(),
+        source: "manual",
+        bulk_group_id: input.bulkGroupId,
+        created_by: user.id,
+      });
+    }
+    const { error: insertError } = await service
+      .from("hr_payroll_adjustments")
+      .insert(rows);
+    if (insertError) return { ok: false, error: insertError.message };
+  }
+
+  return recalculatePayrollRunEmployees({
+    runId: input.runId,
+    staffIds: affectedStaffIds,
+    payrollMonth: run.payroll_month,
+    venueId: venue.id,
+    userId: user.id,
+  });
+}
+
+export async function deleteBulkPayrollAdjustment(input: {
+  runId: string;
+  bulkGroupId: string;
+}): Promise<PayrollActionResult> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions, supabase } = auth;
+
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+
+  const { data: run } = await supabase
+    .from("hr_payroll_runs")
+    .select("id, status, payroll_month")
+    .eq("id", input.runId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (!run) return { ok: false, error: "Run not found." };
+  if (isPayrollLocked(run.status)) {
+    return { ok: false, error: "Payroll is locked." };
+  }
+
+  const { data: existing } = await supabase
+    .from("hr_payroll_adjustments")
+    .select("id, staff_id, source")
+    .eq("run_id", input.runId)
+    .eq("venue_id", venue.id)
+    .eq("bulk_group_id", input.bulkGroupId);
+
+  if (!existing?.length) {
+    return { ok: false, error: "Bulk adjustment not found." };
+  }
+  if (existing.some((row) => row.source !== "manual")) {
+    return { ok: false, error: "Only manual adjustments can be deleted." };
+  }
+
+  const staffIds = existing.map((row) => row.staff_id as string);
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hr_payroll_adjustments")
+    .delete()
+    .eq("run_id", input.runId)
+    .eq("venue_id", venue.id)
+    .eq("bulk_group_id", input.bulkGroupId);
+
+  if (error) return { ok: false, error: error.message };
+
+  return recalculatePayrollRunEmployees({
+    runId: input.runId,
+    staffIds,
+    payrollMonth: run.payroll_month,
+    venueId: venue.id,
+    userId: user.id,
+  });
+}
+
 export async function generateWpsFile(
   runId: string,
 ): Promise<PayrollCsvResult> {
@@ -653,62 +1025,99 @@ export async function generateWpsFile(
 
   if (!run) return { ok: false, error: "Run not found." };
 
-  const settings = await loadPayrollSettings(supabase, venue.id);
-  const { data: employees } = await supabase
-    .from("hr_payroll_run_employees")
-    .select("*")
-    .eq("run_id", runId)
-    .eq("included", true);
+  const [{ data: employees }, { data: adjustments }] = await Promise.all([
+    supabase
+      .from("hr_payroll_run_employees")
+      .select("*")
+      .eq("run_id", runId)
+      .eq("included", true),
+    supabase
+      .from("hr_payroll_adjustments")
+      .select("staff_id, category, percent_of_daily_rate, days_applied, amount")
+      .eq("run_id", runId),
+  ]);
 
-  const calcLike = (employees ?? []).map((e) => ({
-    staffId: e.staff_id as string,
-    empNo: e.emp_no as string,
-    fullName: e.full_name as string,
-    departmentId: null,
-    departmentName: e.department_name as string | null,
-    positionId: null,
-    positionName: null,
-    included: true,
-    excludeReason: null,
-    isNewJoiner: Boolean(e.is_new_joiner),
-    isLeaver: Boolean(e.is_leaver),
-    employmentStatus: null,
-    wpsEmployeeId: e.wps_employee_id as string | null,
-    iban: e.iban as string | null,
-    bankName: e.bank_name as string | null,
-    swiftCode: e.swift_code as string | null,
-    wagePackage: null,
-    basicSalary: null,
-    accomAllowance: null,
-    transpAllowance: null,
-    salaryToPay: null,
-    companyAccommodation: false,
-    dailyRate: null,
-    calendarDays: 0,
-    paidDays: Number(e.paid_days),
-    effectivePaidDays: Number(
-      (e.snapshot as { effectivePaidDays?: number } | null)?.effectivePaidDays ??
-        e.paid_days,
-    ),
-    unpaidDays: Number(e.unpaid_days),
-    halfPayDays: 0,
-    fixedEarnings: Number(e.fixed_earnings),
-    variableEarnings: Number(e.variable_earnings),
-    totalDeductions: Number(e.total_deductions),
-    grossEarnings: Number(e.gross_earnings),
-    netSalary: Number(e.net_salary),
-    lines: [],
-    dayFractions: [],
-  }));
-
-  const { csv, errors } = buildWpsCsv({
-    employerId: settings.wpsEmployerId,
-    paymentDate: run.payment_date ?? "",
-    employees: calcLike,
+  const calcLike = (employees ?? []).map((e) => {
+    const snapshot = e.snapshot as {
+      effectivePaidDays?: number;
+      dayFractions?: unknown;
+    } | null;
+    return {
+      staffId: e.staff_id as string,
+      empNo: e.emp_no as string,
+      fullName: e.full_name as string,
+      departmentId: null,
+      departmentName: e.department_name as string | null,
+      positionId: null,
+      positionName: null,
+      included: true,
+      excludeReason: null,
+      isNewJoiner: Boolean(e.is_new_joiner),
+      isLeaver: Boolean(e.is_leaver),
+      employmentStatus: null,
+      wpsEmployeeId: e.wps_employee_id as string | null,
+      iban: e.iban as string | null,
+      bankName: e.bank_name as string | null,
+      swiftCode: e.swift_code as string | null,
+      wagePackage: null,
+      basicSalary: null,
+      accomAllowance: null,
+      transpAllowance: null,
+      salaryToPay: null,
+      companyAccommodation: false,
+      dailyRate: null,
+      calendarDays: 0,
+      paidDays: Number(e.paid_days),
+      effectivePaidDays: Number(snapshot?.effectivePaidDays ?? e.paid_days),
+      unpaidDays: Number(e.unpaid_days),
+      halfPayDays: 0,
+      fixedEarnings: Number(e.fixed_earnings),
+      variableEarnings: Number(e.variable_earnings),
+      totalDeductions: Number(e.total_deductions),
+      grossEarnings: Number(e.gross_earnings),
+      netSalary: Number(e.net_salary),
+      lines: [],
+      dayFractions: dayFractionsFromSnapshot(snapshot),
+    };
   });
 
-  if (errors.length && calcLike.length === 0) {
-    return { ok: false, error: errors.join(" ") };
+  const monthKey = String(run.payroll_month).slice(0, 7);
+  const [year, monthNum] = monthKey.split("-").map(Number);
+  const payrollMonthLabel = Number.isFinite(year) && Number.isFinite(monthNum)
+    ? new Date(year, monthNum - 1, 1).toLocaleString("en-GB", {
+        month: "long",
+        year: "numeric",
+      })
+    : monthKey;
+
+  const companyName = payrollCompanyLegalName(venue.name ?? "Venue");
+
+  const { buffer, rows, errors } = await buildPayrollExport({
+    companyName,
+    payrollMonthLabel,
+    employees: calcLike,
+    adjustments: (adjustments ?? []).map((a) => ({
+      staffId: a.staff_id as string,
+      category: a.category as string,
+      percentOfDailyRate:
+        a.percent_of_daily_rate != null
+          ? Number(a.percent_of_daily_rate)
+          : null,
+      daysApplied: a.days_applied != null ? Number(a.days_applied) : null,
+      amount: a.amount != null ? Number(a.amount) : null,
+    })),
+  });
+
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      error:
+        errors.length > 0
+          ? `Payroll export is empty. ${errors.slice(0, 8).join(" ")}${
+              errors.length > 8 ? ` (+${errors.length - 8} more)` : ""
+            }`
+          : "Payroll export is empty — no included employees on this run.",
+    };
   }
 
   const service = createServiceClient();
@@ -727,17 +1136,37 @@ export async function generateWpsFile(
     actor_id: user.id,
     from_status: run.status,
     to_status: run.status,
-    comment: `WPS file generated (${errors.length} warning(s))`,
-    changes_summary: { warnings: errors },
+    comment: `Payroll export generated (${rows.length} row(s)${
+      errors.length > 0 ? `, ${errors.length} warning(s)` : ""
+    })`,
+    changes_summary: { warnings: errors, rowCount: rows.length },
   });
 
-  const month = String(run.payroll_month).slice(0, 7);
   revalidatePayroll(runId);
   return {
     ok: true,
-    csv,
-    filename: `wps-${venue.slug ?? venue.id}-${month}.csv`,
+    base64: buffer.toString("base64"),
+    filename: buildPayrollExportFilename(venue.name ?? "Venue", monthKey),
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    warnings: errors.length > 0 ? errors : undefined,
   };
+}
+
+/** Legal entity line for payroll export headers (e.g. Orilla → Orilla Restaurant LLC). */
+function payrollCompanyLegalName(venueName: string): string {
+  const name = venueName.trim() || "Venue";
+  if (/\bllc\b/i.test(name)) return name;
+  if (/\brestaurant\b/i.test(name)) return `${name} LLC`;
+  return `${name} Restaurant LLC`;
+}
+
+function parseNoBankPaymentMethod(
+  raw: FormDataEntryValue | null,
+): HrPayrollSettings["noBankPaymentMethod"] {
+  const value = String(raw ?? "cash").trim().toLowerCase();
+  if (value === "cheque" || value === "other") return value;
+  return "cash";
 }
 
 export async function markPayrollPaid(
@@ -1289,6 +1718,9 @@ export async function saveHrPayrollSettings(
       String(formData.get("exclude_fully_unpaid_leave") ?? "") === "true",
     wpsEmployerId: String(formData.get("wps_employer_id") ?? "").trim(),
     wpsBankChannel: String(formData.get("wps_bank_channel") ?? "").trim(),
+    noBankPaymentMethod: parseNoBankPaymentMethod(
+      formData.get("no_bank_payment_method"),
+    ),
     defaultCostCentre: String(formData.get("default_cost_centre") ?? "").trim(),
     glAccounts: {
       basicSalary: String(formData.get("gl_basic_salary") ?? "5100").trim(),

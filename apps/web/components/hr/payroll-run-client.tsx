@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChevronUp, ChevronsUpDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,14 @@ import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
+import { SalesImportProgressBar } from "@/components/sales/sales-import-progress-bar";
 import {
   addPayrollAdjustment,
+  addBulkPayrollAdjustment,
   updatePayrollAdjustment,
+  updateBulkPayrollAdjustment,
   deletePayrollAdjustment,
+  deleteBulkPayrollAdjustment,
   exportPayrollGl,
   generatePayslips,
   generateWpsFile,
@@ -34,13 +38,12 @@ import {
   defaultLabelForAdjustmentCode,
   isInternalAdjustmentCode,
   adjustmentFoldsIntoFixedPay,
-  isSalaryCorrectionCode,
-  isNewJoinerCorrectionCode,
   inferOrphanedInternalAdjustment,
   isOrphanPayrollAdjustment,
   formatPayrollMonthLabel,
   DEFAULT_PAYROLL_ADJUSTMENT_CODES,
   resolveManualAdjustmentAmount,
+  isDailyRateDiscountAdjustment,
   isPayrollLocked,
   summarizePayrollLeave,
   parsePayrollRunTab,
@@ -57,7 +60,7 @@ import {
   resolveWorkingStatus,
   type WorkingStatusLabel,
 } from "@/lib/hr/working-status";
-import { downloadTextFile } from "@/lib/sales/vouchers-export";
+import { downloadBase64File, downloadTextFile } from "@/lib/sales/vouchers-export";
 import { cn } from "@/lib/utils";
 
 const lightSelectClass =
@@ -66,6 +69,12 @@ const lightSelectClass =
 function formatPct(value: number | null | undefined): string {
   if (value == null || Number.isNaN(Number(value))) return "—";
   return `${Number(value).toFixed(1)}%`;
+}
+
+/** Share of `total` as a percentage; returns null when total is 0. */
+function shareOfTotal(part: number, total: number): number | null {
+  if (!total || Number.isNaN(total) || Number.isNaN(part)) return null;
+  return (part / total) * 100;
 }
 
 function formatMoney(
@@ -135,6 +144,40 @@ function contractedAmountForLine(
     default:
       return null;
   }
+}
+
+/** Sum of contracted BASIC + ACCOM + TRANSP (full package). */
+function contractedFixedTotal(
+  row: Pick<
+    PayrollEmployeeRow,
+    "basic_salary" | "accom_allowance" | "transp_allowance"
+  >,
+): number {
+  return (
+    (Number(row.basic_salary) || 0) +
+    (Number(row.accom_allowance) || 0) +
+    (Number(row.transp_allowance) || 0)
+  );
+}
+
+/**
+ * AED taken off a discounted fixed pay line:
+ * payrollAmount is already at (100 − %) rate, so deduction =
+ * payrollAmount × percent / (100 − percent).
+ */
+function rateDiscountValueForLineAmount(
+  payrollAmount: number,
+  rateDiscountPercent: number,
+): number {
+  if (rateDiscountPercent <= 0 || rateDiscountPercent >= 100) return 0;
+  if (payrollAmount <= 0) return 0;
+  return (
+    Math.round(
+      (payrollAmount * (rateDiscountPercent / (100 - rateDiscountPercent)) +
+        Number.EPSILON) *
+        100,
+    ) / 100
+  );
 }
 
 /** @see resolveWorkingStatus */
@@ -238,6 +281,117 @@ function payLineDays(
   }
 }
 
+/** Sum of percent-only deduction discounts applied to this employee's daily rate. */
+function employeeRateDiscountPercent(
+  adjustments: PayrollAdjustmentRow[],
+): number {
+  return Math.min(
+    100,
+    adjustments
+      .filter((a) =>
+        isDailyRateDiscountAdjustment({
+          category: a.category,
+          percentOfDailyRate: a.percent_of_daily_rate,
+          daysApplied: a.days_applied,
+          amount: a.amount,
+        }),
+      )
+      .reduce((sum, a) => sum + (a.percent_of_daily_rate ?? 0), 0),
+  );
+}
+
+/**
+ * AED impact of rate-discount deductions (dailyRate × % × effective paid days).
+ * Used when stored total_deductions is still stale (pre-recalculate).
+ */
+function employeeRateDiscountAmount(
+  row: Pick<PayrollEmployeeRow, "daily_rate" | "effective_paid_days">,
+  adjustments: PayrollAdjustmentRow[],
+): number {
+  const percent = employeeRateDiscountPercent(adjustments);
+  if (percent <= 0 || row.daily_rate == null || row.daily_rate <= 0) return 0;
+  return (
+    Math.round(
+      (row.daily_rate * (percent / 100) * row.effective_paid_days +
+        Number.EPSILON) *
+        100,
+    ) / 100
+  );
+}
+
+/** Deductions column: stored total, plus rate-discount AED if not yet included. */
+function employeeDisplayedDeductions(
+  row: Pick<
+    PayrollEmployeeRow,
+    "total_deductions" | "daily_rate" | "effective_paid_days"
+  >,
+  adjustments: PayrollAdjustmentRow[],
+): number {
+  const stored = Number(row.total_deductions) || 0;
+  const rateAmount = employeeRateDiscountAmount(row, adjustments);
+  if (rateAmount <= 0) return stored;
+  // After recalculate, stored already includes rateAmount.
+  if (stored + 0.02 >= rateAmount) return stored;
+  return Math.round((stored + rateAmount + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Deduction % / value shown before Payroll Amount on a pay line.
+ * Rate-discount deductions surface on BASIC / ACCOM / TRANSP; separate
+ * deduction lines show their linked adjustment percent or amount.
+ */
+function payLineDeductionDisplay(
+  line: PayrollLineRow,
+  empAdjustments: PayrollAdjustmentRow[],
+  rateDiscountPercent: number,
+  canViewSalary: boolean,
+): string {
+  if (
+    (line.code === "BASIC" ||
+      line.code === "ACCOM" ||
+      line.code === "TRANSP") &&
+    rateDiscountPercent > 0
+  ) {
+    const pctLabel = `−${Number(rateDiscountPercent).toFixed(
+      Number.isInteger(rateDiscountPercent) ? 0 : 2,
+    )}%`;
+    const value = rateDiscountValueForLineAmount(
+      Math.abs(Number(line.amount) || 0),
+      rateDiscountPercent,
+    );
+    if (value > 0 && canViewSalary) {
+      return `${pctLabel} · ${formatMoney(value, true)}`;
+    }
+    return pctLabel;
+  }
+
+  const linked = adjustmentForPayLine(line, empAdjustments);
+  if (linked?.percent_of_daily_rate != null) {
+    // Percent-only rate discounts are shown on BASIC/ACCOM/TRANSP, not here.
+    if (
+      linked.days_applied != null ||
+      (linked.amount != null && linked.amount > 0)
+    ) {
+      const pct = Number(linked.percent_of_daily_rate);
+      const pctLabel = `${pct.toFixed(Number.isInteger(pct) ? 0 : 2)}%`;
+      const amountLabel =
+        linked.amount > 0
+          ? formatMoney(linked.amount, canViewSalary)
+          : formatMoney(Number(line.amount), canViewSalary);
+      if (linked.days_applied != null) {
+        return `${pctLabel} × ${Number(linked.days_applied).toFixed(2)}d · ${amountLabel}`;
+      }
+      return `${pctLabel} · ${amountLabel}`;
+    }
+  }
+
+  if (line.category === "deduction" && Number(line.amount) > 0) {
+    return formatMoney(Number(line.amount), canViewSalary);
+  }
+
+  return "—";
+}
+
 function formatPayLineDays(days: number | null): string {
   if (days == null) return "—";
   return days.toFixed(2);
@@ -313,6 +467,21 @@ export type PayrollAdjustmentRow = {
   days_applied: number | null;
   reason: string;
   created_at: string;
+  bulk_group_id?: string | null;
+};
+
+export type BulkPayrollAdjustmentGroup = {
+  bulkGroupId: string;
+  category: PayrollLineCategory;
+  code: string;
+  label: string;
+  amount: number;
+  percent_of_daily_rate: number | null;
+  days_applied: number | null;
+  reason: string;
+  created_at: string;
+  staffIds: string[];
+  amounts: number[];
 };
 
 export type PayrollSettlementRow = {
@@ -382,7 +551,14 @@ type PayrollActionOutcome =
   | void;
 
 type PayrollCsvOutcome =
-  | { ok: true; csv: string; filename: string }
+  | {
+      ok: true;
+      csv?: string;
+      base64?: string;
+      filename: string;
+      mimeType?: string;
+      warnings?: string[];
+    }
   | { ok: false; error: string };
 
 type PayrollActionFn = () => Promise<PayrollActionOutcome>;
@@ -494,8 +670,26 @@ export function PayrollRunClient({
           setMessage(result.error);
           return;
         }
-        downloadTextFile(result.csv, result.filename);
-        setMessage(`${label} downloaded`);
+        if (result.base64) {
+          downloadBase64File(
+            result.base64,
+            result.filename,
+            result.mimeType ??
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          );
+        } else if (result.csv != null) {
+          downloadTextFile(
+            result.csv,
+            result.filename,
+            result.mimeType ?? "text/csv;charset=utf-8",
+          );
+        }
+        const warningCount = result.warnings?.length ?? 0;
+        setMessage(
+          warningCount > 0
+            ? `${label} downloaded (${warningCount} warning${warningCount === 1 ? "" : "s"}: ${result.warnings!.slice(0, 2).join("; ")}${warningCount > 2 ? "…" : ""})`
+            : `${label} downloaded`,
+        );
         refresh();
       } catch (err) {
         setMessage(err instanceof Error ? err.message : `${label} failed`);
@@ -558,21 +752,38 @@ export function PayrollRunClient({
   const departmentSummary = useMemo(() => {
     const byDept = new Map<
       string,
-      { department: string; people: number; totalPay: number }
+      {
+        department: string;
+        people: number;
+        fixed: number;
+        variable: number;
+        deductions: number;
+        net: number;
+      }
     >();
     for (const row of employees) {
       if (!row.included) continue;
       const name = row.department_name?.trim() || "No department";
       const key = name.toLowerCase();
+      const fixed = Number(row.fixed_earnings) || 0;
+      const variable = Number(row.variable_earnings) || 0;
+      const deductions = Number(row.total_deductions) || 0;
+      const net = Number(row.net_salary) || 0;
       const existing = byDept.get(key);
       if (existing) {
         existing.people += 1;
-        existing.totalPay += Number(row.net_salary) || 0;
+        existing.fixed += fixed;
+        existing.variable += variable;
+        existing.deductions += deductions;
+        existing.net += net;
       } else {
         byDept.set(key, {
           department: name,
           people: 1,
-          totalPay: Number(row.net_salary) || 0,
+          fixed,
+          variable,
+          deductions,
+          net,
         });
       }
     }
@@ -585,12 +796,18 @@ export function PayrollRunClient({
 
   const departmentTotals = useMemo(() => {
     let people = 0;
-    let totalPay = 0;
+    let fixed = 0;
+    let variable = 0;
+    let deductions = 0;
+    let net = 0;
     for (const row of departmentSummary) {
       people += row.people;
-      totalPay += row.totalPay;
+      fixed += row.fixed;
+      variable += row.variable;
+      deductions += row.deductions;
+      net += row.net;
     }
-    return { people, totalPay };
+    return { people, fixed, variable, deductions, net };
   }, [departmentSummary]);
 
   const attendanceHref = `/hr/attendance/validation?from=${encodeURIComponent(run.period_start.slice(0, 10))}&to=${encodeURIComponent(run.period_end.slice(0, 10))}&payrollRunId=${encodeURIComponent(run.id)}`;
@@ -669,10 +886,10 @@ export function PayrollRunClient({
               className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
               disabled={pending || !canEdit}
               onClick={() =>
-                downloadCsv("WPS file", () => generateWpsFile(run.id))
+                downloadCsv("Payroll export", () => generateWpsFile(run.id))
               }
             >
-              Generate WPS
+              Export Payroll
             </Button>
             <Button
               type="button"
@@ -810,7 +1027,8 @@ export function PayrollRunClient({
           <div>
             <h3 className="font-serif text-lg text-[#3D421F]">By department</h3>
             <p className="text-sm text-black/55">
-              Included employees and net amount to pay per department.
+              Included employees with fixed, variable, deductions, and net per
+              department.
             </p>
           </div>
           <ChevronDown
@@ -827,16 +1045,19 @@ export function PayrollRunClient({
               <tr>
                 <th className="px-3 py-2.5 font-medium">Department</th>
                 <th className="px-3 py-2.5 text-right font-medium">People</th>
+                <th className="px-3 py-2.5 text-right font-medium">Fixed</th>
+                <th className="px-3 py-2.5 text-right font-medium">Variable</th>
                 <th className="px-3 py-2.5 text-right font-medium">
-                  Amount to pay
+                  Deductions
                 </th>
+                <th className="px-3 py-2.5 text-right font-medium">Net</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black/5">
               {departmentSummary.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={6}
                     className="px-3 py-8 text-center text-sm text-black/45"
                   >
                     No included employees yet.
@@ -849,10 +1070,62 @@ export function PayrollRunClient({
                       {row.department}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
-                      {row.people}
+                      <span className="inline-flex items-baseline justify-end gap-2">
+                        <span>{row.people}</span>
+                        <span className="text-xs text-black/40">
+                          {formatPct(
+                            shareOfTotal(row.people, departmentTotals.people),
+                          )}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
+                      <span className="inline-flex items-baseline justify-end gap-2">
+                        <span>{formatMoney(row.fixed, canViewSalary)}</span>
+                        <span className="text-xs text-black/40">
+                          {formatPct(
+                            shareOfTotal(row.fixed, departmentTotals.fixed),
+                          )}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
+                      <span className="inline-flex items-baseline justify-end gap-2">
+                        <span>{formatMoney(row.variable, canViewSalary)}</span>
+                        <span className="text-xs text-black/40">
+                          {formatPct(
+                            shareOfTotal(
+                              row.variable,
+                              departmentTotals.variable,
+                            ),
+                          )}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
+                      <span className="inline-flex items-baseline justify-end gap-2">
+                        <span>
+                          {formatMoney(row.deductions, canViewSalary)}
+                        </span>
+                        <span className="text-xs text-black/40">
+                          {formatPct(
+                            shareOfTotal(
+                              row.deductions,
+                              departmentTotals.deductions,
+                            ),
+                          )}
+                        </span>
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#3D421F]">
-                      {formatMoney(row.totalPay, canViewSalary)}
+                      <span className="inline-flex items-baseline justify-end gap-2">
+                        <span>{formatMoney(row.net, canViewSalary)}</span>
+                        <span className="text-xs font-normal text-black/40">
+                          {formatPct(
+                            shareOfTotal(row.net, departmentTotals.net),
+                          )}
+                        </span>
+                      </span>
                     </td>
                   </tr>
                 ))
@@ -863,10 +1136,55 @@ export function PayrollRunClient({
                 <tr className="font-medium text-[#3D421F]">
                   <td className="px-3 py-2.5">Total</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
-                    {departmentTotals.people}
+                    <span className="inline-flex items-baseline justify-end gap-2">
+                      <span>{departmentTotals.people}</span>
+                      <span className="text-xs font-normal text-black/40">
+                        100.0%
+                      </span>
+                    </span>
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
-                    {formatMoney(departmentTotals.totalPay, canViewSalary)}
+                    <span className="inline-flex items-baseline justify-end gap-2">
+                      <span>
+                        {formatMoney(departmentTotals.fixed, canViewSalary)}
+                      </span>
+                      <span className="text-xs font-normal text-black/40">
+                        100.0%
+                      </span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    <span className="inline-flex items-baseline justify-end gap-2">
+                      <span>
+                        {formatMoney(departmentTotals.variable, canViewSalary)}
+                      </span>
+                      <span className="text-xs font-normal text-black/40">
+                        100.0%
+                      </span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    <span className="inline-flex items-baseline justify-end gap-2">
+                      <span>
+                        {formatMoney(
+                          departmentTotals.deductions,
+                          canViewSalary,
+                        )}
+                      </span>
+                      <span className="text-xs font-normal text-black/40">
+                        100.0%
+                      </span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    <span className="inline-flex items-baseline justify-end gap-2">
+                      <span>
+                        {formatMoney(departmentTotals.net, canViewSalary)}
+                      </span>
+                      <span className="text-xs font-normal text-black/40">
+                        100.0%
+                      </span>
+                    </span>
                   </td>
                 </tr>
               </tfoot>
@@ -909,6 +1227,28 @@ export function PayrollRunClient({
               deletePayrollAdjustment({
                 runId: run.id,
                 adjustmentId,
+              }),
+            )
+          }
+          onAddBulkAdjustment={(input) =>
+            runAction("Add bulk adjustment", () =>
+              addBulkPayrollAdjustment({ runId: run.id, ...input }),
+            )
+          }
+          onUpdateBulkAdjustment={(bulkGroupId, input) =>
+            runAction("Update bulk adjustment", () =>
+              updateBulkPayrollAdjustment({
+                runId: run.id,
+                bulkGroupId,
+                ...input,
+              }),
+            )
+          }
+          onDeleteBulkAdjustment={(bulkGroupId) =>
+            runAction("Delete bulk adjustment", () =>
+              deleteBulkPayrollAdjustment({
+                runId: run.id,
+                bulkGroupId,
               }),
             )
           }
@@ -984,7 +1324,7 @@ export function PayrollRunClient({
           pending={pending}
           canEdit={canEdit}
           onGenerateWps={() =>
-            downloadCsv("WPS file", () => generateWpsFile(run.id))
+            downloadCsv("Payroll export", () => generateWpsFile(run.id))
           }
         />
       ) : null}
@@ -1045,6 +1385,96 @@ type AdjustmentInput = {
   reason: string;
 };
 
+type BulkAdjustmentInput = {
+  staffIds: string[];
+  category: PayrollLineCategory;
+  code: string;
+  label: string;
+  amount?: number | null;
+  percentOfDailyRate?: number | null;
+  daysApplied?: number | null;
+  reason: string;
+};
+
+function groupBulkAdjustments(
+  adjustments: PayrollAdjustmentRow[],
+): BulkPayrollAdjustmentGroup[] {
+  const groups = new Map<string, BulkPayrollAdjustmentRowGroup>();
+  for (const adj of adjustments) {
+    const groupId = adj.bulk_group_id?.trim();
+    if (!groupId) continue;
+    const existing = groups.get(groupId);
+    if (existing) {
+      existing.staffIds.push(adj.staff_id);
+      existing.amounts.push(Number(adj.amount) || 0);
+      if (adj.created_at > existing.created_at) {
+        existing.created_at = adj.created_at;
+      }
+      continue;
+    }
+    groups.set(groupId, {
+      bulkGroupId: groupId,
+      category: adj.category as PayrollLineCategory,
+      code: adj.code,
+      label: adj.label,
+      amount: Number(adj.amount) || 0,
+      percent_of_daily_rate: adj.percent_of_daily_rate,
+      days_applied: adj.days_applied,
+      reason: adj.reason,
+      created_at: adj.created_at,
+      staffIds: [adj.staff_id],
+      amounts: [Number(adj.amount) || 0],
+    });
+  }
+  return [...groups.values()].sort((a, b) =>
+    b.created_at.localeCompare(a.created_at),
+  );
+}
+
+type BulkPayrollAdjustmentRowGroup = BulkPayrollAdjustmentGroup;
+
+function formatBulkAmountSummary(
+  group: BulkPayrollAdjustmentGroup,
+  canViewSalary: boolean,
+): string {
+  if (
+    group.category === "deduction" &&
+    group.percent_of_daily_rate != null &&
+    group.days_applied == null &&
+    group.amounts.every((a) => a === 0)
+  ) {
+    return `daily rate −${group.percent_of_daily_rate}% for all paid days`;
+  }
+  if (
+    group.percent_of_daily_rate != null ||
+    group.days_applied != null
+  ) {
+    const parts: string[] = [];
+    if (group.percent_of_daily_rate != null) {
+      parts.push(`${group.percent_of_daily_rate}% daily`);
+    }
+    if (group.days_applied != null) {
+      parts.push(
+        `${group.days_applied} day${group.days_applied === 1 ? "" : "s"}`,
+      );
+    }
+    const amounts = group.amounts;
+    if (amounts.length > 0 && canViewSalary && amounts.some((a) => a > 0)) {
+      const min = Math.min(...amounts);
+      const max = Math.max(...amounts);
+      if (Math.abs(min - max) < 0.005) {
+        parts.push(`= ${formatMoney(min, true)}`);
+      } else {
+        parts.push(
+          `= ${formatMoney(min, true)}–${formatMoney(max, true)}`,
+        );
+      }
+    }
+    return parts.join(" · ");
+  }
+  return formatMoney(group.amount, canViewSalary);
+}
+
 function formValuesFromAdjustment(adj: PayrollAdjustmentRow): {
   category: PayrollLineCategory;
   code: string;
@@ -1072,6 +1502,17 @@ function formValuesFromAdjustment(adj: PayrollAdjustmentRow): {
 
 function formatAdjustmentMeta(adj: PayrollAdjustmentRow): string | null {
   const parts: string[] = [];
+  if (
+    adj.category === "deduction" &&
+    adj.percent_of_daily_rate != null &&
+    adj.days_applied == null &&
+    !(adj.amount > 0)
+  ) {
+    parts.push(
+      `daily rate −${adj.percent_of_daily_rate}% for all paid days`,
+    );
+    return parts.join(" · ");
+  }
   if (adj.days_applied != null) {
     parts.push(`${adj.days_applied} day${adj.days_applied === 1 ? "" : "s"}`);
   }
@@ -1272,6 +1713,9 @@ function RunEmployeesTab({
   onAddAdjustment,
   onUpdateAdjustment,
   onDeleteAdjustment,
+  onAddBulkAdjustment,
+  onUpdateBulkAdjustment,
+  onDeleteBulkAdjustment,
   onRecalculateRun,
 }: {
   employees: PayrollEmployeeRow[];
@@ -1289,6 +1733,12 @@ function RunEmployeesTab({
   onAddAdjustment: (input: AdjustmentInput) => void;
   onUpdateAdjustment: (adjustmentId: string, input: AdjustmentInput) => void;
   onDeleteAdjustment: (adjustmentId: string) => void;
+  onAddBulkAdjustment: (input: BulkAdjustmentInput) => void;
+  onUpdateBulkAdjustment: (
+    bulkGroupId: string,
+    input: BulkAdjustmentInput,
+  ) => void;
+  onDeleteBulkAdjustment: (bulkGroupId: string) => void;
   onRecalculateRun: () => void;
 }) {
   const adjustmentsByStaff = useMemo(() => {
@@ -1300,6 +1750,18 @@ function RunEmployeesTab({
     }
     return map;
   }, [adjustments]);
+
+  const bulkGroups = useMemo(
+    () => groupBulkAdjustments(adjustments),
+    [adjustments],
+  );
+
+  const employeeByStaffId = useMemo(() => {
+    const map = new Map<string, PayrollEmployeeRow>();
+    for (const row of employees) map.set(row.staff_id, row);
+    return map;
+  }, [employees]);
+
   type SortKey =
     | "emp_no"
     | "full_name"
@@ -1328,6 +1790,29 @@ function RunEmployeesTab({
   const [joinerLeaverFilter, setJoinerLeaverFilter] = useState<
     "all" | "joiner" | "leaver"
   >("all");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [editingBulkGroup, setEditingBulkGroup] =
+    useState<BulkPayrollAdjustmentGroup | null>(null);
+  const [deletingBulkGroup, setDeletingBulkGroup] =
+    useState<BulkPayrollAdjustmentGroup | null>(null);
+  const [bulkDeleteInFlight, setBulkDeleteInFlight] = useState(false);
+  const bulkDeleteSawPendingRef = useRef(false);
+
+  useEffect(() => {
+    if (bulkDeleteInFlight && pending) {
+      bulkDeleteSawPendingRef.current = true;
+      return;
+    }
+    if (bulkDeleteInFlight && bulkDeleteSawPendingRef.current && !pending) {
+      bulkDeleteSawPendingRef.current = false;
+      setDeletingBulkGroup(null);
+      setBulkDeleteInFlight(false);
+    }
+  }, [bulkDeleteInFlight, pending]);
 
   const departmentOptions = useMemo(() => {
     const names = new Set<string>();
@@ -1369,11 +1854,14 @@ function RunEmployeesTab({
       case "unpaid_days":
         return Number(row.unpaid_days);
       case "fixed_earnings":
-        return Number(row.fixed_earnings);
+        return contractedFixedTotal(row);
       case "variable_earnings":
         return Number(row.variable_earnings);
       case "total_deductions":
-        return Number(row.total_deductions);
+        return employeeDisplayedDeductions(
+          row,
+          adjustmentsByStaff.get(row.staff_id) ?? [],
+        );
       case "net_salary":
         return Number(row.net_salary);
       case "included":
@@ -1467,7 +1955,7 @@ function RunEmployeesTab({
       return cmp * dir;
     });
     return rows;
-  }, [filtered, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir, adjustmentsByStaff]);
 
   const columnTotals = useMemo(() => {
     let paidDays = 0;
@@ -1478,11 +1966,12 @@ function RunEmployeesTab({
     let netSalary = 0;
     let includedCount = 0;
     for (const row of filtered) {
+      const empAdjustments = adjustmentsByStaff.get(row.staff_id) ?? [];
       paidDays += Number(row.effective_paid_days) || 0;
       unpaidDays += Number(row.unpaid_days) || 0;
-      fixedEarnings += Number(row.fixed_earnings) || 0;
+      fixedEarnings += contractedFixedTotal(row);
       variableEarnings += Number(row.variable_earnings) || 0;
-      totalDeductions += Number(row.total_deductions) || 0;
+      totalDeductions += employeeDisplayedDeductions(row, empAdjustments);
       netSalary += Number(row.net_salary) || 0;
       if (row.included) includedCount += 1;
     }
@@ -1496,7 +1985,7 @@ function RunEmployeesTab({
       totalDeductions,
       netSalary,
     };
-  }, [filtered]);
+  }, [filtered, adjustmentsByStaff]);
 
   const hasActiveFilters =
     query.trim().length > 0 ||
@@ -1543,44 +2032,183 @@ function RunEmployeesTab({
 
   return (
     <section className="space-y-3">
-      <div>
-        <h3 className="font-serif text-lg text-[#3D421F]">Employees</h3>
-        <p className="text-sm text-black/55">
-          Expand a row to see earnings and deduction lines. Click a column
-          header to sort.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-serif text-lg text-[#3D421F]">Employees</h3>
+          <p className="text-sm text-black/55">
+            Expand a row to see earnings and deduction lines. Click a column
+            header to sort.
+          </p>
+        </div>
+        {editable ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {selectMode ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={pending || selectedStaffIds.size === 0}
+                  onClick={() => {
+                    setEditingBulkGroup(null);
+                    setBulkDialogOpen(true);
+                  }}
+                >
+                  Apply adjustment
+                  {selectedStaffIds.size > 0
+                    ? ` (${selectedStaffIds.size})`
+                    : ""}
+                </Button>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setSelectMode(false);
+                    setSelectedStaffIds(new Set());
+                  }}
+                  className="h-8 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                disabled={pending}
+                onClick={() => {
+                  setSelectMode(true);
+                  setSelectedStaffIds(new Set());
+                }}
+                className="border border-black/10 bg-white text-[#3D421F] hover:bg-black/[0.03]"
+              >
+                Bulk adjustment
+              </Button>
+            )}
+          </div>
+        ) : null}
       </div>
+
+      {bulkGroups.length > 0 ? (
+        <div className="space-y-2 rounded-lg border border-black/10 bg-white p-3">
+          <div>
+            <h4 className="text-sm font-medium text-[#3D421F]">
+              Bulk adjustments
+            </h4>
+            <p className="text-xs text-black/45">
+              Shared adjustments applied to multiple employees. Edit to change
+              settings or membership.
+            </p>
+          </div>
+          <ul className="divide-y divide-white/10 overflow-hidden rounded-md border border-zinc-700">
+            {bulkGroups.map((group) => (
+              <li
+                key={group.bulkGroupId}
+                className="flex flex-wrap items-center gap-3 bg-zinc-600 px-3 py-2.5 text-sm text-zinc-100"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-zinc-50">
+                    <span className="font-mono text-xs text-zinc-400">
+                      {group.code}
+                    </span>{" "}
+                    {group.label}
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-300">
+                    {payrollCategoryLabel(group.category)} ·{" "}
+                    {formatBulkAmountSummary(group, canViewSalary)} ·{" "}
+                    {group.staffIds.length} employee
+                    {group.staffIds.length === 1 ? "" : "s"}
+                    {group.reason ? ` · ${group.reason}` : ""}
+                  </p>
+                </div>
+                {editable ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => {
+                        setEditingBulkGroup(group);
+                        setBulkDialogOpen(true);
+                      }}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/20 bg-white/10 px-3 text-sm font-medium text-zinc-50 transition hover:bg-white/20 disabled:opacity-50"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => setDeletingBulkGroup(group)}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-red-300/30 bg-red-500/20 px-3 text-sm font-medium text-red-100 transition hover:bg-red-500/35 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-black/10 bg-white/70 p-3">
         <div className="min-w-[12rem] flex-1 space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
             Search
           </p>
-          <Input
-            className="h-9"
-            placeholder="Name or emp no…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <div className="relative">
+            <Input
+              className={cn("h-9", query.trim() && "pr-9")}
+              placeholder="Name or emp no…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query.trim() ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-black/5 text-black/45 transition-colors hover:bg-black/15 hover:text-[#3D421F]"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="min-w-[8rem] w-36 space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
             Joiner / leaver
           </p>
-          <select
-            className={cn(lightSelectClass, "h-9")}
-            value={joinerLeaverFilter}
-            onChange={(e) =>
-              setJoinerLeaverFilter(
-                e.target.value as "all" | "joiner" | "leaver",
-              )
-            }
-            aria-label="Filter by joiner or leaver"
-          >
-            <option value="all">All</option>
-            <option value="joiner">Joiner</option>
-            <option value="leaver">Leaver</option>
-          </select>
+          <div className="relative">
+            <select
+              className={cn(
+                lightSelectClass,
+                "h-9",
+                joinerLeaverFilter !== "all" && "pr-14",
+              )}
+              value={joinerLeaverFilter}
+              onChange={(e) =>
+                setJoinerLeaverFilter(
+                  e.target.value as "all" | "joiner" | "leaver",
+                )
+              }
+              aria-label="Filter by joiner or leaver"
+            >
+              <option value="all">All</option>
+              <option value="joiner">Joiner</option>
+              <option value="leaver">Leaver</option>
+            </select>
+            {joinerLeaverFilter !== "all" ? (
+              <button
+                type="button"
+                onClick={() => setJoinerLeaverFilter("all")}
+                aria-label="Clear joiner / leaver filter"
+                className="absolute right-7 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-black/5 text-black/45 transition-colors hover:bg-black/15 hover:text-[#3D421F]"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="min-w-[11rem] w-44 space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
@@ -1625,18 +2253,34 @@ function RunEmployeesTab({
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
             Net
           </p>
-          <select
-            className={cn(lightSelectClass, "h-9")}
-            value={netFilter}
-            onChange={(e) =>
-              setNetFilter(e.target.value as "all" | "zero" | "nonzero")
-            }
-            aria-label="Filter by net amount"
-          >
-            <option value="all">All</option>
-            <option value="zero">Zero</option>
-            <option value="nonzero">Non-zero</option>
-          </select>
+          <div className="relative">
+            <select
+              className={cn(
+                lightSelectClass,
+                "h-9",
+                netFilter !== "all" && "pr-14",
+              )}
+              value={netFilter}
+              onChange={(e) =>
+                setNetFilter(e.target.value as "all" | "zero" | "nonzero")
+              }
+              aria-label="Filter by net amount"
+            >
+              <option value="all">All</option>
+              <option value="zero">Zero</option>
+              <option value="nonzero">Non-zero</option>
+            </select>
+            {netFilter !== "all" ? (
+              <button
+                type="button"
+                onClick={() => setNetFilter("all")}
+                aria-label="Clear net filter"
+                className="absolute right-7 top-1/2 z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-black/5 text-black/45 transition-colors hover:bg-black/15 hover:text-[#3D421F]"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
         </div>
         {hasActiveFilters ? (
           <button
@@ -1656,6 +2300,7 @@ function RunEmployeesTab({
         ) : null}
         <p className="mb-1.5 ml-auto text-xs text-black/45">
           Showing {filtered.length} of {employees.length}
+          {selectMode ? ` · ${selectedStaffIds.size} selected` : ""}
         </p>
       </div>
 
@@ -1663,6 +2308,44 @@ function RunEmployeesTab({
         <table className="min-w-full text-left text-sm">
           <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
             <tr>
+              {selectMode ? (
+                <th className="px-3 py-2.5 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={
+                      sorted.length > 0 &&
+                      sorted.every((row) =>
+                        selectedStaffIds.has(row.staff_id),
+                      )
+                    }
+                    ref={(el) => {
+                      if (!el) return;
+                      const some = sorted.some((row) =>
+                        selectedStaffIds.has(row.staff_id),
+                      );
+                      const all =
+                        sorted.length > 0 &&
+                        sorted.every((row) =>
+                          selectedStaffIds.has(row.staff_id),
+                        );
+                      el.indeterminate = some && !all;
+                    }}
+                    onChange={(e) => {
+                      setSelectedStaffIds((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) {
+                          for (const row of sorted) next.add(row.staff_id);
+                        } else {
+                          for (const row of sorted) next.delete(row.staff_id);
+                        }
+                        return next;
+                      });
+                    }}
+                    className="h-4 w-4 rounded border-black/20 accent-[var(--venue-primary,#818a40)]"
+                    aria-label="Select all visible employees"
+                  />
+                </th>
+              ) : null}
               <th className="px-3 py-2.5 font-medium">
                 <SortLabel label="Emp no" column="emp_no" />
               </th>
@@ -1679,7 +2362,11 @@ function RunEmployeesTab({
                 <SortLabel label="Paid days" column="paid_days" align="end" />
               </th>
               <th className="px-3 py-2.5 font-medium">
-                <SortLabel label="Unpaid" column="unpaid_days" align="end" />
+                <SortLabel
+                  label="Unpaid Days"
+                  column="unpaid_days"
+                  align="end"
+                />
               </th>
               <th className="px-3 py-2.5 font-medium">
                 <SortLabel label="Fixed" column="fixed_earnings" align="end" />
@@ -1698,7 +2385,7 @@ function RunEmployeesTab({
                   align="end"
                 />
               </th>
-              <th className="px-3 py-2.5 font-medium">
+              <th className="bg-[var(--venue-secondary,#F0F3DD)]/70 px-3 py-2.5 font-medium text-[#3D421F]">
                 <SortLabel label="Net" column="net_salary" align="end" />
               </th>
               <th className="px-3 py-2.5 font-medium">
@@ -1710,7 +2397,7 @@ function RunEmployeesTab({
             {employees.length === 0 ? (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={selectMode ? 12 : 11}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
                   No employees on this run yet. Recalculate to populate.
@@ -1719,7 +2406,7 @@ function RunEmployeesTab({
             ) : sorted.length === 0 ? (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={selectMode ? 12 : 11}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
                   No employees match the current filters.
@@ -1744,6 +2431,16 @@ function RunEmployeesTab({
                     canViewSalary={canViewSalary}
                     editable={editable}
                     pending={pending}
+                    selectMode={selectMode}
+                    selected={selectedStaffIds.has(row.staff_id)}
+                    onToggleSelected={(checked) => {
+                      setSelectedStaffIds((prev) => {
+                        const next = new Set(prev);
+                        if (checked) next.add(row.staff_id);
+                        else next.delete(row.staff_id);
+                        return next;
+                      });
+                    }}
                     onToggleExpand={() =>
                       setExpanded((prev) => {
                         const next = new Set(prev);
@@ -1765,42 +2462,80 @@ function RunEmployeesTab({
           {sorted.length > 0 ? (
             <tfoot className="border-t-2 border-black/10 bg-black/[0.03]">
               <tr className="font-medium text-[#3D421F]">
-                <td colSpan={4} className="px-3 py-3 text-sm">
-                  Totals
-                  <span className="ml-2 text-xs font-normal text-black/50">
-                    {columnTotals.employeeCount} employee
-                    {columnTotals.employeeCount === 1 ? "" : "s"}
-                    {" · "}
-                    {columnTotals.includedCount} included
-                    {hasActiveFilters ? " (filtered)" : ""}
-                  </span>
+                {selectMode ? <td className="px-3 py-2.5" /> : null}
+                <td className="px-3 py-2.5" colSpan={2}>
+                  Filtered total ({columnTotals.employeeCount})
                 </td>
-                <td className="px-3 py-3 text-right tabular-nums">
+                <td className="px-3 py-2.5" colSpan={2} />
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {columnTotals.paidDays.toFixed(2)}
                 </td>
-                <td className="px-3 py-3 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {columnTotals.unpaidDays.toFixed(2)}
                 </td>
-                <td className="px-3 py-3 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {formatMoney(columnTotals.fixedEarnings, canViewSalary)}
                 </td>
-                <td className="px-3 py-3 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {formatMoney(columnTotals.variableEarnings, canViewSalary)}
                 </td>
-                <td className="px-3 py-3 text-right tabular-nums">
+                <td className="px-3 py-2.5 text-right tabular-nums">
                   {formatMoney(columnTotals.totalDeductions, canViewSalary)}
                 </td>
-                <td className="px-3 py-3 text-right tabular-nums">
+                <td className="bg-[var(--venue-secondary,#F0F3DD)]/70 px-3 py-2.5 text-right tabular-nums font-semibold">
                   {formatMoney(columnTotals.netSalary, canViewSalary)}
                 </td>
-                <td className="px-3 py-3 text-center tabular-nums text-sm">
-                  {columnTotals.includedCount}/{columnTotals.employeeCount}
+                <td className="px-3 py-2.5 text-center tabular-nums">
+                  {columnTotals.includedCount}
                 </td>
               </tr>
             </tfoot>
           ) : null}
         </table>
       </div>
+
+      <BulkAdjustmentDialog
+        open={bulkDialogOpen}
+        group={editingBulkGroup}
+        employees={employees}
+        initialStaffIds={
+          editingBulkGroup
+            ? editingBulkGroup.staffIds
+            : [...selectedStaffIds]
+        }
+        employeeByStaffId={employeeByStaffId}
+        adjustmentCodes={adjustmentCodes}
+        pending={pending}
+        onClose={() => {
+          setBulkDialogOpen(false);
+          setEditingBulkGroup(null);
+        }}
+        onSubmit={(input) => {
+          if (editingBulkGroup) {
+            onUpdateBulkAdjustment(editingBulkGroup.bulkGroupId, input);
+          } else {
+            onAddBulkAdjustment(input);
+            setSelectMode(false);
+            setSelectedStaffIds(new Set());
+          }
+          setBulkDialogOpen(false);
+          setEditingBulkGroup(null);
+        }}
+      />
+
+      <DeleteBulkAdjustmentDialog
+        open={deletingBulkGroup != null}
+        group={deletingBulkGroup}
+        pending={pending && bulkDeleteInFlight}
+        onClose={() => {
+          if (!bulkDeleteInFlight) setDeletingBulkGroup(null);
+        }}
+        onConfirm={() => {
+          if (!deletingBulkGroup) return;
+          setBulkDeleteInFlight(true);
+          onDeleteBulkAdjustment(deletingBulkGroup.bulkGroupId);
+        }}
+      />
     </section>
   );
 }
@@ -1816,6 +2551,9 @@ function FragmentRows({
   canViewSalary,
   editable,
   pending,
+  selectMode = false,
+  selected = false,
+  onToggleSelected,
   onToggleExpand,
   onToggleIncluded,
   onAddAdjustment,
@@ -1833,6 +2571,9 @@ function FragmentRows({
   canViewSalary: boolean;
   editable: boolean;
   pending: boolean;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelected?: (checked: boolean) => void;
   onToggleExpand: () => void;
   onToggleIncluded: (id: string, included: boolean) => void;
   onAddAdjustment: (input: AdjustmentInput) => void;
@@ -1863,6 +2604,7 @@ function FragmentRows({
   );
   const paidDaysAdjusted =
     Math.abs(row.effective_paid_days - row.paid_days) >= 0.005;
+  const rateDiscountPercent = employeeRateDiscountPercent(empAdjustments);
 
   const displayAdjustments = useMemo(() => {
     const basicLine = sortedPayLines.find((l) => l.code === "BASIC");
@@ -1898,9 +2640,25 @@ function FragmentRows({
         className={cn(
           "cursor-pointer hover:bg-[var(--venue-secondary,#F0F3DD)]/25",
           !row.included && "opacity-60",
+          selectMode && selected && "bg-[var(--venue-secondary,#F0F3DD)]/40",
         )}
         onClick={onToggleExpand}
       >
+        {selectMode ? (
+          <td
+            className="px-3 py-2 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={selected}
+              disabled={pending}
+              onChange={(e) => onToggleSelected?.(e.target.checked)}
+              className="h-4 w-4 rounded border-black/20 accent-[var(--venue-primary,#818a40)]"
+              aria-label={`Select ${row.full_name}`}
+            />
+          </td>
+        ) : null}
         <td className="px-3 py-2 font-mono text-xs text-[#3D421F]">
           <Link
             href={`/hr/${row.staff_id}`}
@@ -1951,15 +2709,18 @@ function FragmentRows({
           {Number(row.unpaid_days).toFixed(2)}
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
-          {formatMoney(row.fixed_earnings, canViewSalary)}
+          {formatMoney(contractedFixedTotal(row), canViewSalary)}
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {formatMoney(row.variable_earnings, canViewSalary)}
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
-          {formatMoney(row.total_deductions, canViewSalary)}
+          {formatMoney(
+            employeeDisplayedDeductions(row, empAdjustments),
+            canViewSalary,
+          )}
         </td>
-        <td className="px-3 py-2 text-right tabular-nums font-medium text-[#3D421F]">
+        <td className="bg-[var(--venue-secondary,#F0F3DD)]/50 px-3 py-2 text-right tabular-nums font-semibold text-[#3D421F]">
           {formatMoney(row.net_salary, canViewSalary)}
         </td>
         <td
@@ -1978,7 +2739,7 @@ function FragmentRows({
       </tr>
       {open ? (
         <tr className="bg-zinc-600">
-          <td colSpan={11} className="border-t border-white/10 p-0">
+          <td colSpan={selectMode ? 12 : 11} className="border-t border-white/10 p-0">
             <div className="max-h-[min(70vh,720px)] overflow-y-auto bg-zinc-600 px-4 py-3 text-zinc-100">
             <div className="space-y-4">
               <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
@@ -2078,6 +2839,9 @@ function FragmentRows({
                         </th>
                         <th className="py-1 text-right font-medium">Days</th>
                         <th className="py-1 text-right font-medium">
+                          Deduction
+                        </th>
+                        <th className="py-1 text-right font-medium">
                           Payroll Amount
                         </th>
                         {editable ? (
@@ -2113,6 +2877,14 @@ function FragmentRows({
                           </td>
                           <td className="py-1.5 text-right tabular-nums text-zinc-300">
                             {formatPayLineDays(payLineDays(line, row))}
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums text-zinc-300">
+                            {payLineDeductionDisplay(
+                              line,
+                              empAdjustments,
+                              rateDiscountPercent,
+                              canViewSalary,
+                            )}
                           </td>
                           <td className="py-1.5 text-right tabular-nums">
                             {formatMoney(
@@ -2165,6 +2937,27 @@ function FragmentRows({
                         </td>
                         <td className="py-1.5 text-right tabular-nums text-zinc-300">
                           {formatPayLineDays(row.effective_paid_days)}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums text-zinc-300">
+                          {rateDiscountPercent > 0
+                            ? (() => {
+                                const pctLabel = `−${Number(
+                                  rateDiscountPercent,
+                                ).toFixed(
+                                  Number.isInteger(rateDiscountPercent)
+                                    ? 0
+                                    : 2,
+                                )}%`;
+                                const totalDeductionValue =
+                                  employeeRateDiscountAmount(
+                                    row,
+                                    empAdjustments,
+                                  );
+                                return totalDeductionValue > 0 && canViewSalary
+                                  ? `${pctLabel} · ${formatMoney(totalDeductionValue, true)}`
+                                  : pctLabel;
+                              })()
+                            : "—"}
                         </td>
                         <td className="py-1.5 text-right tabular-nums">
                           {formatMoney(payrollPayTotal, canViewSalary)}
@@ -2416,6 +3209,554 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
+function DeleteBulkAdjustmentDialog({
+  open,
+  group,
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  group: BulkPayrollAdjustmentGroup | null;
+  pending: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open || !group) return null;
+
+  const employeeCount = group.staffIds.length;
+  const employeeLabel = employeeCount === 1 ? "employee" : "employees";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (!pending && event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-bulk-adj-title"
+        className="w-full max-w-md rounded-xl border border-black/10 bg-white p-6 shadow-xl"
+      >
+        <h2
+          id="delete-bulk-adj-title"
+          className="font-serif text-xl text-[#3D421F]"
+        >
+          Delete bulk adjustment
+        </h2>
+        <p className="mt-3 text-sm leading-relaxed text-black/65">
+          Remove{" "}
+          <span className="font-medium text-[#3D421F]">
+            {group.code} — {group.label}
+          </span>{" "}
+          from {employeeCount} {employeeLabel}? Payroll will be recalculated.
+        </p>
+        {group.reason ? (
+          <p className="mt-1 text-xs text-black/45">{group.reason}</p>
+        ) : null}
+
+        {pending ? (
+          <SalesImportProgressBar label="Deleting adjustment…" />
+        ) : null}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onClose}
+            className="h-9 rounded-md border border-black/10 bg-white px-3.5 text-sm font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onConfirm}
+            className="h-9 rounded-md bg-red-700 px-3.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50"
+          >
+            {pending ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function BulkAdjustmentDialog({
+  open,
+  group,
+  employees,
+  initialStaffIds,
+  employeeByStaffId,
+  adjustmentCodes,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  group?: BulkPayrollAdjustmentGroup | null;
+  employees: PayrollEmployeeRow[];
+  initialStaffIds: string[];
+  employeeByStaffId: Map<string, PayrollEmployeeRow>;
+  adjustmentCodes: PayrollAdjustmentCodeConfig[];
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (input: BulkAdjustmentInput) => void;
+}) {
+  const isEdit = group != null;
+  const [category, setCategory] = useState<PayrollLineCategory>("variable");
+  const [code, setCode] = useState("");
+  const [label, setLabel] = useState("");
+  const [amount, setAmount] = useState("");
+  const [percent, setPercent] = useState("");
+  const [days, setDays] = useState("");
+  const [reason, setReason] = useState("");
+  const [staffQuery, setStaffQuery] = useState("");
+  const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const initialStaffKey = useMemo(
+    () => [...initialStaffIds].sort().join(","),
+    [initialStaffIds],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    if (group) {
+      const hasRateBased =
+        group.percent_of_daily_rate != null || group.days_applied != null;
+      setCategory(group.category);
+      setCode(group.code);
+      setLabel(group.label);
+      setAmount(hasRateBased ? "" : String(group.amount));
+      setPercent(
+        group.percent_of_daily_rate != null
+          ? String(group.percent_of_daily_rate)
+          : "",
+      );
+      setDays(
+        group.days_applied != null ? String(group.days_applied) : "",
+      );
+      setReason(group.reason);
+      setSelectedStaffIds(new Set(group.staffIds));
+    } else {
+      setCategory("variable");
+      setCode("");
+      setLabel("");
+      setAmount("");
+      setPercent("");
+      setDays("");
+      setReason("");
+      setSelectedStaffIds(
+        new Set(initialStaffKey ? initialStaffKey.split(",") : []),
+      );
+    }
+    setStaffQuery("");
+    setFormError(null);
+  }, [open, group, initialStaffKey]);
+
+  const codeSelectOptions = useMemo(
+    () =>
+      adjustmentCodesForCategory(category, adjustmentCodes).map((c) => ({
+        value: c.code,
+        label: `${c.code} — ${c.label}`,
+      })),
+    [category, adjustmentCodes],
+  );
+
+  const selectedCodeConfig = useMemo(
+    () => adjustmentCodes.find((c) => c.code === code) ?? null,
+    [adjustmentCodes, code],
+  );
+
+  const sortedEmployees = useMemo(() => {
+    return [...employees].sort((a, b) => {
+      const cmp = a.full_name.localeCompare(b.full_name, undefined, {
+        sensitivity: "base",
+      });
+      if (cmp !== 0) return cmp;
+      return a.emp_no.localeCompare(b.emp_no);
+    });
+  }, [employees]);
+
+  const filteredEmployees = useMemo(() => {
+    const q = staffQuery.trim().toLowerCase();
+    if (!q) return sortedEmployees;
+    return sortedEmployees.filter(
+      (row) =>
+        row.full_name.toLowerCase().includes(q) ||
+        row.emp_no.toLowerCase().includes(q) ||
+        (row.department_name ?? "").toLowerCase().includes(q),
+    );
+  }, [sortedEmployees, staffQuery]);
+
+  function handleCategoryChange(next: PayrollLineCategory) {
+    setCategory(next);
+    const valid = adjustmentCodesForCategory(next, adjustmentCodes).some(
+      (c) => c.code === code,
+    );
+    if (!valid) {
+      setCode("");
+      setLabel("");
+    }
+  }
+
+  function handleCodeChange(next: string) {
+    setCode(next);
+    if (!isEdit) {
+      const defaultLabel = defaultLabelForAdjustmentCode(next, adjustmentCodes);
+      if (defaultLabel) setLabel(defaultLabel);
+    }
+  }
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (!pending && event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bulk-adjustment-dialog-title"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
+          <div>
+            <h2
+              id="bulk-adjustment-dialog-title"
+              className="font-serif text-xl text-[#3D421F]"
+            >
+              {isEdit ? "Edit bulk adjustment" : "Bulk adjustment"}
+            </h2>
+            <p className="mt-1 text-sm text-black/55">
+              {selectedStaffIds.size} employee
+              {selectedStaffIds.size === 1 ? "" : "s"} selected
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onClose}
+            className="rounded-md p-1 text-black/40 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!code.trim()) {
+              setFormError("Select a code.");
+              return;
+            }
+            if (!label.trim()) {
+              setFormError("Label is required.");
+              return;
+            }
+            if (!reason.trim()) {
+              setFormError("Reason is required.");
+              return;
+            }
+            if (selectedStaffIds.size === 0) {
+              setFormError("Select at least one employee.");
+              return;
+            }
+            const amountNum = amount.trim() === "" ? null : Number(amount);
+            const percentNum = percent.trim() === "" ? null : Number(percent);
+            const daysNum = days.trim() === "" ? null : Number(days);
+            if (
+              amountNum != null &&
+              (Number.isNaN(amountNum) || amountNum < 0)
+            ) {
+              setFormError("Amount must be a valid number.");
+              return;
+            }
+            if (
+              percentNum != null &&
+              (Number.isNaN(percentNum) || percentNum < 0)
+            ) {
+              setFormError("% of daily rate must be a valid number.");
+              return;
+            }
+            if (daysNum != null && (Number.isNaN(daysNum) || daysNum < 0)) {
+              setFormError("Days applied must be a valid number.");
+              return;
+            }
+
+            // Validate using a sample daily rate when percent/days are used.
+            const sampleStaffId = [...selectedStaffIds][0];
+            const sampleRate =
+              employeeByStaffId.get(sampleStaffId)?.daily_rate ?? null;
+            const resolved = resolveManualAdjustmentAmount(
+              {
+                amount: amountNum,
+                percentOfDailyRate: percentNum,
+                daysApplied: daysNum,
+                rateDiscountWhenPercentOnly: category === "deduction",
+              },
+              sampleRate,
+            );
+            if (!resolved.ok) {
+              setFormError(resolved.error);
+              return;
+            }
+
+            onSubmit({
+              staffIds: [...selectedStaffIds],
+              category,
+              code: code.trim(),
+              label: label.trim(),
+              amount: amountNum,
+              percentOfDailyRate: percentNum,
+              daysApplied: daysNum,
+              reason: reason.trim(),
+            });
+          }}
+        >
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <select
+                  className={lightSelectClass}
+                  value={category}
+                  onChange={(e) =>
+                    handleCategoryChange(e.target.value as PayrollLineCategory)
+                  }
+                >
+                  <option value="fixed">Fixed</option>
+                  <option value="variable">Variable</option>
+                  <option value="addon">Add-Ons</option>
+                  <option value="deduction">Deduction</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Code</Label>
+                <SearchableSelect
+                  value={code}
+                  onChange={handleCodeChange}
+                  options={codeSelectOptions}
+                  placeholder="Select code…"
+                  searchPlaceholder="Search code…"
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Label</Label>
+                <Input
+                  className="h-8"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  required
+                />
+              </div>
+              {(selectedCodeConfig?.allowAmountInput ?? true) ? (
+                <div className="space-y-1.5">
+                  <Label>Amount (AED)</Label>
+                  <Input
+                    className="h-8"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="Same amount for each"
+                  />
+                </div>
+              ) : null}
+              {(selectedCodeConfig?.allowPercentInput ?? true) ? (
+                <div className="space-y-1.5">
+                  <Label>% of daily rate</Label>
+                  <Input
+                    className="h-8"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={percent}
+                    onChange={(e) => setPercent(e.target.value)}
+                    placeholder="Per employee daily rate"
+                  />
+                </div>
+              ) : null}
+              {(selectedCodeConfig?.allowDaysInput ?? true) ? (
+                <div className="space-y-1.5">
+                  <Label>Days applied</Label>
+                  <Input
+                    className="h-8"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={days}
+                    onChange={(e) => setDays(e.target.value)}
+                    placeholder="e.g. 2"
+                  />
+                </div>
+              ) : null}
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Reason</Label>
+                <Input
+                  className="h-8"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Why this adjustment?"
+                  required
+                />
+              </div>
+              {selectedCodeConfig?.behaviorExplanation ? (
+                <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
+                  {selectedCodeConfig.behaviorExplanation}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-[#3D421F]">
+                    Employees
+                  </p>
+                  <p className="text-xs text-black/45">
+                    Tick to include or remove people from this bulk adjustment.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() =>
+                      setSelectedStaffIds(
+                        new Set(filteredEmployees.map((e) => e.staff_id)),
+                      )
+                    }
+                    className="text-xs font-medium text-[var(--venue-primary,#818a40)] hover:underline disabled:opacity-50"
+                  >
+                    Select visible
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => setSelectedStaffIds(new Set())}
+                    className="text-xs font-medium text-black/45 hover:text-[#3D421F] disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <Input
+                className="h-8"
+                placeholder="Search employees…"
+                value={staffQuery}
+                onChange={(e) => setStaffQuery(e.target.value)}
+              />
+              <div className="max-h-56 overflow-y-auto rounded-md border border-black/10">
+                <ul className="divide-y divide-black/5">
+                  {filteredEmployees.length === 0 ? (
+                    <li className="px-3 py-6 text-center text-sm text-black/45">
+                      No employees match.
+                    </li>
+                  ) : (
+                    filteredEmployees.map((row) => {
+                      const checked = selectedStaffIds.has(row.staff_id);
+                      return (
+                        <li key={row.staff_id}>
+                          <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-black/[0.02]">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={pending}
+                              onChange={(e) => {
+                                setSelectedStaffIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) {
+                                    next.add(row.staff_id);
+                                  } else {
+                                    next.delete(row.staff_id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className="h-4 w-4 rounded border-black/20 accent-[var(--venue-primary,#818a40)]"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="font-medium text-[#3D421F]">
+                                {row.full_name}
+                              </span>
+                              <span className="ml-2 font-mono text-xs text-black/45">
+                                {row.emp_no}
+                              </span>
+                              {row.department_name ? (
+                                <span className="ml-2 text-xs text-black/40">
+                                  {row.department_name}
+                                </span>
+                              ) : null}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </div>
+            </div>
+
+            {formError ? (
+              <p className="text-sm text-red-700" role="alert">
+                {formError}
+              </p>
+            ) : (
+              <p className="text-xs text-black/45">
+                Fixed amounts apply equally to each selected employee. Percent /
+                days use each employee’s daily rate. For deductions, percent with
+                no days discounts the daily rate for all paid days; percent with
+                days posts an amount of rate × % × days.
+              </p>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-black/10 px-5 py-3">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onClose}
+              className="h-8 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={pending || !code || selectedStaffIds.size === 0}
+            >
+              {pending
+                ? isEdit
+                  ? "Saving…"
+                  : "Applying…"
+                : isEdit
+                  ? "Save bulk adjustment"
+                  : "Apply to selected"}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function AdjustmentDialog({
   open,
   adjustment,
@@ -2477,7 +3818,12 @@ function AdjustmentDialog({
   const resolvedPreview = useMemo(() => {
     if (parsedAmount != null && !Number.isNaN(parsedAmount)) {
       return resolveManualAdjustmentAmount(
-        { amount: parsedAmount, percentOfDailyRate: parsedPercent, daysApplied: parsedDays },
+        {
+          amount: parsedAmount,
+          percentOfDailyRate: parsedPercent,
+          daysApplied: parsedDays,
+          rateDiscountWhenPercentOnly: category === "deduction",
+        },
         dailyRate,
       );
     }
@@ -2488,13 +3834,22 @@ function AdjustmentDialog({
       return null;
     }
     return resolveManualAdjustmentAmount(
-      { percentOfDailyRate: parsedPercent, daysApplied: parsedDays },
+      {
+        percentOfDailyRate: parsedPercent,
+        daysApplied: parsedDays,
+        rateDiscountWhenPercentOnly: category === "deduction",
+      },
       dailyRate,
     );
-  }, [parsedAmount, parsedPercent, parsedDays, dailyRate]);
+  }, [parsedAmount, parsedPercent, parsedDays, dailyRate, category]);
+
+  const showRateDiscountPreview =
+    resolvedPreview?.ok === true &&
+    resolvedPreview.value.rateDiscountPercent != null;
 
   const showCalculatedAmount =
     resolvedPreview?.ok === true &&
+    !showRateDiscountPreview &&
     (parsedAmount == null || Number.isNaN(parsedAmount));
 
   const codeSelectOptions = useMemo(
@@ -2627,6 +3982,7 @@ function AdjustmentDialog({
                 amount: amountNum,
                 percentOfDailyRate: percentNum,
                 daysApplied: daysNum,
+                rateDiscountWhenPercentOnly: category === "deduction",
               },
               dailyRate,
             );
@@ -2639,7 +3995,10 @@ function AdjustmentDialog({
               category,
               code: code.trim(),
               label: label.trim(),
-              amount: resolved.value.amount,
+              amount:
+                resolved.value.rateDiscountPercent != null
+                  ? null
+                  : resolved.value.amount,
               percentOfDailyRate: resolved.value.percentOfDailyRate,
               daysApplied: resolved.value.daysApplied,
               reason: reason.trim(),
@@ -2680,11 +4039,6 @@ function AdjustmentDialog({
               onChange={(e) => setLabel(e.target.value)}
               required
             />
-            {selectedCodeConfig?.behaviorExplanation ? (
-              <p className="text-xs text-black/45">
-                {selectedCodeConfig.behaviorExplanation}
-              </p>
-            ) : null}
           </div>
           {(selectedCodeConfig?.allowAmountInput ?? true) ? (
             <div className="space-y-1.5">
@@ -2743,7 +4097,25 @@ function AdjustmentDialog({
             <p className="sm:col-span-2 text-sm text-red-700" role="alert">
               {formError}
             </p>
-          ) : showCalculatedAmount ? (
+          ) : showRateDiscountPreview && resolvedPreview?.ok ? (
+            <p className="sm:col-span-2 text-xs text-[#3D421F]">
+              Daily rate −{resolvedPreview.value.rateDiscountPercent}% for all
+              paid days
+              {dailyRate != null ? (
+                <span className="text-black/45">
+                  {" "}
+                  (package rate {formatMoney(dailyRate, true)} →{" "}
+                  {formatMoney(
+                    dailyRate *
+                      (1 -
+                        (resolvedPreview.value.rateDiscountPercent ?? 0) / 100),
+                    true,
+                  )}
+                  )
+                </span>
+              ) : null}
+            </p>
+          ) : showCalculatedAmount && resolvedPreview?.ok ? (
             <p className="sm:col-span-2 text-xs text-[#3D421F]">
               Calculated amount:{" "}
               <span className="font-medium tabular-nums">
@@ -2768,29 +4140,15 @@ function AdjustmentDialog({
           ) : (
             <p className="sm:col-span-2 text-xs text-black/45">
               Enter one of: amount (AED), % of daily rate, or days applied. Days
-              alone use 100% of the daily rate; percent alone uses 1 day.
+              alone use 100% of the daily rate. For deductions, percent alone
+              discounts the daily rate for all paid days; earnings percent alone
+              uses 1 day.
             </p>
           )}
 
-          {isInternalAdjustmentCode(code) ? (
+          {selectedCodeConfig?.behaviorExplanation ? (
             <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
-              Internal adjustments fold into basic, accommodation, and transport
-              on the payslip — they are not shown as a separate line. Use days
-              to prorate fixed pay; use amount to adjust fixed components
-              directly.
-            </p>
-          ) : isNewJoinerCorrectionCode(code) ? (
-            <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
-              With days or % of daily rate, this updates paid days and folds into
-              basic, accommodation, and transport on the payslip. Use amount only
-              when you need a separate Add-On line.
-            </p>
-          ) : isSalaryCorrectionCode(code) ||
-              code.trim().toUpperCase() === "ALLOWANCE_ADJ" ? (
-            <p className="sm:col-span-2 rounded-md border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/40 px-3 py-2 text-xs text-[#3D421F]">
-              With days or % of daily rate, this updates basic, accommodation,
-              and transport on the payslip — not added as a separate line. Use
-              amount only when you need an extra fixed pay line.
+              {selectedCodeConfig.behaviorExplanation}
             </p>
           ) : null}
 
@@ -3167,7 +4525,7 @@ function PaymentsTab({
         <div>
           <h3 className="font-serif text-lg text-[#3D421F]">Payments</h3>
           <p className="text-sm text-black/55">
-            Payment rows for WPS / bank transfer processing.
+            Payment rows for bank transfer processing.
           </p>
         </div>
         <Button
@@ -3176,7 +4534,7 @@ function PaymentsTab({
           disabled={pending || !canEdit}
           onClick={onGenerateWps}
         >
-          Generate WPS
+          Export Payroll
         </Button>
       </div>
       <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">

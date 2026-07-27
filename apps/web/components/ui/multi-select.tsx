@@ -130,9 +130,9 @@ export function MultiSelect({
               e.stopPropagation();
               onChange([]);
             }}
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black/5 text-black/45 transition-colors hover:bg-black/15 hover:text-[#3D421F]"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-black/5 text-black/45 transition-colors hover:bg-black/15 hover:text-[#3D421F]"
           >
-            <X className="h-2.5 w-2.5" />
+            <X className="h-3 w-3" />
           </span>
         ) : null}
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-black/40" />

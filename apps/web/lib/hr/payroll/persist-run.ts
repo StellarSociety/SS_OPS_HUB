@@ -24,7 +24,12 @@ import {
 } from "./calculate";
 import { mergePayrollSettings, resolvePayrollPeriod } from "./period";
 import { sumVenueNetRevenueForPeriod } from "./period-revenue";
-import type { CalculatedEmployeePayroll, HrPayrollSettings, PayrollRunTotals } from "./types";
+import type {
+  CalculatedEmployeePayroll,
+  HrPayrollSettings,
+  PayrollPaymentMethod,
+  PayrollRunTotals,
+} from "./types";
 import { emptyPayrollTotals } from "./types";
 import {
   mergePayrollAdjustmentCodes,
@@ -53,6 +58,16 @@ export async function loadPayrollAdjustmentCodes(
     Partial<HrPayrollAdjustmentCodesSettings>
   >(supabase, venueId, HR_SETTINGS_KEYS.payrollAdjustmentCodes, {});
   return mergePayrollAdjustmentCodes(raw);
+}
+
+/** WPS when IBAN is present; otherwise the venue's no-bank method (cash / cheque / other). */
+export function resolveEmployeePaymentMethod(
+  iban: string | null | undefined,
+  settings: HrPayrollSettings,
+): PayrollPaymentMethod {
+  const cleaned = iban?.replace(/\s+/g, "").trim() ?? "";
+  if (cleaned) return "wps";
+  return settings.noBankPaymentMethod;
 }
 
 function toStaffInput(
@@ -332,7 +347,7 @@ export async function persistCalculatedPayrollRun(opts: {
           leave_days: e.dayFractions.filter((d) => d.isLeave && d.approved)
             .length,
           net_salary: e.netSalary,
-          payment_method: "wps",
+          payment_method: resolveEmployeePaymentMethod(e.iban, settings),
           status: "pending",
           updated_at: new Date().toISOString(),
         };
@@ -791,7 +806,7 @@ export async function persistSingleEmployeePayroll(opts: {
       days_paid: e.paidDays,
       leave_days: e.dayFractions.filter((d) => d.isLeave && d.approved).length,
       net_salary: e.netSalary,
-      payment_method: "wps",
+      payment_method: resolveEmployeePaymentMethod(e.iban, ctx.settings),
       status: "pending",
       updated_at: new Date().toISOString(),
     });

@@ -38,11 +38,16 @@ export function mergePayrollSettings(
   partial?: Partial<HrPayrollSettings> | null,
 ): HrPayrollSettings {
   const base = DEFAULT_HR_PAYROLL_SETTINGS;
+  const noBank = partial?.noBankPaymentMethod;
   return {
     ...base,
     ...partial,
     excludeEmploymentStatuses:
       partial?.excludeEmploymentStatuses ?? base.excludeEmploymentStatuses,
+    noBankPaymentMethod:
+      noBank === "cheque" || noBank === "other" || noBank === "cash"
+        ? noBank
+        : base.noBankPaymentMethod,
     glAccounts: {
       ...base.glAccounts,
       ...(partial?.glAccounts ?? {}),

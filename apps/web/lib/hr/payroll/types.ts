@@ -101,6 +101,14 @@ export type HrPayrollSettings = {
   excludeFullyUnpaidLeave: boolean;
   wpsEmployerId: string;
   wpsBankChannel: string;
+  /**
+   * Payment method used when an employee has no IBAN / bank account
+   * (cash, cheque, or other). Staff with an IBAN stay on WPS / bank transfer.
+   */
+  noBankPaymentMethod: Extract<
+    PayrollPaymentMethod,
+    "cash" | "cheque" | "other"
+  >;
   glAccounts: {
     basicSalary: string;
     allowances: string;
@@ -121,6 +129,7 @@ export const DEFAULT_HR_PAYROLL_SETTINGS: HrPayrollSettings = {
   excludeFullyUnpaidLeave: false,
   wpsEmployerId: "",
   wpsBankChannel: "",
+  noBankPaymentMethod: "cash",
   glAccounts: {
     basicSalary: "5100",
     allowances: "5110",
