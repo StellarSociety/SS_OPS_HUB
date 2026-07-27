@@ -4,7 +4,7 @@ export * from "./daily-rate";
 export * from "./pay-fraction";
 export * from "./calculate";
 export * from "./leave-summary";
-export * from "./wps";
+// wps.ts uses node:zlib — import from @/lib/hr/payroll/wps in server code only
 export * from "./summaries";
 export * from "./tabs";
 export * from "./adjustment-codes";

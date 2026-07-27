@@ -13,9 +13,6 @@ import {
 import {
   calculateVenuePayroll,
   buildGlExportLines,
-  buildPayrollExport,
-  buildPayrollExportFilename,
-  dayFractionsFromSnapshot,
   glLinesToCsv,
   mergePayrollSettings,
   mergePayrollAdjustmentCodes,
@@ -28,6 +25,11 @@ import {
   type PayrollLineCategory,
   type PayrollStatus,
 } from "@/lib/hr/payroll";
+import {
+  buildPayrollExport,
+  buildPayrollExportFilename,
+  dayFractionsFromSnapshot,
+} from "@/lib/hr/payroll/wps";
 import { HR_MODULE_KEY, HR_SETTINGS_KEYS } from "@/lib/hr/types";
 import { persistCalculatedPayrollRun, persistSingleEmployeePayroll, loadPayrollSettings, loadPayrollAdjustmentCodes } from "@/lib/hr/payroll/persist-run";
 import { createServiceClient } from "@/lib/supabase/service";
