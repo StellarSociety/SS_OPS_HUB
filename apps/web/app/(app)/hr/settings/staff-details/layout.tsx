@@ -13,7 +13,7 @@ export default function HrStaffDetailsSettingsLayout({
         description="Profile lookups and salary defaults used across the staff directory, insurance, and certifications."
       />
       <HrStaffDetailsSubNav />
-      {children}
+      <div className="w-2/3">{children}</div>
     </div>
   );
 }

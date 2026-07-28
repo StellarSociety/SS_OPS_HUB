@@ -1,6 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
+import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -66,7 +67,7 @@ export function AttendanceImportRulesPanel({
         midnight, and how missing punches are treated.
       </p>
 
-      <form action={saveHrAttendanceImportRules} className="mt-4 space-y-5">
+      <GuardedSettingsForm action={saveHrAttendanceImportRules} className="mt-4 space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Overnight cutoff (local time)"
@@ -156,7 +157,7 @@ export function AttendanceImportRulesPanel({
         </div>
 
         <SaveButton />
-      </form>
+      </GuardedSettingsForm>
     </Card>
   );
 }

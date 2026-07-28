@@ -3,7 +3,7 @@
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { BarChart3, Table2, UserPlus, type LucideIcon } from "lucide-react";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
-import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
+import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
 
 type StaffTab = {
   href: string;
@@ -13,8 +13,8 @@ type StaffTab = {
 };
 
 const tabs: StaffTab[] = [
-  { href: "/hr/staff", label: "Insights", icon: BarChart3, exact: true },
   { href: "/hr/staff/entry", label: "Entry Form", icon: UserPlus, exact: false },
+  { href: "/hr/staff/insights", label: "Insights", icon: BarChart3, exact: false },
   { href: "/hr/staff/data", label: "Database Table", icon: Table2, exact: false },
 ];
 
@@ -22,7 +22,7 @@ export function StaffSubNav() {
   const pathname = useRelativePathname();
 
   return (
-    <nav aria-label="Staff directory sections" className={segmentedSubNavShellClass}>
+    <nav aria-label="Staff directory sections" className={pillSubNavShellClass}>
       {tabs.map((tab) => {
         const active = tab.exact
           ? pathname === tab.href
@@ -35,6 +35,7 @@ export function StaffSubNav() {
             label={tab.label}
             icon={tab.icon}
             active={active}
+            variant="pill"
           />
         );
       })}

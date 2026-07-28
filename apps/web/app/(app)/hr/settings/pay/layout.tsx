@@ -10,10 +10,10 @@ export default function HrPaySettingsLayout({
     <div className="space-y-4">
       <HrSettingsSectionHeader
         title="Pay"
-        description="Payroll period, payment rules, WPS / GL accounts, and adjustment code catalogues for this venue. Salary package defaults for new staff are under Staff Details → Salary Defaults."
+        description="Payroll period, payment rules, WPS / GL accounts, adjustment codes, and benefits (gratuity / service charge) policy for this venue. Salary package defaults for new staff are under Staff Details → Salary Defaults."
       />
       <HrPaySettingsSubNav />
-      {children}
+      <div className="w-2/3">{children}</div>
     </div>
   );
 }

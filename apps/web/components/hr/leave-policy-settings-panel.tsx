@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -126,7 +127,11 @@ export function LeavePolicySettingsPanel({
           calendar year (1 Jan–31 Dec). Public holidays are managed separately.
         </p>
 
-        <form action={saveHrLeavePolicySettings} className="mt-6 space-y-8">
+        <GuardedSettingsForm
+          action={saveHrLeavePolicySettings}
+          className="mt-6 space-y-8"
+          watch={leaveTypesJson}
+        >
           <input type="hidden" name="leave_types_json" value={leaveTypesJson} />
 
           <Section
@@ -559,7 +564,7 @@ export function LeavePolicySettingsPanel({
               Changes apply to new balance seeding and future request rules.
             </p>
           </div>
-        </form>
+        </GuardedSettingsForm>
       </div>
 
       <div className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">

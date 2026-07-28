@@ -13,7 +13,7 @@ export default function HrNotificationsSettingsLayout({
         description="Email channels, role recipients, and document expiry reminders."
       />
       <HrNotificationsSettingsSubNav />
-      {children}
+      <div className="w-2/3">{children}</div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useScopedHref } from "@/components/providers/venue-scope-provider";
 import { Ban, KeyRound, Mail, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
@@ -18,6 +18,7 @@ import { AccessCredentialsBox } from "@/components/settings/access-credentials-b
 import { InviteLinkBox } from "@/components/settings/invite-link-box";
 import { UserAvatarField } from "@/components/profile/user-avatar-field";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
+import { useUnsavedChangesGuard } from "@/components/use-unsaved-changes-guard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -118,16 +119,35 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
   const hasUnsavedChanges =
     (editingName && nameDirty) || (editingEmail && emailDirty);
 
-  // Warn before leaving/reloading the tab while there are unsaved edits.
-  useEffect(() => {
-    if (!hasUnsavedChanges) return;
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      e.preventDefault();
-      e.returnValue = "";
+  const onSaveRef = useRef<() => Promise<boolean>>(async () => false);
+  onSaveRef.current = async () => {
+    if (editingName && nameDirty) {
+      const result = await changeUserName(user.id, name);
+      if (result.error) {
+        toast.error(result.error);
+        return false;
+      }
+      setEditingName(false);
+      setCancelPrompt(null);
     }
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [hasUnsavedChanges]);
+    if (editingEmail && emailDirty) {
+      const result = await changeUserEmail(user.id, email);
+      if (result.error) {
+        toast.error(result.error);
+        return false;
+      }
+      setEditingEmail(false);
+      setCancelPrompt(null);
+    }
+    return true;
+  };
+
+  const { unsavedDialog } = useUnsavedChangesGuard({
+    isDirty: hasUnsavedChanges,
+    onSaveRef,
+  });
+
+  // Warn before leaving/reloading is handled by useUnsavedChangesGuard.
 
   function discardName() {
     setName(user.full_name ?? "");
@@ -206,6 +226,7 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
 
   return (
     <Card className="space-y-5 p-4 sm:p-6">
+      {unsavedDialog}
       {canManageProfileAvatar(user) ? (
         <>
           <UserAvatarField

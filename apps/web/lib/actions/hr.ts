@@ -200,6 +200,7 @@ async function importStaffRows(rows: ImportStaffRow[]) {
       "visa_status",
       "probation_duration_unit",
       "probation_status",
+      "termination_type",
     ] as const;
     const DATE_FIELDS = [
       "dob",
@@ -922,6 +923,11 @@ function formDataToStaffPayload(formData: FormData) {
 
   let probationStatus = str("probation_status");
   const terminationDate = parseDate(str("termination_date") ?? undefined);
+  const terminationTypeRaw = str("termination_type");
+  const terminationType =
+    terminationTypeRaw === "resignation" || terminationTypeRaw === "termination"
+      ? terminationTypeRaw
+      : null;
 
   // Normalize Pending/Expired from dates when not manually Confirmed/Terminated.
   if (joiningDate && durationValue != null && durationUnit) {
@@ -964,6 +970,7 @@ function formDataToStaffPayload(formData: FormData) {
     wps_employee_id: str("wps_employee_id"),
     joining_date: joiningDate,
     termination_date: terminationDate,
+    termination_type: terminationDate ? terminationType : null,
     contract_kind: str("contract_kind"),
     visa_status: str("visa_status"),
     visa_expiry: parseDate(str("visa_expiry") ?? undefined),

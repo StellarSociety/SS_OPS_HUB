@@ -2,7 +2,8 @@
 
 import { Reorder, useDragControls } from "framer-motion";
 import { Check, GripVertical, Pencil, Pipette, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useUnsavedChangesGuard } from "@/components/use-unsaved-changes-guard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -132,12 +133,14 @@ function TemplateRow({
   onSaved: () => void;
 }) {
   const controls = useDragControls();
+  const formRef = useRef<HTMLFormElement>(null);
   const [deleting, startDelete] = useTransition();
   const [saving, startSave] = useTransition();
   const [bgColor, setBgColor] = useState(item.bgColor);
   const [abbreviation, setAbbreviation] = useState(item.abbreviation);
   const [startTime, setStartTime] = useState(normalizeShiftTime(item.startTime));
   const [endTime, setEndTime] = useState(normalizeShiftTime(item.endTime));
+  const onSaveRef = useRef<() => Promise<boolean>>(async () => false);
 
   useEffect(() => {
     setBgColor(item.bgColor);
@@ -152,6 +155,24 @@ function TemplateRow({
     item.id,
   ]);
 
+  onSaveRef.current = async () => {
+    const form = formRef.current;
+    if (!form || !form.reportValidity()) return false;
+    const formData = new FormData(form);
+    try {
+      await upsertShiftTemplate(formData);
+      onSaved();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const { unsavedDialog } = useUnsavedChangesGuard({
+    isDirty: editing,
+    onSaveRef,
+  });
+
   const previewColors = deriveScheduleLabelColors(bgColor);
   const previewStyle = scheduleDayLabelStyle({
     bgColor: previewColors.bgColor,
@@ -162,6 +183,7 @@ function TemplateRow({
   const rangeLabel = formatShiftRangeLabel(startTime, endTime);
 
   return (
+    <>
     <Reorder.Item
       value={item}
       dragListener={false}
@@ -179,6 +201,7 @@ function TemplateRow({
       </button>
 
       <form
+        ref={formRef}
         className="flex min-w-0 flex-1 items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault();
@@ -342,5 +365,7 @@ function TemplateRow({
         </div>
       </form>
     </Reorder.Item>
+    {unsavedDialog}
+    </>
   );
 }

@@ -9,10 +9,13 @@ import {
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   formatPayrollMonthLabel,
+  mergePayrollSettings,
   PAYROLL_STATUS_LABELS,
   type PayrollStatus,
 } from "@/lib/hr/payroll";
 import type { PayrollRunTotals } from "@/lib/hr/payroll";
+import { getHrVenueSetting } from "@/lib/hr/store";
+import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
 
 function formatMoney(
   amount: number | null | undefined,
@@ -61,13 +64,18 @@ export default async function HrPayrollPage() {
   const showSalary = canViewSalary(permissions, venue.id);
   const canEdit = canEditPayroll(permissions, venue.id);
 
-  const { data: runs, error } = await supabase
-    .from("hr_payroll_runs")
-    .select(
-      "id, payroll_month, period_start, period_end, payment_date, status, totals",
-    )
-    .eq("venue_id", venue.id)
-    .order("payroll_month", { ascending: false });
+  const [payrollSettingsRaw, runsResult] = await Promise.all([
+    getHrVenueSetting(supabase, venue.id, HR_SETTINGS_KEYS.payroll, {}),
+    supabase
+      .from("hr_payroll_runs")
+      .select(
+        "id, payroll_month, period_start, period_end, payment_date, status, totals",
+      )
+      .eq("venue_id", venue.id)
+      .order("payroll_month", { ascending: false }),
+  ]);
+  const payrollSettings = mergePayrollSettings(payrollSettingsRaw);
+  const { data: runs, error } = runsResult;
 
   const migrationRequired = Boolean(
     error &&
@@ -107,7 +115,11 @@ export default async function HrPayrollPage() {
         </div>
       ) : null}
 
-      <CreatePayrollRunForm canEdit={canEdit && !migrationRequired} />
+      <CreatePayrollRunForm
+        canEdit={canEdit && !migrationRequired}
+        periodStartDay={payrollSettings.periodStartDay}
+        periodEndDay={payrollSettings.periodEndDay}
+      />
 
       <section className="space-y-3">
         <div>

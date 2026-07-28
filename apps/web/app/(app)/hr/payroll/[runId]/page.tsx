@@ -83,7 +83,7 @@ export default async function HrPayrollRunPage({
     supabase
       .from("hr_payroll_run_employees")
       .select(
-        "id, staff_id, emp_no, full_name, department_name, included, exclude_reason, is_new_joiner, is_leaver, paid_days, unpaid_days, daily_rate, basic_salary, accom_allowance, transp_allowance, fixed_earnings, variable_earnings, total_deductions, net_salary, snapshot",
+        "id, staff_id, emp_no, full_name, department_name, included, exclude_reason, is_new_joiner, is_leaver, paid_days, unpaid_days, daily_rate, basic_salary, accom_allowance, transp_allowance, salary_to_pay, fixed_earnings, variable_earnings, total_deductions, net_salary, snapshot",
       )
       .eq("run_id", runId)
       .order("emp_no"),
@@ -147,7 +147,10 @@ export default async function HrPayrollRunPage({
   }
 
   const employeesRaw = (employeesRes.data ?? []) as Array<
-    Omit<PayrollEmployeeRow, "working_status" | "joining_date" | "termination_date" | "day_fractions"> & {
+    Omit<
+      PayrollEmployeeRow,
+      "working_status" | "joining_date" | "termination_date" | "day_fractions" | "effective_paid_days"
+    > & {
       snapshot?: {
         dayFractions?: PayrollEmployeeRow["day_fractions"];
         effectivePaidDays?: number;
@@ -235,6 +238,10 @@ export default async function HrPayrollRunPage({
       transp_allowance:
         e.transp_allowance != null && !Number.isNaN(Number(e.transp_allowance))
           ? Number(e.transp_allowance)
+          : null,
+      salary_to_pay:
+        e.salary_to_pay != null && !Number.isNaN(Number(e.salary_to_pay))
+          ? Number(e.salary_to_pay)
           : null,
       fixed_earnings: e.fixed_earnings,
       variable_earnings: e.variable_earnings,

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
+import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { saveScheduleApprovalSettings } from "@/lib/actions/hr-schedule-approval";
@@ -54,7 +55,11 @@ export function ScheduleApprovalSettingsPanel({
         for approved departments.
       </p>
 
-      <form action={saveScheduleApprovalSettings} className="mt-4 space-y-4">
+      <GuardedSettingsForm
+        action={saveScheduleApprovalSettings}
+        className="mt-4 space-y-4"
+        watch={selectedIds}
+      >
         <input type="hidden" name="approver_user_ids" value={selectedIds} />
 
         {candidates.length === 0 ? (
@@ -100,7 +105,7 @@ export function ScheduleApprovalSettingsPanel({
           {selected.size} approver{selected.size === 1 ? "" : "s"} selected
         </p>
         <SaveButton />
-      </form>
+      </GuardedSettingsForm>
     </Card>
   );
 }

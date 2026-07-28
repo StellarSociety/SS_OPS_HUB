@@ -1,7 +1,30 @@
-import { isDailyRateDiscountAdjustment } from "./daily-rate";
+import { isDailyRateDiscountAdjustment, round2 } from "./daily-rate";
 import { summarizePayrollLeave } from "./leave-summary";
 import type { CalculatedEmployeePayroll, PayrollDayFraction } from "./types";
 import { deflateRawSync } from "node:zlib";
+
+/**
+ * Contractual fixed salary for export — same as staff "Salary to pay"
+ * (wage package, or basic only when in company accommodation).
+ * Not the period's prorated fixed earnings.
+ */
+export function contractedFixedSalary(
+  e: Pick<
+    CalculatedEmployeePayroll,
+    "basicSalary" | "accomAllowance" | "transpAllowance" | "salaryToPay" | "fixedEarnings"
+  >,
+): number {
+  if (e.salaryToPay != null && !Number.isNaN(Number(e.salaryToPay))) {
+    return round2(Number(e.salaryToPay));
+  }
+  const packageTotal = round2(
+    (Number(e.basicSalary) || 0) +
+      (Number(e.accomAllowance) || 0) +
+      (Number(e.transpAllowance) || 0),
+  );
+  if (packageTotal > 0) return packageTotal;
+  return round2(Number(e.fixedEarnings) || 0);
+}
 
 export type PayrollExportRow = {
   employeeId: string;
@@ -50,6 +73,9 @@ const EXPORT_HEADERS = [
 
 /**
  * Build staff payroll export rows.
+ *
+ * Fixed_Salary = staff "Salary to pay" (contractual), not period prorated
+ * fixed earnings.
  *
  * Variable_Service_Charge and Variable_Gratuity are placeholders (0) until
  * those feeds are linked; all current variable earnings go to Variable_Others.
@@ -117,7 +143,7 @@ export function buildPayrollExportRows(opts: {
       daysPaid,
       paidLeaveDays,
       unpaidLeaveDays,
-      fixedSalary: e.fixedEarnings,
+      fixedSalary: contractedFixedSalary(e),
       variableServiceCharge,
       variableGratuity,
       variableOthers,
@@ -215,10 +241,6 @@ function sumExportRows(rows: PayrollExportRow[]) {
     totals.netSalary += r.netSalary;
   }
   return totals;
-}
-
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 function xmlEscape(value: string): string {

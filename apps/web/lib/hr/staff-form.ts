@@ -35,6 +35,7 @@ export type StaffFormState = {
   employment_status_id: string;
   joining_date: string;
   termination_date: string;
+  termination_type: string;
   contract_kind: string;
   visa_status: string;
   visa_expiry: string;
@@ -75,6 +76,7 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     employment_status_id: "",
     joining_date: "",
     termination_date: "",
+    termination_type: "",
     contract_kind: "",
     visa_status: "",
     visa_expiry: "",
@@ -113,6 +115,7 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     employment_status_id: str(s.employment_status_id),
     joining_date: str(s.joining_date),
     termination_date: str(s.termination_date),
+    termination_type: str(s.termination_type),
     contract_kind: str(s.contract_kind),
     visa_status: str(s.visa_status),
     visa_expiry: str(s.visa_expiry),

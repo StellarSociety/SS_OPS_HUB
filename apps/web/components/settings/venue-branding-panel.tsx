@@ -8,6 +8,7 @@ import {
   uploadVenueBrandAsset,
 } from "@/lib/actions/venue-branding";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
+import { useUnsavedChangesGuard } from "@/components/use-unsaved-changes-guard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -84,22 +85,32 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
     (normalizeHexColor(primaryColor) ?? primaryColor) !== venue.primary_color ||
     (normalizeHexColor(secondaryColor) ?? secondaryColor) !== venue.secondary_color;
 
+  const onSaveRef = useRef<() => Promise<boolean>>(async () => false);
+  onSaveRef.current = async () => {
+    const result = await updateVenueBranding({
+      venueId: venue.id,
+      name,
+      primaryColor,
+      secondaryColor,
+    });
+    if (result.error) {
+      toast.error(result.error);
+      return false;
+    }
+    if (result.venue) setVenue(result.venue as Venue);
+    toast.saved(result.success ?? "Venue branding saved.");
+    return true;
+  };
+
+  const { unsavedDialog } = useUnsavedChangesGuard({
+    isDirty: hasUnsavedChanges,
+    onSaveRef,
+  });
+
   function handleSaveBranding() {
     startTransition(async () => {
-      const result = await updateVenueBranding({
-        venueId: venue.id,
-        name,
-        primaryColor,
-        secondaryColor,
-      });
-
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-
-      if (result.venue) setVenue(result.venue as Venue);
-      toast.saved(result.success ?? "Venue branding saved.");
+      const ok = await onSaveRef.current();
+      if (!ok) return;
     });
   }
 
@@ -310,6 +321,7 @@ export function VenueBrandingPanel({ venue: initialVenue }: VenueBrandingPanelPr
           </Button>
         </div>
       </div>
+      {unsavedDialog}
     </div>
   );
 }

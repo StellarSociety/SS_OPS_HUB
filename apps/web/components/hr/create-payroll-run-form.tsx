@@ -3,13 +3,20 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
+import { PayrollMonthPicker } from "@/components/hr/payroll-month-picker";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { createPayrollRun } from "@/lib/actions/hr-payroll";
 import { toScopedHref } from "@/lib/venue/scope-routing";
 
-export function CreatePayrollRunForm({ canEdit }: { canEdit: boolean }) {
+export function CreatePayrollRunForm({
+  canEdit,
+  periodStartDay,
+  periodEndDay,
+}: {
+  canEdit: boolean;
+  periodStartDay?: number;
+  periodEndDay?: number;
+}) {
   const router = useRouter();
   const { scope, slug } = useVenueScope();
   const [month, setMonth] = useState(() => {
@@ -25,7 +32,7 @@ export function CreatePayrollRunForm({ canEdit }: { canEdit: boolean }) {
 
   return (
     <form
-      className="flex flex-wrap items-end gap-3 rounded-xl border border-black/10 bg-white p-4 shadow-sm"
+      className="flex flex-wrap items-end gap-3 rounded-xl border border-black/5 bg-white/60 p-4 shadow-sm backdrop-blur-xl"
       onSubmit={(e) => {
         e.preventDefault();
         setError(null);
@@ -50,18 +57,15 @@ export function CreatePayrollRunForm({ canEdit }: { canEdit: boolean }) {
         });
       }}
     >
-      <div className="space-y-1.5">
-        <Label htmlFor="payroll_month">Payroll month</Label>
-        <Input
-          id="payroll_month"
-          type="month"
-          className="h-8 w-44"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          required
-        />
-      </div>
-      <Button type="submit" size="sm" disabled={pending || !month}>
+      <PayrollMonthPicker
+        id="payroll_month"
+        value={month}
+        onChange={setMonth}
+        periodStartDay={periodStartDay}
+        periodEndDay={periodEndDay}
+        disabled={pending}
+      />
+      <Button type="submit" size="sm" className="h-10" disabled={pending || !month}>
         {pending ? "Creating…" : "Create payroll run"}
       </Button>
       {error ? <p className="w-full text-sm text-red-700">{error}</p> : null}

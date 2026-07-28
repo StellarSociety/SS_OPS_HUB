@@ -1061,18 +1061,36 @@ export async function generateWpsFile(
       iban: e.iban as string | null,
       bankName: e.bank_name as string | null,
       swiftCode: e.swift_code as string | null,
-      wagePackage: null,
-      basicSalary: null,
-      accomAllowance: null,
-      transpAllowance: null,
-      salaryToPay: null,
-      companyAccommodation: false,
-      dailyRate: null,
-      calendarDays: 0,
+      wagePackage:
+        e.wage_package != null && !Number.isNaN(Number(e.wage_package))
+          ? Number(e.wage_package)
+          : null,
+      basicSalary:
+        e.basic_salary != null && !Number.isNaN(Number(e.basic_salary))
+          ? Number(e.basic_salary)
+          : null,
+      accomAllowance:
+        e.accom_allowance != null && !Number.isNaN(Number(e.accom_allowance))
+          ? Number(e.accom_allowance)
+          : null,
+      transpAllowance:
+        e.transp_allowance != null && !Number.isNaN(Number(e.transp_allowance))
+          ? Number(e.transp_allowance)
+          : null,
+      salaryToPay:
+        e.salary_to_pay != null && !Number.isNaN(Number(e.salary_to_pay))
+          ? Number(e.salary_to_pay)
+          : null,
+      companyAccommodation: Boolean(e.company_accommodation),
+      dailyRate:
+        e.daily_rate != null && !Number.isNaN(Number(e.daily_rate))
+          ? Number(e.daily_rate)
+          : null,
+      calendarDays: Number(e.calendar_days) || 0,
       paidDays: Number(e.paid_days),
       effectivePaidDays: Number(snapshot?.effectivePaidDays ?? e.paid_days),
       unpaidDays: Number(e.unpaid_days),
-      halfPayDays: 0,
+      halfPayDays: Number(e.half_pay_days) || 0,
       fixedEarnings: Number(e.fixed_earnings),
       variableEarnings: Number(e.variable_earnings),
       totalDeductions: Number(e.total_deductions),

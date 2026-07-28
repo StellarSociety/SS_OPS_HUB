@@ -44,10 +44,12 @@ export default function HrBoardingSettingsPage() {
         title="Boarding"
         description="Hiring, ON-Boarding, OFF-Boarding, and related communications. Employment status rules stay under Staff Details."
       />
-      <HrSettingsRoadmap
-        items={BOARDING_ROADMAP}
-        footnote="These modules are on the roadmap — nothing to configure here yet."
-      />
+      <div className="w-2/3">
+        <HrSettingsRoadmap
+          items={BOARDING_ROADMAP}
+          footnote="These modules are on the roadmap — nothing to configure here yet."
+        />
+      </div>
     </div>
   );
 }

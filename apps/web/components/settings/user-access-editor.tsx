@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { useUnsavedChangesGuard } from "@/components/use-unsaved-changes-guard";
 import {
   BadgeCheck,
   Banknote,
@@ -161,10 +162,30 @@ export function UserAccessEditor({
   venues,
 }: UserAccessEditorProps) {
   const [state, setState] = useState<AccessEditorState>(initialState);
+  const [baseline, setBaseline] = useState(() => JSON.stringify(initialState));
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(initialState.modules.filter((m) => m.enabled).map((m) => m.moduleKey)),
   );
   const [isPending, startTransition] = useTransition();
+  const onSaveRef = useRef<() => Promise<boolean>>(async () => false);
+
+  const isDirty = JSON.stringify(state) !== baseline;
+
+  onSaveRef.current = async () => {
+    const result = await saveUserAccess(userId, state);
+    if (result.error) {
+      toast.error(result.error);
+      return false;
+    }
+    setBaseline(JSON.stringify(state));
+    toast.saved(result.success ?? "Saved.");
+    return true;
+  };
+
+  const { unsavedDialog } = useUnsavedChangesGuard({
+    isDirty,
+    onSaveRef,
+  });
 
   const modules = useMemo(() => getAssignableModules(), []);
   const realVenues = useMemo(() => venues.filter((v) => !v.is_global), [venues]);
@@ -251,12 +272,7 @@ export function UserAccessEditor({
 
   function handleSave() {
     startTransition(async () => {
-      const result = await saveUserAccess(userId, state);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.saved(result.success ?? "Saved.");
+      await onSaveRef.current();
     });
   }
 
@@ -264,6 +280,7 @@ export function UserAccessEditor({
 
   return (
     <div className="space-y-4">
+      {unsavedDialog}
       {/* Account role — Layer 2 (top tier) */}
       <Card className="space-y-4 p-4 sm:p-6">
         <div className="flex items-start gap-3">

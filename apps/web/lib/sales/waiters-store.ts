@@ -57,15 +57,19 @@ export async function upsertVenueWaiter(
     name: string;
     position: string;
     status: VenueWaiterStatus;
+    staff_id?: string | null;
   },
 ): Promise<VenueWaiter> {
-  const row = {
+  const row: Record<string, unknown> = {
     venue_id: venueId,
     name: payload.name.trim(),
     position: payload.position.trim(),
     status: payload.status,
     updated_by: userId,
   };
+  if (payload.staff_id !== undefined) {
+    row.staff_id = payload.staff_id;
+  }
 
   if (payload.id) {
     const { data, error } = await supabase

@@ -457,6 +457,34 @@ export async function saveVenueWaiter(formData: FormData) {
   const id = String(formData.get("id") ?? "").trim() || undefined;
   const position = String(formData.get("position") ?? "").trim();
   const status = parseWaiterStatus(formData.get("status"));
+  const staffIdRaw = String(formData.get("staff_id") ?? "").trim();
+  const staff_id = staffIdRaw || null;
+
+  if (staff_id) {
+    const { data: staffRow, error: staffError } = await supabase
+      .from("staff")
+      .select("id")
+      .eq("id", staff_id)
+      .eq("home_venue_id", venue.id)
+      .maybeSingle();
+
+    if (staffError || !staffRow) {
+      return { error: "Selected HR staff was not found for this venue." };
+    }
+
+    const { data: linked } = await supabase
+      .from("venue_waiters")
+      .select("id, name")
+      .eq("venue_id", venue.id)
+      .eq("staff_id", staff_id)
+      .maybeSingle();
+
+    if (linked && linked.id !== id) {
+      return {
+        error: `${linked.name} is already linked to that HR staff member.`,
+      };
+    }
+  }
 
   try {
     const waiter = await upsertVenueWaiter(supabase, venue.id, user.id, {
@@ -464,6 +492,7 @@ export async function saveVenueWaiter(formData: FormData) {
       name,
       position,
       status,
+      staff_id,
     });
 
     await writeAuditLog({
@@ -473,7 +502,7 @@ export async function saveVenueWaiter(formData: FormData) {
       entity: "venue_waiters",
       entity_id: waiter.id,
       venue_id: venue.id,
-      after: { name, position, status },
+      after: { name, position, status, staff_id },
     });
 
     revalidateSalesWaiters();

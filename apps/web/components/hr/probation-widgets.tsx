@@ -11,7 +11,7 @@ type ProbationWidgetsProps = {
   titleClassName?: string;
 };
 
-const defaultTitleClass = "font-serif text-lg text-[#3D421F]";
+const defaultTitleClass = "font-serif text-base text-[#3D421F]";
 
 function remainingClass(remainingDays: number) {
   if (remainingDays <= 14) return "border-amber-300/80 bg-amber-100 text-amber-900";
@@ -26,9 +26,9 @@ export function ProbationWidgets({
 }: ProbationWidgetsProps) {
   if (items.length === 0) {
     return (
-      <Card className="p-5">
+      <Card className="p-3">
         <h2 className={titleClassName}>{title}</h2>
-        <p className="mt-2 text-sm text-black/50">
+        <p className="mt-1.5 text-xs text-black/50">
           No ON Board staff currently within their probation period.
         </p>
       </Card>
@@ -36,15 +36,15 @@ export function ProbationWidgets({
   }
 
   return (
-    <Card className="p-5">
-      <div className="mb-4 flex items-center gap-2">
-        <Clock className="h-4 w-4 text-amber-600" />
+    <Card className="p-3">
+      <div className="mb-2 flex items-center gap-1.5">
+        <Clock className="h-3.5 w-3.5 text-amber-600" />
         <h2 className={titleClassName}>{title}</h2>
-        <span className="ml-auto text-xs text-black/50">
+        <span className="ml-auto text-[11px] text-black/50">
           {items.length} staff member{items.length === 1 ? "" : "s"}
         </span>
       </div>
-      <ul className="space-y-2">
+      <ul className="space-y-1">
         {items.map((item) => {
           const roleParts = [item.departmentName, item.positionName].filter(
             Boolean,
@@ -54,11 +54,11 @@ export function ProbationWidgets({
               <Link
                 href={`/hr/${item.staffId}`}
                 className={cn(
-                  "flex flex-col gap-1 rounded-lg border px-3 py-2.5 text-sm transition hover:opacity-90",
+                  "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs transition hover:opacity-90",
                   remainingClass(item.remainingDays),
                 )}
               >
-                <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
+                <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {item.fullName}{" "}
                     <span className="font-normal text-black/50">
@@ -71,7 +71,7 @@ export function ProbationWidgets({
                     </span>
                   ) : null}
                 </div>
-                <div className="flex flex-col gap-0.5 text-xs leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-0.5">
+                <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:gap-y-0.5">
                   <span>
                     Joined {formatDateOnly(item.commencementDate)}
                   </span>

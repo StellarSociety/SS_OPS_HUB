@@ -1,6 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
+import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -69,7 +70,7 @@ export function ExpirySettingsPanel({ settings }: { settings: HrExpirySettings }
       title="Expiry & reminders"
       description="Controls how far ahead expiries appear on the HR dashboard and when reminder notifications fire."
     >
-      <form action={saveHrExpirySettings} className="mt-5 space-y-4">
+      <GuardedSettingsForm action={saveHrExpirySettings} className="mt-5 space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Display window (days)"
@@ -95,7 +96,7 @@ export function ExpirySettingsPanel({ settings }: { settings: HrExpirySettings }
           </Field>
         </div>
         <SaveButton />
-      </form>
+      </GuardedSettingsForm>
     </Panel>
   );
 }
@@ -112,7 +113,7 @@ export function SalaryDefaultsPanel({
       title="Salary & package defaults"
       description="Defaults applied when creating new staff. The three package percentages should total 100%."
     >
-      <form action={saveHrSalaryDefaults} className="mt-5 space-y-4">
+      <GuardedSettingsForm action={saveHrSalaryDefaults} className="mt-5 space-y-4">
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Basic salary (%)">
             <input
@@ -181,7 +182,7 @@ export function SalaryDefaultsPanel({
           </Field>
         </div>
         <SaveButton />
-      </form>
+      </GuardedSettingsForm>
     </Panel>
   );
 }
@@ -196,7 +197,7 @@ export function NotificationSettingsPanel({
       title="Channels & roles"
       description="Choose which HR events send emails and which roles receive them."
     >
-      <form action={saveHrNotificationSettings} className="mt-5 space-y-5">
+      <GuardedSettingsForm action={saveHrNotificationSettings} className="mt-5 space-y-5">
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-black/45">
             Events
@@ -233,7 +234,7 @@ export function NotificationSettingsPanel({
           />
         </Field>
         <SaveButton />
-      </form>
+      </GuardedSettingsForm>
     </Panel>
   );
 }

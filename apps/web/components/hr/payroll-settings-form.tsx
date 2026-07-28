@@ -1,6 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
+import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,7 +48,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-4 border-t border-black/10 pt-6 first:border-t-0 first:pt-0">
+    <section className="space-y-4 rounded-lg border border-black/8 bg-[var(--venue-secondary,#F0F3DD)]/45 p-4">
       <div>
         <h3 className="font-serif text-lg text-[#3D421F]">{title}</h3>
         {description ? (
@@ -72,7 +73,7 @@ export function PayrollSettingsForm({
         this venue.
       </p>
 
-      <form action={saveHrPayrollSettings} className="mt-6 space-y-8">
+      <GuardedSettingsForm action={saveHrPayrollSettings} className="mt-6 space-y-3">
         <Section
           title="Pay period"
           description="Attendance window used when building each named payroll month."
@@ -243,7 +244,7 @@ export function PayrollSettingsForm({
         </Section>
 
         <SaveButton />
-      </form>
+      </GuardedSettingsForm>
     </div>
   );
 }

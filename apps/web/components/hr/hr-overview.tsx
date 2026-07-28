@@ -1,10 +1,15 @@
 import { Building2, Globe } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { OffBoardingWidgets } from "@/components/hr/offboarding-widgets";
 import type { HrBreakdownRow, HrOverviewStats } from "@/lib/hr/overview";
+import type { OffBoardingItem } from "@/lib/hr/offboarding";
+import { cn } from "@/lib/utils";
 
 type HrOverviewProps = {
   stats: HrOverviewStats;
+  /** When set, renders as a third panel to the right of Top Nationalities. */
+  offBoarding?: OffBoardingItem[];
 };
 
 function CountPercent({
@@ -80,9 +85,18 @@ function BreakdownCard({
   );
 }
 
-export function HrOverview({ stats }: HrOverviewProps) {
+export function HrOverview({ stats, offBoarding }: HrOverviewProps) {
+  const showOffBoarding = offBoarding != null;
+
   return (
-    <div className="mx-auto grid w-full max-w-3xl gap-4 sm:grid-cols-2">
+    <div
+      className={cn(
+        "mx-auto grid w-full gap-4",
+        showOffBoarding
+          ? "max-w-5xl sm:grid-cols-2 lg:grid-cols-3"
+          : "max-w-3xl sm:grid-cols-2",
+      )}
+    >
       <BreakdownCard
         icon={Building2}
         title="Headcount by Department"
@@ -95,6 +109,13 @@ export function HrOverview({ stats }: HrOverviewProps) {
         rows={stats.byNationality}
         emptyLabel="No nationality data"
       />
+      {showOffBoarding ? (
+        <OffBoardingWidgets
+          items={offBoarding}
+          title="Off boarding"
+          variant="panel"
+        />
+      ) : null}
     </div>
   );
 }

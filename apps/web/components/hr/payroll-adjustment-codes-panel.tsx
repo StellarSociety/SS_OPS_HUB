@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Plus, RotateCcw, Trash2 } from "lucide-react";
+import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -182,9 +183,10 @@ export function PayrollAdjustmentCodesPanel({
         </Button>
       </div>
 
-      <form
+      <GuardedSettingsForm
         action={saveHrPayrollAdjustmentCodesSettings}
-        className="mt-6 space-y-8"
+        className="mt-6 space-y-3"
+        watch={codesJson}
       >
         <input type="hidden" name="codes_json" value={codesJson} />
 
@@ -193,7 +195,7 @@ export function PayrollAdjustmentCodesPanel({
           return (
             <section
               key={meta.category}
-              className="space-y-4 border-t border-black/10 pt-6 first:border-t-0 first:pt-0"
+              className="space-y-4 rounded-lg border border-black/8 bg-[var(--venue-secondary,#F0F3DD)]/45 p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -450,7 +452,7 @@ export function PayrollAdjustmentCodesPanel({
         <div className="flex justify-end border-t border-black/10 pt-4">
           <SaveButton />
         </div>
-      </form>
+      </GuardedSettingsForm>
     </div>
   );
 }

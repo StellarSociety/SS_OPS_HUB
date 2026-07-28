@@ -3,6 +3,7 @@
 import { Reorder, useDragControls } from "framer-motion";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -134,7 +135,7 @@ function LookupRow({
         <GripVertical className="h-4 w-4" aria-hidden />
       </button>
 
-      <form
+      <GuardedSettingsForm
         action={upsertAction}
         className="flex flex-1 flex-wrap items-center gap-2"
       >
@@ -153,7 +154,7 @@ function LookupRow({
         <Button type="submit" size="sm" variant="secondary">
           Save
         </Button>
-      </form>
+      </GuardedSettingsForm>
 
       <Button
         type="button"
@@ -193,8 +194,8 @@ function AddRow({
   const formRef = useRef<HTMLFormElement>(null);
 
   return (
-    <form
-      ref={formRef}
+    <GuardedSettingsForm
+      formRef={formRef}
       action={async (formData) => {
         await upsertAction(formData);
         formRef.current?.reset();
@@ -219,7 +220,7 @@ function AddRow({
         <Plus className="h-4 w-4" aria-hidden />
         {addLabel}
       </Button>
-    </form>
+    </GuardedSettingsForm>
   );
 }
 

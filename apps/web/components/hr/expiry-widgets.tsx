@@ -13,7 +13,7 @@ type ExpiryWidgetsProps = {
   compact?: boolean;
 };
 
-const defaultTitleClass = "font-serif text-lg text-[#3D421F]";
+const defaultTitleClass = "font-serif text-base text-[#3D421F]";
 
 function urgencyClass(daysUntil: number) {
   if (daysUntil < 0) return "text-red-700 bg-red-50";
@@ -31,9 +31,9 @@ export function ExpiryWidgets({
 }: ExpiryWidgetsProps) {
   if (items.length === 0) {
     return (
-      <Card className="p-5">
+      <Card className="p-3">
         <h2 className={titleClassName}>{title}</h2>
-        <p className="mt-2 text-sm text-black/50">
+        <p className="mt-1.5 text-xs text-black/50">
           No passport, ID, insurance, or training items expiring within{" "}
           {leadDays} days.
         </p>
@@ -44,22 +44,22 @@ export function ExpiryWidgets({
   const display = compact ? items.slice(0, 8) : items;
 
   return (
-    <Card className="p-5">
-      <div className="mb-4 flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 text-amber-600" />
+    <Card className="p-3">
+      <div className="mb-2 flex items-center gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
         <h2 className={titleClassName}>{title}</h2>
-        <span className="ml-auto text-xs text-black/50">
+        <span className="ml-auto text-[11px] text-black/50">
           Next {leadDays} days · {items.length} item
           {items.length === 1 ? "" : "s"}
         </span>
       </div>
-      <ul className="space-y-2">
+      <ul className="space-y-1">
         {display.map((item) => (
           <li key={`${item.staffId}-${item.field}`}>
             <Link
               href={`/hr/${item.staffId}`}
               className={cn(
-                "flex flex-col gap-1 rounded-lg px-3 py-2 text-sm transition hover:opacity-90 sm:flex-row sm:items-center sm:gap-3",
+                "flex flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-xs transition hover:opacity-90 sm:flex-row sm:items-center sm:gap-2.5",
                 urgencyClass(item.daysUntil),
               )}
             >
@@ -81,7 +81,7 @@ export function ExpiryWidgets({
         ))}
       </ul>
       {compact && items.length > display.length ? (
-        <p className="mt-3 text-center text-xs text-black/50">
+        <p className="mt-2 text-center text-[11px] text-black/50">
           +{items.length - display.length} more — open Human Resources for full
           list
         </p>

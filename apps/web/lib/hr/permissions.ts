@@ -174,6 +174,28 @@ export function canViewPayslips(
   );
 }
 
+/** Benefits (gratuity / service charge) — falls back to payroll / staff. */
+export function canAccessBenefits(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.benefits, venueId) ||
+    canAccessPayroll(permissions, venueId) ||
+    canAccessStaff(permissions, venueId)
+  );
+}
+
+export function canEditBenefits(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrPermission(permissions, HR_FEATURES.benefits, "edit", venueId) ||
+    canEditPayroll(permissions, venueId)
+  );
+}
+
 /** Layer 4 — can act as / be selected as a weekly schedule approver. */
 export function canApproveSchedules(
   permissions: UserPermission[],

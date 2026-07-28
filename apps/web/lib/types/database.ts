@@ -256,6 +256,7 @@ export type Staff = {
   wps_employee_id: string | null;
   joining_date: string | null;
   termination_date: string | null;
+  termination_type: string | null;
   contract_kind: string | null;
   visa_status: string | null;
   visa_expiry: string | null;

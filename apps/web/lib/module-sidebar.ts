@@ -93,8 +93,8 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: CalendarOff,
         dividerAfter: true,
       },
+      { label: "Benefits", href: "/hr/benefits/gratuity", icon: Gift },
       { label: "Payroll", href: "/hr/payroll", icon: Wallet },
-      { label: "Benefits", href: "/hr/benefits", icon: Gift },
       { label: "Payslips", href: "/hr/payslips", icon: ReceiptText },
       { label: "Expenses", href: "/hr/expenses", icon: Receipt },
       {
@@ -131,7 +131,12 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         key: "pay",
         label: "Pay",
         icon: Wallet,
-        itemHrefs: ["/hr/payroll", "/hr/benefits", "/hr/payslips", "/hr/expenses"],
+        itemHrefs: [
+          "/hr/benefits/gratuity",
+          "/hr/payroll",
+          "/hr/payslips",
+          "/hr/expenses",
+        ],
       },
       {
         key: "boarding",

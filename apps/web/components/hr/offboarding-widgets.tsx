@@ -20,9 +20,14 @@ type OffBoardingWidgetsProps = {
   titleClassName?: string;
   /** Initial month `YYYY-MM`. Defaults to current Dubai calendar month. */
   initialMonthKey?: string;
+  /**
+   * `panel` — fixed overview card (matches Headcount / Nationalities sizing).
+   * `list` — full-width stacked list.
+   */
+  variant?: "list" | "panel";
 };
 
-const defaultTitleClass = "font-serif text-lg text-[#3D421F]";
+const defaultTitleClass = "font-serif text-base text-[#3D421F]";
 
 function rowClass(daysUntilTermination: number | null) {
   if (daysUntilTermination == null) {
@@ -55,6 +60,7 @@ export function OffBoardingWidgets({
   title = "Off boarding",
   titleClassName = defaultTitleClass,
   initialMonthKey,
+  variant = "list",
 }: OffBoardingWidgetsProps) {
   const [monthKey, setMonthKey] = useState(
     () => initialMonthKey ?? currentDubaiMonthKey(),
@@ -67,21 +73,79 @@ export function OffBoardingWidgets({
 
   const monthLabel = formatOffBoardingMonthLabel(monthKey);
 
+  if (variant === "panel") {
+    return (
+      <Card className="flex h-full min-h-[17.5rem] flex-col p-4">
+        <div className="flex items-center gap-1.5">
+          <UserMinus
+            className="h-4 w-4 shrink-0 text-rose-600/80"
+            aria-hidden
+          />
+          <h3 className="min-w-0 flex-1 truncate font-serif text-base text-[#3D421F]">
+            {title}
+          </h3>
+          <Input
+            type="month"
+            className="h-7 w-[8.75rem] shrink-0 text-[11px]"
+            value={monthKey}
+            onChange={(e) => setMonthKey(e.target.value)}
+            aria-label="Select off boarding month"
+          />
+        </div>
+        <hr className="mt-2 shrink-0 border-t-2 border-black/15" />
+
+        {filtered.length === 0 ? (
+          <div className="mt-3 flex flex-1 items-center justify-center text-xs text-black/45">
+            No last day in {monthLabel}
+          </div>
+        ) : (
+          <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+            {filtered.map((item) => {
+              const remaining = daysLabel(item.daysUntilTermination);
+              return (
+                <li key={item.staffId}>
+                  <Link
+                    href={`/hr/${item.staffId}`}
+                    className={cn(
+                      "flex flex-col gap-0.5 rounded-md border px-2 py-1.5 text-xs transition hover:opacity-90",
+                      rowClass(item.daysUntilTermination),
+                    )}
+                  >
+                    <span className="truncate font-medium">
+                      {item.fullName}{" "}
+                      <span className="font-normal text-black/50">
+                        ({item.empNo})
+                      </span>
+                    </span>
+                    <span className="truncate text-[11px] text-black/60">
+                      Last day {formatDateOnly(item.terminationDate)}
+                      {remaining ? ` · ${remaining}` : null}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+    );
+  }
+
   return (
-    <Card className="p-5">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <UserMinus className="h-4 w-4 shrink-0 text-rose-600" />
+    <Card className="p-3">
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <UserMinus className="h-3.5 w-3.5 shrink-0 text-rose-600" />
           <h2 className={titleClassName}>{title}</h2>
-          <span className="ml-auto text-xs text-black/50 sm:ml-2">
+          <span className="ml-auto text-[11px] text-black/50 sm:ml-2">
             {filtered.length} staff member{filtered.length === 1 ? "" : "s"}
           </span>
         </div>
-        <label className="flex shrink-0 items-center gap-2 text-xs text-black/55">
+        <label className="flex shrink-0 items-center gap-2 text-[11px] text-black/55">
           <span className="sr-only">Off boarding month</span>
           <Input
             type="month"
-            className="h-8 w-[10.5rem]"
+            className="h-7 w-[10rem] text-xs"
             value={monthKey}
             onChange={(e) => setMonthKey(e.target.value)}
             aria-label="Select off boarding month"
@@ -90,11 +154,11 @@ export function OffBoardingWidgets({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-black/50">
+        <p className="text-xs text-black/50">
           No staff with a last day in {monthLabel}.
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-1">
           {filtered.map((item) => {
             const roleParts = [item.departmentName, item.positionName].filter(
               Boolean,
@@ -105,11 +169,11 @@ export function OffBoardingWidgets({
                 <Link
                   href={`/hr/${item.staffId}`}
                   className={cn(
-                    "flex flex-col gap-1 rounded-lg border px-3 py-2.5 text-sm transition hover:opacity-90",
+                    "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs transition hover:opacity-90",
                     rowClass(item.daysUntilTermination),
                   )}
                 >
-                  <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-3">
+                  <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
                     <span className="min-w-0 flex-1 truncate font-medium">
                       {item.fullName}{" "}
                       <span className="font-normal text-black/50">
@@ -122,7 +186,7 @@ export function OffBoardingWidgets({
                       </span>
                     ) : null}
                   </div>
-                  <div className="flex flex-col gap-0.5 text-xs leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-0.5">
+                  <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:gap-y-0.5">
                     {item.joiningDate ? (
                       <>
                         <span>Joined {formatDateOnly(item.joiningDate)}</span>

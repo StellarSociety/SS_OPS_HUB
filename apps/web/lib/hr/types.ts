@@ -66,6 +66,17 @@ export type CertificationType = {
   sort_order: number;
 };
 
+/** How employment ended — set on staff profile when termination_date is filled. */
+export type StaffTerminationType = "resignation" | "termination";
+
+export const STAFF_TERMINATION_TYPE_OPTIONS: {
+  value: StaffTerminationType;
+  label: string;
+}[] = [
+  { value: "resignation", label: "Resignation" },
+  { value: "termination", label: "Termination (involuntary)" },
+];
+
 export type Staff = {
   id: string;
   home_venue_id: string;
@@ -94,6 +105,7 @@ export type Staff = {
   wps_employee_id: string | null;
   joining_date: string | null;
   termination_date: string | null;
+  termination_type: StaffTerminationType | null;
   contract_kind: string | null;
   visa_status: string | null;
   visa_expiry: string | null;
@@ -186,6 +198,8 @@ export const HR_SETTINGS_KEYS = {
   leavePolicy: "leave_policy",
   payroll: "payroll",
   payrollAdjustmentCodes: "payroll_adjustment_codes",
+  benefitsGratuity: "benefits_gratuity",
+  benefitsServiceCharge: "benefits_service_charge",
 } as const;
 
 /** Paid status for leave type configuration. */

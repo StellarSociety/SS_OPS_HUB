@@ -13,7 +13,7 @@ export default function HrDataManagementLayout({
         description="Bulk import and export employee and attendance data via Excel templates."
       />
       <HrDataManagementSubNav />
-      {children}
+      <div className="w-2/3">{children}</div>
     </div>
   );
 }

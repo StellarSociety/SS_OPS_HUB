@@ -31,6 +31,7 @@ import type {
   Nationality,
   Position,
 } from "@/lib/hr/types";
+import { STAFF_TERMINATION_TYPE_OPTIONS } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
 export const STAFF_ENTRY_FORM_ID = "staff-entry-form";
@@ -639,12 +640,40 @@ export function StaffEntryForm({
           id="termination_date"
           name="termination_date"
           value={value.termination_date}
-          onChange={(iso) => onChange({ termination_date: iso })}
+          onChange={(iso) =>
+            onChange({
+              termination_date: iso,
+              ...(iso ? {} : { termination_type: "" }),
+            })
+          }
           disabled={readOnly}
           className="w-full"
           inputClassName={fieldClass}
         />
       </Field>
+      {value.termination_date ? (
+        <Field
+          label="Termination type"
+          htmlFor="termination_type"
+          hint="Used for gratuity & service charge entitlement. Venue policy is set under Settings → Pay → Benefits."
+        >
+          <select
+            id="termination_type"
+            name="termination_type"
+            value={value.termination_type}
+            onChange={set("termination_type")}
+            disabled={readOnly}
+            className={fieldClass}
+          >
+            <option value="">— Select —</option>
+            {STAFF_TERMINATION_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
       <Field
         label="Probation duration"
         htmlFor="probation_duration_value"

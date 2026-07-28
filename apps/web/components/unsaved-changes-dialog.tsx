@@ -40,18 +40,10 @@ export function UnsavedChangesDialog({
           Unsaved changes
         </h2>
         <p className="mt-2 text-sm text-black/60">
-          You have unsaved changes. Leave without saving, keep editing, or save
-          before you go.
+          You have unsaved changes. Keep editing, cancel and leave without
+          saving, or save before you go.
         </p>
         <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            disabled={saving}
-            onClick={onDontSave}
-            className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-black/5 disabled:opacity-50"
-          >
-            Don&apos;t save
-          </button>
           <button
             type="button"
             disabled={saving}
@@ -59,6 +51,14 @@ export function UnsavedChangesDialog({
             className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-50"
           >
             Keep editing
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onDontSave}
+            className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-black/5 disabled:opacity-50"
+          >
+            Cancel
           </button>
           <button
             type="button"

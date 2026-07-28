@@ -4,7 +4,9 @@ import {
   SalesSchemaSetupNotice,
   getSalesDataLoadErrorMessage,
 } from "@/components/sales/sales-schema-setup-notice";
+import { listStaffForVenue } from "@/lib/hr/store";
 import { listVenueWaiters } from "@/lib/sales/waiters-store";
+import type { WaiterStaffOption } from "@/lib/sales/waiters-types";
 import {
   canAccessSalesSettings,
   canManageSalesWaiters,
@@ -27,13 +29,36 @@ export default async function SalesWaitersSettingsPage() {
   }
 
   try {
-    const waiters = await listVenueWaiters(supabase, venue.id);
+    const [waiters, staffRows] = await Promise.all([
+      listVenueWaiters(supabase, venue.id),
+      listStaffForVenue(supabase, venue.id),
+    ]);
+
+    const staffOptions: WaiterStaffOption[] = staffRows
+      .map((s) => ({
+        id: s.id,
+        full_name: s.full_name,
+        first_name:
+          s.first_name?.trim() ||
+          s.full_name.trim().split(/\s+/)[0] ||
+          null,
+        emp_no: s.emp_no,
+        position_name: s.position?.name ?? null,
+        department_name: s.department?.name ?? null,
+        employment_status_name: s.employment_status?.name ?? null,
+        terminated: Boolean(s.termination_date),
+      }))
+      .sort((a, b) => {
+        if (a.terminated !== b.terminated) return a.terminated ? 1 : -1;
+        return a.full_name.localeCompare(b.full_name);
+      });
 
     return (
       <>
         <SalesSettingsSubNav />
         <SalesWaitersSettingsPanel
           waiters={waiters}
+          staffOptions={staffOptions}
           canEdit={canManageSalesWaiters(permissions, venue.id)}
         />
       </>

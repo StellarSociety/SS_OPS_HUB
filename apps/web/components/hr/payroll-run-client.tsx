@@ -146,18 +146,29 @@ function contractedAmountForLine(
   }
 }
 
-/** Sum of contracted BASIC + ACCOM + TRANSP (full package). */
+/** Contractual salary to pay (matches staff form / export Fixed_Salary). */
 function contractedFixedTotal(
   row: Pick<
     PayrollEmployeeRow,
-    "basic_salary" | "accom_allowance" | "transp_allowance"
+    "salary_to_pay" | "basic_salary" | "accom_allowance" | "transp_allowance"
   >,
 ): number {
+  if (row.salary_to_pay != null && !Number.isNaN(Number(row.salary_to_pay))) {
+    return Number(row.salary_to_pay);
+  }
   return (
     (Number(row.basic_salary) || 0) +
     (Number(row.accom_allowance) || 0) +
     (Number(row.transp_allowance) || 0)
   );
+}
+
+/** Approved paid + half-pay leave days — matches export Paid_Leave_Days. */
+function paidLeaveDaysForRow(
+  row: Pick<PayrollEmployeeRow, "day_fractions">,
+): number {
+  const leave = summarizePayrollLeave(row.day_fractions);
+  return leave.paidDays + leave.halfPayDays;
 }
 
 /**
@@ -236,6 +247,8 @@ export type PayrollEmployeeRow = {
   basic_salary: number | null;
   accom_allowance: number | null;
   transp_allowance: number | null;
+  /** What hits payroll as contractual fixed pay (salary to pay). */
+  salary_to_pay: number | null;
   fixed_earnings: number;
   variable_earnings: number;
   total_deductions: number;
@@ -1768,6 +1781,7 @@ function RunEmployeesTab({
     | "department_name"
     | "working_status"
     | "paid_days"
+    | "paid_leave_days"
     | "unpaid_days"
     | "fixed_earnings"
     | "variable_earnings"
@@ -1851,6 +1865,8 @@ function RunEmployeesTab({
         return resolvePayrollWorkingStatus(row).toLowerCase();
       case "paid_days":
         return Number(row.effective_paid_days);
+      case "paid_leave_days":
+        return paidLeaveDaysForRow(row);
       case "unpaid_days":
         return Number(row.unpaid_days);
       case "fixed_earnings":
@@ -1959,6 +1975,7 @@ function RunEmployeesTab({
 
   const columnTotals = useMemo(() => {
     let paidDays = 0;
+    let paidLeaveDays = 0;
     let unpaidDays = 0;
     let fixedEarnings = 0;
     let variableEarnings = 0;
@@ -1968,6 +1985,7 @@ function RunEmployeesTab({
     for (const row of filtered) {
       const empAdjustments = adjustmentsByStaff.get(row.staff_id) ?? [];
       paidDays += Number(row.effective_paid_days) || 0;
+      paidLeaveDays += paidLeaveDaysForRow(row);
       unpaidDays += Number(row.unpaid_days) || 0;
       fixedEarnings += contractedFixedTotal(row);
       variableEarnings += Number(row.variable_earnings) || 0;
@@ -1979,6 +1997,7 @@ function RunEmployeesTab({
       employeeCount: filtered.length,
       includedCount,
       paidDays,
+      paidLeaveDays,
       unpaidDays,
       fixedEarnings,
       variableEarnings,
@@ -2363,6 +2382,13 @@ function RunEmployeesTab({
               </th>
               <th className="px-3 py-2.5 font-medium">
                 <SortLabel
+                  label="Paid leave days"
+                  column="paid_leave_days"
+                  align="end"
+                />
+              </th>
+              <th className="px-3 py-2.5 font-medium">
+                <SortLabel
                   label="Unpaid Days"
                   column="unpaid_days"
                   align="end"
@@ -2397,7 +2423,7 @@ function RunEmployeesTab({
             {employees.length === 0 ? (
               <tr>
                 <td
-                  colSpan={selectMode ? 12 : 11}
+                  colSpan={selectMode ? 13 : 12}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
                   No employees on this run yet. Recalculate to populate.
@@ -2406,7 +2432,7 @@ function RunEmployeesTab({
             ) : sorted.length === 0 ? (
               <tr>
                 <td
-                  colSpan={selectMode ? 12 : 11}
+                  colSpan={selectMode ? 13 : 12}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
                   No employees match the current filters.
@@ -2469,6 +2495,9 @@ function RunEmployeesTab({
                 <td className="px-3 py-2.5" colSpan={2} />
                 <td className="px-3 py-2.5 text-right tabular-nums">
                   {columnTotals.paidDays.toFixed(2)}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {columnTotals.paidLeaveDays.toFixed(2)}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums">
                   {columnTotals.unpaidDays.toFixed(2)}
@@ -2706,6 +2735,9 @@ function FragmentRows({
           </span>
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
+          {(leaveSummary.paidDays + leaveSummary.halfPayDays).toFixed(2)}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums">
           {Number(row.unpaid_days).toFixed(2)}
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
@@ -2739,7 +2771,7 @@ function FragmentRows({
       </tr>
       {open ? (
         <tr className="bg-zinc-600">
-          <td colSpan={selectMode ? 12 : 11} className="border-t border-white/10 p-0">
+          <td colSpan={selectMode ? 13 : 12} className="border-t border-white/10 p-0">
             <div className="max-h-[min(70vh,720px)] overflow-y-auto bg-zinc-600 px-4 py-3 text-zinc-100">
             <div className="space-y-4">
               <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">

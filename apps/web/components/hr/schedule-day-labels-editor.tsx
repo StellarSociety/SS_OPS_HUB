@@ -2,7 +2,8 @@
 
 import { Reorder, useDragControls } from "framer-motion";
 import { Check, GripVertical, Pencil, Pipette, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useUnsavedChangesGuard } from "@/components/use-unsaved-changes-guard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -146,16 +147,37 @@ function LabelRow({
   onSaved: () => void;
 }) {
   const controls = useDragControls();
+  const formRef = useRef<HTMLFormElement>(null);
   const [deleting, startDelete] = useTransition();
   const [saving, startSave] = useTransition();
   const [bgColor, setBgColor] = useState(item.bgColor);
   const [abbreviation, setAbbreviation] = useState(item.abbreviation);
   const isPersisted = !item.isNew && !item.id.startsWith("default:");
+  const onSaveRef = useRef<() => Promise<boolean>>(async () => false);
 
   useEffect(() => {
     setBgColor(item.bgColor);
     setAbbreviation(item.abbreviation);
   }, [item.bgColor, item.abbreviation, item.id]);
+
+  onSaveRef.current = async () => {
+    if (locked) return false;
+    const form = formRef.current;
+    if (!form || !form.reportValidity()) return false;
+    const formData = new FormData(form);
+    try {
+      await upsertScheduleDayLabel(formData);
+      onSaved();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const { unsavedDialog } = useUnsavedChangesGuard({
+    isDirty: editing && !locked,
+    onSaveRef,
+  });
 
   const previewColors = deriveScheduleLabelColors(bgColor);
   const previewStyle = scheduleDayLabelStyle({
@@ -165,6 +187,7 @@ function LabelRow({
   });
 
   return (
+    <>
     <Reorder.Item
       value={item}
       dragListener={false}
@@ -182,6 +205,7 @@ function LabelRow({
       </button>
 
       <form
+        ref={formRef}
         className="flex min-w-0 flex-1 items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault();
@@ -326,5 +350,7 @@ function LabelRow({
         </div>
       </form>
     </Reorder.Item>
+    {unsavedDialog}
+    </>
   );
 }
