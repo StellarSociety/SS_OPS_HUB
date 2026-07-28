@@ -24,34 +24,54 @@ import {
 
 type ServiceClient = SupabaseClient;
 
+type StaffBenefitRow = {
+  id: string;
+  emp_no: string | null;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  department_id: string | null;
+  position_id: string | null;
+  joining_date: string | null;
+  termination_date: string | null;
+  termination_type?: string | null;
+  department: { name?: string } | null;
+  position: { name?: string } | null;
+};
+
 async function loadStaffForBenefits(
   service: ServiceClient,
   venueId: string,
 ): Promise<GratuityStaffInput[]> {
-  let select =
+  const selectWithTermination =
     "id, emp_no, full_name, first_name, last_name, department_id, position_id, joining_date, termination_date, termination_type, department:departments(name), position:positions(name)";
 
-  let { data, error } = await service
+  const initial = await service
     .from("staff")
-    .select(select)
+    .select(selectWithTermination)
     .eq("home_venue_id", venueId);
 
-  if (error && /termination_type|schema cache|column/i.test(error.message)) {
-    select =
+  let rows: StaffBenefitRow[];
+  if (
+    initial.error &&
+    /termination_type|schema cache|column/i.test(initial.error.message)
+  ) {
+    const selectWithoutTermination =
       "id, emp_no, full_name, first_name, last_name, department_id, position_id, joining_date, termination_date, department:departments(name), position:positions(name)";
     const fallback = await service
       .from("staff")
-      .select(select)
+      .select(selectWithoutTermination)
       .eq("home_venue_id", venueId);
-    data = fallback.data;
-    error = fallback.error;
+    if (fallback.error) throw new Error(fallback.error.message);
+    rows = (fallback.data ?? []) as StaffBenefitRow[];
+  } else {
+    if (initial.error) throw new Error(initial.error.message);
+    rows = (initial.data ?? []) as StaffBenefitRow[];
   }
 
-  if (error) throw new Error(error.message);
-
-  return (data ?? []).map((row) => {
-    const department = row.department as { name?: string } | null;
-    const position = row.position as { name?: string } | null;
+  return rows.map((row) => {
+    const department = row.department;
+    const position = row.position;
     const deptName = department?.name ?? null;
     const posName = position?.name ?? null;
     const terminationType = row.termination_type as string | null | undefined;
