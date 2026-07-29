@@ -305,7 +305,7 @@ export function GratuitySettingsForm({
             </Field>
             <Field
               label="Runner / housekeeper deduct %"
-              hint="Of retained CC balance after tip-out. SOP: 3%."
+              hint="Of cash and CC balances after tip-out. SOP: 3%."
             >
               <Input
                 type="number"
@@ -327,10 +327,13 @@ export function GratuitySettingsForm({
 
         <Section
           title="General tips pool"
-          description="Deductions before departmental redistribution."
+          description="Applied to the tip pool and again to each contributor's retain, before departmental redistribution."
         >
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="OS&E / breakages %" hint="SOP: 2%.">
+            <Field
+              label="OS&E / breakages %"
+              hint="Of tip pool + of contributor retain. SOP: 2%."
+            >
               <Input
                 type="number"
                 step="0.1"
@@ -340,7 +343,10 @@ export function GratuitySettingsForm({
                 required
               />
             </Field>
-            <Field label="Staff activities %" hint="SOP: 1%.">
+            <Field
+              label="Staff activities %"
+              hint="Of tip pool + of contributor retain. SOP: 1%."
+            >
               <Input
                 type="number"
                 step="0.1"
@@ -505,7 +511,7 @@ export function GratuitySettingsForm({
               name="bar_cash_equal_split"
               defaultChecked={settings.barCashEqualSplit}
               label="Split bar cash tips equally among bar staff"
-              hint="SOP: weekly equal split; settlement still lands in monthly runs."
+              hint="SOP 6.1: equal split. When off, bar cash follows the points × worked days rule instead."
             />
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Bar CC → general pool %" hint="SOP: 50%.">
@@ -518,7 +524,7 @@ export function GratuitySettingsForm({
                   required
                 />
               </Field>
-              <Field label="Bar CC → bar staff %" hint="SOP: 50%.">
+              <Field label="Bar CC → bar staff %" hint="SOP: 50%. Shared by points × worked days × disciplinary.">
                 <Input
                   type="number"
                   step="0.1"

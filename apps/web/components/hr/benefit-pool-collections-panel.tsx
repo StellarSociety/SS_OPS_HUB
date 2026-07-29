@@ -71,7 +71,8 @@ function initialAmountsForMonth(
     return {
       ose: String(suggested.oseAmount),
       activities: String(suggested.staffActivitiesAmount),
-      rounding: String(suggested.roundingAmount ?? 0),
+      rounding:
+        suggested.roundingAmount == null ? "" : String(suggested.roundingAmount),
       notes: "",
     };
   }
@@ -144,7 +145,9 @@ export function BenefitPoolCollectionsPanel({
     );
     setOseAmount(String(suggested.oseAmount));
     setActivitiesAmount(String(suggested.staffActivitiesAmount));
-    setRoundingAmount(String(suggested.roundingAmount ?? 0));
+    setRoundingAmount(
+      suggested.roundingAmount == null ? "" : String(suggested.roundingAmount),
+    );
   }
 
   function loadRow(row: BenefitPoolCollectionsRow) {
@@ -360,8 +363,11 @@ export function BenefitPoolCollectionsPanel({
                 placeholder="0.00"
               />
               <p className="text-xs text-black/45">
-                Remainders after flooring individual gratuity to the nearest AED
-                5.
+                {suggestedFromRun?.roundingAmount != null
+                  ? `From gratuity run: ${formatMoney(suggestedFromRun.roundingAmount)} — remainders after flooring each payout to AED 5.`
+                  : gratuityRunForMonth
+                    ? "Recalculate the gratuity run to derive remainders after flooring each payout to AED 5."
+                    : "Remainders after flooring individual gratuity to the nearest AED 5."}
               </p>
             </div>
           </div>

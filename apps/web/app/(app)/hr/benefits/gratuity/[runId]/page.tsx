@@ -3,6 +3,7 @@ import {
   type BenefitAllocationView,
 } from "@/components/hr/benefit-run-client";
 import {
+  loadForecastVenueAsphForMonth,
   mergeGratuitySettings,
   type HrGratuitySettings,
 } from "@/lib/hr/benefits";
@@ -10,6 +11,7 @@ import { canAccessBenefits, canEditBenefits } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
+import { createServiceClient } from "@/lib/supabase/service";
 import { notFound } from "next/navigation";
 
 type Props = {
@@ -50,6 +52,22 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
   const settings = mergeGratuitySettings(
     (run.settings_snapshot ?? {}) as Partial<HrGratuitySettings>,
   );
+  const snapshot =
+    (run.settings_snapshot as Record<string, unknown> | null) ?? {};
+  const forecastAsph =
+    typeof snapshot.forecastAsphKpiThreshold === "number"
+      ? Number(snapshot.forecastAsphKpiThreshold)
+      : await loadForecastVenueAsphForMonth(
+          createServiceClient(),
+          venue.id,
+          String(run.benefit_month),
+        );
+  const asphKpiThreshold =
+    typeof snapshot.asphKpiThreshold === "number"
+      ? Number(snapshot.asphKpiThreshold)
+      : snapshot.asphKpiThreshold === null
+        ? null
+        : forecastAsph;
 
   const policyStored = await getHrVenueSetting<Partial<HrGratuitySettings>>(
     supabase,
@@ -130,6 +148,8 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
         waiterCcTipOutPctWhenKpiMissed: settings.waiterCcTipOutPctWhenKpiMissed,
         asphKpiEnabled: settings.asphKpiEnabled,
         barCcPoolPercent: settings.barCcPoolPercent,
+        barCcBarStaffPercent: settings.barCcBarStaffPercent,
+        barCashEqualSplit: settings.barCashEqualSplit,
       }}
       poolDeductionRule={{
         osePercent: settings.poolOseDeductPercent,
@@ -155,6 +175,8 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
           return "fixed_percent";
         })()
       }
+      asphKpiThreshold={asphKpiThreshold}
+      forecastAsphKpiThreshold={forecastAsph}
     />
   );
 }

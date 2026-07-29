@@ -102,11 +102,6 @@ export default async function HrBenefitsServiceChargeRunPage({
       }}
       allocations={allocations}
       disciplinaryOptions={settings.disciplinaryDeductions}
-      departmentOrder={settings.departmentShares.map((d) => ({
-        key: d.key,
-        label: d.label,
-        percent: d.percent,
-      }))}
     />
   );
 }

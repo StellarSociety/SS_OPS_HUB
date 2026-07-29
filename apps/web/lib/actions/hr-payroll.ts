@@ -62,6 +62,7 @@ export type PayslipListItem = {
   payroll_month: string | null;
   emp_no: string | null;
   full_name: string | null;
+  department_name: string | null;
 };
 
 async function getPayrollAuth() {
@@ -1618,7 +1619,7 @@ export async function listPayslipsForVenue(): Promise<PayslipListItem[]> {
   const { data, error } = await supabase
     .from("hr_payslips")
     .select(
-      "id, run_id, run_employee_id, staff_id, version, email_status, email_sent_at, pdf_path, created_at, run:hr_payroll_runs(payroll_month), employee:hr_payroll_run_employees(emp_no, full_name)",
+      "id, run_id, run_employee_id, staff_id, version, email_status, email_sent_at, pdf_path, created_at, run:hr_payroll_runs(payroll_month), employee:hr_payroll_run_employees(emp_no, full_name, department_name)",
     )
     .eq("venue_id", venue.id)
     .order("created_at", { ascending: false })
@@ -1634,6 +1635,7 @@ export async function listPayslipsForVenue(): Promise<PayslipListItem[]> {
     const emp = row.employee as {
       emp_no?: string;
       full_name?: string;
+      department_name?: string | null;
     } | null;
     return {
       id: row.id as string,
@@ -1648,6 +1650,7 @@ export async function listPayslipsForVenue(): Promise<PayslipListItem[]> {
       payroll_month: run?.payroll_month ?? null,
       emp_no: emp?.emp_no ?? null,
       full_name: emp?.full_name ?? null,
+      department_name: emp?.department_name?.trim() || null,
     };
   });
 }

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { GratuityByWaiterReportHubItem } from "@/components/sales/gratuity-by-waiter-report-hub-item";
 import { GratuityReportHubItem } from "@/components/sales/gratuity-report-hub-item";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
 import { getSalesPageContext } from "@/lib/sales/page-context";
@@ -52,6 +53,13 @@ const REPORT_CATEGORIES: ReportCategory[] = [
         title: "Monthly gratuity by day",
         description:
           "Cash and credit card gratuity totals for every day of the month.",
+      },
+      {
+        id: "monthly-by-waiter",
+        href: "/sales/reports/gratuity/monthly-by-waiter",
+        title: "Monthly gratuity by waiter",
+        description:
+          "Cash and credit card gratuity by waiter for every day of the month.",
       },
     ],
   },
@@ -140,6 +148,18 @@ export default async function SalesReportsPage() {
                       {id === "gratuity" &&
                       report.id === "monthly-by-day" ? (
                         <GratuityReportHubItem
+                          href={report.href}
+                          title={report.title}
+                          description={report.description}
+                          venueName={venue.name}
+                          venueLogoUrl={venueLogoUrl}
+                          userDisplayName={userDisplayName}
+                          waiterRecords={gratuityRecords}
+                          canExport={canExportGratuity}
+                        />
+                      ) : id === "gratuity" &&
+                        report.id === "monthly-by-waiter" ? (
+                        <GratuityByWaiterReportHubItem
                           href={report.href}
                           title={report.title}
                           description={report.description}

@@ -398,13 +398,7 @@ export async function saveHrServiceChargeSettings(
     periodEndDay: num(formData, "period_end_day", 31),
     distributionDayOfMonth: num(formData, "distribution_day_of_month", 15),
     distributionMonthOffset: num(formData, "distribution_month_offset", 1),
-    poolOseDeductPercent: num(formData, "pool_ose_deduct_percent", 0),
-    poolStaffActivitiesDeductPercent: num(
-      formData,
-      "pool_staff_activities_deduct_percent",
-      0,
-    ),
-    departmentShares: parseDepartmentShares(formData),
+    staffDistributablePercent: num(formData, "staff_distributable_percent", 50),
     pointTiers: parsePointTiers(formData),
     disciplinaryDeductions: parseDisciplinary(formData),
     includeRegularDaysOffInWorkedDays: parseCheckbox(
@@ -496,19 +490,34 @@ export async function recalculateBenefitRun(
       const preserved = readStaffOverridesFromSnapshot(
         existingRun?.settings_snapshot,
       );
+      const existingSnap =
+        (existingRun?.settings_snapshot as Record<string, unknown> | null) ??
+        {};
       const stored = await getHrVenueSetting<Partial<HrGratuitySettings>>(
         auth.supabase,
         venue.id,
         HR_SETTINGS_KEYS.benefitsGratuity,
         {},
       );
+      const nextSnapshot = withStaffOverridesOnSnapshot(
+        mergeGratuitySettings(stored) as unknown as Record<string, unknown>,
+        preserved,
+      ) as Record<string, unknown>;
+      if ("asphKpiThreshold" in existingSnap) {
+        nextSnapshot.asphKpiThreshold = existingSnap.asphKpiThreshold;
+      }
+      if ("forecastAsphKpiThreshold" in existingSnap) {
+        nextSnapshot.forecastAsphKpiThreshold =
+          existingSnap.forecastAsphKpiThreshold;
+      }
+      if ("departmentAllocationMode" in existingSnap) {
+        nextSnapshot.departmentAllocationMode =
+          existingSnap.departmentAllocationMode;
+      }
       await service
         .from("hr_benefit_runs")
         .update({
-          settings_snapshot: withStaffOverridesOnSnapshot(
-            mergeGratuitySettings(stored) as unknown as Record<string, unknown>,
-            preserved,
-          ),
+          settings_snapshot: nextSnapshot,
           updated_by: user.id,
           updated_at: new Date().toISOString(),
         })
@@ -859,6 +868,91 @@ export async function updateBenefitRunDepartmentShares(
       ok: false,
       error:
         e instanceof Error ? e.message : "Could not update department shares",
+    };
+  }
+}
+
+/** Override the month ASPH KPI threshold used for waiter tip-out on this run. */
+export async function updateBenefitRunAsphKpiThreshold(
+  runId: string,
+  threshold: number | null,
+): Promise<BenefitActionResult & { warnings?: string[] }> {
+  const auth = await getBenefitsAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions } = auth;
+
+  if (!canEditBenefits(permissions, venue.id)) {
+    return { ok: false, error: "No permission to edit ASPH threshold." };
+  }
+
+  try {
+    const service = createServiceClient();
+    const { data: run, error } = await service
+      .from("hr_benefit_runs")
+      .select("id, status, settings_snapshot, benefit_kind")
+      .eq("id", runId)
+      .eq("venue_id", venue.id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!run) return { ok: false, error: "Benefit run not found." };
+    if (run.benefit_kind !== "gratuity") {
+      return { ok: false, error: "ASPH threshold applies to gratuity runs only." };
+    }
+    if (["applied_to_payroll", "cancelled"].includes(String(run.status))) {
+      return {
+        ok: false,
+        error: `Cannot edit ASPH threshold on a run in status "${run.status}".`,
+      };
+    }
+
+    const nextValue =
+      threshold == null || !Number.isFinite(threshold)
+        ? null
+        : Math.max(0, Number(threshold));
+
+    const baseSnapshot =
+      (run.settings_snapshot as Record<string, unknown> | null) ?? {};
+    const nextSnapshot: Record<string, unknown> = {
+      ...baseSnapshot,
+      asphKpiThreshold: nextValue,
+    };
+
+    await service
+      .from("hr_benefit_runs")
+      .update({
+        settings_snapshot: nextSnapshot,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", runId)
+      .eq("venue_id", venue.id);
+
+    const { warnings } = await persistCalculatedBenefitRun({
+      service,
+      venueId: venue.id,
+      runId,
+      kind: "gratuity",
+      userId: user.id,
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      venue_id: venue.id,
+      action: "benefits.asph_kpi_threshold_updated",
+      module_key: HR_MODULE_KEY,
+      entity: "hr_benefit_runs",
+      entity_id: runId,
+      after: { asphKpiThreshold: nextValue },
+    });
+
+    revalidateBenefits("gratuity", runId);
+    return { ok: true, id: runId, warnings };
+  } catch (e) {
+    return {
+      ok: false,
+      error:
+        e instanceof Error ? e.message : "Could not update ASPH threshold",
     };
   }
 }

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search, X } from "lucide-react";
@@ -10,12 +16,15 @@ import {
   finalizeBenefitRun,
   recalculateBenefitRun,
   saveBenefitRunDraft,
+  updateBenefitRunAsphKpiThreshold,
   updateBenefitRunDepartmentShares,
   updateBenefitStaffOverride,
 } from "@/lib/actions/hr-benefits";
 import {
   BENEFIT_RUN_STATUS_LABELS,
+  floorPayoutToAed5,
   formatBenefitMonthLabel,
+  sumAed5RoundingRemainder,
   type BenefitContributor,
   type BenefitKind,
   type BenefitRunStatus,
@@ -44,20 +53,13 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-/** Round payout amounts down to the nearest AED 5. */
-function roundAmountTo5(amount: number): number {
-  const n = Number(amount) || 0;
-  if (n <= 0) return 0;
-  return Math.floor(n / 5) * 5;
-}
-
 type PayoutDisplayMode = "rounded" | "exact";
 
 function displayPayoutAmount(
   amount: number,
   mode: PayoutDisplayMode,
 ): number {
-  return mode === "rounded" ? roundAmountTo5(amount) : round2(amount);
+  return mode === "rounded" ? floorPayoutToAed5(amount) : round2(amount);
 }
 
 function daysInBenefitMonth(benefitMonth: string): number {
@@ -105,11 +107,25 @@ type ContributorSortKey =
   | "ccCollected"
   | "cashCollected"
   | "obtain"
+  | "asph"
+  | "tipOutPercent"
   | "deduction"
   | "contributedToPool"
   | "retain";
 
 type DeptOrderItem = { key: string; label: string; percent?: number };
+
+/** Stable identity so effects keyed on the prop don't re-run every render. */
+const NO_DEPARTMENT_ORDER: DeptOrderItem[] = [];
+
+function samePercents(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key] === b[key]);
+}
 
 const moneyColGrayTh =
   "w-[7.75rem] max-w-[7.75rem] bg-black/[0.06] px-2 py-2.5 font-medium text-right text-[#3D421F]";
@@ -128,6 +144,8 @@ export type PoolContributionRule = {
   waiterCcTipOutPctWhenKpiMissed: number;
   asphKpiEnabled: boolean;
   barCcPoolPercent: number;
+  barCcBarStaffPercent: number;
+  barCashEqualSplit: boolean;
 };
 
 export type PoolDeductionRule = {
@@ -136,17 +154,48 @@ export type PoolDeductionRule = {
   runnerHousekeeperPercent: number;
 };
 
-function formatPoolContributionRule(rule: PoolContributionRule): string {
-  const cashPct = Number(rule.waiterCashPoolPercent) || 0;
-  const barPct = Number(rule.barCcPoolPercent) || 0;
-  const ccPart =
-    rule.waiterCcTipOutMode === "asph_kpi"
-      ? rule.asphKpiEnabled
-        ? `ASPH KPI tip-out of gross sales (${Number(rule.waiterCcTipOutPctWhenKpiMet) || 0}% met / ${Number(rule.waiterCcTipOutPctWhenKpiMissed) || 0}% missed)`
-        : `ASPH tip-out of gross sales (${Number(rule.waiterCcTipOutPctWhenKpiMissed) || 0}%, KPI disabled)`
-      : `${Number(rule.waiterCcCollectionTipOutPercent) || 0}% of CC tip collections`;
+function waiterCcTipOutLabel(rule: PoolContributionRule): string {
+  if (rule.waiterCcTipOutMode === "asph_kpi") {
+    if (rule.asphKpiEnabled) {
+      return `ASPH KPI tip-out of gross sales (${Number(rule.waiterCcTipOutPctWhenKpiMet) || 0}% when met / ${Number(rule.waiterCcTipOutPctWhenKpiMissed) || 0}% when missed), capped at CC tips collected`;
+    }
+    return `ASPH tip-out of gross sales (${Number(rule.waiterCcTipOutPctWhenKpiMissed) || 0}%, KPI currently disabled), capped at CC tips collected`;
+  }
+  return `${Number(rule.waiterCcCollectionTipOutPercent) || 0}% of CC tip collections`;
+}
 
-  return `Pool contribution rule: waiters tip out ${cashPct}% of cash tips + ${ccPart}; bar tips out ${barPct}% of CC tips to the pool.`;
+function PolicyDisclosure({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-sm font-medium text-[#3D421F]/80 underline-offset-2 hover:underline"
+      >
+        {label}
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 transition-transform",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="mt-2 max-w-3xl space-y-2 text-sm leading-relaxed text-black/55">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function obtainOf(row: BenefitAllocationView): number {
@@ -207,6 +256,11 @@ function retainOf(
     }
   }
   return Math.max(0, round2(obtain - contributedToPool));
+}
+
+function poolShareOf(row: BenefitAllocationView): number {
+  const meta = (row.meta ?? {}) as { poolShare?: number };
+  return Math.max(0, Number(meta.poolShare) || 0);
 }
 
 function deductionPctOf(row: BenefitAllocationView): number {
@@ -512,12 +566,14 @@ export function BenefitRunClient({
   allocations,
   canEdit,
   disciplinaryOptions = [],
-  departmentOrder = [],
+  departmentOrder = NO_DEPARTMENT_ORDER,
   policyDepartmentPercents = {},
   poolContributionRule = null,
   poolDeductionRule = null,
   policyDeductionPercents = null,
   departmentAllocationMode = "fixed_percent",
+  asphKpiThreshold = null,
+  forecastAsphKpiThreshold = null,
 }: {
   kind: BenefitKind;
   run: {
@@ -545,6 +601,10 @@ export function BenefitRunClient({
     | "fixed_percent"
     | "equal_point_value"
     | "bypass_department";
+  /** ASPH KPI threshold used for this run (from forecast or override). */
+  asphKpiThreshold?: number | null;
+  /** Sales Forecast venue ASPH target for the benefit month. */
+  forecastAsphKpiThreshold?: number | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -557,8 +617,9 @@ export function BenefitRunClient({
     useState<ContributorSortKey>("name");
   const [contributorSortDir, setContributorSortDir] =
     useState<SortDir>("asc");
-  const [allocationView, setAllocationView] =
-    useState<AllocationViewMode>("department");
+  const [allocationView, setAllocationView] = useState<AllocationViewMode>(
+    kind === "service_charge" ? "all" : "department",
+  );
   const [deptPercents, setDeptPercents] = useState<Record<string, number>>(
     () =>
       Object.fromEntries(
@@ -580,12 +641,32 @@ export function BenefitRunClient({
     runnerHousekeeperPercent:
       Number(poolDeductionRule?.runnerHousekeeperPercent) || 0,
   });
+  const [asphThresholdDraft, setAsphThresholdDraft] = useState(
+    asphKpiThreshold != null && Number.isFinite(asphKpiThreshold)
+      ? String(asphKpiThreshold)
+      : "",
+  );
+
+  useEffect(() => {
+    setAsphThresholdDraft(
+      asphKpiThreshold != null && Number.isFinite(asphKpiThreshold)
+        ? String(asphKpiThreshold)
+        : "",
+    );
+  }, [asphKpiThreshold]);
+
+  const showAsphContributorColumns =
+    kind === "gratuity" &&
+    poolContributionRule?.waiterCcTipOutMode === "asph_kpi";
+  const contributorColSpan = showAsphContributorColumns ? 14 : 12;
 
   const totals = (run.totals ?? {}) as Partial<BenefitRunTotals> & {
     pool?: {
       waiterCashTipOut?: number;
       waiterCcTipOut?: number;
       barCcToPool?: number;
+      barCcToBarStaff?: number;
+      barCashToBarStaff?: number;
       disciplinaryFromContributors?: number;
       runnerHousekeeperFund?: number;
       ose?: number;
@@ -611,9 +692,13 @@ export function BenefitRunClient({
       warnings.length > 0 ? warnings : (totals.warnings ?? []);
     return source.filter(
       (w) =>
-        !/No recorded OS&E \/ staff activities collections/i.test(w),
+        !/No recorded OS&E \/ staff activities collections/i.test(w) &&
+        !/Bar waiter ".+" has tips but is not linked to staff/i.test(w) &&
+        // Service charge has no departmental split — drop warnings kept on
+        // runs calculated under the old department policy.
+        !(kind === "service_charge" && /^Department ".+" has /i.test(w)),
     );
-  }, [warnings, totals.warnings]);
+  }, [kind, warnings, totals.warnings]);
 
   const canRecalc =
     canEdit &&
@@ -625,11 +710,10 @@ export function BenefitRunClient({
   const monthDays = daysInBenefitMonth(run.benefit_month);
 
   useEffect(() => {
-    setDeptPercents(
-      Object.fromEntries(
-        departmentOrder.map((d) => [d.key, Number(d.percent) || 0]),
-      ),
+    const next = Object.fromEntries(
+      departmentOrder.map((d) => [d.key, Number(d.percent) || 0]),
     );
+    setDeptPercents((prev) => (samePercents(prev, next) ? prev : next));
   }, [departmentOrder]);
 
   useEffect(() => {
@@ -639,7 +723,7 @@ export function BenefitRunClient({
       runnerHousekeeperPercent:
         Number(poolDeductionRule?.runnerHousekeeperPercent) || 0,
     };
-    setDeductionPercents(next);
+    setDeductionPercents((prev) => (samePercents(prev, next) ? prev : next));
   }, [poolDeductionRule]);
 
   const departmentShareRows = useMemo(() => {
@@ -863,13 +947,39 @@ export function BenefitRunClient({
     );
   }
 
+  function saveAsphKpiThreshold() {
+    if (!canEditAllocations || pending || kind !== "gratuity") return;
+    const trimmed = asphThresholdDraft.trim();
+    const next =
+      trimmed === ""
+        ? null
+        : Math.max(0, Number(trimmed));
+    if (trimmed !== "" && !Number.isFinite(next)) {
+      setError("ASPH threshold must be a number.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const result = await updateBenefitRunAsphKpiThreshold(run.id, next);
+      if (!result.ok) {
+        setError(result.error ?? "Could not update ASPH threshold.");
+        return;
+      }
+      setWarnings(result.warnings ?? []);
+      router.refresh();
+    });
+  }
+
   const contributors = useMemo(() => {
     type ContributorRow = BenefitContributor & {
       workedDays: number | null;
       obtain: number;
-      retain: number;
+      retain: number | null;
       deductionPct: number;
       amount: number | null;
+      asph: number | null;
+      tipOutPercent: number | null;
+      asphKpiMet: boolean | null;
       allocation: BenefitAllocationView | null;
     };
 
@@ -881,7 +991,23 @@ export function BenefitRunClient({
         alloc != null
           ? obtainOf(alloc)
           : round2((Number(row.cashCollected) || 0) + (Number(row.ccCollected) || 0));
-      const retain = retainOf(alloc, obtain, Number(row.contributedToPool) || 0);
+      // A collection source without a linked staff allocation has no payable
+      // Retain. Do not infer a payout from Obtain − Pool Contribution.
+      const retain =
+        alloc != null
+          ? retainOf(alloc, obtain, Number(row.contributedToPool) || 0)
+          : null;
+      const waiterMeta = alloc
+        ? ((alloc.meta ?? {}) as {
+            waiter?: {
+              asph?: number | null;
+              ccTipOutPercent?: number | null;
+              asphKpiMet?: boolean | null;
+            } | null;
+          }).waiter
+        : null;
+      const asphRaw = Number(waiterMeta?.asph);
+      const tipOutRaw = Number(waiterMeta?.ccTipOutPercent);
       return {
         ...row,
         workedDays: alloc?.worked_days ?? null,
@@ -889,6 +1015,12 @@ export function BenefitRunClient({
         retain,
         deductionPct: alloc != null ? deductionPctOf(alloc) : 0,
         amount: alloc != null ? Number(alloc.amount) || 0 : null,
+        asph: Number.isFinite(asphRaw) ? asphRaw : null,
+        tipOutPercent: Number.isFinite(tipOutRaw) ? tipOutRaw : null,
+        asphKpiMet:
+          typeof waiterMeta?.asphKpiMet === "boolean"
+            ? waiterMeta.asphKpiMet
+            : null,
         allocation: alloc ?? null,
       };
     }
@@ -956,12 +1088,16 @@ export function BenefitRunClient({
             return row.cashCollected;
           case "obtain":
             return row.obtain;
+          case "asph":
+            return row.asph ?? -Infinity;
+          case "tipOutPercent":
+            return row.tipOutPercent ?? -Infinity;
           case "deduction":
             return row.deductionPct;
           case "contributedToPool":
             return row.contributedToPool;
           case "retain":
-            return row.retain;
+            return row.retain ?? -Infinity;
         }
       };
       const av = value(a);
@@ -1014,11 +1150,17 @@ export function BenefitRunClient({
     return ids;
   }, [contributors]);
 
-  /** Allocations excluding tip collectors (shown in Contributors). */
+  /**
+   * Allocations excluding retain-only tip collectors (shown in Contributors).
+   * Bar staff collect tips but are paid from the pool / bar funds, so they stay.
+   */
   const poolAllocationRows = useMemo(
     () =>
       kind === "gratuity"
-        ? allocations.filter((row) => !contributorStaffIds.has(row.staff_id))
+        ? allocations.filter(
+            (row) =>
+              !contributorStaffIds.has(row.staff_id) || poolShareOf(row) > 0,
+          )
         : allocations,
     [allocations, contributorStaffIds, kind],
   );
@@ -1031,18 +1173,38 @@ export function BenefitRunClient({
           { label: "Pool net", value: formatMoney(totals.poolNet) },
           { label: "Distributed", value: formatMoney(totals.totalDistributed) },
         ]
-      : [
-          {
-            label: "Collected",
-            value: formatMoney(totals.serviceChargeCollected),
-          },
-          { label: "Pool net", value: formatMoney(totals.poolNet) },
-          { label: "Distributed", value: formatMoney(totals.totalDistributed) },
-          {
-            label: "Recipients",
-            value: totals.recipientCount ?? allocations.length ?? "—",
-          },
-        ];
+      : (() => {
+          const collected = Number(totals.serviceChargeCollected) || 0;
+          const staffPct =
+            Number(totals.serviceChargeStaffDistributablePercent) || 50;
+          const staffPool =
+            totals.serviceChargeStaffPool != null
+              ? Number(totals.serviceChargeStaffPool)
+              : Math.round(((collected * staffPct) / 100 + Number.EPSILON) * 100) /
+                100;
+          const expensesReserve =
+            totals.serviceChargeExpensesReserve != null
+              ? Number(totals.serviceChargeExpensesReserve)
+              : Math.round((collected - staffPool + Number.EPSILON) * 100) / 100;
+          return [
+            {
+              label: "Collected",
+              value: formatMoney(collected),
+            },
+            {
+              label: `Staff pool (${staffPct}%)`,
+              value: formatMoney(staffPool),
+            },
+            {
+              label: "Expenses reserve",
+              value: formatMoney(expensesReserve),
+            },
+            {
+              label: "Distributed",
+              value: formatMoney(totals.totalDistributed),
+            },
+          ];
+        })();
 
   const filteredSorted = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1130,15 +1292,10 @@ export function BenefitRunClient({
 
   const roundingCollected = useMemo(() => {
     if (payoutMode === "exact") return 0;
-    const fromAllocations = poolAllocationRows.reduce((sum, row) => {
-      const amount = Number(row.amount) || 0;
-      return sum + (amount - roundAmountTo5(amount));
-    }, 0);
-    const fromContributors = contributors.reduce((sum, row) => {
-      const retain = Number(row.retain) || 0;
-      return sum + (retain - roundAmountTo5(retain));
-    }, 0);
-    return Math.max(0, round2(fromAllocations + fromContributors));
+    return sumAed5RoundingRemainder([
+      ...poolAllocationRows.map((row) => Number(row.amount) || 0),
+      ...contributors.map((row) => Number(row.retain) || 0),
+    ]);
   }, [poolAllocationRows, contributors, payoutMode]);
 
   const indvGratuityLabel =
@@ -1414,7 +1571,30 @@ export function BenefitRunClient({
                 [
                   ["Waiter cash tip-out", totals.pool.waiterCashTipOut],
                   ["Waiter CC tip-out", totals.pool.waiterCcTipOut],
-                  ["Bar CC → pool", totals.pool.barCcToPool],
+                  [
+                    "Bar CC collected",
+                    Number(totals.barCcCollected) || 0,
+                  ],
+                  [
+                    `Bar CC → general pool (${Number(poolContributionRule?.barCcPoolPercent) || 0}%)`,
+                    totals.pool.barCcToPool,
+                  ],
+                  [
+                    `Bar CC → bar staff (${Number(poolContributionRule?.barCcBarStaffPercent) || 0}%)`,
+                    Number(totals.pool.barCcToBarStaff) > 0
+                      ? Number(totals.pool.barCcToBarStaff)
+                      : Math.max(
+                          0,
+                          round2(
+                            (Number(totals.barCcCollected) || 0) -
+                              (Number(totals.pool.barCcToPool) || 0),
+                          ),
+                        ),
+                  ],
+                  [
+                    "Bar cash collected",
+                    Number(totals.barCashCollected) || 0,
+                  ],
                   [
                     "Contributor deductions → pool",
                     totals.pool.disciplinaryFromContributors,
@@ -1434,7 +1614,7 @@ export function BenefitRunClient({
             </dl>
             <div className="mt-auto border-t border-black/10 pt-2">
               <div className="flex items-baseline justify-between gap-2 text-sm">
-                <span className="font-medium text-[#3D421F]">Total</span>
+                <span className="font-medium text-[#3D421F]">Pool total</span>
                 <span className="tabular-nums font-semibold text-[#3D421F]">
                   {formatMoney(
                     round2(
@@ -1765,15 +1945,116 @@ export function BenefitRunClient({
 
       {kind === "gratuity" ? (
         <section className="space-y-3">
-          <div>
-            <h3 className="font-serif text-lg text-[#3D421F]">Contributors</h3>
-            <p className="text-sm text-black/55">
-              Waiters and bar staff whose tip collections feed this month&apos;s
-              distribution pool.
-              {poolContributionRule
-                ? ` ${formatPoolContributionRule(poolContributionRule)}`
-                : null}
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="font-serif text-lg text-[#3D421F]">Contributors</h3>
+              <p className="text-sm text-black/55">
+                Waiters and bar staff whose tip collections feed this month&apos;s
+                distribution pool.
+              </p>
+              {poolContributionRule ? (
+                <PolicyDisclosure label="Tip Out Policy">
+                  <p>
+                    Floor waiters tip out{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {Number(poolContributionRule.waiterCashPoolPercent) || 0}%
+                    </span>{" "}
+                    of cash tips and{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {waiterCcTipOutLabel(poolContributionRule)}
+                    </span>{" "}
+                    into the general tips pool. The rest stays as their{" "}
+                    <span className="font-medium text-[#3D421F]/80">Retain</span>{" "}
+                    after the Runner / HK cut below.
+                  </p>
+                  <p>
+                    Bar CC tips split{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {Number(poolContributionRule.barCcPoolPercent) || 0}%
+                    </span>{" "}
+                    to the general tips pool and{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {Number(poolContributionRule.barCcBarStaffPercent) || 0}%
+                    </span>{" "}
+                    to a bar-staff fund, shared among bar staff by points ×
+                    worked days × (1 − disciplinary %). Bar cash tips are split{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {poolContributionRule.barCashEqualSplit
+                        ? "equally"
+                        : "by the same weight rule"}
+                    </span>{" "}
+                    among all bar staff who worked the period.
+                  </p>
+                  <p>
+                    Nothing is retained by the individual bar collector — bar
+                    amounts are paid out through the Allocations table, so bar
+                    staff also receive their normal Beverage department share.
+                  </p>
+                  <p>
+                    After tip-out,{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {Number(deductionPercents.runnerHousekeeperPercent) || 0}%
+                    </span>{" "}
+                    of each floor waiter&apos;s remaining cash and CC is set aside
+                    for the Runner / HK fund (paid to matching runner /
+                    housekeeper roles). Disciplinary cuts then take a % of Retain
+                    and move that amount into the general tips pool. OS&amp;E and
+                    Staff activities % are also taken from Retain and added to
+                    those deduction totals.
+                  </p>
+                </PolicyDisclosure>
+              ) : null}
+            </div>
+            {showAsphContributorColumns ? (
+              <div className="shrink-0 rounded-lg border border-black/10 bg-white px-3 py-2 shadow-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+                  Month ASPH target
+                </p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  {canEditAllocations ? (
+                    <>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={asphThresholdDraft}
+                        disabled={pending}
+                        onChange={(e) => setAsphThresholdDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            saveAsphKpiThreshold();
+                          }
+                        }}
+                        className="h-8 w-24 rounded-md border border-black/10 bg-white px-2 text-sm tabular-nums text-[#3D421F] outline-none focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20"
+                        aria-label="ASPH KPI threshold for this month"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="border border-black/10"
+                        disabled={pending}
+                        onClick={saveAsphKpiThreshold}
+                      >
+                        Apply
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="text-sm tabular-nums font-medium text-[#3D421F]">
+                      {asphKpiThreshold != null
+                        ? asphKpiThreshold.toFixed(2)
+                        : "—"}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-black/45">
+                  {forecastAsphKpiThreshold != null
+                    ? `Forecast default ${forecastAsphKpiThreshold.toFixed(2)}. Met ≥ target → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMet) || 0}% of sales; missed → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMissed) || 0}%.`
+                    : `No Sales Forecast ASPH for this month. Met → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMet) || 0}% / missed → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMissed) || 0}% of sales.`}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">
@@ -1856,6 +2137,30 @@ export function BenefitRunClient({
                       align="end"
                     />
                   </th>
+                  {showAsphContributorColumns ? (
+                    <>
+                      <th className="px-3 py-2.5 text-center font-medium">
+                        <SortLabel
+                          label="Waiter ASPH"
+                          sortKey="asph"
+                          activeKey={contributorSortKey}
+                          sortDir={contributorSortDir}
+                          onSort={onContributorSort}
+                          align="center"
+                        />
+                      </th>
+                      <th className="px-3 py-2.5 text-center font-medium leading-tight">
+                        <SortLabel
+                          label="Tip-out %"
+                          sortKey="tipOutPercent"
+                          activeKey={contributorSortKey}
+                          sortDir={contributorSortDir}
+                          onSort={onContributorSort}
+                          align="center"
+                        />
+                      </th>
+                    </>
+                  ) : null}
                   <th className="px-3 py-2.5 font-medium text-right">
                     <SortLabel
                       label="Pool Contribution"
@@ -1895,7 +2200,7 @@ export function BenefitRunClient({
                 {sortedContributors.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={12}
+                      colSpan={contributorColSpan}
                       className="px-3 py-10 text-center text-sm text-black/45"
                     >
                       No tip contributors for this period yet. Recalculate after
@@ -1932,6 +2237,43 @@ export function BenefitRunClient({
                       <td className="bg-[var(--venue-primary,#818a40)]/10 px-3 py-2.5 text-right tabular-nums font-semibold text-[#3D421F]">
                         {formatMoney(row.obtain)}
                       </td>
+                      {showAsphContributorColumns ? (
+                        <>
+                          <td className="px-3 py-2.5 text-center tabular-nums">
+                            {row.asph != null ? Math.round(row.asph) : "—"}
+                          </td>
+                          <td className="px-3 py-2.5 text-center tabular-nums">
+                            {row.tipOutPercent != null ? (
+                              <span
+                                className="inline-flex flex-col items-center gap-1"
+                                title={
+                                  row.asphKpiMet == null
+                                    ? undefined
+                                    : row.asphKpiMet
+                                      ? "ASPH KPI met"
+                                      : "ASPH KPI missed"
+                                }
+                              >
+                                <span>{row.tipOutPercent}%</span>
+                                {row.asphKpiMet == null ? null : (
+                                  <span
+                                    className={cn(
+                                      "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase leading-none",
+                                      row.asphKpiMet
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : "bg-red-100 text-red-700",
+                                    )}
+                                  >
+                                    {row.asphKpiMet ? "Met" : "Missed"}
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                        </>
+                      ) : null}
                       <td className="px-3 py-2.5 text-right tabular-nums font-medium">
                         {formatMoney(row.contributedToPool)}
                       </td>
@@ -1957,12 +2299,14 @@ export function BenefitRunClient({
                         )}
                       </td>
                       <td className={`${moneyColGrayTd} font-medium`}>
-                        {formatMoney(row.retain)}
+                        {row.retain == null ? "—" : formatMoney(row.retain)}
                       </td>
                       <td className={moneyColRoundedTd}>
-                        {formatMoney(
-                          displayPayoutAmount(row.retain, payoutMode),
-                        )}
+                        {row.retain == null
+                          ? "—"
+                          : formatMoney(
+                              displayPayoutAmount(row.retain, payoutMode),
+                            )}
                       </td>
                     </tr>
                   ))
@@ -1987,6 +2331,12 @@ export function BenefitRunClient({
                     <td className="bg-[var(--venue-primary,#818a40)]/12 px-3 py-2.5 text-right tabular-nums font-semibold">
                       {formatMoney(contributorTotals.obtain)}
                     </td>
+                    {showAsphContributorColumns ? (
+                      <>
+                        <td className="px-3 py-2.5" />
+                        <td className="px-3 py-2.5" />
+                      </>
+                    ) : null}
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {formatMoney(contributorTotals.contributedToPool)}
                     </td>
@@ -2010,35 +2360,143 @@ export function BenefitRunClient({
           <div>
             <h3 className="font-serif text-lg text-[#3D421F]">Allocations</h3>
             <p className="text-sm text-black/55">
-              Pool recipients other than tip collectors (listed under Contributors).
-              Editable points and disciplinary deductions recalculate pool shares.
-              Finalized runs feed Payroll as Tips / Service Charge lines.
+              {kind === "service_charge"
+                ? "Eligible staff share of the service charge pool for this period."
+                : "Pool recipients other than tip collectors (listed under Contributors)."}
             </p>
+            <PolicyDisclosure label="Distribution Policy">
+              {kind === "service_charge" ? (
+                <>
+                  <p>
+                    Service charge collected from Sales is split first:{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {Number(totals.serviceChargeStaffDistributablePercent) ||
+                        50}
+                      %
+                    </span>{" "}
+                    goes to the staff pool and the remainder is held as an
+                    expenses reserve. The staff pool is paid out in full — the
+                    grand total below always equals it.
+                  </p>
+                  <p>
+                    Every eligible staff member is paid by{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      points × worked days × (1 − disciplinary %)
+                    </span>
+                    , using one shared point rate for the whole venue. There is
+                    no departmental split, and a disciplinary cut on one person
+                    leaves more for the others.
+                  </p>
+                  <p>
+                    Editable points and warning levels recalculate shares
+                    immediately. Finalized runs feed Payroll as Service Charge
+                    lines.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    After tip-outs land in the tips pool,{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {Number(deductionPercents.osePercent) || 0}%
+                    </span>{" "}
+                    OS&amp;E and{" "}
+                    <span className="font-medium text-[#3D421F]/80">
+                      {Number(deductionPercents.activitiesPercent) || 0}%
+                    </span>{" "}
+                    Staff activities are taken from the pool (and again from each
+                    contributor&apos;s Retain). What remains is the net pool for
+                    redistribution.
+                  </p>
+                  <p>
+                    {departmentAllocationMode === "equal_point_value" ||
+                    departmentAllocationMode === "bypass_department" ? (
+                      <>
+                        Bypass / redistribution mode uses one shared point rate
+                        for the{" "}
+                        <span className="font-medium text-[#3D421F]/80">
+                          general
+                        </span>{" "}
+                        pool only — each eligible person&apos;s share is
+                        proportional to{" "}
+                        <span className="font-medium text-[#3D421F]/80">
+                          points × worked days
+                        </span>
+                        , adjusted by disciplinary %.
+                      </>
+                    ) : (
+                      <>
+                        The general net pool is first split by department share
+                        {departmentOrder.length > 0 ? (
+                          <>
+                            {" "}
+                            (
+                            {departmentOrder
+                              .map(
+                                (d) =>
+                                  `${d.label} ${Number(deptPercents[d.key] ?? d.percent) || 0}%`,
+                              )
+                              .join(", ")}
+                            )
+                          </>
+                        ) : null}
+                        . Within each department, staff are paid by{" "}
+                        <span className="font-medium text-[#3D421F]/80">
+                          points × worked days × (1 − disciplinary %)
+                        </span>
+                        .
+                      </>
+                    )}{" "}
+                    Floor waiters are excluded here — they are paid via Retain
+                    under Contributors. A disciplinary cut on a pool recipient
+                    lowers their weight so the same pot is shared among the
+                    others.
+                  </p>
+                  <p>
+                    Bar staff are listed here as well: on top of their Beverage
+                    department share they receive the bar CC staff fund (by the
+                    same weight rule) and an equal share of bar cash tips. Both
+                    are paid regardless of the department mode.
+                  </p>
+                  <p>
+                    Editable points and warning levels recalculate shares
+                    immediately. Finalized runs feed Payroll as Tips lines.
+                  </p>
+                </>
+              )}
+            </PolicyDisclosure>
           </div>
-          <div
-            className={cn(segmentedSubNavShellClass, "w-fit max-w-full shrink-0")}
-            role="tablist"
-            aria-label="Allocations view"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={allocationView === "department"}
-              className={segmentedSubNavLinkClass(allocationView === "department")}
-              onClick={() => setAllocationView("department")}
+          {kind === "gratuity" ? (
+            <div
+              className={cn(
+                segmentedSubNavShellClass,
+                "w-fit max-w-full shrink-0",
+              )}
+              role="tablist"
+              aria-label="Allocations view"
             >
-              By department
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={allocationView === "all"}
-              className={segmentedSubNavLinkClass(allocationView === "all")}
-              onClick={() => setAllocationView("all")}
-            >
-              All staff
-            </button>
-          </div>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={allocationView === "department"}
+                className={segmentedSubNavLinkClass(
+                  allocationView === "department",
+                )}
+                onClick={() => setAllocationView("department")}
+              >
+                By department
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={allocationView === "all"}
+                className={segmentedSubNavLinkClass(allocationView === "all")}
+                onClick={() => setAllocationView("all")}
+              >
+                All staff
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="relative max-w-md">
@@ -2148,7 +2606,9 @@ export function BenefitRunClient({
                     className="px-3 py-10 text-center text-sm text-black/45"
                   >
                     {allocations.length === 0
-                      ? "No allocations yet. Recalculate after waiter tips and attendance are available for this period."
+                      ? kind === "service_charge"
+                        ? "No allocations yet. Recalculate after sales collections and attendance are available for this period."
+                        : "No allocations yet. Recalculate after waiter tips and attendance are available for this period."
                       : poolAllocationRows.length === 0
                         ? "Tip collectors are listed under Contributors. No other pool recipients for this run."
                         : "No allocations match your search."}

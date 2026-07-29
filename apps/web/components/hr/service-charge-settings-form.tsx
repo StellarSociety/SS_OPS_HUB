@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
-  BenefitsPercentTotalBadge,
   BenefitsSettingsEditor,
   benefitsListInputClass,
 } from "@/components/hr/benefits-settings-editor";
@@ -17,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveHrServiceChargeSettings } from "@/lib/actions/hr-benefits";
 import type {
-  BenefitDepartmentShare,
   BenefitPointTier,
   GratuityDisciplinaryDeduction,
   HrServiceChargeSettings,
@@ -111,18 +109,13 @@ export function ServiceChargeSettingsForm({
   settings: HrServiceChargeSettings;
   positions?: BenefitsPositionOption[];
 }) {
-  const [departments, setDepartments] = useState<BenefitDepartmentShare[]>(
-    settings.departmentShares,
-  );
   const [tiers, setTiers] = useState<BenefitPointTier[]>(settings.pointTiers);
   const [disciplinary, setDisciplinary] = useState<
     GratuityDisciplinaryDeduction[]
   >(settings.disciplinaryDeductions);
 
-  const deptJson = useMemo(() => JSON.stringify(departments), [departments]);
   const tiersJson = useMemo(() => JSON.stringify(tiers), [tiers]);
   const discJson = useMemo(() => JSON.stringify(disciplinary), [disciplinary]);
-  const deptTotal = departments.reduce((s, d) => s + Number(d.percent || 0), 0);
 
   return (
     <div className="rounded-xl border border-black/10 bg-white p-5 shadow-sm">
@@ -130,17 +123,17 @@ export function ServiceChargeSettingsForm({
         Service charge policy
       </h2>
       <p className="mt-1 text-sm text-black/55">
-        Distribution rules for service charge settlements. Collection amounts
-        come from Sales; staff weighting uses points, worked days, and
-        disciplinary status.
+        Distribution rules for service charge settlements.{" "}
+        {settings.staffDistributablePercent}% of collections is paid to staff by
+        points × worked days, less any disciplinary deduction; the rest is held
+        for venue expenses.
       </p>
 
       <GuardedSettingsForm
         action={saveHrServiceChargeSettings}
         className="mt-6 space-y-3"
-        watch={{ deptJson, tiersJson, discJson }}
+        watch={{ tiersJson, discJson }}
       >
-        <input type="hidden" name="department_shares_json" value={deptJson} />
         <input type="hidden" name="point_tiers_json" value={tiersJson} />
         <input type="hidden" name="disciplinary_json" value={discJson} />
 
@@ -203,86 +196,27 @@ export function ServiceChargeSettingsForm({
           </div>
         </Section>
 
-        <Section title="Pool deductions">
+        <Section
+          title="Staff vs expenses split"
+          description="Only the staff share is distributed. The remainder is held for other venue expenses."
+        >
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="OS&E / breakages %">
+            <Field
+              label="Staff distributable %"
+              hint="Default 50%. Remainder is expenses reserve."
+            >
               <Input
                 type="number"
                 step="0.1"
-                name="pool_ose_deduct_percent"
-                defaultValue={settings.poolOseDeductPercent}
-                className="h-8"
-                required
-              />
-            </Field>
-            <Field label="Staff activities %">
-              <Input
-                type="number"
-                step="0.1"
-                name="pool_staff_activities_deduct_percent"
-                defaultValue={settings.poolStaffActivitiesDeductPercent}
+                min={0}
+                max={100}
+                name="staff_distributable_percent"
+                defaultValue={settings.staffDistributablePercent}
                 className="h-8"
                 required
               />
             </Field>
           </div>
-        </Section>
-
-        <Section title="Departmental redistribution">
-          <BenefitsSettingsEditor
-            columns={[
-              { key: "label", label: "Department" },
-              { key: "percent", label: "Share %", className: "text-right" },
-            ]}
-            rows={departments.map((dept, index) => ({
-              id: dept.key || `dept-${index}`,
-              cells: [
-                <Input
-                  key="label"
-                  value={dept.label}
-                  onChange={(e) => {
-                    const next = [...departments];
-                    next[index] = { ...dept, label: e.target.value };
-                    setDepartments(next);
-                  }}
-                  className={benefitsListInputClass()}
-                />,
-                <Input
-                  key="percent"
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  max={100}
-                  value={dept.percent}
-                  onChange={(e) => {
-                    const next = [...departments];
-                    next[index] = {
-                      ...dept,
-                      percent: Number(e.target.value) || 0,
-                    };
-                    setDepartments(next);
-                  }}
-                  className={benefitsListInputClass("text-right tabular-nums")}
-                />,
-              ],
-            }))}
-            onRemove={(index) =>
-              setDepartments(departments.filter((_, i) => i !== index))
-            }
-            canRemove={() => departments.length > 1}
-            onAdd={() =>
-              setDepartments([
-                ...departments,
-                {
-                  key: `dept_${departments.length + 1}`,
-                  label: "New department",
-                  percent: 0,
-                },
-              ])
-            }
-            addLabel="Add department"
-            footer={<BenefitsPercentTotalBadge total={deptTotal} />}
-          />
         </Section>
 
         <Section title="Points system">

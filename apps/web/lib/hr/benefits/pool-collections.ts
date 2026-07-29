@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { sumAed5RoundingRemainder } from "./rounding";
 
 export type BenefitPoolCollectionsRow = {
   id: string;
@@ -22,6 +23,8 @@ export type GratuityRunPoolHint = {
   benefitMonth: string;
   status: string;
   poolGross: number;
+  /** AED 5 payout remainders; null when the run has no allocations to derive them from. */
+  roundingCollected: number | null;
 };
 
 function round2(n: number): number {
@@ -79,6 +82,68 @@ function parseGratuityPoolGross(totals: unknown): number | null {
   return Number.isFinite(gross) && gross > 0 ? gross : null;
 }
 
+function parseGratuityRoundingCollected(totals: unknown): number | null {
+  if (!totals || typeof totals !== "object") return null;
+  const pool = (totals as Record<string, unknown>).pool as
+    | Record<string, unknown>
+    | undefined;
+  if (pool?.roundingCollected == null) return null;
+  const value = Number(pool.roundingCollected);
+  return Number.isFinite(value) ? Math.max(0, value) : null;
+}
+
+function parseGratuityContributorStaffIds(totals: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!totals || typeof totals !== "object") return ids;
+  const contributors = (totals as Record<string, unknown>).contributors;
+  if (!Array.isArray(contributors)) return ids;
+  for (const entry of contributors) {
+    const staffId = (entry as { staffId?: unknown } | null)?.staffId;
+    if (typeof staffId === "string" && staffId) ids.add(staffId);
+  }
+  return ids;
+}
+
+/**
+ * Rounding remainders for runs calculated before the total was persisted.
+ * Mirrors the run page: contributors round on retained tips, others on payout.
+ */
+async function roundingCollectedFromAllocations(
+  service: SupabaseClient,
+  venueId: string,
+  runIds: string[],
+  contributorStaffIdsByRun: Map<string, Set<string>>,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (runIds.length === 0) return out;
+
+  const { data, error } = await service
+    .from("hr_benefit_allocations")
+    .select("run_id, staff_id, amount, meta")
+    .eq("venue_id", venueId)
+    .in("run_id", runIds);
+
+  if (error || !data) return out;
+
+  const amountsByRun = new Map<string, number[]>();
+  for (const row of data) {
+    const runId = String(row.run_id);
+    const contributors = contributorStaffIdsByRun.get(runId);
+    const meta = (row.meta ?? {}) as { retain?: unknown };
+    const amount = contributors?.has(String(row.staff_id))
+      ? asAmount(meta.retain)
+      : asAmount(row.amount);
+    const list = amountsByRun.get(runId) ?? [];
+    list.push(amount);
+    amountsByRun.set(runId, list);
+  }
+
+  for (const [runId, amounts] of amountsByRun) {
+    out.set(runId, sumAed5RoundingRemainder(amounts));
+  }
+  return out;
+}
+
 /** Policy % of gratuity run general pool gross. */
 export function suggestedPoolCollectionsFromGratuityRun(
   hint: GratuityRunPoolHint,
@@ -91,7 +156,13 @@ export function suggestedPoolCollectionsFromGratuityRun(
     activitiesPercent,
     recorded: null,
   });
-  return { oseAmount: ose, staffActivitiesAmount: activities, roundingAmount: 0 };
+  return {
+    oseAmount: ose,
+    staffActivitiesAmount: activities,
+    ...(hint.roundingCollected == null
+      ? {}
+      : { roundingAmount: hint.roundingCollected }),
+  };
 }
 
 export async function listGratuityRunPoolHintsByMonth(
@@ -113,18 +184,42 @@ export async function listGratuityRunPoolHintsByMonth(
   }
 
   const out: Record<string, GratuityRunPoolHint> = {};
+  const contributorStaffIdsByRun = new Map<string, Set<string>>();
   for (const row of data ?? []) {
     const monthKey = String(row.benefit_month).slice(0, 7);
     const poolGross = parseGratuityPoolGross(row.totals);
     if (poolGross == null) continue;
 
+    const runId = row.id as string;
+    contributorStaffIdsByRun.set(
+      runId,
+      parseGratuityContributorStaffIds(row.totals),
+    );
     out[monthKey] = {
-      runId: row.id as string,
+      runId,
       benefitMonth: String(row.benefit_month).slice(0, 10),
       status: String(row.status),
       poolGross,
+      roundingCollected: parseGratuityRoundingCollected(row.totals),
     };
   }
+
+  const legacyRunIds = Object.values(out)
+    .filter((hint) => hint.roundingCollected == null)
+    .map((hint) => hint.runId);
+  if (legacyRunIds.length > 0) {
+    const derived = await roundingCollectedFromAllocations(
+      service,
+      venueId,
+      legacyRunIds,
+      contributorStaffIdsByRun,
+    );
+    for (const hint of Object.values(out)) {
+      const value = derived.get(hint.runId);
+      if (value != null) hint.roundingCollected = value;
+    }
+  }
+
   return out;
 }
 

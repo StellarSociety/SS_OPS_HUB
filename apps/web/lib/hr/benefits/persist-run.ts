@@ -24,6 +24,36 @@ import {
 
 type ServiceClient = SupabaseClient;
 
+/** Venue ASPH target from Sales Forecast for YYYY-MM / YYYY-MM-01. */
+export async function loadForecastVenueAsphForMonth(
+  service: ServiceClient,
+  venueId: string,
+  benefitMonth: string,
+): Promise<number | null> {
+  const monthKey = String(benefitMonth).slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return null;
+  const { data, error } = await service
+    .from("venue_monthly_forecasts")
+    .select("forecast_venue_asph")
+    .eq("venue_id", venueId)
+    .eq("month_key", monthKey)
+    .maybeSingle();
+  if (error || !data) return null;
+  const n = Number(data.forecast_venue_asph);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function readAsphKpiThresholdFromSnapshot(
+  snapshot: unknown,
+): number | null | undefined {
+  if (!snapshot || typeof snapshot !== "object") return undefined;
+  const raw = (snapshot as Record<string, unknown>).asphKpiThreshold;
+  if (raw === null) return null;
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 type StaffBenefitRow = {
   id: string;
   emp_no: string | null;
@@ -370,6 +400,36 @@ export async function persistCalculatedBenefitRun(args: {
       snapshot.departmentAllocationMode === "equal_point_value" ||
       snapshot.departmentAllocationMode === "bypass_department";
 
+    const forecastAsph = await loadForecastVenueAsphForMonth(
+      service,
+      venueId,
+      benefitMonth,
+    );
+    const storedThreshold = readAsphKpiThresholdFromSnapshot(snapshot);
+    const asphKpiThreshold =
+      storedThreshold !== undefined ? storedThreshold : forecastAsph;
+
+    // Keep run snapshot in sync so the Contributors UI can show / edit the value.
+    if (
+      storedThreshold === undefined ||
+      snapshot.forecastAsphKpiThreshold !== forecastAsph
+    ) {
+      const nextSnapshot = {
+        ...snapshot,
+        asphKpiThreshold,
+        forecastAsphKpiThreshold: forecastAsph,
+      };
+      await service
+        .from("hr_benefit_runs")
+        .update({
+          settings_snapshot: nextSnapshot,
+          updated_by: userId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", runId)
+        .eq("venue_id", venueId);
+    }
+
     const result = calculateGratuityRun({
       settings,
       periodStart,
@@ -379,14 +439,24 @@ export async function persistCalculatedBenefitRun(args: {
       scheduleDays,
       poolCollections,
       equalizeDepartmentPointValue,
+      asphKpiThreshold,
     });
 
-    warnings = result.warnings;
+    warnings = [...result.warnings];
+    if (
+      settings.waiterCcTipOutMode === "asph_kpi" &&
+      settings.asphKpiEnabled &&
+      (asphKpiThreshold == null || asphKpiThreshold <= 0)
+    ) {
+      warnings.push(
+        "ASPH KPI tip-out is active but no venue ASPH target is set for this month (Sales → Forecast). Using the missed-KPI tip-out % for all waiters until a threshold is set.",
+      );
+    }
     totals = {
       ...result.totals,
       pool: result.pool,
       contributors: result.contributors,
-      warnings: result.warnings,
+      warnings,
     };
     poolMeta = { pool: result.pool, warnings };
 
@@ -408,17 +478,11 @@ export async function persistCalculatedBenefitRun(args: {
       periodStart,
       periodEnd,
     );
-    const scSnapshot =
-      (run.settings_snapshot as Record<string, unknown> | null) ?? {};
     const result = calculateServiceChargeRun({
       settings,
       serviceChargeCollected: collected,
       staff,
       scheduleDays,
-      poolCollections,
-      equalizeDepartmentPointValue:
-        scSnapshot.departmentAllocationMode === "equal_point_value" ||
-        scSnapshot.departmentAllocationMode === "bypass_department",
     });
     warnings = result.warnings;
     totals = { ...result.totals, warnings };

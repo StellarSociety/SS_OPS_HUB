@@ -10,6 +10,7 @@ import {
 } from "./match";
 import { resolveBenefitPointsForStaff } from "./points";
 import { resolvePoolDeductions } from "./pool-collections";
+import { sumAed5RoundingRemainder } from "./rounding";
 import { countBenefitsWorkedDays } from "./worked-days";
 
 export type GratuityStaffInput = {
@@ -66,12 +67,18 @@ export type GratuityCalcResult = {
     waiterCashTipOut: number;
     waiterCcTipOut: number;
     barCcToPool: number;
+    /** Bar CC share distributed internally among bar staff (SOP 6.2). */
+    barCcToBarStaff: number;
+    /** Bar cash tips split equally among bar staff (SOP 6.1). */
+    barCashToBarStaff: number;
     /** Retain withheld from contributors via disciplinary % → pool. */
     disciplinaryFromContributors: number;
     runnerHousekeeperFund: number;
     gross: number;
     ose: number;
     activities: number;
+    /** Remainders left over after flooring each individual payout to AED 5. */
+    roundingCollected: number;
     net: number;
     byDepartment: Record<string, number>;
   };
@@ -179,6 +186,7 @@ export function calculateGratuityRun(input: {
   let waiterCashTipOut = 0;
   let waiterCcTipOut = 0;
   let barCcToPool = 0;
+  let barCcBarStaffFund = 0;
   let runnerHousekeeperFund = 0;
 
   const allocations: GratuityAllocationResult[] = [];
@@ -244,19 +252,16 @@ export function calculateGratuityRun(input: {
     const bar = isBarRole(row.position);
 
     if (bar) {
+      // SOP 6: bar collections are never retained by the collector. CC splits
+      // between the general pool and a bar-staff fund; cash is split equally
+      // among bar staff. Both funds are distributed further below.
       barCashCollected += cash;
       barCcCollected += cc;
       const poolShare = round2((cc * settings.barCcPoolPercent) / 100);
       const barShare = round2((cc * settings.barCcBarStaffPercent) / 100);
       barCcToPool += poolShare;
+      barCcBarStaffFund = round2(barCcBarStaffFund + barShare);
       if (row.staff_id) {
-        addRetained(row.staff_id, barShare, { source: "bar_cc_retain" });
-        if (settings.barCashEqualSplit) {
-          // Cash equal-split among bar staff is applied later as a group.
-          addRetained(row.staff_id, 0, {});
-        } else {
-          addRetained(row.staff_id, cash, { source: "bar_cash" });
-        }
         const prev = waiterMetaByStaff.get(row.staff_id) ?? {};
         waiterMetaByStaff.set(row.staff_id, {
           ...prev,
@@ -264,13 +269,9 @@ export function calculateGratuityRun(input: {
           cashCollected: (Number(prev.cashCollected) || 0) + cash,
           ccCollected: (Number(prev.ccCollected) || 0) + cc,
           barCcPool: (Number(prev.barCcPool) || 0) + poolShare,
-          barCcRetain: (Number(prev.barCcRetain) || 0) + barShare,
-          barCash: (Number(prev.barCash) || 0) + cash,
+          barCcToBarStaff: (Number(prev.barCcToBarStaff) || 0) + barShare,
+          barCashCollected: (Number(prev.barCashCollected) || 0) + cash,
         });
-      } else if (cash > 0 || cc > 0) {
-        warnings.push(
-          `Bar waiter "${row.waiter_name}" has tips but is not linked to staff.`,
-        );
       }
       addContributor({
         key: row.staff_id || `waiter:${row.waiter_id}`,
@@ -279,7 +280,7 @@ export function calculateGratuityRun(input: {
         position: row.position,
         cash,
         cc,
-        toPool: poolShare,
+        toPool: round2(poolShare + barShare + cash),
       });
       continue;
     }
@@ -288,39 +289,51 @@ export function calculateGratuityRun(input: {
     waiterCashCollected += cash;
     waiterCcCollected += cc;
 
-    const cashRetain = round2((cash * settings.waiterCashRetainPercent) / 100);
+    const cashAfterTipOut = round2(
+      (cash * settings.waiterCashRetainPercent) / 100,
+    );
     const cashPool = round2((cash * settings.waiterCashPoolPercent) / 100);
     waiterCashTipOut += cashPool;
 
     let tipOut = 0;
+    let ccTipOutPercent = 0;
+    let asphKpiMet: boolean | null = null;
+    const waiterAsph = asph(sales, covers);
     if (settings.waiterCcTipOutMode === "asph_kpi") {
       const rate = (() => {
         if (!settings.asphKpiEnabled) {
+          asphKpiMet = null;
           return settings.waiterCcTipOutPctWhenKpiMissed;
         }
-        const value = asph(sales, covers);
         const threshold = input.asphKpiThreshold;
-        if (value == null || threshold == null) {
+        if (waiterAsph == null || threshold == null) {
+          asphKpiMet = null;
           return settings.waiterCcTipOutPctWhenKpiMissed;
         }
-        return value >= threshold
+        asphKpiMet = waiterAsph >= threshold;
+        return asphKpiMet
           ? settings.waiterCcTipOutPctWhenKpiMet
           : settings.waiterCcTipOutPctWhenKpiMissed;
       })();
+      ccTipOutPercent = rate;
       tipOut = round2((sales * rate) / 100);
       // Tip-out cannot exceed CC collection for the period
       tipOut = Math.min(tipOut, cc);
     } else {
+      ccTipOutPercent = settings.waiterCcCollectionTipOutPercent;
       tipOut = round2((cc * settings.waiterCcCollectionTipOutPercent) / 100);
     }
 
     waiterCcTipOut += tipOut;
     const ccAfterTipOut = Math.max(0, round2(cc - tipOut));
-    const runnerCut = round2(
-      (ccAfterTipOut * settings.runnerHousekeeperDeductPercent) / 100,
-    );
+    // Runner / HK fund: % of cash and CC balances remaining after tip-out.
+    const runnerPct = settings.runnerHousekeeperDeductPercent;
+    const runnerCutCash = round2((cashAfterTipOut * runnerPct) / 100);
+    const runnerCutCc = round2((ccAfterTipOut * runnerPct) / 100);
+    const runnerCut = round2(runnerCutCash + runnerCutCc);
     runnerHousekeeperFund += runnerCut;
-    const waiterCcRetain = round2(ccAfterTipOut - runnerCut);
+    const cashRetain = round2(cashAfterTipOut - runnerCutCash);
+    const waiterCcRetain = round2(ccAfterTipOut - runnerCutCc);
 
     if (row.staff_id) {
       addRetained(row.staff_id, cashRetain + waiterCcRetain, {
@@ -331,13 +344,19 @@ export function calculateGratuityRun(input: {
         cashCollected: cash,
         ccCollected: cc,
         cashRetain,
+        cashAfterTipOut,
         cashPool,
         ccTipOut: tipOut,
+        ccTipOutPercent,
+        asphKpiMet,
+        asphKpiThreshold: input.asphKpiThreshold ?? null,
         runnerCut,
+        runnerCutCash,
+        runnerCutCc,
         ccRetain: waiterCcRetain,
         sales,
         covers,
-        asph: asph(sales, covers),
+        asph: waiterAsph,
         tipOutMode: settings.waiterCcTipOutMode,
       });
     } else if (cash > 0 || cc > 0) {
@@ -354,32 +373,6 @@ export function calculateGratuityRun(input: {
       cc,
       toPool: round2(cashPool + tipOut),
     });
-  }
-
-  // Equal-split bar cash among linked bar staff (if enabled)
-  if (settings.barCashEqualSplit && barCashCollected > 0) {
-    const barStaffIds = [
-      ...new Set(
-        waiterSales
-          .filter((w) => isBarRole(w.position) && w.staff_id)
-          .map((w) => w.staff_id as string),
-      ),
-    ];
-    if (barStaffIds.length > 0) {
-      const each = round2(barCashCollected / barStaffIds.length);
-      for (const id of barStaffIds) {
-        addRetained(id, each, { source: "bar_cash_equal" });
-        const prev = waiterMetaByStaff.get(id) ?? {};
-        waiterMetaByStaff.set(id, {
-          ...prev,
-          barCashEqualShare: each,
-        });
-      }
-    } else if (barCashCollected > 0) {
-      warnings.push(
-        "Bar cash tips collected but no bar waiters are linked to staff.",
-      );
-    }
   }
 
   // Apply contributor disciplinary deductions to retain → general tips pool.
@@ -410,17 +403,56 @@ export function calculateGratuityRun(input: {
   }
 
   const tipPoolGross = round2(waiterCashTipOut + waiterCcTipOut + barCcToPool);
-  const deductions = resolvePoolDeductions({
+  const poolDeductions = resolvePoolDeductions({
     poolGross: tipPoolGross,
     osePercent: settings.poolOseDeductPercent,
     activitiesPercent: settings.poolStaffActivitiesDeductPercent,
     recorded: input.poolCollections ?? null,
   });
-  const ose = deductions.ose;
-  const activities = deductions.activities;
+
+  // Also deduct OS&E / staff-activities % from each contributor's retain
+  // (after disciplinary), and add those cuts to the deduction totals.
+  let retainOse = 0;
+  let retainActivities = 0;
+  const osePct = Math.max(0, Number(settings.poolOseDeductPercent) || 0);
+  const activitiesPct = Math.max(
+    0,
+    Number(settings.poolStaffActivitiesDeductPercent) || 0,
+  );
+  for (const contrib of contributorAcc.values()) {
+    const staffId = contrib.staffId;
+    if (!staffId) continue;
+    const retain = retainedByStaff.get(staffId) ?? 0;
+    if (retain <= 0) continue;
+    const oseCut = round2((retain * osePct) / 100);
+    const activitiesCut = round2((retain * activitiesPct) / 100);
+    const cut = round2(oseCut + activitiesCut);
+    if (cut <= 0) continue;
+    retainedByStaff.set(staffId, Math.max(0, round2(retain - cut)));
+    retainOse = round2(retainOse + oseCut);
+    retainActivities = round2(retainActivities + activitiesCut);
+    const prev = waiterMetaByStaff.get(staffId) ?? {};
+    waiterMetaByStaff.set(staffId, {
+      ...prev,
+      oseRetainCut: oseCut,
+      activitiesRetainCut: activitiesCut,
+      retainBeforePoolDeductions: retain,
+    });
+  }
+
+  const ose = round2(poolDeductions.ose + retainOse);
+  const activities = round2(poolDeductions.activities + retainActivities);
   // Disciplinary cuts from contributors join the distributable pool in full.
+  // Only the pool-side OS&E / activities leave the tip pool (retain-side cuts
+  // come from contributor retain, not from poolGross).
   const poolGross = round2(tipPoolGross + disciplinaryFromContributors);
-  const poolNet = round2(tipPoolGross - ose - activities + disciplinaryFromContributors);
+  const generalNet = round2(
+    tipPoolGross -
+      poolDeductions.ose -
+      poolDeductions.activities +
+      disciplinaryFromContributors,
+  );
+  const poolNet = generalNet;
 
   const byDepartment: Record<string, number> = {};
   for (const share of settings.departmentShares) {
@@ -468,9 +500,41 @@ export function calculateGratuityRun(input: {
   const poolPayByStaff = new Map<string, number>();
   const totalPoolWeight = weights.reduce((s, r) => s + r.weight, 0);
 
+  function addPoolPay(staffId: string, amount: number) {
+    if (amount <= 0) {
+      if (!poolPayByStaff.has(staffId)) poolPayByStaff.set(staffId, 0);
+      return;
+    }
+    poolPayByStaff.set(
+      staffId,
+      round2((poolPayByStaff.get(staffId) ?? 0) + amount),
+    );
+  }
+
+  function distributeAmountToRows(amount: number, rows: WeightRow[]) {
+    const totalWeight = rows.reduce((s, r) => s + r.weight, 0);
+    if (totalWeight <= 0 || amount <= 0) {
+      for (const row of rows) {
+        if (!poolPayByStaff.has(row.staff.id)) {
+          poolPayByStaff.set(row.staff.id, 0);
+        }
+      }
+      return;
+    }
+    for (const row of rows) {
+      if (row.weight <= 0) {
+        if (!poolPayByStaff.has(row.staff.id)) {
+          poolPayByStaff.set(row.staff.id, 0);
+        }
+        continue;
+      }
+      addPoolPay(row.staff.id, round2((amount * row.weight) / totalWeight));
+    }
+  }
+
   if (equalizeDepartmentPointValue) {
-    // One global point rate across departments — 1 pt value is identical.
-    if (totalPoolWeight > 0 && poolNet > 0) {
+    // One global point rate across departments for the general (non-bar) pool.
+    if (totalPoolWeight > 0 && generalNet > 0) {
       for (const row of weights) {
         if (row.weight <= 0) {
           if (!poolPayByStaff.has(row.staff.id)) {
@@ -480,7 +544,7 @@ export function calculateGratuityRun(input: {
         }
         poolPayByStaff.set(
           row.staff.id,
-          round2((poolNet * row.weight) / totalPoolWeight),
+          round2((generalNet * row.weight) / totalPoolWeight),
         );
       }
     } else {
@@ -495,7 +559,7 @@ export function calculateGratuityRun(input: {
       const deptWeight = rows.reduce((s, r) => s + r.weight, 0);
       byDepartment[share.key] =
         totalPoolWeight > 0
-          ? round2((poolNet * deptWeight) / totalPoolWeight)
+          ? round2((generalNet * deptWeight) / totalPoolWeight)
           : 0;
     }
   } else {
@@ -507,7 +571,7 @@ export function calculateGratuityRun(input: {
       const pct = Math.max(0, Number(share.percent) || 0);
       byDepartment[share.key] =
         departmentShareWeight > 0
-          ? round2((poolNet * pct) / departmentShareWeight)
+          ? round2((generalNet * pct) / departmentShareWeight)
           : 0;
     }
 
@@ -531,18 +595,89 @@ export function calculateGratuityRun(input: {
         }
         continue;
       }
-      for (const row of rows) {
-        if (row.weight <= 0) {
-          if (!poolPayByStaff.has(row.staff.id)) {
-            poolPayByStaff.set(row.staff.id, 0);
+      distributeAmountToRows(deptAmount, rows);
+    }
+  }
+
+  // Bar funds (SOP 6) — paid to bar staff regardless of department mode.
+  // 6.1 cash: equal split. 6.2 CC bar share: points × worked days × disciplinary.
+  const barStaff = staff.filter((s) => {
+    if (!entitled(s, settings)) return false;
+    if (!isBarRole(s.position_name, s.department_name)) return false;
+    const labels = scheduleByStaff.get(s.id) ?? [];
+    return countBenefitsWorkedDays(labels, settings) > 0;
+  });
+  let barCashToBarStaff = 0;
+
+  if (barCashCollected > 0 || barCcBarStaffFund > 0) {
+    if (barStaff.length === 0) {
+      warnings.push(
+        `Bar tips of ${round2(barCashCollected + barCcBarStaffFund).toFixed(2)} AED could not be distributed — no bar staff with worked days for this period.`,
+      );
+    } else {
+      const barRows: WeightRow[] = barStaff.map((s) => {
+        const labels = scheduleByStaff.get(s.id) ?? [];
+        const workedDays = countBenefitsWorkedDays(labels, settings);
+        const points = pointsForStaff(s, settings);
+        const discMult = disciplinaryMultiplier(s.warning_level, settings);
+        return {
+          staff: s,
+          deptKey:
+            matchDepartmentShareKey(
+              s.department_name,
+              settings.departmentShares,
+            ) ?? "",
+          points,
+          workedDays,
+          weight: Math.max(0, points * workedDays * discMult),
+          discMult,
+        };
+      });
+      const barWeight = barRows.reduce((sum, r) => sum + r.weight, 0);
+
+      if (barCashCollected > 0) {
+        if (settings.barCashEqualSplit) {
+          const each = round2(barCashCollected / barStaff.length);
+          for (const s of barStaff) {
+            addPoolPay(s.id, each);
+            const prev = waiterMetaByStaff.get(s.id) ?? {};
+            waiterMetaByStaff.set(s.id, { ...prev, barCashShare: each });
           }
-          continue;
+          barCashToBarStaff = round2(each * barStaff.length);
+        } else if (barWeight > 0) {
+          distributeAmountToRows(barCashCollected, barRows);
+          for (const r of barRows) {
+            const prev = waiterMetaByStaff.get(r.staff.id) ?? {};
+            waiterMetaByStaff.set(r.staff.id, {
+              ...prev,
+              barCashShare: round2((barCashCollected * r.weight) / barWeight),
+            });
+          }
+          barCashToBarStaff = round2(barCashCollected);
+        } else {
+          warnings.push(
+            `Bar cash tips of ${barCashCollected.toFixed(2)} AED could not be distributed — all bar staff weights are zero.`,
+          );
         }
-        const amount = round2((deptAmount * row.weight) / totalWeight);
-        poolPayByStaff.set(
-          row.staff.id,
-          (poolPayByStaff.get(row.staff.id) ?? 0) + amount,
-        );
+      }
+
+      if (barCcBarStaffFund > 0) {
+        if (barWeight <= 0) {
+          warnings.push(
+            `Bar CC staff share of ${barCcBarStaffFund.toFixed(2)} AED could not be distributed — all bar staff weights are zero.`,
+          );
+        } else {
+          distributeAmountToRows(barCcBarStaffFund, barRows);
+          for (const r of barRows) {
+            const prev = waiterMetaByStaff.get(r.staff.id) ?? {};
+            waiterMetaByStaff.set(r.staff.id, {
+              ...prev,
+              barCcFundShare: round2(
+                (barCcBarStaffFund * r.weight) / barWeight,
+              ),
+            });
+          }
+        }
       }
     }
   }
@@ -673,6 +808,25 @@ export function calculateGratuityRun(input: {
     }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
+  // Contributors are paid their retained tips; everyone else is paid a pool share.
+  // Both are floored to AED 5 on payout, so both leave a remainder behind.
+  const contributorStaffIds = new Set(
+    contributors
+      .map((c) => c.staffId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  // amount = retain + pool share, so it is the payable figure for both
+  // retain-only contributors and staff paid from the pool / bar funds.
+  const payoutAmounts: number[] = allocations.map(
+    (allocation) => allocation.amount,
+  );
+  const allocatedStaffIds = new Set(allocations.map((a) => a.staff_id));
+  for (const staffId of contributorStaffIds) {
+    if (allocatedStaffIds.has(staffId)) continue;
+    payoutAmounts.push(retainedByStaff.get(staffId) ?? 0);
+  }
+  const roundingCollected = sumAed5RoundingRemainder(payoutAmounts);
+
   const totals: BenefitRunTotals = {
     recipientCount: allocations.length,
     poolGross,
@@ -693,11 +847,14 @@ export function calculateGratuityRun(input: {
       waiterCashTipOut: round2(waiterCashTipOut),
       waiterCcTipOut: round2(waiterCcTipOut),
       barCcToPool: round2(barCcToPool),
+      barCcToBarStaff: round2(barCcBarStaffFund),
+      barCashToBarStaff: round2(barCashToBarStaff),
       disciplinaryFromContributors: round2(disciplinaryFromContributors),
       runnerHousekeeperFund: round2(runnerHousekeeperFund),
       gross: poolGross,
       ose,
       activities,
+      roundingCollected,
       net: poolNet,
       byDepartment,
     },

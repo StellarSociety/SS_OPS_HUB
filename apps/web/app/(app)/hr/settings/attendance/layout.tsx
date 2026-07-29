@@ -13,7 +13,7 @@ export default function HrAttendanceSettingsLayout({
         description="Schedule, attendance, and leave settings used on the roster and attendance modules."
       />
       <HrAttendanceSettingsSubNav />
-      <div className="w-2/3">{children}</div>
+      <div className="w-full xl:w-2/3">{children}</div>
     </div>
   );
 }

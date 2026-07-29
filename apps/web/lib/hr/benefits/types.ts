@@ -39,6 +39,12 @@ export type BenefitRunTotals = {
   barCashCollected?: number;
   barCcCollected?: number;
   serviceChargeCollected?: number;
+  /** Portion of collected reserved for venue expenses (not staff). */
+  serviceChargeExpensesReserve?: number;
+  /** Portion of collected allocated to the staff distribution pool. */
+  serviceChargeStaffPool?: number;
+  /** Policy % of collected that goes to staff (e.g. 50). */
+  serviceChargeStaffDistributablePercent?: number;
 };
 
 /** Waiters / bar staff who contributed tip collections into the distribution pool. */
@@ -158,10 +164,11 @@ export type HrServiceChargeSettings = {
   distributionDayOfMonth: number;
   distributionMonthOffset: number;
 
-  /** Optional flat venue deduction before departmental split. */
-  poolOseDeductPercent: number;
-  poolStaffActivitiesDeductPercent: number;
-  departmentShares: BenefitDepartmentShare[];
+  /**
+   * % of collected service charge paid to staff.
+   * Remainder is held for venue expenses (not distributed).
+   */
+  staffDistributablePercent: number;
   pointTiers: BenefitPointTier[];
   includeRegularDaysOffInWorkedDays: boolean;
   includePublicHolidaysInWorkedDays: boolean;
@@ -241,9 +248,7 @@ export const DEFAULT_HR_SERVICE_CHARGE_SETTINGS: HrServiceChargeSettings = {
   periodEndDay: 31,
   distributionDayOfMonth: 15,
   distributionMonthOffset: 1,
-  poolOseDeductPercent: 0,
-  poolStaffActivitiesDeductPercent: 0,
-  departmentShares: DEFAULT_GRATUITY_DEPARTMENT_SHARES.map((d) => ({ ...d })),
+  staffDistributablePercent: 50,
   pointTiers: DEFAULT_GRATUITY_POINT_TIERS.map((t) => ({ ...t })),
   includeRegularDaysOffInWorkedDays: true,
   includePublicHolidaysInWorkedDays: true,
@@ -401,14 +406,19 @@ export function mergeServiceChargeSettings(
       ? p.periodMode
       : base.periodMode;
 
+  const staffDistributablePercent = Math.min(
+    100,
+    Math.max(
+      0,
+      asNumber(p.staffDistributablePercent, base.staffDistributablePercent),
+    ),
+  );
+
   return {
     ...base,
     ...p,
     periodMode,
-    departmentShares: mergeDepartmentShares(
-      p.departmentShares,
-      base.departmentShares,
-    ),
+    staffDistributablePercent,
     pointTiers: mergePointTiers(p.pointTiers, base.pointTiers),
     disciplinaryDeductions: mergeDisciplinary(
       p.disciplinaryDeductions,

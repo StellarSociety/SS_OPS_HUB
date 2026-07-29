@@ -3,11 +3,7 @@ import type {
   DisciplinaryWarningLevel,
   HrServiceChargeSettings,
 } from "./types";
-import {
-  matchDepartmentShareKey,
-} from "./match";
 import { resolveBenefitPointsForStaff } from "./points";
-import { resolvePoolDeductions } from "./pool-collections";
 import { countBenefitsWorkedDays } from "./worked-days";
 
 export type ServiceChargeStaffInput = {
@@ -89,42 +85,29 @@ function pointsForStaff(
 }
 
 /**
- * Distribute venue service-charge collections by department / points / worked days.
+ * Distribute venue service-charge collections:
+ * 1. Split collected into the staff pool % vs the venue expenses reserve
+ * 2. Pay every eligible staff member by points × worked days × (1 − disciplinary %)
+ *
+ * The whole staff pool is paid out — departments and tip-pool deductions
+ * play no part in service charge.
  */
 export function calculateServiceChargeRun(input: {
   settings: HrServiceChargeSettings;
   serviceChargeCollected: number;
   staff: ServiceChargeStaffInput[];
   scheduleDays: ServiceChargeScheduleDayInput[];
-  /** Recorded OS&E / activities collections for the benefit month (overrides policy %). */
-  poolCollections?: {
-    oseAmount: number;
-    staffActivitiesAmount: number;
-  } | null;
-  /** When true, pay one global AED-per-point rate across departments. */
-  equalizeDepartmentPointValue?: boolean;
 }): ServiceChargeCalcResult {
   const { settings, staff, scheduleDays } = input;
-  const equalizeDepartmentPointValue = Boolean(
-    input.equalizeDepartmentPointValue,
-  );
   const warnings: string[] = [];
   const collected = Math.max(0, Number(input.serviceChargeCollected) || 0);
-
-  const deductions = resolvePoolDeductions({
-    poolGross: collected,
-    osePercent: settings.poolOseDeductPercent,
-    activitiesPercent: settings.poolStaffActivitiesDeductPercent,
-    recorded: input.poolCollections ?? null,
-  });
-  const ose = deductions.ose;
-  const activities = deductions.activities;
-  const poolNet = round2(collected - ose - activities);
-
-  const byDepartment: Record<string, number> = {};
-  for (const share of settings.departmentShares) {
-    byDepartment[share.key] = 0;
-  }
+  const staffPct = Math.min(
+    100,
+    Math.max(0, Number(settings.staffDistributablePercent) || 0),
+  );
+  const staffPoolGross = round2((collected * staffPct) / 100);
+  const expensesReserve = round2(collected - staffPoolGross);
+  const poolNet = staffPoolGross;
 
   const scheduleByStaff = new Map<string, string[]>();
   for (const day of scheduleDays) {
@@ -135,7 +118,6 @@ export function calculateServiceChargeRun(input: {
 
   type WeightRow = {
     staff: ServiceChargeStaffInput;
-    deptKey: string;
     points: number;
     workedDays: number;
     weight: number;
@@ -146,11 +128,6 @@ export function calculateServiceChargeRun(input: {
   const weights: WeightRow[] = [];
   for (const s of staff) {
     if (!entitled(s, settings)) continue;
-    const deptKey = matchDepartmentShareKey(
-      s.department_name,
-      settings.departmentShares,
-    );
-    if (!deptKey || byDepartment[deptKey] == null) continue;
     const labels = scheduleByStaff.get(s.id) ?? [];
     const workedDays = countBenefitsWorkedDays(labels, settings);
     if (workedDays <= 0) continue;
@@ -158,110 +135,59 @@ export function calculateServiceChargeRun(input: {
     const discMult = disciplinaryMultiplier(s.warning_level, settings);
     const discPct = disciplinaryPercent(s.warning_level, settings);
     const weight = Math.max(0, points * workedDays * discMult);
-    weights.push({
-      staff: s,
-      deptKey,
-      points,
-      workedDays,
-      weight,
-      discPct,
-      discMult,
-    });
-  }
-
-  const byDept = new Map<string, WeightRow[]>();
-  for (const row of weights) {
-    const list = byDept.get(row.deptKey) ?? [];
-    list.push(row);
-    byDept.set(row.deptKey, list);
+    weights.push({ staff: s, points, workedDays, weight, discPct, discMult });
   }
 
   const totalPoolWeight = weights.reduce((s, r) => s + r.weight, 0);
-  const allocations: ServiceChargeAllocationResult[] = [];
+  const pointValue = totalPoolWeight > 0 ? poolNet / totalPoolWeight : 0;
 
-  function pushAllocation(
-    row: WeightRow,
-    deptKey: string,
-    amount: number,
-  ) {
-    allocations.push({
+  const amounts = weights.map((row) =>
+    row.weight <= 0 ? 0 : round2(row.weight * pointValue),
+  );
+
+  // Give per-person rounding remainders to the largest share so the payouts
+  // add up to the staff pool to the cent.
+  if (totalPoolWeight > 0) {
+    const residual = round2(poolNet - amounts.reduce((s, a) => s + a, 0));
+    if (residual !== 0) {
+      let topIndex = 0;
+      for (let i = 1; i < weights.length; i += 1) {
+        if (weights[i].weight > weights[topIndex].weight) topIndex = i;
+      }
+      amounts[topIndex] = round2(amounts[topIndex] + residual);
+    }
+  }
+
+  const allocations: ServiceChargeAllocationResult[] = weights.map(
+    (row, index) => ({
       staff_id: row.staff.id,
       benefit_type: "service_charge",
       points: row.points,
       worked_days: row.workedDays,
-      amount,
+      amount: amounts[index],
       meta: {
-        departmentKey: deptKey,
-        departmentLabel:
-          settings.departmentShares.find((d) => d.key === deptKey)?.label ??
-          row.staff.department_name,
+        departmentLabel: row.staff.department_name,
         poolNet,
         collected,
+        staffPoolGross,
+        expensesReserve,
+        staffDistributablePercent: staffPct,
+        pointValue: round2(pointValue),
+        weight: round2(row.weight),
         obtain: 0,
-        poolShare: amount,
+        poolShare: amounts[index],
         warningLevel: row.staff.warning_level ?? null,
         disciplinaryPercent: row.discPct,
         disciplinaryMultiplier: row.discMult,
         pointsOverridden: row.staff.tip_points != null,
       },
-    });
-  }
+    }),
+  );
 
-  if (equalizeDepartmentPointValue) {
-    for (const share of settings.departmentShares) {
-      const rows = byDept.get(share.key) ?? [];
-      const deptWeight = rows.reduce((s, r) => s + r.weight, 0);
-      byDepartment[share.key] =
-        totalPoolWeight > 0
-          ? round2((poolNet * deptWeight) / totalPoolWeight)
-          : 0;
-    }
-    for (const row of weights) {
-      const amount =
-        row.weight <= 0 || totalPoolWeight <= 0
-          ? 0
-          : round2((poolNet * row.weight) / totalPoolWeight);
-      pushAllocation(row, row.deptKey, amount);
-    }
-  } else {
-    const departmentShareWeight = settings.departmentShares.reduce(
-      (s, d) => s + Math.max(0, Number(d.percent) || 0),
-      0,
+  if (poolNet > 0 && totalPoolWeight <= 0) {
+    warnings.push(
+      `Staff pool has ${poolNet.toFixed(2)} AED but no eligible staff with worked days for this period.`,
     );
-    for (const share of settings.departmentShares) {
-      const pct = Math.max(0, Number(share.percent) || 0);
-      byDepartment[share.key] =
-        departmentShareWeight > 0
-          ? round2((poolNet * pct) / departmentShareWeight)
-          : 0;
-    }
-
-    for (const [deptKey, deptAmount] of Object.entries(byDepartment)) {
-      const rows = byDept.get(deptKey) ?? [];
-      const totalWeight = rows.reduce((s, r) => s + r.weight, 0);
-      if (totalWeight <= 0) {
-        for (const row of rows) {
-          pushAllocation(row, deptKey, 0);
-        }
-        if (deptAmount > 0 && rows.length === 0) {
-          warnings.push(
-            `Department "${deptKey}" has ${deptAmount.toFixed(2)} AED but no eligible staff.`,
-          );
-        } else if (deptAmount > 0) {
-          warnings.push(
-            `Department "${deptKey}" has ${deptAmount.toFixed(2)} AED but all staff weights are zero (e.g. full disciplinary deduction).`,
-          );
-        }
-        continue;
-      }
-      for (const row of rows) {
-        const amount =
-          row.weight <= 0
-            ? 0
-            : round2((deptAmount * row.weight) / totalWeight);
-        pushAllocation(row, deptKey, amount);
-      }
-    }
   }
 
   allocations.sort((a, b) => b.amount - a.amount);
@@ -272,10 +198,13 @@ export function calculateServiceChargeRun(input: {
   return {
     totals: {
       recipientCount: allocations.length,
-      poolGross: collected,
+      poolGross: staffPoolGross,
       poolNet,
       totalDistributed,
       serviceChargeCollected: collected,
+      serviceChargeStaffPool: staffPoolGross,
+      serviceChargeExpensesReserve: expensesReserve,
+      serviceChargeStaffDistributablePercent: staffPct,
     },
     allocations,
     warnings,

@@ -51,8 +51,9 @@ export default async function HrBenefitsServiceChargePage() {
       <div>
         <h2 className="font-serif text-lg text-[#3D421F]">Service Charge</h2>
         <p className="text-sm text-black/55">
-          Monthly service charge pool settlement and staff distribution. Source
-          amounts come from sales collections and HR attendance / points rules.
+          Monthly service charge settlement. Half of collections go to staff by
+          points × worked days; the other half is held for venue expenses.
+          Source amounts come from Sales.
         </p>
       </div>
 
