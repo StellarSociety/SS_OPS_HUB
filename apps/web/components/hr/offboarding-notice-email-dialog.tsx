@@ -11,7 +11,10 @@ import {
   sendBoardingNoticeEmail,
 } from "@/lib/actions/hr-boarding-email";
 import type { OffboardingNoticeEmailDelivery } from "@/lib/hr/offboarding-process";
-import type { BoardingEmailAction } from "@/lib/hr/types";
+import {
+  boardingEmailActionLabel,
+  type BoardingEmailAction,
+} from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
 const SEND_STEPS = [
@@ -83,14 +86,9 @@ export function OffboardingNoticeEmailDialog({
   const [delivery, setDelivery] =
     useState<OffboardingNoticeEmailDelivery | null>(null);
 
-  const title =
-    action === "termination_notice"
-      ? editingDraft
-        ? "Edit termination notice"
-        : "Send termination notice email"
-      : editingDraft
-        ? "Edit resignation confirmation"
-        : "Send resignation confirmation email";
+  const title = editingDraft
+    ? `Edit ${boardingEmailActionLabel(action).toLowerCase()}`
+    : `Send ${boardingEmailActionLabel(action).toLowerCase()} email`;
 
   useEffect(() => {
     if (!open) return;
@@ -127,7 +125,7 @@ export function OffboardingNoticeEmailDialog({
       const preview = result.preview;
       if (!preview.enabled) {
         setError(
-          "Boarding emails are disabled. Enable them in Settings → Emails → Boarding email.",
+          "Boarding emails are disabled. Enable them in Settings → Emails → Off-Boarding email.",
         );
         setPhase("error");
         return;
@@ -139,11 +137,13 @@ export function OffboardingNoticeEmailDialog({
         setMessage(editingDraft.message);
         setTemplateId(editingDraft.templateId || preview.templateId);
         setTemplateName(editingDraft.templateName || preview.templateName);
+        setTo(editingDraft.to || preview.to);
       } else {
         setSubject(preview.subject);
         setMessage(preview.message);
         setTemplateId(preview.templateId);
         setTemplateName(preview.templateName);
+        setTo(preview.to);
       }
       setPhase("ready");
     });
@@ -186,6 +186,7 @@ export function OffboardingNoticeEmailDialog({
         terminationDate,
         subject,
         message,
+        to,
       });
       if (!result.ok) {
         setError(result.error);
@@ -468,16 +469,25 @@ export function OffboardingNoticeEmailDialog({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-[#3D421F]">
+                  <label
+                    htmlFor="ob-notice-to"
+                    className="mb-1 block text-xs font-medium text-[#3D421F]"
+                  >
                     To
                   </label>
-                  <p className="rounded-lg border border-black/10 bg-[#faf9f6] px-3 py-2 text-sm text-[#3D421F]">
-                    {to ?? (
-                      <span className="text-rose-700">
-                        No employee email on file
-                      </span>
-                    )}
-                  </p>
+                  <input
+                    id="ob-notice-to"
+                    type="email"
+                    value={to ?? ""}
+                    onChange={(e) => setTo(e.target.value || null)}
+                    placeholder="recipient@example.com"
+                    className="h-10 w-full rounded-lg border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20"
+                  />
+                  {!to ? (
+                    <p className="mt-1 text-[11px] text-rose-700">
+                      Enter a recipient email address.
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <label

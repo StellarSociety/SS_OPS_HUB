@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { OffboardingProcessForm } from "@/components/hr/offboarding-process-form";
+import { isInAccommodation } from "@/lib/hr/derived";
 import type {
   OffboardingProcess,
   OffboardingStaffSnapshot,
@@ -47,6 +48,9 @@ export function OffboardingProcessEditClient({
         provisionalEosb: member.provisional_eosb,
         workEmail: member.work_email,
         personalEmail: member.personal_email,
+        inCompanyAccommodation: isInAccommodation(
+          member.company_accommodation,
+        ),
         alBalance: process.alBalance,
         phBalance: process.phBalance,
       }
@@ -66,6 +70,7 @@ export function OffboardingProcessEditClient({
         provisionalEosb: null,
         workEmail: null,
         personalEmail: null,
+        inCompanyAccommodation: false,
         alBalance: process.alBalance,
         phBalance: process.phBalance,
       };

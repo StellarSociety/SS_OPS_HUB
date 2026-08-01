@@ -4,6 +4,10 @@ import { useState } from "react";
 import { Clock, FileText, Loader2, Mail, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { emailTemplateBodyToSafeFragment } from "@/lib/hr/email-message-format";
+import {
+  boardingEmailActionLabel,
+  type BoardingEmailAction,
+} from "@/lib/hr/types";
 import type { OffboardingNoticeEmailDelivery } from "@/lib/hr/offboarding-process";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +24,7 @@ export function OffboardingNoticeEmailRecordViewer({
   onEdit,
   onSend,
   onCancelSchedule,
+  onDelete,
 }: {
   record: OffboardingNoticeEmailDelivery;
   onClose: () => void;
@@ -34,17 +39,19 @@ export function OffboardingNoticeEmailRecordViewer({
     | { ok: true; draft: OffboardingNoticeEmailDelivery }
     | { ok: false; error: string }
   >;
+  /** Permanently delete a draft. */
+  onDelete?: () => Promise<{ ok: true } | { ok: false; error: string }>;
 }) {
   const isDraft = record.status === "draft";
   const isScheduled = record.status === "scheduled";
   const canAct = isDraft || isScheduled;
   const [sending, setSending] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const actionLabel =
-    record.action === "termination_notice"
-      ? "Termination notice"
-      : "Resignation confirmation";
+  const actionLabel = boardingEmailActionLabel(
+    record.action as BoardingEmailAction,
+  );
 
   async function handleSend() {
     if (!onSend || sending) return;
@@ -82,7 +89,24 @@ export function OffboardingNoticeEmailRecordViewer({
     }
   }
 
-  const busy = sending || cancelling;
+  async function handleDelete() {
+    if (!onDelete || deleting) return;
+    setDeleting(true);
+    setSendError(null);
+    try {
+      const result = await onDelete();
+      if (!result.ok) {
+        setSendError(result.error);
+        setDeleting(false);
+      }
+      // Parent removes the draft and closes on success.
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Failed to delete.");
+      setDeleting(false);
+    }
+  }
+
+  const busy = sending || cancelling || deleting;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -121,11 +145,13 @@ export function OffboardingNoticeEmailRecordViewer({
                 ? "Sending…"
                 : cancelling
                   ? "Cancelling schedule…"
-                  : isDraft
-                    ? "Saved draft — not sent yet"
-                    : isScheduled && record.scheduledAt
-                      ? `Queued to send ${formatWhen(record.scheduledAt)}`
-                      : `Exact message delivered via ${record.provider}`}
+                  : deleting
+                    ? "Deleting draft…"
+                    : isDraft
+                      ? "Saved draft — not sent yet"
+                      : isScheduled && record.scheduledAt
+                        ? `Queued for ${formatWhen(record.scheduledAt)} — sends automatically when due`
+                        : `Exact message delivered via ${record.provider}`}
             </p>
           </div>
           <button
@@ -214,6 +240,20 @@ export function OffboardingNoticeEmailRecordViewer({
           </Button>
           {canAct ? (
             <>
+              {isDraft && onDelete ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleDelete()}
+                  disabled={busy}
+                  className="mr-auto text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                >
+                  {deleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : null}
+                  {deleting ? "Deleting…" : "Delete draft"}
+                </Button>
+              ) : null}
               {isScheduled ? (
                 <Button
                   type="button"
@@ -264,10 +304,7 @@ export function OffboardingNoticeEmailRecordCard({
 }) {
   const isDraft = record.status === "draft";
   const isScheduled = record.status === "scheduled";
-  const title =
-    record.action === "termination_notice"
-      ? "Termination notice"
-      : "Resignation confirmation";
+  const title = boardingEmailActionLabel(record.action as BoardingEmailAction);
 
   return (
     <button

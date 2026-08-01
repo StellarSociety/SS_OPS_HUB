@@ -43,7 +43,7 @@ type GuardedSettingsFormProps = Omit<
 };
 
 /**
- * Settings form that prompts Keep editing / Cancel / Save before navigate or refresh
+ * Settings form that prompts Keep editing / Don't save / Save before navigate or refresh
  * when the form has unsaved changes.
  */
 export function GuardedSettingsForm({

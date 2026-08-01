@@ -1,8 +1,8 @@
 import { PayslipEmailSettingsPanel } from "@/components/hr/payslip-email-settings-panel";
+import { getEmailTransportSettings } from "@/lib/actions/hr-email-transport";
 import { getPayslipEmailSettings } from "@/lib/actions/hr-payslip-email";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
-import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 export default async function HrEmailsPayslipsSettingsPage() {
   const { venue, permissions } = await getHrPageContext();
@@ -11,16 +11,17 @@ export default async function HrEmailsPayslipsSettingsPage() {
     canEditPayroll(permissions, venue.id) ||
     canAdminLookups(permissions, venue.id);
 
-  const settings = await getPayslipEmailSettings();
-  const venueLogoUrl = getVenueLogoUrl(venue);
+  const [settings, transport] = await Promise.all([
+    getPayslipEmailSettings(),
+    getEmailTransportSettings(),
+  ]);
 
   return (
     <div className="space-y-4">
       {canConfigure ? (
         <PayslipEmailSettingsPanel
           settings={settings}
-          venueLogoUrl={venueLogoUrl}
-          venueName={venue.name}
+          connectionFromEmail={transport.smtp.fromEmail}
         />
       ) : (
         <p className="text-sm text-black/55">

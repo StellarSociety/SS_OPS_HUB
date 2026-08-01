@@ -26,6 +26,7 @@ import {
   type OffboardingTerminationKind,
 } from "@/lib/hr/offboarding-process";
 import { canEditStaff, canViewStaff } from "@/lib/hr/permissions";
+import { parseBoardingEmailAction } from "@/lib/hr/types";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
   withFallbackScheduleLabelIds,
@@ -255,7 +256,7 @@ function processToRow(
     termination_kind: process.terminationKind,
     notification_date: process.notificationDate,
     termination_date: process.terminationDate,
-    notice_email_action: process.noticeEmailAction,
+    notice_email_action: parseNoticeEmailAction(process.noticeEmailAction),
     hub_access_disable_date: process.hubAccessDisableDate || null,
     al_balance: process.alBalance,
     ph_balance: process.phBalance,
@@ -278,6 +279,12 @@ async function loadNoticeEmailsForProcess(input: {
   staffId: string;
   processId: string;
 }): Promise<OffboardingNoticeEmailDelivery[]> {
+  // Flush due schedules before reading so short delays don't wait on daily cron.
+  const { processDueScheduledBoardingEmails } = await import(
+    "@/lib/hr/process-scheduled-boarding-emails"
+  );
+  await processDueScheduledBoardingEmails({ limit: 25 });
+
   const service = createServiceClient();
   const { data, error } = await service
     .from("hr_boarding_emails")
@@ -297,10 +304,7 @@ async function loadNoticeEmailsForProcess(input: {
     )
     .map((row) => ({
       id: String(row.id),
-      action:
-        row.action === "termination_notice"
-          ? ("termination_notice" as const)
-          : ("resignation_confirm" as const),
+      action: parseBoardingEmailAction(String(row.action ?? "")),
       status:
         row.status === "draft"
           ? ("draft" as const)

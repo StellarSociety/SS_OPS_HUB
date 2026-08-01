@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Search, UserMinus } from "lucide-react";
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Mail, Search, UserMinus, X } from "lucide-react";
+import {
+  OffboardingNoticeEmailRecordCard,
+  OffboardingNoticeEmailRecordViewer,
+} from "@/components/hr/offboarding-notice-email-record";
+import { ScopedLink } from "@/components/layout/scoped-link";
 import { Input } from "@/components/ui/input";
+import { listBoardingNoticeEmails, countSentBoardingNoticeEmailsByStaff } from "@/lib/actions/hr-boarding-email";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import {
   OFFBOARDING_PROCESS_STATUS_LABELS,
   OFFBOARDING_TERMINATION_KIND_OPTIONS,
   terminationKindLabel,
   type OffboardingLeaveHandling,
+  type OffboardingNoticeEmailDelivery,
   type OffboardingProcess,
   type OffboardingProcessStatus,
   type OffboardingTerminationKind,
@@ -32,6 +38,15 @@ const STATUS_FILTER_OPTIONS: OffboardingProcessStatus[] = [
 const selectClass =
   "h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20";
 
+function recordSortTime(record: OffboardingNoticeEmailDelivery): number {
+  const iso =
+    record.status === "scheduled" && record.scheduledAt
+      ? record.scheduledAt
+      : record.sentAt;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 export function OffboardingProcessTable({
   processes,
   onOpenProcess,
@@ -43,6 +58,34 @@ export function OffboardingProcessTable({
   const [leaveHandling, setLeaveHandling] = useState<
     "" | OffboardingLeaveHandling
   >("");
+  const [commsProcess, setCommsProcess] = useState<OffboardingProcess | null>(
+    null,
+  );
+  const [sentCounts, setSentCounts] = useState<Record<string, number>>({});
+
+  const staffIdsKey = useMemo(
+    () =>
+      [...new Set(processes.map((p) => p.staffId))]
+        .sort()
+        .join(","),
+    [processes],
+  );
+
+  useEffect(() => {
+    if (!staffIdsKey) {
+      setSentCounts({});
+      return;
+    }
+    let cancelled = false;
+    const staffIds = staffIdsKey.split(",");
+    void countSentBoardingNoticeEmailsByStaff({ staffIds }).then((result) => {
+      if (cancelled || !result.ok) return;
+      setSentCounts(result.counts);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [staffIdsKey]);
 
   const departments = useMemo(() => {
     const names = new Set<string>();
@@ -191,7 +234,7 @@ export function OffboardingProcessTable({
       ) : (
         <div className="overflow-hidden rounded-xl border border-black/10 bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[920px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-black/10 bg-[#f7f6f1] text-[10px] font-semibold uppercase tracking-wide text-black/45">
                   <th className="px-4 py-3">Employee</th>
@@ -203,6 +246,13 @@ export function OffboardingProcessTable({
                   <th className="px-4 py-3">Leave handling</th>
                   <th className="px-4 py-3 text-right">Settlement</th>
                   <th className="px-4 py-3">Status</th>
+                  <th className="px-3 py-3 text-center">
+                    <span className="sr-only">Sent emails</span>
+                    <Mail
+                      className="mx-auto h-4 w-4 text-[var(--venue-primary,#818a40)]"
+                      aria-hidden
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -232,17 +282,19 @@ export function OffboardingProcessTable({
                     }
                   >
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/hr/${row.staffId}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="font-medium text-[#3D421F] underline-offset-2 hover:underline"
-                      >
+                      <p className="font-medium text-[#3D421F]">
                         {row.fullName}
-                      </Link>
-                      <p className="mt-0.5 text-xs text-black/45">
+                      </p>
+                      <ScopedLink
+                        href={`/hr/${row.staffId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-0.5 block text-xs text-black/45 underline-offset-2 transition-colors hover:text-[#3D421F] hover:underline"
+                      >
                         {row.empNo}
                         {row.departmentName ? ` · ${row.departmentName}` : ""}
-                      </p>
+                      </ScopedLink>
                     </td>
                     <td className="px-4 py-3 text-[#3D421F]">
                       {terminationKindLabel(row.terminationKind)}
@@ -274,6 +326,39 @@ export function OffboardingProcessTable({
                     <td className="px-4 py-3">
                       <StatusPill status={row.status} />
                     </td>
+                    <td className="px-3 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCommsProcess(row);
+                        }}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors",
+                          (sentCounts[row.staffId] ?? 0) > 0
+                            ? "text-emerald-700 hover:bg-emerald-50"
+                            : "text-[var(--venue-primary,#818a40)] hover:bg-[var(--venue-primary,#818a40)]/10",
+                        )}
+                        aria-label={`View emails for ${row.fullName}${
+                          (sentCounts[row.staffId] ?? 0) > 0
+                            ? `, ${sentCounts[row.staffId]} sent`
+                            : ""
+                        }`}
+                        title="Email communications"
+                      >
+                        <Mail className="h-5 w-5" strokeWidth={2} aria-hidden />
+                        <span
+                          className={cn(
+                            "min-w-[1ch] text-sm font-semibold tabular-nums",
+                            (sentCounts[row.staffId] ?? 0) > 0
+                              ? "text-emerald-800"
+                              : "text-[#3D421F]/70",
+                          )}
+                        >
+                          {sentCounts[row.staffId] ?? 0}
+                        </span>
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -281,7 +366,147 @@ export function OffboardingProcessTable({
           </div>
         </div>
       )}
+
+      {commsProcess ? (
+        <EmployeeCommunicationsDialog
+          process={commsProcess}
+          onClose={() => setCommsProcess(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function EmployeeCommunicationsDialog({
+  process,
+  onClose,
+}: {
+  process: OffboardingProcess;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [records, setRecords] = useState<OffboardingNoticeEmailDelivery[]>([]);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setRecords([]);
+    setViewingId(null);
+
+    void listBoardingNoticeEmails({
+      staffId: process.staffId,
+      processId: process.id,
+    }).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setError(result.error);
+        setLoading(false);
+        return;
+      }
+      const sorted = [...result.records].sort(
+        (a, b) => recordSortTime(b) - recordSortTime(a),
+      );
+      setRecords(sorted);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [process.id, process.staffId]);
+
+  const viewing = viewingId
+    ? (records.find((r) => r.id === viewingId) ?? null)
+    : null;
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/40"
+          aria-label="Close"
+          onClick={onClose}
+        />
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ob-comms-title"
+          className="relative z-10 flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
+        >
+          <div className="flex items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-black/45">
+                Email communications
+              </p>
+              <h2
+                id="ob-comms-title"
+                className="mt-0.5 truncate font-serif text-lg text-[#3D421F]"
+              >
+                {process.fullName}
+              </h2>
+              <p className="mt-0.5 text-sm text-black/50">
+                {process.empNo}
+                {process.departmentName ? ` · ${process.departmentName}` : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-[#3D421F]"
+              onClick={onClose}
+              aria-label="Close dialog"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-black/50">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Loading emails…
+              </div>
+            ) : error ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {error}
+              </p>
+            ) : records.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#d8d9c8] bg-[#faf9f6]/60 px-4 py-10 text-center">
+                <Mail
+                  className="mx-auto h-7 w-7 text-black/30"
+                  strokeWidth={1.5}
+                  aria-hidden
+                />
+                <p className="mt-3 text-sm text-black/55">
+                  No draft, scheduled, or sent emails for this employee yet.
+                </p>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {records.map((record) => (
+                  <li key={record.id}>
+                    <OffboardingNoticeEmailRecordCard
+                      record={record}
+                      onOpen={() => setViewingId(record.id)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {viewing ? (
+        <OffboardingNoticeEmailRecordViewer
+          record={viewing}
+          onClose={() => setViewingId(null)}
+        />
+      ) : null}
+    </>
   );
 }
 

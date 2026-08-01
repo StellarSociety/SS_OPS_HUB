@@ -1,20 +1,24 @@
 "use client";
 
-import { ChevronDown, Plus, Star, Trash2 } from "lucide-react";
+import { Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { EmailMessageEditor } from "@/components/hr/email-message-editor";
+import { BoardingEmailTemplateDialog } from "@/components/hr/boarding-email-template-dialog";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { saveBoardingEmailSettings } from "@/lib/actions/hr-boarding-email";
+import { OFFBOARDING_CHECKLIST_STEPS } from "@/lib/hr/offboarding-process";
 import {
-  BOARDING_EMAIL_ACTIONS,
-  BOARDING_EMAIL_TEMPLATE_CODES,
+  BOARDING_EMAIL_SETTINGS_STEPS,
+  boardingEmailActionLabel,
+  boardingEmailUsesFixedRecipients,
   createBoardingEmailTemplate,
-  type BoardingEmailAction,
+  parseBoardingTemplateToEmails,
+  templatesForBoardingEmailStep,
+  type BoardingEmailSettingsStepId,
   type BoardingEmailTemplate,
   type HrBoardingEmailSettings,
   type PayslipEmailRecipientField,
@@ -36,14 +40,16 @@ function SaveButton({ label = "Save changes" }: { label?: string }) {
   );
 }
 
+type TemplateDialogState = {
+  mode: "create" | "edit";
+  stepId: BoardingEmailSettingsStepId;
+  template: BoardingEmailTemplate;
+};
+
 export function BoardingEmailSettingsPanel({
   settings,
-  venueLogoUrl,
-  venueName,
 }: {
   settings: HrBoardingEmailSettings;
-  venueLogoUrl?: string | null;
-  venueName?: string | null;
 }) {
   const [enabled, setEnabled] = useState(settings.enabled);
   const [recipientField, setRecipientField] =
@@ -55,70 +61,116 @@ export function BoardingEmailSettingsPanel({
   const [defaultTemplateByAction, setDefaultTemplateByAction] = useState(
     settings.defaultTemplateByAction,
   );
-  const [activeTemplateId, setActiveTemplateId] = useState(
-    settings.templates[0]?.id ?? "",
-  );
-  const [messageHelpOpen, setMessageHelpOpen] = useState(false);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<TemplateDialogState | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
 
-  const activeTemplate =
-    templates.find((t) => t.id === activeTemplateId) ?? templates[0] ?? null;
+  const stages = useMemo(
+    () =>
+      BOARDING_EMAIL_SETTINGS_STEPS.map((step) => {
+        const meta = OFFBOARDING_CHECKLIST_STEPS.find((s) => s.id === step.id);
+        return {
+          ...step,
+          number: meta?.number ?? 0,
+          label: meta?.label ?? step.id,
+          description: meta?.description ?? "",
+          templates: templatesForBoardingEmailStep(templates, step.id),
+        };
+      }),
+    [templates],
+  );
 
-  const isDefaultForAction =
-    activeTemplate != null &&
-    defaultTemplateByAction[activeTemplate.action] === activeTemplate.id;
-
-  function updateActiveTemplate(patch: Partial<BoardingEmailTemplate>) {
-    if (!activeTemplate) return;
-    setTemplates((prev) =>
-      prev.map((t) => (t.id === activeTemplate.id ? { ...t, ...patch } : t)),
-    );
-  }
-
-  function addTemplate(action: BoardingEmailAction) {
+  function openCreate(stepId: BoardingEmailSettingsStepId) {
+    const step = BOARDING_EMAIL_SETTINGS_STEPS.find((s) => s.id === stepId);
+    if (!step) return;
+    const action = step.defaultAddAction;
+    const count = templates.filter((t) => t.action === action).length;
     const created = createBoardingEmailTemplate({
       action,
-      name: `${BOARDING_EMAIL_ACTIONS.find((a) => a.value === action)?.label ?? "Template"} ${templates.filter((t) => t.action === action).length + 1}`,
+      name: `${boardingEmailActionLabel(action)} ${count + 1}`,
     });
-    setTemplates((prev) => [...prev, created]);
-    setActiveTemplateId(created.id);
+    setDialog({ mode: "create", stepId, template: created });
   }
 
-  function deleteActiveTemplate() {
-    if (!activeTemplate || templates.length <= 1) return;
+  function openEdit(
+    stepId: BoardingEmailSettingsStepId,
+    template: BoardingEmailTemplate,
+  ) {
+    setDialog({ mode: "edit", stepId, template: { ...template } });
+  }
+
+  function handleDialogSave(next: BoardingEmailTemplate) {
+    if (!dialog) return;
+    if (dialog.mode === "create") {
+      setTemplates((prev) => [...prev, next]);
+      setDefaultTemplateByAction((prev) => {
+        if (prev[next.action]) return prev;
+        return { ...prev, [next.action]: next.id };
+      });
+    } else {
+      const previous = dialog.template;
+      setTemplates((prev) =>
+        prev.map((t) => (t.id === next.id ? next : t)),
+      );
+      if (previous.action !== next.action) {
+        setDefaultTemplateByAction((prev) => {
+          const updated = { ...prev };
+          if (prev[previous.action] === previous.id) {
+            const replacement = templates.find(
+              (t) => t.id !== previous.id && t.action === previous.action,
+            );
+            if (replacement) {
+              updated[previous.action] = replacement.id;
+            }
+          }
+          const defaultId = prev[next.action];
+          const defaultStillValid =
+            defaultId === next.id ||
+            templates.some(
+              (t) =>
+                t.id === defaultId &&
+                t.id !== previous.id &&
+                t.action === next.action,
+            );
+          if (!defaultStillValid) {
+            updated[next.action] = next.id;
+          }
+          return updated;
+        });
+      }
+    }
+    setDialog(null);
+  }
+
+  function setDefault(template: BoardingEmailTemplate) {
+    setDefaultTemplateByAction((prev) => ({
+      ...prev,
+      [template.action]: template.id,
+    }));
+  }
+
+  function deleteTemplate(template: BoardingEmailTemplate) {
+    if (templates.length <= 1) {
+      window.alert("Keep at least one email template.");
+      return;
+    }
     if (
       !window.confirm(
-        `Delete template “${activeTemplate.name}”? This cannot be undone until you save.`,
+        `Delete template “${template.name}”? This cannot be undone until you save.`,
       )
     ) {
       return;
     }
-    const remaining = templates.filter((t) => t.id !== activeTemplate.id);
+    const remaining = templates.filter((t) => t.id !== template.id);
     setTemplates(remaining);
     setDefaultTemplateByAction((prev) => {
-      const next = { ...prev };
-      if (prev[activeTemplate.action] === activeTemplate.id) {
-        next[activeTemplate.action] =
-          remaining.find((t) => t.action === activeTemplate.action)?.id ??
-          remaining[0]!.id;
-      }
-      return next;
+      if (prev[template.action] !== template.id) return prev;
+      const replacement = remaining.find((t) => t.action === template.action);
+      return {
+        ...prev,
+        [template.action]: replacement?.id ?? remaining[0]!.id,
+      };
     });
-    setActiveTemplateId(remaining[0]!.id);
-  }
-
-  async function copyTemplateCode(code: string) {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedCode(code);
-      window.setTimeout(() => {
-        setCopiedCode((current) => (current === code ? null : current));
-      }, 1500);
-    } catch {
-      // clipboard unavailable
-    }
   }
 
   const watch = useMemo(
@@ -129,16 +181,8 @@ export function BoardingEmailSettingsPanel({
         fromEmail,
         templates,
         defaultTemplateByAction,
-        activeTemplateId,
       }),
-    [
-      enabled,
-      recipientField,
-      fromEmail,
-      templates,
-      defaultTemplateByAction,
-      activeTemplateId,
-    ],
+    [enabled, recipientField, fromEmail, templates, defaultTemplateByAction],
   );
 
   async function handleSave(formData: FormData) {
@@ -153,13 +197,17 @@ export function BoardingEmailSettingsPanel({
     return result;
   }
 
+  const dialogStep = dialog
+    ? BOARDING_EMAIL_SETTINGS_STEPS.find((s) => s.id === dialog.stepId)
+    : null;
+
   return (
     <Card className="space-y-6 p-5">
       <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">Boarding email</h2>
+        <h2 className="font-serif text-lg text-[#3D421F]">Off-Boarding email</h2>
         <p className="mt-1 text-sm text-black/55">
-          Templates for offboarding notice emails (resignation confirmation and
-          termination notice). Delivery uses Connection / Transport.
+          Templates grouped by offboarding checklist stage. Delivery uses
+          Connection / Transport.
         </p>
       </div>
 
@@ -235,214 +283,145 @@ export function BoardingEmailSettingsPanel({
           </div>
         </div>
 
-        <section className="space-y-4 rounded-xl border border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/25 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[#3D421F]">
-                Email templates
-              </h3>
-              <p className="mt-0.5 text-xs text-black/55">
-                One default template per notice action is used when sending from
-                offboarding.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className={lightOutlineBtn}
-                disabled={!enabled}
-                onClick={() => addTemplate("resignation_confirm")}
-              >
-                <Plus className="size-3.5" />
-                Resignation template
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className={lightOutlineBtn}
-                disabled={!enabled}
-                onClick={() => addTemplate("termination_notice")}
-              >
-                <Plus className="size-3.5" />
-                Termination template
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className={lightOutlineBtn}
-                disabled={!enabled || templates.length <= 1 || !activeTemplate}
-                onClick={deleteActiveTemplate}
-              >
-                <Trash2 className="size-3.5" />
-                Delete
-              </Button>
-            </div>
+        <section className="space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[#3D421F]">
+              Email templates by checklist stage
+            </h3>
+            <p className="mt-0.5 text-xs text-black/55">
+              Add or edit templates per stage. Set one default per email action
+              for offboarding sends.
+            </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="boarding_active_template">Template</Label>
-              <select
-                id="boarding_active_template"
-                className={selectClass}
-                value={activeTemplate?.id ?? ""}
-                onChange={(e) => setActiveTemplateId(e.target.value)}
-                disabled={!enabled || templates.length === 0}
+          <div className="space-y-4">
+            {stages.map((stage) => (
+              <div
+                key={stage.id}
+                className="space-y-3 rounded-xl border border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/25 p-4"
               >
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                    {defaultTemplateByAction[t.action] === t.id
-                      ? " (default)"
-                      : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="boarding_template_name">Template name</Label>
-              <Input
-                id="boarding_template_name"
-                value={activeTemplate?.name ?? ""}
-                onChange={(e) =>
-                  updateActiveTemplate({ name: e.target.value })
-                }
-                disabled={!enabled || !activeTemplate}
-                className="h-9"
-              />
-            </div>
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="boarding_template_action">Action</Label>
-              <select
-                id="boarding_template_action"
-                className={selectClass}
-                value={activeTemplate?.action ?? "resignation_confirm"}
-                onChange={(e) => {
-                  const action = e.target.value as BoardingEmailAction;
-                  updateActiveTemplate({ action });
-                }}
-                disabled={!enabled || !activeTemplate}
-              >
-                {BOARDING_EMAIL_ACTIONS.map((row) => (
-                  <option key={row.value} value={row.value}>
-                    {row.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 pb-0.5">
-              {isDefaultForAction ? (
-                <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-900">
-                  <Star className="size-3.5 fill-current" />
-                  Default
-                </span>
-              ) : (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className={cn(lightOutlineBtn, "h-9")}
-                  disabled={!enabled || !activeTemplate}
-                  onClick={() => {
-                    if (!activeTemplate) return;
-                    setDefaultTemplateByAction((prev) => ({
-                      ...prev,
-                      [activeTemplate.action]: activeTemplate.id,
-                    }));
-                  }}
-                >
-                  <Star className="size-3.5" />
-                  Mark default
-                </Button>
-              )}
-              <SaveButton label="Save" />
-            </div>
-          </div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-black/45">
+                      Stage {stage.number}
+                    </p>
+                    <h4 className="mt-0.5 text-sm font-semibold text-[#3D421F]">
+                      {stage.label}
+                    </h4>
+                    {stage.description ? (
+                      <p className="mt-0.5 text-xs text-black/55">
+                        {stage.description}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={lightOutlineBtn}
+                    disabled={!enabled}
+                    onClick={() => openCreate(stage.id)}
+                  >
+                    <Plus className="size-3.5" />
+                    Add template
+                  </Button>
+                </div>
 
-          <hr className="border-black/10" />
-
-          <div className="space-y-1.5">
-            <Label htmlFor="boarding_subject">Subject</Label>
-            <Input
-              id="boarding_subject"
-              value={activeTemplate?.subject ?? ""}
-              onChange={(e) =>
-                updateActiveTemplate({ subject: e.target.value })
-              }
-              disabled={!enabled || !activeTemplate}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label htmlFor="boarding_message">Message</Label>
-              <button
-                type="button"
-                aria-expanded={messageHelpOpen}
-                onClick={() => setMessageHelpOpen((open) => !open)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#3D421F] underline-offset-2 hover:underline"
-                disabled={!enabled}
-              >
-                Template codes
-                <ChevronDown
-                  className={cn(
-                    "size-3.5 transition-transform",
-                    messageHelpOpen && "rotate-180",
-                  )}
-                />
-              </button>
-            </div>
-
-            {messageHelpOpen ? (
-              <div className="space-y-3 rounded-lg border border-black/10 bg-white/70 p-3">
-                <p className="text-xs text-black/55">
-                  Click a code to copy it, then paste into the subject or
-                  message. Codes are filled when the email is sent.
-                </p>
-                <ul className="grid gap-2 sm:grid-cols-2">
-                  {BOARDING_EMAIL_TEMPLATE_CODES.map((item) => (
-                    <li key={item.code}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "flex w-full items-start gap-2 rounded-md border bg-white px-2.5 py-2 text-left transition hover:bg-white/80",
-                          copiedCode === item.code
-                            ? "border-emerald-300"
-                            : "border-black/8",
-                        )}
-                        onClick={() => void copyTemplateCode(item.code)}
-                        title={`Copy ${item.code}`}
-                        disabled={!enabled}
-                      >
-                        <code className="shrink-0 rounded bg-[var(--venue-secondary,#F0F3DD)]/60 px-1.5 py-0.5 text-[11px] font-semibold text-[#3D421F]">
-                          {item.code}
-                        </code>
-                        <span className="min-w-0 flex-1 text-[11px] leading-snug text-black/55">
-                          {copiedCode === item.code
-                            ? "Copied"
-                            : item.description}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                {stage.templates.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-black/15 bg-white/50 px-3 py-4 text-center text-sm text-black/45">
+                    No templates for this stage yet.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-black/8 overflow-hidden rounded-lg border border-black/10 bg-white/80">
+                    {stage.templates.map((template) => {
+                      const isDefault =
+                        defaultTemplateByAction[template.action] ===
+                        template.id;
+                      return (
+                        <li
+                          key={template.id}
+                          className="flex flex-wrap items-center gap-3 px-3 py-2.5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-medium text-[#3D421F]">
+                                {template.name}
+                              </p>
+                              {isDefault ? (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
+                                  <Star className="size-3 fill-current" />
+                                  Default
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 text-xs text-black/50">
+                              {boardingEmailActionLabel(template.action)}
+                              {template.subject
+                                ? ` · ${template.subject}`
+                                : ""}
+                            </p>
+                            {boardingEmailUsesFixedRecipients(
+                              template.action,
+                            ) ? (
+                              <p className="mt-0.5 text-xs text-black/50">
+                                {(() => {
+                                  const emails = parseBoardingTemplateToEmails(
+                                    template.toEmails,
+                                  );
+                                  return emails.length > 0
+                                    ? `To: ${emails.join(", ")}`
+                                    : "To: not set — edit template to add recipients";
+                                })()}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className={cn(lightOutlineBtn, "h-8 px-2.5")}
+                              disabled={!enabled}
+                              onClick={() => openEdit(stage.id, template)}
+                            >
+                              <Pencil className="size-3.5" />
+                              Edit
+                            </Button>
+                            {!isDefault ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className={cn(lightOutlineBtn, "h-8 px-2.5")}
+                                disabled={!enabled}
+                                onClick={() => setDefault(template)}
+                              >
+                                <Star className="size-3.5" />
+                                Set default
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className={cn(
+                                lightOutlineBtn,
+                                "h-8 px-2.5 text-red-800 hover:bg-red-50 hover:text-red-900",
+                              )}
+                              disabled={!enabled || templates.length <= 1}
+                              onClick={() => deleteTemplate(template)}
+                            >
+                              <Trash2 className="size-3.5" />
+                              Delete
+                            </Button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
-            ) : null}
-
-            <EmailMessageEditor
-              id="boarding_message"
-              rows={12}
-              value={activeTemplate?.message ?? ""}
-              onChange={(message) => updateActiveTemplate({ message })}
-              disabled={!enabled || !activeTemplate}
-              aria-label="Boarding email message"
-              footerLogoUrl={venueLogoUrl}
-              footerVenueName={venueName}
-            />
+            ))}
           </div>
         </section>
 
@@ -461,6 +440,15 @@ export function BoardingEmailSettingsPanel({
           <SaveButton />
         </div>
       </GuardedSettingsForm>
+
+      <BoardingEmailTemplateDialog
+        open={dialog != null}
+        mode={dialog?.mode ?? "edit"}
+        template={dialog?.template ?? null}
+        allowedActions={dialogStep?.allowedActions ?? []}
+        onClose={() => setDialog(null)}
+        onSave={handleDialogSave}
+      />
     </Card>
   );
 }

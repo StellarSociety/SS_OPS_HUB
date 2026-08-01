@@ -3,7 +3,7 @@ import "server-only";
 import { writeAuditLog } from "@/lib/audit";
 import { sendAppEmail } from "@/lib/email/transport";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
-import { HR_MODULE_KEY, type BoardingEmailAction } from "@/lib/hr/types";
+import { HR_MODULE_KEY, parseBoardingEmailAction, parseBoardingTemplateToEmails } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
 const SELECT =
@@ -85,10 +85,7 @@ export async function processDueScheduledBoardingEmails(options?: {
     claimed += 1;
 
     try {
-      const action: BoardingEmailAction =
-        row.action === "termination_notice"
-          ? "termination_notice"
-          : "resignation_confirm";
+      const action = parseBoardingEmailAction(row.action);
 
       const { data: venue } = await service
         .from("venues")
@@ -108,9 +105,15 @@ export async function processDueScheduledBoardingEmails(options?: {
         } | null) ?? { id: row.venue_id, name: null, slug: "" },
       });
 
+      const toList = parseBoardingTemplateToEmails(row.to_email);
+      if (toList.length === 0) {
+        failed += 1;
+        continue;
+      }
+
       const result = await sendAppEmail(
         {
-          to: row.to_email,
+          to: toList.length === 1 ? toList[0]! : toList,
           subject: row.subject,
           html,
           attachments: inlineAttachments,

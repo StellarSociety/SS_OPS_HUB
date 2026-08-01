@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
-import { getActionAuthContext } from "@/lib/auth/action-context";
+import {
+  getActionAuthContext,
+  type ActionAuthContext,
+} from "@/lib/auth/action-context";
 import { sendAppEmail } from "@/lib/email/transport";
 import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
 import { formatPayrollMonthLabel, summarizePayrollLeave } from "@/lib/hr/payroll";
@@ -12,8 +15,11 @@ import {
 } from "@/lib/hr/payroll/persist-run";
 import {
   buildPayslipPdfBase64,
+  buildPayslipPdfFilename,
+  derivePayslipLineDiscountFields,
   type PayslipPdfInput,
 } from "@/lib/hr/payslip-pdf";
+import { sortPayslipLines } from "@/lib/hr/payslip-line-order";
 import { loadPayslipLetterheadForVenue } from "@/lib/hr/payslip-letterhead";
 import { loadPayslipPdfLogoServer } from "@/lib/hr/payslip-pdf-logo-server";
 import { dayFractionsFromSnapshot } from "@/lib/hr/payroll/wps";
@@ -248,10 +254,20 @@ function resolvePayslipRecipient(
   return work || personal;
 }
 
-function firstNameFromFullName(fullName: string): string {
-  const trimmed = fullName.trim();
-  if (!trimmed) return "";
-  return trimmed.split(/\s+/)[0] ?? trimmed;
+async function resolveSignedInUserName(
+  supabase: ActionAuthContext["supabase"],
+  user: ActionAuthContext["user"],
+): Promise<string> {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .maybeSingle();
+  return (
+    String(profile?.full_name ?? "").trim() ||
+    String(profile?.email ?? user.email ?? "").trim() ||
+    "User"
+  );
 }
 
 type PayslipSnapshotRow = {
@@ -288,9 +304,27 @@ type PayslipSnapshotRow = {
   bankName?: string | null;
   accountNumber?: string | null;
   version?: number;
-  fixed?: Array<{ label?: string; amount?: number }>;
-  variables?: Array<{ label?: string; amount?: number }>;
-  deductions?: Array<{ label?: string; amount?: number }>;
+  fixed?: Array<{
+    code?: string | null;
+    label?: string;
+    amount?: number;
+    sortOrder?: number | null;
+    meta?: { rateDiscountPercent?: number | null } | null;
+  }>;
+  variables?: Array<{
+    code?: string | null;
+    label?: string;
+    amount?: number;
+    sortOrder?: number | null;
+    meta?: { rateDiscountPercent?: number | null } | null;
+  }>;
+  deductions?: Array<{
+    code?: string | null;
+    label?: string;
+    amount?: number;
+    sortOrder?: number | null;
+    meta?: { rateDiscountPercent?: number | null } | null;
+  }>;
   grossEarnings?: number;
   totalDeductions?: number;
   netSalary?: number;
@@ -376,23 +410,59 @@ function snapshotToPdfInput(
     paymentMethod,
     bankName,
     accountNumber,
-    lines: [
-      ...(snapshot.fixed ?? []).map((l) => ({
-        category: "Fixed",
-        label: String(l.label ?? ""),
-        amount: Number(l.amount ?? 0),
-      })),
-      ...(snapshot.variables ?? []).map((l) => ({
-        category: "Variable",
-        label: String(l.label ?? ""),
-        amount: Number(l.amount ?? 0),
-      })),
-      ...(snapshot.deductions ?? []).map((l) => ({
-        category: "Deduction",
-        label: String(l.label ?? ""),
-        amount: Number(l.amount ?? 0),
-      })),
-    ],
+    lines: sortPayslipLines([
+      ...(snapshot.fixed ?? []).map((l) => {
+        const amount = Number(l.amount ?? 0);
+        const discount = derivePayslipLineDiscountFields({
+          amount,
+          meta: l.meta ?? null,
+        });
+        return {
+          category: "Fixed",
+          code: l.code ?? null,
+          label: String(l.label ?? ""),
+          amount,
+          baseAmount: discount.baseAmount ?? amount,
+          deductionPercent: discount.deductionPercent,
+          deductionValue: discount.deductionValue,
+          sortOrder: l.sortOrder ?? null,
+        };
+      }),
+      ...(snapshot.variables ?? []).map((l) => {
+        const amount = Number(l.amount ?? 0);
+        const discount = derivePayslipLineDiscountFields({
+          amount,
+          meta: l.meta ?? null,
+        });
+        return {
+          category: "Variable",
+          code: l.code ?? null,
+          label: String(l.label ?? ""),
+          amount,
+          baseAmount: discount.baseAmount ?? amount,
+          deductionPercent: discount.deductionPercent,
+          deductionValue: discount.deductionValue,
+          sortOrder: l.sortOrder ?? null,
+        };
+      }),
+      ...(snapshot.deductions ?? []).map((l) => {
+        const amount = Number(l.amount ?? 0);
+        const discount = derivePayslipLineDiscountFields({
+          amount,
+          meta: l.meta ?? null,
+        });
+        return {
+          category: "Deduction",
+          code: l.code ?? null,
+          label: String(l.label ?? ""),
+          amount,
+          baseAmount: discount.baseAmount,
+          deductionPercent: discount.deductionPercent,
+          deductionValue: discount.deductionValue,
+          sortOrder: l.sortOrder ?? null,
+        };
+      }),
+    ]).map(({ code: _c, sortOrder: _s, ...line }) => line),
     grossEarnings: Number(snapshot.grossEarnings ?? 0),
     totalDeductions: Number(snapshot.totalDeductions ?? 0),
     netSalary: Number(snapshot.netSalary ?? 0),
@@ -409,9 +479,159 @@ export type SendPayslipsResult =
     }
   | { ok: false; error: string };
 
+export type PayslipEmailPreview = {
+  employeeName: string;
+  empNo: string;
+  to: string;
+  subject: string;
+  body: string;
+  attachmentFilename: string | null;
+  version: number;
+  payrollMonthLabel: string;
+};
+
+/** Build a read-only preview of the payslip email that would be sent. */
+export async function previewPayslipEmail(
+  payslipId: string,
+): Promise<
+  { ok: true; preview: PayslipEmailPreview } | { ok: false; error: string }
+> {
+  const auth = await getAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions, supabase } = auth;
+
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission to send payslips." };
+  }
+
+  const id = payslipId.trim();
+  if (!id) return { ok: false, error: "Missing payslip." };
+
+  const settings = await getPayslipEmailSettings();
+  if (!settings.enabled) {
+    return {
+      ok: false,
+      error:
+        "Payslip emails are disabled. Enable them under HR → Settings → Emails → Payslips.",
+    };
+  }
+
+  const template = resolvePayslipEmailTemplate(settings);
+  const senderName = await resolveSignedInUserName(supabase, user);
+  const service = createServiceClient();
+
+  const { data: row, error } = await service
+    .from("hr_payslips")
+    .select(
+      "id, staff_id, version, snapshot, run:hr_payroll_runs(payroll_month, period_start, period_end, payment_date)",
+    )
+    .eq("venue_id", venue.id)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  if (!row) return { ok: false, error: "Payslip not found." };
+
+  const { data: staff } = await service
+    .from("staff")
+    .select("id, work_email, personal_email, full_name")
+    .eq("id", row.staff_id as string)
+    .maybeSingle();
+
+  const snapshot = (row.snapshot ?? {}) as PayslipSnapshotRow;
+  const run = row.run as
+    | {
+        payroll_month?: string;
+        period_start?: string;
+        period_end?: string;
+        payment_date?: string | null;
+      }
+    | null;
+
+  const fullName =
+    String(snapshot.employee?.fullName ?? "").trim() ||
+    staff?.full_name?.trim() ||
+    "Employee";
+  const empNo = String(snapshot.employee?.empNo ?? "").trim() || "—";
+
+  const to = resolvePayslipRecipient(settings.recipientField, {
+    work_email: (staff?.work_email as string | null) ?? null,
+    personal_email: (staff?.personal_email as string | null) ?? null,
+  });
+  if (!to) {
+    return {
+      ok: false,
+      error: `${empNo} — ${fullName}: no email address on file.`,
+    };
+  }
+
+  const monthRaw =
+    String(snapshot.payrollMonth ?? run?.payroll_month ?? "").trim() || "";
+  const monthLabel = monthRaw ? formatPayrollMonthLabel(monthRaw) : "";
+  const monthParts = monthLabel.split(" ");
+  const payrollMonthName =
+    monthParts.length > 1 ? monthParts.slice(0, -1).join(" ") : monthLabel;
+  const payrollYear =
+    monthParts.length > 1
+      ? monthParts[monthParts.length - 1]!
+      : monthRaw.slice(0, 4);
+
+  const periodStart = String(
+    snapshot.periodStart ?? run?.period_start ?? "",
+  ).slice(0, 10);
+  const periodEnd = String(snapshot.periodEnd ?? run?.period_end ?? "").slice(
+    0,
+    10,
+  );
+  const paymentDate = snapshot.paymentDate
+    ? String(snapshot.paymentDate).slice(0, 10)
+    : run?.payment_date
+      ? String(run.payment_date).slice(0, 10)
+      : periodEnd;
+
+  const vars: Record<string, string> = {
+    EMPLOYEE_NAME: fullName,
+    USER_NAME: senderName,
+    PAYROLL_MONTH: payrollMonthName,
+    PAYROLL_YEAR: payrollYear,
+    PAYROLL_PERIOD:
+      periodStart && periodEnd ? `${periodStart} → ${periodEnd}` : "",
+    NET_PAY: formatEmailMoney(Number(snapshot.netSalary ?? 0)),
+    PAYMENT_DATE: paymentDate || "—",
+    VENUE_NAME: venue.name ?? "Venue",
+  };
+
+  const version = Number(row.version) || 1;
+  const attachmentFilename = settings.attachPdf
+    ? buildPayslipPdfFilename({
+        fullName,
+        empNo,
+        version,
+      })
+    : null;
+
+  return {
+    ok: true,
+    preview: {
+      employeeName: fullName,
+      empNo,
+      to,
+      subject: applyEmailPlaceholders(template.subject, vars),
+      body: applyEmailPlaceholders(template.message, vars),
+      attachmentFilename,
+      version,
+      payrollMonthLabel: monthLabel,
+    },
+  };
+}
+
 /** Email selected payslip versions to employees using venue payslip settings. */
 export async function sendPayslipsEmail(
   payslipIds: string[],
+  options?: {
+    /** When sending a single payslip, use these edited fields instead of template defaults. */
+    draft?: { to: string; subject: string; body: string };
+  },
 ): Promise<SendPayslipsResult> {
   const auth = await getAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
@@ -426,6 +646,21 @@ export async function sendPayslipsEmail(
     return { ok: false, error: "Select at least one employee payslip." };
   }
 
+  const draft =
+    options?.draft && ids.length === 1
+      ? {
+          to: options.draft.to.trim(),
+          subject: options.draft.subject.trim(),
+          body: options.draft.body,
+        }
+      : null;
+  if (draft && !draft.to) {
+    return { ok: false, error: "Enter a destination email address." };
+  }
+  if (draft && !draft.subject) {
+    return { ok: false, error: "Enter an email subject." };
+  }
+
   const settings = await getPayslipEmailSettings();
   if (!settings.enabled) {
     return {
@@ -436,6 +671,7 @@ export async function sendPayslipsEmail(
   }
 
   const template = resolvePayslipEmailTemplate(settings);
+  const senderName = await resolveSignedInUserName(supabase, user);
   const service = createServiceClient();
   const venueLogo = await loadPayslipPdfLogoServer(
     getVenueLogoUrl({
@@ -514,7 +750,9 @@ export async function sendPayslipsEmail(
       personal_email: null,
       full_name: null,
     };
-    const to = resolvePayslipRecipient(settings.recipientField, staff);
+    const to =
+      draft?.to ||
+      resolvePayslipRecipient(settings.recipientField, staff);
     if (!to) {
       skipped += 1;
       errors.push(`${label}: no email address`);
@@ -557,7 +795,7 @@ export async function sendPayslipsEmail(
 
     const vars: Record<string, string> = {
       EMPLOYEE_NAME: fullName,
-      USER_NAME: firstNameFromFullName(fullName),
+      USER_NAME: senderName,
       PAYROLL_MONTH: payrollMonthName,
       PAYROLL_YEAR: payrollYear,
       PAYROLL_PERIOD:
@@ -567,8 +805,10 @@ export async function sendPayslipsEmail(
       VENUE_NAME: venue.name ?? "Venue",
     };
 
-    const subject = applyEmailPlaceholders(template.subject, vars);
-    const bodyText = applyEmailPlaceholders(template.message, vars);
+    const subject =
+      draft?.subject ?? applyEmailPlaceholders(template.subject, vars);
+    const bodyText =
+      draft?.body ?? applyEmailPlaceholders(template.message, vars);
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: bodyText,
       venue,

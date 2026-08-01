@@ -5,7 +5,6 @@ import {
 } from "@/lib/actions/hr-payroll-approvals";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
-import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 export default async function HrEmailsPayrollSettingsPage() {
   const { venue, permissions } = await getHrPageContext();
@@ -18,7 +17,6 @@ export default async function HrEmailsPayrollSettingsPage() {
     getPayrollApprovalsSettings(),
     listPayrollApproverCandidates(),
   ]);
-  const venueLogoUrl = getVenueLogoUrl(venue);
 
   return (
     <div className="space-y-4">
@@ -27,8 +25,6 @@ export default async function HrEmailsPayrollSettingsPage() {
           section="emails"
           settings={settings}
           candidates={candidatesResult.candidates ?? []}
-          venueLogoUrl={venueLogoUrl}
-          venueName={venue.name}
         />
       ) : (
         <p className="text-sm text-black/55">

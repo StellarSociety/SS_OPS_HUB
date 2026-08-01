@@ -24,9 +24,6 @@ type EmailMessageEditorProps = {
   rows?: number;
   className?: string;
   "aria-label"?: string;
-  /** Venue logo shown under the message (included automatically when sending). */
-  footerLogoUrl?: string | null;
-  footerVenueName?: string | null;
 };
 
 function ToolbarButton({
@@ -72,8 +69,6 @@ export function EmailMessageEditor({
   rows = 12,
   className,
   "aria-label": ariaLabel,
-  footerLogoUrl,
-  footerVenueName,
 }: EmailMessageEditorProps) {
   const autoId = useId();
   const editorId = id ?? autoId;
@@ -191,23 +186,6 @@ export function EmailMessageEditor({
         )}
         style={{ minHeight }}
       />
-
-      {footerLogoUrl ? (
-        <div className="rounded-md border border-dashed border-black/15 bg-[var(--venue-secondary,#F0F3DD)]/30 px-3 py-3 text-center">
-          <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-black/45">
-            Email footer
-          </p>
-          {/* Company logo preview — venue assets may be SVG or remote storage URLs */}
-          <img
-            src={footerLogoUrl}
-            alt={footerVenueName?.trim() || "Company logo"}
-            className="mx-auto h-10 w-auto max-w-[140px] object-contain"
-          />
-          <p className="mt-2 text-[11px] text-black/45">
-            Company logo is added automatically when the email is sent.
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 }

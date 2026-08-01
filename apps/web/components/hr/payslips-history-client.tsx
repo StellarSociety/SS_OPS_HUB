@@ -129,7 +129,7 @@ export function PayslipsHistoryClient({
     string[]
   >([]);
   const [payrollMonth, setPayrollMonth] = useState("");
-  const [latestOnly, setLatestOnly] = useState(false);
+  const [latestOnly, setLatestOnly] = useState(true);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
   const [generateMonth, setGenerateMonth] = useState(() => {
@@ -180,12 +180,13 @@ export function PayslipsHistoryClient({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [payslips]);
 
-  const hasActiveFilters =
+  const hasListFilters =
     selectedEmployee.length > 0 ||
     selectedDepartments.length > 0 ||
     selectedEmploymentStatuses.length > 0 ||
-    payrollMonth.length > 0 ||
-    latestOnly;
+    payrollMonth.length > 0;
+  const hasActiveFilters = hasListFilters || latestOnly;
+  const showClearFilters = hasListFilters || !latestOnly;
 
   const filtered = useMemo(() => {
     if (!hasActiveFilters) return [];
@@ -256,7 +257,7 @@ export function PayslipsHistoryClient({
     setSelectedDepartments([]);
     setSelectedEmploymentStatuses([]);
     setPayrollMonth("");
-    setLatestOnly(false);
+    setLatestOnly(true);
   }
 
   function openGenerateDialog() {
@@ -493,7 +494,7 @@ export function PayslipsHistoryClient({
           Latest version only
         </label>
 
-        {hasActiveFilters ? (
+        {showClearFilters ? (
           <button
             type="button"
             onClick={clearFilters}
@@ -526,7 +527,7 @@ export function PayslipsHistoryClient({
         <div className="rounded-lg border border-dashed border-black/15 bg-white/50 px-4 py-12 text-center">
           <p className="text-sm text-black/55">
             Select a month, department, employment status, or employee to find
-            payslips — or turn on “Latest version only”.
+            payslips — or leave “Latest version only” on to browse them.
           </p>
           {payslips.length > 0 ? (
             <p className="mt-1 text-xs text-black/40">

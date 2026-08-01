@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { DEFAULT_PAYSLIP_FOOTER_DISCLAIMER } from "@/lib/hr/types";
+import { sortPayslipLines } from "@/lib/hr/payslip-line-order";
 
 export type PayslipPdfLeaveKind = {
   code: string;
@@ -50,12 +51,55 @@ export type PayslipPdfInput = {
   lines: Array<{
     category: string;
     label: string;
+    /** Payable amount after any rate-discount deduction. */
     amount: number;
+    /** Fixed / earnings value before percent rate discount. */
+    baseAmount?: number | null;
+    /** Percent rate discount applied to this line (0–100). */
+    deductionPercent?: number | null;
+    /** AED impact of that percent discount on this line. */
+    deductionValue?: number | null;
   }>;
   grossEarnings: number;
   totalDeductions: number;
   netSalary: number;
 };
+
+/** Derive before-deduction + discount display fields from a stored line. */
+export function derivePayslipLineDiscountFields(input: {
+  amount: number;
+  meta?: { rateDiscountPercent?: number | null } | null;
+}): {
+  baseAmount: number | null;
+  deductionPercent: number | null;
+  deductionValue: number | null;
+} {
+  const amount = Number(input.amount);
+  const pct = Number(input.meta?.rateDiscountPercent ?? 0);
+  if (
+    !Number.isFinite(amount) ||
+    !Number.isFinite(pct) ||
+    !(pct > 0 && pct < 100)
+  ) {
+    return { baseAmount: null, deductionPercent: null, deductionValue: null };
+  }
+  const factor = 1 - pct / 100;
+  const baseAmount = Math.round((amount / factor) * 100) / 100;
+  const deductionValue = Math.round((baseAmount - amount) * 100) / 100;
+  return { baseAmount, deductionPercent: pct, deductionValue };
+}
+
+function formatDeductionCell(
+  percent: number | null | undefined,
+  value: number | null | undefined,
+): string {
+  const hasPct = percent != null && Number.isFinite(percent) && percent > 0;
+  const hasVal = value != null && Number.isFinite(value) && value > 0;
+  if (!hasPct && !hasVal) return "-";
+  if (hasPct && hasVal) return `${percent}% / ${money(value!)}`;
+  if (hasPct) return `${percent}%`;
+  return money(value!);
+}
 
 export { resolvePayslipEmployerHeader } from "@/lib/hr/payslip-letterhead";
 
@@ -375,7 +419,6 @@ function buildPayslipDoc(input: PayslipPdfInput): jsPDF {
   const metaRows: Array<[string, string]> = [
     ["Period", formatPdfPeriod(input.periodStart, input.periodEnd)],
     ["Payroll month", input.payrollMonthLabel || "-"],
-    ["Payment date", formatPdfDate(input.paymentDate)],
     ["Employee", `${input.fullName} (${input.empNo})`],
     ["Joining date", formatPdfDate(input.joiningDate)],
     ["Department", input.departmentName?.trim() || "-"],
@@ -439,14 +482,33 @@ function buildPayslipDoc(input: PayslipPdfInput): jsPDF {
 
   autoTable(doc, {
     startY: y,
-    head: [["Category", "Description", "Amount"]],
-    body: input.lines.map((l) => [
-      l.category,
-      l.label,
+    head: [
+      [
+        "Category",
+        "Description",
+        "Before deduction",
+        "Deduction % / value",
+        "Amount",
+      ],
+    ],
+    body: sortPayslipLines(input.lines).map((l) => [
+      pdfSafeText(l.category),
+      pdfSafeText(l.label),
+      l.baseAmount != null && Number.isFinite(l.baseAmount)
+        ? money(l.baseAmount)
+        : "-",
+      formatDeductionCell(l.deductionPercent, l.deductionValue),
       money(l.amount),
     ]),
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [61, 66, 31] },
+    styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" },
+    headStyles: { fillColor: [61, 66, 31], fontSize: 7 },
+    columnStyles: {
+      0: { cellWidth: 48 },
+      1: { cellWidth: "auto" },
+      2: { cellWidth: 72, halign: "right" },
+      3: { cellWidth: 88, halign: "right" },
+      4: { cellWidth: 72, halign: "right" },
+    },
     margin: { left: margin, right: margin },
   });
 

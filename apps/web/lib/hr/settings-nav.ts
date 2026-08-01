@@ -38,6 +38,8 @@ export const HR_SETTINGS_DATA_MANAGEMENT_HREF =
 export const HR_SETTINGS_EMAILS_HREF = "/hr/settings/emails";
 export const HR_SETTINGS_EMAILS_CONNECTION_HREF =
   `${HR_SETTINGS_EMAILS_HREF}/connection`;
+export const HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF =
+  `${HR_SETTINGS_EMAILS_HREF}/header-footer`;
 export const HR_SETTINGS_EMAILS_PAYROLL_HREF =
   `${HR_SETTINGS_EMAILS_HREF}/payroll`;
 export const HR_SETTINGS_EMAILS_PAYSLIPS_HREF =

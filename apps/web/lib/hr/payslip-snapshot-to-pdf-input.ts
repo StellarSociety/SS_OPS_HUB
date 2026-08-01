@@ -1,11 +1,54 @@
 import { formatPayrollMonthLabel } from "@/lib/hr/payroll";
-import type { PayslipPdfInput } from "@/lib/hr/payslip-pdf";
+import { sortPayslipLines } from "@/lib/hr/payslip-line-order";
+import {
+  derivePayslipLineDiscountFields,
+  type PayslipPdfInput,
+} from "@/lib/hr/payslip-pdf";
 import type { PayslipSnapshot } from "@/lib/actions/hr-payroll";
+
+type SnapshotLine = {
+  code?: string | null;
+  label: string;
+  amount: number;
+  sortOrder?: number | null;
+  meta?: { rateDiscountPercent?: number | null } | null;
+};
+
+function mapLine(
+  category: string,
+  l: SnapshotLine,
+): PayslipPdfInput["lines"][number] & {
+  code?: string | null;
+  sortOrder?: number | null;
+} {
+  const amount = Number(l.amount);
+  const discount = derivePayslipLineDiscountFields({
+    amount,
+    meta: l.meta ?? null,
+  });
+  const isEarnings = category === "Fixed" || category === "Variable";
+  return {
+    category,
+    code: l.code ?? null,
+    label: l.label,
+    amount,
+    baseAmount: discount.baseAmount ?? (isEarnings ? amount : null),
+    deductionPercent: discount.deductionPercent,
+    deductionValue: discount.deductionValue,
+    sortOrder: l.sortOrder ?? null,
+  };
+}
 
 /** Map a stored payslip snapshot to the PDF builder input. */
 export function payslipSnapshotToPdfInput(
   s: PayslipSnapshot,
 ): PayslipPdfInput {
+  const ordered = sortPayslipLines([
+    ...s.fixed.map((l) => mapLine("Fixed", l)),
+    ...s.variables.map((l) => mapLine("Variable", l)),
+    ...s.deductions.map((l) => mapLine("Deduction", l)),
+  ]);
+
   return {
     venueName: s.employer.venueName,
     employerLegalName: s.employer.legalName,
@@ -27,23 +70,7 @@ export function payslipSnapshotToPdfInput(
     paymentMethod: s.paymentMethod,
     bankName: s.bankName,
     accountNumber: s.accountNumber,
-    lines: [
-      ...s.fixed.map((l) => ({
-        category: "Fixed" as const,
-        label: l.label,
-        amount: Number(l.amount),
-      })),
-      ...s.variables.map((l) => ({
-        category: "Variable" as const,
-        label: l.label,
-        amount: Number(l.amount),
-      })),
-      ...s.deductions.map((l) => ({
-        category: "Deduction" as const,
-        label: l.label,
-        amount: Number(l.amount),
-      })),
-    ],
+    lines: ordered.map(({ code: _code, sortOrder: _sort, ...line }) => line),
     grossEarnings: Number(s.grossEarnings),
     totalDeductions: Number(s.totalDeductions),
     netSalary: Number(s.netSalary),

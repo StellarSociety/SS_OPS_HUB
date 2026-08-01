@@ -191,16 +191,12 @@ type PayrollApprovalsSettingsPanelProps = {
   settings: HrPayrollApprovalsSettings;
   candidates: PayrollApproverCandidate[];
   section: PayrollApprovalsSettingsSection;
-  venueLogoUrl?: string | null;
-  venueName?: string | null;
 };
 
 export function PayrollApprovalsSettingsPanel({
   settings,
   candidates,
   section,
-  venueLogoUrl,
-  venueName,
 }: PayrollApprovalsSettingsPanelProps) {
   const [hrReview, setHrReview] = useState(
     () => new Set(settings.hrReviewApproverUserIds),
@@ -625,8 +621,6 @@ export function PayrollApprovalsSettingsPanel({
                   onChange={(message) => updateActiveTemplate({ message })}
                   disabled={!activeTemplate}
                   aria-label="Payroll email message"
-                  footerLogoUrl={venueLogoUrl}
-                  footerVenueName={venueName}
                 />
               </div>
             </section>

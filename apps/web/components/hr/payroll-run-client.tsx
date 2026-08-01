@@ -11,6 +11,10 @@ import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
+import { PayslipViewButton } from "@/components/hr/payslip-view-button";
+import { PayslipRegenerateButton } from "@/components/hr/payslip-regenerate-button";
+import { PayslipEmailButton } from "@/components/hr/payslip-email-button";
+import { PayrollPaidDaysCalendarDialog } from "@/components/hr/payroll-paid-days-calendar-dialog";
 import { PayrollMonthPicker } from "@/components/hr/payroll-month-picker";
 import { PayrollWorkflowStepper } from "@/components/hr/payroll-workflow-stepper";
 import { SalesImportProgressBar } from "@/components/sales/sales-import-progress-bar";
@@ -293,6 +297,10 @@ export type PayrollEmployeeRow = {
   termination_date: string | null;
   /** Day-fraction snapshot from calculation (leave breakdown source). */
   day_fractions: PayrollDayFraction[];
+  /** Latest generated payslip for this run employee, if any. */
+  payslip_id: string | null;
+  /** Version number of that latest payslip. */
+  payslip_version: number | null;
 };
 
 export type PayrollLineRow = {
@@ -1143,6 +1151,7 @@ export function PayrollRunClient({
           adjustmentCodes={adjustmentCodes}
           periodStart={run.period_start}
           periodEnd={run.period_end}
+          payrollMonthLabel={formatPayrollMonthLabel(run.payroll_month)}
           expanded={expanded}
           setExpanded={setExpanded}
           canViewSalary={canViewSalary}
@@ -1677,6 +1686,7 @@ function RunEmployeesTab({
   adjustmentCodes,
   periodStart,
   periodEnd,
+  payrollMonthLabel,
   expanded,
   setExpanded,
   canViewSalary,
@@ -1697,6 +1707,7 @@ function RunEmployeesTab({
   adjustmentCodes: PayrollAdjustmentCodeConfig[];
   periodStart: string;
   periodEnd: string;
+  payrollMonthLabel: string;
   expanded: Set<string>;
   setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>;
   canViewSalary: boolean;
@@ -1750,8 +1761,8 @@ function RunEmployeesTab({
     | "included";
   type SortDir = "asc" | "desc";
 
-  const [sortKey, setSortKey] = useState<SortKey>("emp_no");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("net_salary");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [query, setQuery] = useState("");
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [selectedWorkingStatuses, setSelectedWorkingStatuses] = useState<
@@ -2420,6 +2431,7 @@ function RunEmployeesTab({
                     adjustmentCodes={adjustmentCodes}
                     periodStart={periodStart}
                     periodEnd={periodEnd}
+                    payrollMonthLabel={payrollMonthLabel}
                     canViewSalary={canViewSalary}
                     editable={editable}
                     pending={pending}
@@ -2543,6 +2555,7 @@ function FragmentRows({
   adjustmentCodes,
   periodStart,
   periodEnd,
+  payrollMonthLabel,
   canViewSalary,
   editable,
   pending,
@@ -2563,6 +2576,7 @@ function FragmentRows({
   adjustmentCodes: PayrollAdjustmentCodeConfig[];
   periodStart: string;
   periodEnd: string;
+  payrollMonthLabel: string;
   canViewSalary: boolean;
   editable: boolean;
   pending: boolean;
@@ -2579,6 +2593,19 @@ function FragmentRows({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAdjustment, setEditingAdjustment] =
     useState<PayrollAdjustmentRow | null>(null);
+  const [payslipId, setPayslipId] = useState<string | null>(
+    row.payslip_id ?? null,
+  );
+  const [payslipVersion, setPayslipVersion] = useState<number | null>(
+    row.payslip_version ?? null,
+  );
+  const [paidDaysCalendarOpen, setPaidDaysCalendarOpen] = useState(false);
+
+  useEffect(() => {
+    setPayslipId(row.payslip_id ?? null);
+    setPayslipVersion(row.payslip_version ?? null);
+  }, [row.payslip_id, row.payslip_version]);
+
   const leaveSummary = summarizePayrollLeave(row.day_fractions);
   const paidKinds = leaveSummary.kinds.filter((k) => k.bucket === "paid");
   const halfPayKinds = leaveSummary.kinds.filter((k) => k.bucket === "half_pay");
@@ -2629,13 +2656,22 @@ function FragmentRows({
     ];
   }, [empAdjustments, sortedPayLines, row]);
 
+  const zeroNet = Math.abs(Number(row.net_salary) || 0) < 0.005;
+
   return (
     <>
       <tr
         className={cn(
-          "cursor-pointer hover:bg-[var(--venue-secondary,#F0F3DD)]/25",
+          "cursor-pointer",
+          zeroNet
+            ? "bg-purple-100/80 hover:bg-purple-100"
+            : "hover:bg-[var(--venue-secondary,#F0F3DD)]/25",
           !row.included && "opacity-60",
-          selectMode && selected && "bg-[var(--venue-secondary,#F0F3DD)]/40",
+          selectMode &&
+            selected &&
+            (zeroNet
+              ? "bg-purple-200/70"
+              : "bg-[var(--venue-secondary,#F0F3DD)]/40"),
         )}
         onClick={onToggleExpand}
       >
@@ -2685,20 +2721,27 @@ function FragmentRows({
         <td className="px-3 py-2 text-center">
           <WorkingStatusBadge status={resolvePayrollWorkingStatus(row)} />
         </td>
-        <td className="px-3 py-2 text-right tabular-nums">
-          <span
+        <td
+          className="px-3 py-2 text-right tabular-nums"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => setPaidDaysCalendarOpen(true)}
             className={cn(
+              "rounded underline-offset-2 transition hover:underline",
+              "text-[var(--venue-primary,#818a40)] hover:bg-[var(--venue-primary,#818a40)]/10",
               Math.abs(row.effective_paid_days - row.paid_days) >= 0.005 &&
-                "font-medium text-[#3D421F]",
+                "font-medium",
             )}
             title={
               Math.abs(row.effective_paid_days - row.paid_days) >= 0.005
-                ? `Attendance ${Number(row.paid_days).toFixed(2)} · Adjusted for payroll`
-                : undefined
+                ? `Attendance ${Number(row.paid_days).toFixed(2)} · Adjusted for payroll — view calendar`
+                : "View worked / leave days for this payroll period"
             }
           >
             {Number(row.effective_paid_days).toFixed(2)}
-          </span>
+          </button>
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {(leaveSummary.paidDays + leaveSummary.halfPayDays).toFixed(2)}
@@ -2740,19 +2783,68 @@ function FragmentRows({
           <td colSpan={selectMode ? 13 : 12} className="border-t border-white/10 p-0">
             <div className="max-h-[min(70vh,720px)] overflow-y-auto bg-zinc-600 px-4 py-3 text-zinc-100">
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
-                <p>
-                  <span className="text-zinc-400">Joining date</span>{" "}
-                  <span className="tabular-nums font-medium">
-                    {formatDate(row.joining_date)}
-                  </span>
-                </p>
-                <p>
-                  <span className="text-zinc-400">Termination date</span>{" "}
-                  <span className="tabular-nums font-medium">
-                    {formatDate(row.termination_date)}
-                  </span>
-                </p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+                  <p>
+                    <span className="text-zinc-400">Joining date</span>{" "}
+                    <span className="tabular-nums font-medium">
+                      {formatDate(row.joining_date)}
+                    </span>
+                  </p>
+                  <p>
+                    <span className="text-zinc-400">Termination date</span>{" "}
+                    <span className="tabular-nums font-medium">
+                      {formatDate(row.termination_date)}
+                    </span>
+                  </p>
+                </div>
+                {editable || payslipId ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {editable ? (
+                      <PayslipRegenerateButton
+                        runEmployeeId={row.id}
+                        tone="dark"
+                        disabled={pending || !row.included}
+                        onRegenerated={(next) => {
+                          setPayslipId(next.payslipId);
+                          setPayslipVersion(next.version);
+                        }}
+                      />
+                    ) : null}
+                    {payslipVersion != null ? (
+                      <span
+                        className="px-1 text-xs tabular-nums text-zinc-300"
+                        title={`Payslip version ${payslipVersion}`}
+                      >
+                        v{payslipVersion}
+                      </span>
+                    ) : editable ? (
+                      <span className="px-1 text-xs text-zinc-400">
+                        No payslip
+                      </span>
+                    ) : null}
+                    {payslipId ? (
+                      <>
+                        <PayslipViewButton
+                          payslipId={payslipId}
+                          label="Preview payslip"
+                          tone="dark"
+                        />
+                        {editable ? (
+                          <PayslipEmailButton
+                            payslipId={payslipId}
+                            empNo={row.emp_no}
+                            fullName={row.full_name}
+                            version={payslipVersion}
+                            payrollMonthLabel={payrollMonthLabel}
+                            tone="dark"
+                            disabled={pending || !row.included}
+                          />
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
 
               <div className="space-y-2">
@@ -3041,6 +3133,16 @@ function FragmentRows({
           setDialogOpen(false);
           setEditingAdjustment(null);
         }}
+      />
+      <PayrollPaidDaysCalendarDialog
+        open={paidDaysCalendarOpen}
+        onClose={() => setPaidDaysCalendarOpen(false)}
+        empNo={row.emp_no}
+        fullName={row.full_name}
+        periodStart={periodStart}
+        periodEnd={periodEnd}
+        dayFractions={row.day_fractions}
+        paidDays={row.effective_paid_days}
       />
     </>
   );

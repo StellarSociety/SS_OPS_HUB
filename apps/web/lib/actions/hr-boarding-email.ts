@@ -2,18 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
-import { getActionAuthContext } from "@/lib/auth/action-context";
+import {
+  getActionAuthContext,
+  type ActionAuthContext,
+} from "@/lib/auth/action-context";
 import { sendAppEmail } from "@/lib/email/transport";
 import { canAdminLookups, canEditStaff } from "@/lib/hr/permissions";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import {
   BOARDING_EMAIL_ACTIONS,
+  boardingEmailUsesFixedRecipients,
   createBoardingEmailTemplate,
   DEFAULT_HR_BOARDING_EMAIL_SETTINGS,
-  DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID,
-  DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
+  parseBoardingEmailAction,
+  parseBoardingTemplateToEmails,
   resolveBoardingEmailTemplate,
   type BoardingEmailAction,
   type BoardingEmailTemplate,
@@ -66,10 +70,7 @@ function mapDeliveryStatus(
 function rowToDelivery(row: BoardingEmailRow): OffboardingNoticeEmailDelivery {
   return {
     id: row.id,
-    action:
-      row.action === "termination_notice"
-        ? "termination_notice"
-        : "resignation_confirm",
+    action: parseBoardingEmailAction(row.action),
     status: mapDeliveryStatus(row.status),
     sentAt: row.sent_at ?? row.recorded_at,
     scheduledAt: row.scheduled_at ?? null,
@@ -113,6 +114,7 @@ function normalizeTemplates(raw: unknown): BoardingEmailTemplate[] {
           : "resignation_confirm",
         subject: String(row.subject ?? ""),
         message: String(row.message ?? ""),
+        toEmails: String(row.toEmails ?? ""),
       }),
     );
   }
@@ -121,6 +123,14 @@ function normalizeTemplates(raw: unknown): BoardingEmailTemplate[] {
     return DEFAULT_HR_BOARDING_EMAIL_SETTINGS.templates.map((t) => ({
       ...t,
     }));
+  }
+
+  // Ensure each action has at least the stock default (e.g. venues without handover yet).
+  for (const def of DEFAULT_HR_BOARDING_EMAIL_SETTINGS.templates) {
+    if (!templates.some((t) => t.action === def.action)) {
+      templates.push({ ...def });
+      seen.add(def.id);
+    }
   }
 
   return templates;
@@ -139,10 +149,7 @@ function mergeBoardingEmailSettings(
   ];
   const templates = normalizeTemplates(partial?.templates);
   const defaultsRaw = partial?.defaultTemplateByAction ?? {};
-  const defaultTemplateByAction = {
-    resignation_confirm: "",
-    termination_notice: "",
-  } as Record<BoardingEmailAction, string>;
+  const defaultTemplateByAction = {} as Record<BoardingEmailAction, string>;
 
   for (const action of BOARDING_EMAIL_ACTIONS.map((a) => a.value)) {
     const requested = String(
@@ -150,12 +157,11 @@ function mergeBoardingEmailSettings(
         base.defaultTemplateByAction[action],
     ).trim();
     const forAction = templates.filter((t) => t.action === action);
+    const fallbackId =
+      base.defaultTemplateByAction[action] || forAction[0]?.id || "";
     defaultTemplateByAction[action] = forAction.some((t) => t.id === requested)
       ? requested
-      : (forAction[0]?.id ??
-        (action === "termination_notice"
-          ? DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID
-          : DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID));
+      : (forAction[0]?.id ?? fallbackId);
   }
 
   return {
@@ -289,9 +295,20 @@ function resolveRecipient(
   return work ?? personal;
 }
 
-function firstName(fullName: string): string {
-  const part = fullName.trim().split(/\s+/)[0];
-  return part || fullName;
+async function resolveSignedInUserName(
+  supabase: ActionAuthContext["supabase"],
+  user: ActionAuthContext["user"],
+): Promise<string> {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .maybeSingle();
+  return (
+    String(profile?.full_name ?? "").trim() ||
+    String(profile?.email ?? user.email ?? "").trim() ||
+    "User"
+  );
 }
 
 export type BoardingNoticeEmailPreview = {
@@ -328,6 +345,12 @@ export async function listBoardingNoticeEmails(input: {
       return { ok: false, error: "No permission to view boarding emails." };
     }
 
+    // Hobby cron is daily — also flush due schedules whenever the UI reloads.
+    const { processDueScheduledBoardingEmails } = await import(
+      "@/lib/hr/process-scheduled-boarding-emails"
+    );
+    await processDueScheduledBoardingEmails({ limit: 25 });
+
     const service = createServiceClient();
     const { data, error } = await service
       .from("hr_boarding_emails")
@@ -343,6 +366,56 @@ export async function listBoardingNoticeEmails(input: {
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Failed to load emails.",
+    };
+  }
+}
+
+/** Sent-email counts keyed by staff id (for offboarding list badges). */
+export async function countSentBoardingNoticeEmailsByStaff(input: {
+  staffIds: string[];
+}): Promise<
+  | { ok: true; counts: Record<string, number> }
+  | { ok: false; error: string }
+> {
+  try {
+    const auth = await getAuth();
+    if ("error" in auth) return { ok: false, error: auth.error };
+    if (
+      !canEditStaff(auth.permissions, auth.venue.id) &&
+      !canAdminLookups(auth.permissions, auth.venue.id)
+    ) {
+      return { ok: false, error: "No permission to view boarding emails." };
+    }
+
+    const ids = [
+      ...new Set(
+        input.staffIds
+          .map((id) => asUuidOrNull(id))
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    if (ids.length === 0) return { ok: true, counts: {} };
+
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("hr_boarding_emails")
+      .select("staff_id")
+      .eq("venue_id", auth.venue.id)
+      .eq("status", "sent")
+      .in("staff_id", ids);
+    if (error) return { ok: false, error: error.message };
+
+    const counts: Record<string, number> = {};
+    for (const row of data ?? []) {
+      const staffId = String(row.staff_id ?? "");
+      if (!staffId) continue;
+      counts[staffId] = (counts[staffId] ?? 0) + 1;
+    }
+    return { ok: true, counts };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to load email counts.",
     };
   }
 }
@@ -438,6 +511,7 @@ async function loadNoticeContext(input: {
   templateId?: string | null;
   notificationDate: string;
   terminationDate: string;
+  accommodationClearanceDate?: string | null;
   subjectOverride?: string | null;
   messageOverride?: string | null;
 }) {
@@ -477,14 +551,21 @@ async function loadNoticeContext(input: {
     .filter((t) => t.action === input.action)
     .map((t) => ({ id: t.id, name: t.name }));
 
+  const senderName = await resolveSignedInUserName(auth.supabase, auth.user);
+
   const vars: Record<string, string> = {
     EMPLOYEE_NAME: staff.full_name ?? "",
-    USER_NAME: firstName(staff.full_name ?? ""),
+    USER_NAME: senderName,
     EMP_NO: staff.emp_no ?? "",
     DEPARTMENT: departmentName,
     POSITION: positionName,
     NOTIFICATION_DATE: formatDateOnly(input.notificationDate || null),
     LAST_WORKING_DAY: formatDateOnly(input.terminationDate || null),
+    ACCOMMODATION_CLEARANCE_DATE: formatDateOnly(
+      input.accommodationClearanceDate ||
+        input.terminationDate ||
+        null,
+    ),
     VENUE_NAME: auth.venue.name ?? "",
   };
 
@@ -496,10 +577,25 @@ async function loadNoticeContext(input: {
     input.messageOverride ?? template.message,
     vars,
   );
-  const to = resolveRecipient(settings.recipientField, {
+  const employeeTo = resolveRecipient(settings.recipientField, {
     work_email: staff.work_email,
     personal_email: staff.personal_email,
   });
+  const fixedRecipients = boardingEmailUsesFixedRecipients(template.action)
+    ? parseBoardingTemplateToEmails(template.toEmails)
+    : [];
+  const to =
+    fixedRecipients.length > 0
+      ? fixedRecipients.join(", ")
+      : boardingEmailUsesFixedRecipients(template.action)
+        ? null
+        : employeeTo;
+  const toList =
+    fixedRecipients.length > 0
+      ? fixedRecipients
+      : employeeTo
+        ? [employeeTo]
+        : [];
 
   return {
     auth,
@@ -510,6 +606,7 @@ async function loadNoticeContext(input: {
     subject,
     message,
     to,
+    toList,
     vars,
   } as const;
 }
@@ -562,6 +659,7 @@ export async function sendBoardingNoticeEmail(input: {
   terminationDate: string;
   subject?: string | null;
   message?: string | null;
+  to?: string | null;
 }): Promise<BoardingNoticeEmailSendResult> {
   try {
     const ctx = await loadNoticeContext({
@@ -581,16 +679,21 @@ export async function sendBoardingNoticeEmail(input: {
       return {
         ok: false,
         error:
-          "Boarding emails are disabled. Enable them in Settings → Emails → Boarding email.",
+          "Boarding emails are disabled. Enable them in Settings → Emails → Off-Boarding email.",
       };
     }
-    if (!ctx.to) {
+    const toList = parseBoardingTemplateToEmails(
+      input.to?.trim() || ctx.to || "",
+    );
+    if (toList.length === 0) {
       return {
         ok: false,
-        error:
-          "No employee email address found. Add a work or personal email on the staff record.",
+        error: boardingEmailUsesFixedRecipients(input.action)
+          ? "No recipient emails configured on this template. Set them in Settings → Emails → Off-Boarding email."
+          : "No recipient email address. Enter a To address or add a work/personal email on the staff record.",
       };
     }
+    const toEmail = toList.join(", ");
 
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: ctx.message,
@@ -599,7 +702,7 @@ export async function sendBoardingNoticeEmail(input: {
 
     const result = await sendAppEmail(
       {
-        to: ctx.to,
+        to: toList.length === 1 ? toList[0]! : toList,
         subject: ctx.subject,
         html,
         attachments: inlineAttachments,
@@ -620,7 +723,7 @@ export async function sendBoardingNoticeEmail(input: {
       process_id: asUuidOrNull(input.processId),
       action: input.action,
       status: "sent" as const,
-      to_email: ctx.to,
+      to_email: toEmail,
       from_email: fromEmail,
       subject: ctx.subject,
       message: ctx.message,
@@ -752,18 +855,22 @@ export async function scheduleBoardingNoticeEmail(input: {
       return {
         ok: false,
         error:
-          "Boarding emails are disabled. Enable them in Settings → Emails → Boarding email.",
+          "Boarding emails are disabled. Enable them in Settings → Emails → Off-Boarding email.",
       };
     }
 
-    const toEmail = (input.to?.trim() || ctx.to || "").trim();
-    if (!toEmail) {
+    const toList = parseBoardingTemplateToEmails(
+      input.to?.trim() || ctx.to || "",
+    );
+    if (toList.length === 0) {
       return {
         ok: false,
-        error:
-          "No employee email address found. Add a work or personal email on the staff record.",
+        error: boardingEmailUsesFixedRecipients(input.action)
+          ? "No recipient emails configured on this template. Set them in Settings → Emails → Off-Boarding email."
+          : "No recipient email address. Enter a To address or add a work/personal email on the staff record.",
       };
     }
+    const toEmail = toList.join(", ");
 
     const recordedAt = new Date().toISOString();
     const existingId = asUuidOrNull(input.id);
@@ -881,6 +988,55 @@ export async function cancelScheduledBoardingNoticeEmail(input: {
       ok: false,
       error:
         err instanceof Error ? err.message : "Failed to cancel schedule.",
+    };
+  }
+}
+
+export async function deleteBoardingNoticeEmailDraft(input: {
+  id: string;
+  staffId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const auth = await getAuth();
+    if ("error" in auth) return { ok: false, error: auth.error };
+    if (!canEditStaff(auth.permissions, auth.venue.id)) {
+      return { ok: false, error: "No permission to edit boarding emails." };
+    }
+
+    const id = asUuidOrNull(input.id);
+    if (!id) return { ok: false, error: "Invalid email record." };
+
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("hr_boarding_emails")
+      .delete()
+      .eq("id", id)
+      .eq("venue_id", auth.venue.id)
+      .eq("staff_id", input.staffId)
+      .eq("status", "draft")
+      .select("id")
+      .maybeSingle();
+
+    if (error) return { ok: false, error: error.message };
+    if (!data) {
+      return { ok: false, error: "Draft not found or already removed." };
+    }
+
+    await writeAuditLog({
+      actor_id: auth.user.id,
+      action: "delete",
+      module_key: HR_MODULE_KEY,
+      entity: "boarding_notice_email",
+      entity_id: id,
+      venue_id: auth.venue.id,
+      after: { status: "deleted_draft" },
+    });
+
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to delete draft.",
     };
   }
 }

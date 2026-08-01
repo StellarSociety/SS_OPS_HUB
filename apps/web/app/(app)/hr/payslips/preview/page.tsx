@@ -34,7 +34,8 @@ export default async function HrPayslipPdfPreviewPage() {
       <div>
         <ModulePageTitle>Payslip PDF</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
-          Design preview — sample employee data. Edit letterhead in{" "}
+          Design preview — example employee ORL0014 (Lina Daifi), July 2026.
+          Edit letterhead in{" "}
           <Link
             href="/hr/settings/pay/payslip-document"
             className="text-[var(--venue-primary,#818a40)] underline-offset-2 hover:underline"

@@ -35,6 +35,7 @@ import {
 } from "@/lib/hr/payroll/wps";
 import { resolveEmployeePaymentMethod } from "@/lib/hr/payroll/persist-run";
 import type { PayslipPdfLeaveKind } from "@/lib/hr/payslip-pdf";
+import { sortPayslipLines } from "@/lib/hr/payslip-line-order";
 import { loadPayslipLetterheadForVenue } from "@/lib/hr/payslip-letterhead";
 import { HR_MODULE_KEY, HR_SETTINGS_KEYS } from "@/lib/hr/types";
 import { persistCalculatedPayrollRun, persistSingleEmployeePayroll, loadPayrollSettings, loadPayrollAdjustmentCodes } from "@/lib/hr/payroll/persist-run";
@@ -42,7 +43,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 export type PayrollActionResult =
-  | { ok: true; warning?: string }
+  | { ok: true; warning?: string; generated?: number; skipped?: number }
   | { ok: false; error: string };
 
 export type PayrollCsvResult =
@@ -1216,8 +1217,95 @@ export async function markPayrollPaid(
   return transitionPayrollRun(runId, "locked", "Auto-locked after payment");
 }
 
+function normalizePayslipLinesForCompare(lines: unknown): unknown[] {
+  if (!Array.isArray(lines)) return [];
+  return lines
+    .map((raw) => {
+      const l = (raw ?? {}) as Record<string, unknown>;
+      return {
+        category: l.category ?? null,
+        code: l.code ?? null,
+        label: l.label ?? null,
+        amount: Number(l.amount ?? 0),
+        quantity: l.quantity != null ? Number(l.quantity) : null,
+        rate: l.rate != null ? Number(l.rate) : null,
+        meta: l.meta ?? {},
+      };
+    })
+    .sort((a, b) => {
+      const code = String(a.code ?? "").localeCompare(String(b.code ?? ""));
+      if (code !== 0) return code;
+      return String(a.label ?? "").localeCompare(String(b.label ?? ""));
+    });
+}
+
+/** Stable JSON for deep equality — object key order must not affect the hash. */
+function stableStringify(value: unknown): string {
+  const normalize = (v: unknown): unknown => {
+    if (v === null || typeof v !== "object") return v;
+    if (Array.isArray(v)) return v.map(normalize);
+    const obj = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(obj).sort()) {
+      out[key] = normalize(obj[key]);
+    }
+    return out;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+/** Content fingerprint — ignores version and volatile line row ids/timestamps. */
+function payslipContentFingerprint(snapshot: unknown): string {
+  const s = (snapshot ?? {}) as Record<string, unknown>;
+  const dateOnly = (v: unknown) => {
+    const raw = String(v ?? "").trim();
+    return raw.slice(0, 10) || null;
+  };
+  return stableStringify({
+    payrollMonth: dateOnly(s.payrollMonth),
+    periodStart: dateOnly(s.periodStart),
+    periodEnd: dateOnly(s.periodEnd),
+    paymentDate: dateOnly(s.paymentDate),
+    employer: s.employer ?? null,
+    employee: s.employee ?? null,
+    paidDays: Number(s.paidDays ?? 0),
+    unpaidDays: Number(s.unpaidDays ?? 0),
+    leave: (() => {
+      const leave = (s.leave ?? null) as Record<string, unknown> | null;
+      if (!leave) return null;
+      const kinds = Array.isArray(leave.kinds)
+        ? [...leave.kinds].sort((a, b) => {
+            const aa = (a ?? {}) as Record<string, unknown>;
+            const bb = (b ?? {}) as Record<string, unknown>;
+            const code = String(aa.code ?? "").localeCompare(String(bb.code ?? ""));
+            if (code !== 0) return code;
+            return Number(aa.days ?? 0) - Number(bb.days ?? 0);
+          })
+        : [];
+      return {
+        paidDays: Number(leave.paidDays ?? 0),
+        halfPayDays: Number(leave.halfPayDays ?? 0),
+        unpaidDays: Number(leave.unpaidDays ?? 0),
+        kinds,
+      };
+    })(),
+    paymentMethod: s.paymentMethod ?? null,
+    bankName: s.bankName ?? null,
+    accountNumber: s.accountNumber ?? null,
+    basicSalary: s.basicSalary != null ? Number(s.basicSalary) : null,
+    fixed: normalizePayslipLinesForCompare(s.fixed),
+    variables: normalizePayslipLinesForCompare(s.variables),
+    deductions: normalizePayslipLinesForCompare(s.deductions),
+    allowances: normalizePayslipLinesForCompare(s.allowances),
+    grossEarnings: Number(s.grossEarnings ?? 0),
+    totalDeductions: Number(s.totalDeductions ?? 0),
+    netSalary: Number(s.netSalary ?? 0),
+  });
+}
+
 export async function generatePayslips(
   runId: string,
+  options?: { runEmployeeIds?: string[]; skipIfUnchanged?: boolean },
 ): Promise<PayrollActionResult> {
   const auth = await getPayrollAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
@@ -1235,16 +1323,34 @@ export async function generatePayslips(
     .maybeSingle();
   if (!run) return { ok: false, error: "Run not found." };
 
-  const { data: employees } = await supabase
+  const employeeIdFilter = options?.runEmployeeIds
+    ?.map((id) => id.trim())
+    .filter(Boolean);
+
+  let employeesQuery = supabase
     .from("hr_payroll_run_employees")
     .select("*")
     .eq("run_id", runId)
     .eq("included", true);
+  if (employeeIdFilter && employeeIdFilter.length > 0) {
+    employeesQuery = employeesQuery.in("id", employeeIdFilter);
+  }
+  const { data: employees } = await employeesQuery;
+
+  if (!employees?.length) {
+    return {
+      ok: false,
+      error: employeeIdFilter?.length
+        ? "Employee not found or not included on this run."
+        : "No included employees on this run.",
+    };
+  }
 
   const { data: lines } = await supabase
     .from("hr_payroll_lines")
     .select("*")
-    .eq("run_id", runId);
+    .eq("run_id", runId)
+    .order("sort_order", { ascending: true });
 
   const linesByEmp = new Map<string, typeof lines>();
   for (const line of lines ?? []) {
@@ -1259,10 +1365,14 @@ export async function generatePayslips(
   const payrollSettings = await loadPayrollSettings(supabase, venue.id);
   const letterhead = await loadPayslipLetterheadForVenue(supabase, venue);
 
+  let generated = 0;
+  let skipped = 0;
+  let latestPayslipId: string | null = null;
+
   for (const emp of employees ?? []) {
     const { data: existing } = await service
       .from("hr_payslips")
-      .select("version")
+      .select("id, version, snapshot")
       .eq("run_employee_id", emp.id)
       .order("version", { ascending: false })
       .limit(1)
@@ -1330,27 +1440,73 @@ export async function generatePayslips(
       allowances: empLines.filter(
         (l) => l.code === "ACCOM" || l.code === "TRANSP",
       ),
-      variables: empLines.filter(
-        (l) => l.category === "variable" || l.category === "addon",
+      variables: sortPayslipLines(
+        empLines
+          .filter((l) => l.category === "variable" || l.category === "addon")
+          .map((l) => ({
+            ...l,
+            category: String(l.category),
+            code: String(l.code ?? ""),
+            label: String(l.label ?? ""),
+            sortOrder: Number(l.sort_order ?? 999),
+          })),
       ),
-      deductions: empLines.filter((l) => l.category === "deduction"),
-      fixed: empLines.filter((l) => l.category === "fixed"),
+      deductions: sortPayslipLines(
+        empLines
+          .filter((l) => l.category === "deduction")
+          .map((l) => ({
+            ...l,
+            category: String(l.category),
+            code: String(l.code ?? ""),
+            label: String(l.label ?? ""),
+            sortOrder: Number(l.sort_order ?? 999),
+          })),
+      ),
+      fixed: sortPayslipLines(
+        empLines
+          .filter((l) => l.category === "fixed")
+          .map((l) => ({
+            ...l,
+            category: String(l.category),
+            code: String(l.code ?? ""),
+            label: String(l.label ?? ""),
+            sortOrder: Number(l.sort_order ?? 999),
+          })),
+      ),
       grossEarnings: emp.gross_earnings,
       totalDeductions: emp.total_deductions,
       netSalary: emp.net_salary,
       version,
     };
 
-    const { error } = await service.from("hr_payslips").insert({
-      venue_id: venue.id,
-      run_id: runId,
-      run_employee_id: emp.id,
-      staff_id: emp.staff_id,
-      version,
-      snapshot,
-      email_status: "not_sent",
-    });
+    if (
+      options?.skipIfUnchanged &&
+      existing?.id &&
+      existing.snapshot != null &&
+      payslipContentFingerprint(snapshot) ===
+        payslipContentFingerprint(existing.snapshot)
+    ) {
+      skipped += 1;
+      latestPayslipId = existing.id as string;
+      continue;
+    }
+
+    const { data: inserted, error } = await service
+      .from("hr_payslips")
+      .insert({
+        venue_id: venue.id,
+        run_id: runId,
+        run_employee_id: emp.id,
+        staff_id: emp.staff_id,
+        version,
+        snapshot,
+        email_status: "not_sent",
+      })
+      .select("id")
+      .single();
     if (error) return { ok: false, error: error.message };
+    generated += 1;
+    latestPayslipId = (inserted?.id as string | undefined) ?? latestPayslipId;
   }
 
   await writeAuditLog({
@@ -1360,11 +1516,75 @@ export async function generatePayslips(
     module_key: HR_MODULE_KEY,
     entity: "hr_payroll_runs",
     entity_id: runId,
-    after: { count: employees?.length ?? 0 },
+    after: {
+      count: generated,
+      skipped,
+      skipIfUnchanged: options?.skipIfUnchanged ?? false,
+      runEmployeeIds: employeeIdFilter ?? null,
+      latestPayslipId,
+    },
   });
 
   revalidatePayroll(runId);
-  return { ok: true };
+  return { ok: true, generated, skipped };
+}
+
+/** Create a new payslip version for one run employee from current payroll lines. */
+export async function regenerateEmployeePayslip(
+  runEmployeeId: string,
+): Promise<
+  | { ok: true; payslipId: string; version: number; unchanged: boolean }
+  | { ok: false; error: string }
+> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { venue, permissions, supabase } = auth;
+
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+
+  const id = runEmployeeId.trim();
+  if (!id) return { ok: false, error: "Missing employee." };
+
+  const { data: emp, error } = await supabase
+    .from("hr_payroll_run_employees")
+    .select("id, run_id, included, venue_id")
+    .eq("id", id)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+  if (!emp) return { ok: false, error: "Employee not found on this run." };
+  if (!emp.included) {
+    return { ok: false, error: "Employee is excluded from this payroll run." };
+  }
+
+  const result = await generatePayslips(emp.run_id as string, {
+    runEmployeeIds: [emp.id as string],
+    skipIfUnchanged: true,
+  });
+  if (!result.ok) return result;
+
+  const { data: latest } = await supabase
+    .from("hr_payslips")
+    .select("id, version")
+    .eq("run_employee_id", emp.id)
+    .eq("venue_id", venue.id)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!latest?.id) {
+    return { ok: false, error: "Payslip was generated but could not be loaded." };
+  }
+
+  return {
+    ok: true,
+    payslipId: latest.id as string,
+    version: Number(latest.version) || 1,
+    unchanged: (result.generated ?? 0) === 0,
+  };
 }
 
 export async function exportPayrollGl(
@@ -1741,9 +1961,27 @@ export type PayslipSnapshot = {
   bankName?: string | null;
   accountNumber?: string | null;
   version: number;
-  fixed: Array<{ label: string; amount: number }>;
-  variables: Array<{ label: string; amount: number }>;
-  deductions: Array<{ label: string; amount: number }>;
+  fixed: Array<{
+    code?: string | null;
+    label: string;
+    amount: number;
+    sortOrder?: number | null;
+    meta?: { rateDiscountPercent?: number | null } | null;
+  }>;
+  variables: Array<{
+    code?: string | null;
+    label: string;
+    amount: number;
+    sortOrder?: number | null;
+    meta?: { rateDiscountPercent?: number | null } | null;
+  }>;
+  deductions: Array<{
+    code?: string | null;
+    label: string;
+    amount: number;
+    sortOrder?: number | null;
+    meta?: { rateDiscountPercent?: number | null } | null;
+  }>;
   grossEarnings: number;
   totalDeductions: number;
   netSalary: number;

@@ -79,10 +79,17 @@ export type OffboardingSettlementPreview = {
   estimatedTotal: number | null;
 };
 
-/** Email action for step 1 (resignation vs termination notice). */
+/** Email action for offboarding communications (templates / sent records). */
 export type OffboardingNoticeEmailAction =
   | "resignation_confirm"
-  | "termination_notice";
+  | "termination_notice"
+  | "handover"
+  | "accommodation_employee"
+  | "accommodation_management"
+  | "cancel_visa"
+  | "cancel_insurance"
+  | "accounts_payment"
+  | "goodbye";
 
 /** Email record after compose — draft, scheduled, or sent (viewable copy). */
 export type OffboardingNoticeEmailDelivery = {
@@ -187,6 +194,7 @@ export type OffboardingChecklistStepId =
   | "signatures"
   | "access"
   | "property"
+  | "accommodation"
   | "benefits_cancel"
   | "final_payment"
   | "goodbye";
@@ -204,12 +212,14 @@ export type OffboardingChecklistStepState = {
   items: OffboardingChecklistItem[];
 };
 
-export const OFFBOARDING_CHECKLIST_STEPS: {
+export type OffboardingChecklistStepMeta = {
   id: OffboardingChecklistStepId;
   number: number;
   label: string;
   description: string;
-}[] = [
+};
+
+export const OFFBOARDING_CHECKLIST_STEPS: OffboardingChecklistStepMeta[] = [
   {
     id: "notice",
     number: 1,
@@ -253,20 +263,27 @@ export const OFFBOARDING_CHECKLIST_STEPS: {
     description: "Laptop, keys, uniforms, ID card, and other assets",
   },
   {
-    id: "benefits_cancel",
+    id: "accommodation",
     number: 8,
+    label: "Accommodation handover",
+    description:
+      "Clearance deadline to the employee and accommodation management",
+  },
+  {
+    id: "benefits_cancel",
+    number: 9,
     label: "Cancel visa, work permit, medical insurance, and benefits",
     description: "Employment-related benefits cancellation (if applicable)",
   },
   {
     id: "final_payment",
-    number: 9,
+    number: 10,
     label: "Process the final payment",
     description: "Pay the final settlement",
   },
   {
     id: "goodbye",
-    number: 10,
+    number: 11,
     label: "Goodbye",
     description: "Last email to the employee",
   },
@@ -348,6 +365,18 @@ export function createDefaultChecklist(): OffboardingChecklistStepState[] {
             item("other_property", "Other company property received"),
           ],
         };
+      case "accommodation":
+        return {
+          id: step.id,
+          items: [
+            item("accommodation_keys", "Accommodation keys returned"),
+            item("accommodation_cleaning", "Room cleaned and cleared"),
+            item(
+              "accommodation_other",
+              "Other accommodation handover items completed",
+            ),
+          ],
+        };
       case "benefits_cancel":
         return {
           id: step.id,
@@ -381,12 +410,17 @@ export function isChecklistStepDone(
   return step.items.length > 0 && step.items.every((row) => row.done);
 }
 
-export function checklistProgress(steps: OffboardingChecklistStepState[]): {
+export function checklistProgress(
+  steps: OffboardingChecklistStepState[],
+  options?: { excludeStepIds?: OffboardingChecklistStepId[] },
+): {
   done: number;
   total: number;
 } {
-  const total = steps.length;
-  const done = steps.filter(isChecklistStepDone).length;
+  const exclude = new Set(options?.excludeStepIds ?? []);
+  const relevant = steps.filter((step) => !exclude.has(step.id));
+  const total = relevant.length;
+  const done = relevant.filter(isChecklistStepDone).length;
   return { done, total };
 }
 
@@ -450,6 +484,8 @@ export type OffboardingStaffSnapshot = {
   provisionalEosb: number | null;
   workEmail: string | null;
   personalEmail: string | null;
+  /** From staff.company_accommodation — gates the accommodation handover step. */
+  inCompanyAccommodation: boolean;
   alBalance: number;
   phBalance: number;
 };

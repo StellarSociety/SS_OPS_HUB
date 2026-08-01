@@ -21,34 +21,10 @@ export function restoreAllowedFormatTags(escaped: string): string {
   });
 }
 
-export type EmailTemplateHtmlOptions = {
-  /** Absolute URL or `cid:…` for the venue logo footer. */
-  logoUrl?: string | null;
-  venueName?: string | null;
-};
-
-function buildEmailLogoFooter(options?: EmailTemplateHtmlOptions): string {
-  const logoUrl = options?.logoUrl?.trim();
-  if (!logoUrl) return "";
-  const alt = escapeEmailText(options?.venueName?.trim() || "Company logo");
-  const src = escapeEmailText(logoUrl);
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:28px;border-collapse:collapse;">
-  <tr>
-    <td style="border-top:1px solid #d9dcc8;padding-top:20px;text-align:center;">
-      <img src="${src}" alt="${alt}" width="140" style="display:inline-block;max-width:140px;height:auto;border:0;outline:none;text-decoration:none;" />
-    </td>
-  </tr>
-</table>`;
-}
-
 /** Convert a stored template/body string into safe email HTML. */
-export function emailTemplateBodyToHtml(
-  body: string,
-  options?: EmailTemplateHtmlOptions,
-): string {
+export function emailTemplateBodyToHtml(body: string): string {
   const withTags = restoreAllowedFormatTags(escapeEmailText(body));
-  const bodyHtml = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#3D421F;white-space:pre-wrap;">${withTags}</div>`;
-  return `${bodyHtml}${buildEmailLogoFooter(options)}`;
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#3D421F;white-space:pre-wrap;">${withTags}</div>`;
 }
 
 /** Safe HTML fragment for in-app preview (no outer wrapper). */

@@ -202,6 +202,7 @@ export const HR_SETTINGS_KEYS = {
   benefitsGratuity: "benefits_gratuity",
   benefitsServiceCharge: "benefits_service_charge",
   emailTransport: "email_transport",
+  emailChrome: "email_chrome",
   payslipEmail: "payslip_email",
   payslipLetterhead: "payslip_letterhead",
   boardingEmail: "boarding_email",
@@ -683,7 +684,7 @@ export const PAYSLIP_EMAIL_TEMPLATE_CODES = [
   },
   {
     code: "{{USER_NAME}}",
-    description: "Employee first / given name",
+    description: "Signed-in user sending this email",
   },
   {
     code: "{{PAYROLL_MONTH}}",
@@ -768,6 +769,97 @@ export const DEFAULT_HR_PAYSLIP_EMAIL_SETTINGS: HrPayslipEmailSettings = {
 export const DEFAULT_PAYSLIP_FOOTER_DISCLAIMER =
   "This payslip contains confidential personal and salary information intended solely for the named employee. Unauthorized copying, distribution, or disclosure is prohibited. This is a system generated payslip, no need for signature. INTERNAL CONFIDENTIAL DOCUMENT. All rights reserved.";
 
+/** Fixed-height email header / footer chrome applied to HR template emails. */
+export const EMAIL_CHROME_HEADER_HEIGHT_CM = 3;
+export const EMAIL_CHROME_FOOTER_HEIGHT_CM = 2;
+/** Social icon display size in px — fixed, never scales with viewport/email width. */
+export const EMAIL_CHROME_SOCIAL_ICON_PX = 18;
+
+export const DEFAULT_EMAIL_FOOTER_DISCLAIMER =
+  "This email and any attachments are confidential and intended solely for the named recipient. If you received this message in error, please delete it and notify the sender. Unauthorized copying or disclosure is prohibited.";
+
+export type HrEmailChromeSettings = {
+  enabled: boolean;
+  /** Light green header band behind the centered venue logo. */
+  headerBackgroundColor: string;
+  /** Combined footer copy (disclaimer + company address). */
+  footerText: string;
+  websiteUrl: string;
+  instagramUrl: string;
+  facebookUrl: string;
+  linkedinUrl: string;
+  tiktokUrl: string;
+  snapchatUrl: string;
+};
+
+export const DEFAULT_HR_EMAIL_CHROME_SETTINGS: HrEmailChromeSettings = {
+  enabled: true,
+  headerBackgroundColor: "#F0F3DD",
+  footerText: DEFAULT_EMAIL_FOOTER_DISCLAIMER,
+  websiteUrl: "",
+  instagramUrl: "",
+  facebookUrl: "",
+  linkedinUrl: "",
+  tiktokUrl: "",
+  snapchatUrl: "",
+};
+
+export const EMAIL_CHROME_SOCIAL_LINK_KEYS = [
+  "websiteUrl",
+  "instagramUrl",
+  "facebookUrl",
+  "linkedinUrl",
+  "tiktokUrl",
+  "snapchatUrl",
+] as const;
+
+export type EmailChromeSocialLinkKey =
+  (typeof EMAIL_CHROME_SOCIAL_LINK_KEYS)[number];
+
+export const EMAIL_CHROME_SOCIAL_LINKS: {
+  key: EmailChromeSocialLinkKey;
+  label: string;
+  icon: "website" | "instagram" | "facebook" | "linkedin" | "tiktok" | "snapchat";
+  placeholder: string;
+}[] = [
+  {
+    key: "websiteUrl",
+    label: "Website",
+    icon: "website",
+    placeholder: "https://www.example.com",
+  },
+  {
+    key: "instagramUrl",
+    label: "Instagram",
+    icon: "instagram",
+    placeholder: "https://www.instagram.com/…",
+  },
+  {
+    key: "facebookUrl",
+    label: "Facebook",
+    icon: "facebook",
+    placeholder: "https://www.facebook.com/…",
+  },
+  {
+    key: "linkedinUrl",
+    label: "LinkedIn",
+    icon: "linkedin",
+    placeholder: "https://www.linkedin.com/…",
+  },
+  {
+    key: "tiktokUrl",
+    label: "TikTok",
+    icon: "tiktok",
+    placeholder: "https://www.tiktok.com/@…",
+  },
+  {
+    key: "snapchatUrl",
+    label: "Snapchat",
+    icon: "snapchat",
+    placeholder: "https://www.snapchat.com/add/…",
+  },
+];
+
 /** Legal letterhead shown on payslip PDFs for this venue. */
 export type HrPayslipLetterheadSettings = {
   companyName: string;
@@ -799,15 +891,27 @@ export function resolvePayslipEmailTemplate(
 
 export type BoardingEmailAction =
   | "resignation_confirm"
-  | "termination_notice";
+  | "termination_notice"
+  | "handover"
+  | "accommodation_employee"
+  | "accommodation_management"
+  | "cancel_visa"
+  | "cancel_insurance"
+  | "accounts_payment"
+  | "goodbye";
 
 export type BoardingEmailTemplate = {
   id: string;
   name: string;
-  /** Which offboarding notice action this template serves. */
+  /** Which offboarding email action this template serves. */
   action: BoardingEmailAction;
   subject: string;
   message: string;
+  /**
+   * Fixed recipient emails (one per line) for templates not sent to the
+   * employee — e.g. accommodation management, visa, insurance, accounts.
+   */
+  toEmails: string;
 };
 
 export type HrBoardingEmailSettings = {
@@ -815,7 +919,7 @@ export type HrBoardingEmailSettings = {
   recipientField: PayslipEmailRecipientField;
   fromEmail: string;
   templates: BoardingEmailTemplate[];
-  /** Default template id per notice action. */
+  /** Default template id per email action. */
   defaultTemplateByAction: Record<BoardingEmailAction, string>;
 };
 
@@ -825,11 +929,131 @@ export const BOARDING_EMAIL_ACTIONS: {
 }[] = [
   { value: "resignation_confirm", label: "Resignation confirmation" },
   { value: "termination_notice", label: "Termination notice" },
+  { value: "handover", label: "Handover" },
+  {
+    value: "accommodation_employee",
+    label: "Accommodation clearance (employee)",
+  },
+  {
+    value: "accommodation_management",
+    label: "Accommodation clearance (management)",
+  },
+  { value: "cancel_visa", label: "Cancel visa" },
+  { value: "cancel_insurance", label: "Cancel insurance" },
+  {
+    value: "accounts_payment",
+    label: "Additional payment details (accounts)",
+  },
+  { value: "goodbye", label: "Goodbye" },
 ];
+
+/** Actions that send to configured addresses, not the employee. */
+export const BOARDING_EMAIL_FIXED_RECIPIENT_ACTIONS: BoardingEmailAction[] = [
+  "accommodation_management",
+  "cancel_visa",
+  "cancel_insurance",
+  "accounts_payment",
+];
+
+export function boardingEmailUsesFixedRecipients(
+  action: BoardingEmailAction,
+): boolean {
+  return BOARDING_EMAIL_FIXED_RECIPIENT_ACTIONS.includes(action);
+}
+
+export function parseBoardingTemplateToEmails(
+  value: string | null | undefined,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of String(value ?? "").split(/[\n,;]+/)) {
+    const email = part.trim().toLowerCase();
+    if (!email || !email.includes("@") || seen.has(email)) continue;
+    seen.add(email);
+    out.push(email);
+  }
+  return out;
+}
+
+export function formatBoardingTemplateToEmails(emails: string[]): string {
+  return emails.join("\n");
+}
+
+/** Checklist stages that currently have boarding email templates in settings. */
+export type BoardingEmailSettingsStepId =
+  | "notice"
+  | "handover"
+  | "accommodation"
+  | "benefits_cancel"
+  | "final_payment"
+  | "goodbye";
+
+export const BOARDING_EMAIL_SETTINGS_STEPS: {
+  id: BoardingEmailSettingsStepId;
+  allowedActions: BoardingEmailAction[];
+  defaultAddAction: BoardingEmailAction;
+}[] = [
+  {
+    id: "notice",
+    allowedActions: ["resignation_confirm", "termination_notice"],
+    defaultAddAction: "resignation_confirm",
+  },
+  {
+    id: "handover",
+    allowedActions: ["handover"],
+    defaultAddAction: "handover",
+  },
+  {
+    id: "accommodation",
+    allowedActions: ["accommodation_employee", "accommodation_management"],
+    defaultAddAction: "accommodation_employee",
+  },
+  {
+    id: "benefits_cancel",
+    allowedActions: ["cancel_visa", "cancel_insurance"],
+    defaultAddAction: "cancel_visa",
+  },
+  {
+    id: "final_payment",
+    allowedActions: ["accounts_payment"],
+    defaultAddAction: "accounts_payment",
+  },
+  {
+    id: "goodbye",
+    allowedActions: ["goodbye"],
+    defaultAddAction: "goodbye",
+  },
+];
+
+export function boardingEmailActionLabel(action: BoardingEmailAction): string {
+  return (
+    BOARDING_EMAIL_ACTIONS.find((row) => row.value === action)?.label ?? action
+  );
+}
+
+export function templatesForBoardingEmailStep(
+  templates: BoardingEmailTemplate[],
+  stepId: BoardingEmailSettingsStepId,
+): BoardingEmailTemplate[] {
+  const allowed =
+    BOARDING_EMAIL_SETTINGS_STEPS.find((s) => s.id === stepId)?.allowedActions ??
+    [];
+  return templates.filter((t) => allowed.includes(t.action));
+}
+
+export function parseBoardingEmailAction(
+  value: string | null | undefined,
+): BoardingEmailAction {
+  const raw = String(value ?? "").trim();
+  if (BOARDING_EMAIL_ACTIONS.some((row) => row.value === raw)) {
+    return raw as BoardingEmailAction;
+  }
+  return "resignation_confirm";
+}
 
 export const BOARDING_EMAIL_TEMPLATE_CODES = [
   { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
-  { code: "{{USER_NAME}}", description: "Employee first / given name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
   { code: "{{EMP_NO}}", description: "Employee number" },
   { code: "{{DEPARTMENT}}", description: "Department name" },
   { code: "{{POSITION}}", description: "Position / job title" },
@@ -840,6 +1064,10 @@ export const BOARDING_EMAIL_TEMPLATE_CODES = [
   {
     code: "{{LAST_WORKING_DAY}}",
     description: "Confirmed last working day",
+  },
+  {
+    code: "{{ACCOMMODATION_CLEARANCE_DATE}}",
+    description: "Deadline to clear company accommodation",
   },
   { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
 ] as const;
@@ -876,28 +1104,199 @@ Kind regards,
 {{VENUE_NAME}}
 Human Resources`;
 
+export const DEFAULT_HANDOVER_SUBJECT =
+  "Handover plan before your last working day — {{VENUE_NAME}}";
+
+export const DEFAULT_HANDOVER_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+As your last working day approaches ({{LAST_WORKING_DAY}}), please prepare a clear handover of your duties, open items, and any company property or access.
+
+Please reply with:
+• Outstanding tasks and owners
+• Key contacts and passwords / access notes (as applicable)
+• Documents or files that need handing over
+
+Management and your HOD are copied so we can support a smooth transition.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_ACCOMMODATION_EMPLOYEE_SUBJECT =
+  "Accommodation clearance deadline — {{VENUE_NAME}}";
+
+export const DEFAULT_ACCOMMODATION_EMPLOYEE_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+Please complete clearance of your company accommodation by {{ACCOMMODATION_CLEARANCE_DATE}}.
+
+This includes returning keys, leaving the unit clean, and removing personal belongings.
+
+Contact People / HR if you need support before that date.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_ACCOMMODATION_MANAGEMENT_SUBJECT =
+  "Accommodation clearance — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_ACCOMMODATION_MANAGEMENT_MESSAGE = `Hello,
+
+Please note that {{EMPLOYEE_NAME}} (employee no. {{EMP_NO}}) must clear company accommodation by {{ACCOMMODATION_CLEARANCE_DATE}}.
+
+Last working day: {{LAST_WORKING_DAY}}.
+
+Please coordinate keys return, inspection, and any outstanding housing matters with People / HR.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_CANCEL_VISA_SUBJECT =
+  "Visa cancellation — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_CANCEL_VISA_MESSAGE = `Hello,
+
+Please proceed with visa cancellation for {{EMPLOYEE_NAME}} (employee no. {{EMP_NO}}).
+
+Last working day: {{LAST_WORKING_DAY}}.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_CANCEL_INSURANCE_SUBJECT =
+  "Insurance cancellation — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_CANCEL_INSURANCE_MESSAGE = `Hello,
+
+Please cancel medical / employment insurance for {{EMPLOYEE_NAME}} (employee no. {{EMP_NO}}).
+
+Last working day: {{LAST_WORKING_DAY}}.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_ACCOUNTS_PAYMENT_SUBJECT =
+  "Final settlement / additional payment details — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_ACCOUNTS_PAYMENT_MESSAGE = `Hello Accounts,
+
+Please find additional payment details for the final settlement of {{EMPLOYEE_NAME}} (employee no. {{EMP_NO}}).
+
+Last working day: {{LAST_WORKING_DAY}}.
+
+[Add payment breakdown, bank details, and any special instructions here.]
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_GOODBYE_SUBJECT =
+  "Thank you — {{VENUE_NAME}}";
+
+export const DEFAULT_GOODBYE_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+Thank you for your time with {{VENUE_NAME}}. We wish you every success in your next chapter.
+
+Your last working day was {{LAST_WORKING_DAY}}.
+
+If you need anything after your exit, please contact People / HR.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
 export const DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID = "resignation_confirm";
 export const DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID = "termination_notice";
+export const DEFAULT_HANDOVER_TEMPLATE_ID = "handover";
+export const DEFAULT_ACCOMMODATION_EMPLOYEE_TEMPLATE_ID =
+  "accommodation_employee";
+export const DEFAULT_ACCOMMODATION_MANAGEMENT_TEMPLATE_ID =
+  "accommodation_management";
+export const DEFAULT_CANCEL_VISA_TEMPLATE_ID = "cancel_visa";
+export const DEFAULT_CANCEL_INSURANCE_TEMPLATE_ID = "cancel_insurance";
+export const DEFAULT_ACCOUNTS_PAYMENT_TEMPLATE_ID = "accounts_payment";
+export const DEFAULT_GOODBYE_TEMPLATE_ID = "goodbye";
+
+const BOARDING_EMAIL_TEMPLATE_DEFAULTS: Record<
+  BoardingEmailAction,
+  { name: string; subject: string; message: string; id: string }
+> = {
+  resignation_confirm: {
+    id: DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID,
+    name: "Resignation confirmation",
+    subject: DEFAULT_RESIGNATION_CONFIRM_SUBJECT,
+    message: DEFAULT_RESIGNATION_CONFIRM_MESSAGE,
+  },
+  termination_notice: {
+    id: DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID,
+    name: "Termination notice",
+    subject: DEFAULT_TERMINATION_NOTICE_SUBJECT,
+    message: DEFAULT_TERMINATION_NOTICE_MESSAGE,
+  },
+  handover: {
+    id: DEFAULT_HANDOVER_TEMPLATE_ID,
+    name: "Handover",
+    subject: DEFAULT_HANDOVER_SUBJECT,
+    message: DEFAULT_HANDOVER_MESSAGE,
+  },
+  accommodation_employee: {
+    id: DEFAULT_ACCOMMODATION_EMPLOYEE_TEMPLATE_ID,
+    name: "Accommodation clearance (employee)",
+    subject: DEFAULT_ACCOMMODATION_EMPLOYEE_SUBJECT,
+    message: DEFAULT_ACCOMMODATION_EMPLOYEE_MESSAGE,
+  },
+  accommodation_management: {
+    id: DEFAULT_ACCOMMODATION_MANAGEMENT_TEMPLATE_ID,
+    name: "Accommodation clearance (management)",
+    subject: DEFAULT_ACCOMMODATION_MANAGEMENT_SUBJECT,
+    message: DEFAULT_ACCOMMODATION_MANAGEMENT_MESSAGE,
+  },
+  cancel_visa: {
+    id: DEFAULT_CANCEL_VISA_TEMPLATE_ID,
+    name: "Cancel visa",
+    subject: DEFAULT_CANCEL_VISA_SUBJECT,
+    message: DEFAULT_CANCEL_VISA_MESSAGE,
+  },
+  cancel_insurance: {
+    id: DEFAULT_CANCEL_INSURANCE_TEMPLATE_ID,
+    name: "Cancel insurance",
+    subject: DEFAULT_CANCEL_INSURANCE_SUBJECT,
+    message: DEFAULT_CANCEL_INSURANCE_MESSAGE,
+  },
+  accounts_payment: {
+    id: DEFAULT_ACCOUNTS_PAYMENT_TEMPLATE_ID,
+    name: "Additional payment details (accounts)",
+    subject: DEFAULT_ACCOUNTS_PAYMENT_SUBJECT,
+    message: DEFAULT_ACCOUNTS_PAYMENT_MESSAGE,
+  },
+  goodbye: {
+    id: DEFAULT_GOODBYE_TEMPLATE_ID,
+    name: "Goodbye",
+    subject: DEFAULT_GOODBYE_SUBJECT,
+    message: DEFAULT_GOODBYE_MESSAGE,
+  },
+};
 
 export function createBoardingEmailTemplate(
   partial?: Partial<BoardingEmailTemplate>,
 ): BoardingEmailTemplate {
-  const action: BoardingEmailAction =
-    partial?.action === "termination_notice"
-      ? "termination_notice"
-      : "resignation_confirm";
-  const defaults =
-    action === "termination_notice"
-      ? {
-          name: "Termination notice",
-          subject: DEFAULT_TERMINATION_NOTICE_SUBJECT,
-          message: DEFAULT_TERMINATION_NOTICE_MESSAGE,
-        }
-      : {
-          name: "Resignation confirmation",
-          subject: DEFAULT_RESIGNATION_CONFIRM_SUBJECT,
-          message: DEFAULT_RESIGNATION_CONFIRM_MESSAGE,
-        };
+  const action = parseBoardingEmailAction(partial?.action);
+  const defaults = BOARDING_EMAIL_TEMPLATE_DEFAULTS[action];
+  const toEmails = boardingEmailUsesFixedRecipients(action)
+    ? formatBoardingTemplateToEmails(
+        parseBoardingTemplateToEmails(partial?.toEmails),
+      )
+    : "";
   return {
     id:
       partial?.id?.trim() ||
@@ -907,35 +1306,33 @@ export function createBoardingEmailTemplate(
     subject:
       String(partial?.subject ?? defaults.subject).trim() || defaults.subject,
     message: String(partial?.message ?? defaults.message),
+    toEmails,
   };
 }
 
-export const DEFAULT_BOARDING_EMAIL_TEMPLATES: BoardingEmailTemplate[] = [
-  createBoardingEmailTemplate({
-    id: DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID,
-    name: "Resignation confirmation",
-    action: "resignation_confirm",
-    subject: DEFAULT_RESIGNATION_CONFIRM_SUBJECT,
-    message: DEFAULT_RESIGNATION_CONFIRM_MESSAGE,
-  }),
-  createBoardingEmailTemplate({
-    id: DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID,
-    name: "Termination notice",
-    action: "termination_notice",
-    subject: DEFAULT_TERMINATION_NOTICE_SUBJECT,
-    message: DEFAULT_TERMINATION_NOTICE_MESSAGE,
-  }),
-];
+export const DEFAULT_BOARDING_EMAIL_TEMPLATES: BoardingEmailTemplate[] =
+  BOARDING_EMAIL_ACTIONS.map((row) => {
+    const defaults = BOARDING_EMAIL_TEMPLATE_DEFAULTS[row.value];
+    return createBoardingEmailTemplate({
+      id: defaults.id,
+      name: defaults.name,
+      action: row.value,
+      subject: defaults.subject,
+      message: defaults.message,
+    });
+  });
 
 export const DEFAULT_HR_BOARDING_EMAIL_SETTINGS: HrBoardingEmailSettings = {
   enabled: true,
   recipientField: "work_then_personal",
   fromEmail: "",
   templates: DEFAULT_BOARDING_EMAIL_TEMPLATES,
-  defaultTemplateByAction: {
-    resignation_confirm: DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID,
-    termination_notice: DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID,
-  },
+  defaultTemplateByAction: Object.fromEntries(
+    BOARDING_EMAIL_ACTIONS.map((row) => [
+      row.value,
+      BOARDING_EMAIL_TEMPLATE_DEFAULTS[row.value].id,
+    ]),
+  ) as Record<BoardingEmailAction, string>,
 };
 
 export function resolveBoardingEmailTemplate(
@@ -965,7 +1362,7 @@ export function resolveBoardingEmailTemplate(
 export const PAYROLL_EMAIL_TEMPLATE_CODES = [
   {
     code: "{{USER_NAME}}",
-    description: "Sender / signed-in user name",
+    description: "Signed-in user sending this email",
   },
   {
     code: "{{PAYROLL_MONTH}}",

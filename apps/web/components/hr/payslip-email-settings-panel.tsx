@@ -36,12 +36,11 @@ function SaveButton({ label = "Save changes" }: { label?: string }) {
 
 export function PayslipEmailSettingsPanel({
   settings,
-  venueLogoUrl,
-  venueName,
+  connectionFromEmail = "",
 }: {
   settings: HrPayslipEmailSettings;
-  venueLogoUrl?: string | null;
-  venueName?: string | null;
+  /** From address configured under Emails → Connection. */
+  connectionFromEmail?: string;
 }) {
   const [enabled, setEnabled] = useState(settings.enabled);
   const [recipientField, setRecipientField] =
@@ -249,9 +248,18 @@ export function PayslipEmailSettingsPanel({
               type="email"
               value={fromEmail}
               onChange={(e) => setFromEmail(e.target.value)}
-              placeholder="Uses Connection / Transport if blank"
+              placeholder={
+                connectionFromEmail.trim() || "Set under Emails → Connection"
+              }
               disabled={!enabled}
             />
+            <p className="text-xs text-black/50">
+              {fromEmail.trim()
+                ? "Payslips will send from this address."
+                : connectionFromEmail.trim()
+                  ? `Leave blank to send from ${connectionFromEmail.trim()} (Connection).`
+                  : "Leave blank to use the From address under Emails → Connection."}
+            </p>
           </div>
         </div>
 
@@ -425,8 +433,6 @@ export function PayslipEmailSettingsPanel({
               onChange={(message) => updateActiveTemplate({ message })}
               disabled={!enabled || !activeTemplate}
               aria-label="Payslip email message"
-              footerLogoUrl={venueLogoUrl}
-              footerVenueName={venueName}
             />
           </div>
         </section>

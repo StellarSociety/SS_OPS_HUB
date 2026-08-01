@@ -1,6 +1,7 @@
 import { OffboardingProcessForm } from "@/components/hr/offboarding-process-form";
 import { canEditStaff, canViewStaff } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
+import { isInAccommodation } from "@/lib/hr/derived";
 import type { OffboardingStaffSnapshot } from "@/lib/hr/offboarding-process";
 import {
   listEmploymentStatuses,
@@ -62,6 +63,7 @@ export default async function HrOffboardingStartPage({ searchParams }: PageProps
     provisionalEosb: member.provisional_eosb,
     workEmail: member.work_email,
     personalEmail: member.personal_email,
+    inCompanyAccommodation: isInAccommodation(member.company_accommodation),
     alBalance: 0,
     phBalance: 0,
   };

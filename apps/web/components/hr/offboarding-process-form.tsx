@@ -18,6 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { ScopedLink } from "@/components/layout/scoped-link";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { DateInput } from "@/components/ui/date-input";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ import { OffboardingNoticeEmailDialog } from "@/components/hr/offboarding-notice
 import {
   listBoardingNoticeEmails,
   cancelScheduledBoardingNoticeEmail,
+  deleteBoardingNoticeEmailDraft,
   sendBoardingNoticeEmail,
 } from "@/lib/actions/hr-boarding-email";
 import {
@@ -89,6 +91,7 @@ const FALLBACK_LEAVE_TYPES = [
 const TIMESTAMPED_STEPS = new Set<OffboardingChecklistStepId>([
   "access",
   "property",
+  "accommodation",
   "benefits_cancel",
 ]);
 
@@ -205,6 +208,11 @@ export function OffboardingProcessForm({
     string | null
   >(null);
   const [noticeEmailDialogOpen, setNoticeEmailDialogOpen] = useState(false);
+  const [composeAction, setComposeAction] =
+    useState<OffboardingNoticeEmailAction | null>(null);
+  const [editingComposeDraftId, setEditingComposeDraftId] = useState<
+    string | null
+  >(null);
   const [hubAccessDisableDate, setHubAccessDisableDate] = useState<
     string | null
   >(initialHubDisable);
@@ -224,7 +232,7 @@ export function OffboardingProcessForm({
   const [checklist, setChecklist] =
     useState<OffboardingChecklistStepState[]>(initialChecklist);
   const [openChecklistStep, setOpenChecklistStep] =
-    useState<OffboardingChecklistStepId | null>("notice");
+    useState<OffboardingChecklistStepId | null>(null);
   const [baseline, setBaseline] = useState(() =>
     JSON.stringify({
       kind: initialKind,
@@ -298,6 +306,36 @@ export function OffboardingProcessForm({
       cancelled = true;
     };
   }, [staff.id, processId]);
+
+  /** When a schedule comes due while this page is open, flush + refresh. */
+  useEffect(() => {
+    const upcoming = noticeEmailRecords
+      .filter((r) => r.status === "scheduled" && r.scheduledAt)
+      .map((r) => new Date(r.scheduledAt!).getTime())
+      .filter((t) => Number.isFinite(t))
+      .sort((a, b) => a - b);
+
+    if (upcoming.length === 0) return;
+
+    const nextAt = upcoming[0]!;
+    const delay = Math.max(0, nextAt - Date.now()) + 750;
+    let cancelled = false;
+
+    const timer = window.setTimeout(() => {
+      void listBoardingNoticeEmails({
+        staffId: staff.id,
+        processId,
+      }).then((result) => {
+        if (cancelled || !result.ok) return;
+        setNoticeEmailRecords(result.records);
+      });
+    }, Math.min(delay, 2_147_000_000));
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [noticeEmailRecords, staff.id, processId]);
 
   useEffect(() => {
     if (!autoEmploymentStatus) return;
@@ -520,15 +558,20 @@ export function OffboardingProcessForm({
     Boolean(noticeEmailAction);
 
   const progress = useMemo(() => {
-    const base = checklistProgress(checklist);
+    const excludeStepIds: OffboardingChecklistStepId[] =
+      staff.inCompanyAccommodation ? [] : ["accommodation"];
+    const base = checklistProgress(checklist, { excludeStepIds });
     const checklistDoneWithoutNotice = checklist.filter(
-      (step) => step.id !== "notice" && isChecklistStepDone(step),
+      (step) =>
+        step.id !== "notice" &&
+        !excludeStepIds.includes(step.id) &&
+        isChecklistStepDone(step),
     ).length;
     return {
       done: checklistDoneWithoutNotice + (noticeStepDone ? 1 : 0),
       total: base.total,
     };
-  }, [checklist, noticeStepDone]);
+  }, [checklist, noticeStepDone, staff.inCompanyAccommodation]);
 
   const labelByCode = new Map(
     (leave?.scheduleLabels ?? []).map((l) => [l.code, l]),
@@ -583,7 +626,12 @@ export function OffboardingProcessForm({
               <p className="mt-1 font-serif text-2xl text-[#3D421F]">
                 {staff.fullName}
               </p>
-              <p className="mt-1 text-sm text-black/55">
+              <ScopedLink
+                href={`/hr/${staff.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 block text-sm text-black/55 underline-offset-2 transition-colors hover:text-[#3D421F] hover:underline"
+              >
                 {staff.empNo}
                 {staff.departmentName ? ` · ${staff.departmentName}` : ""}
                 {staff.positionName ? ` · ${staff.positionName}` : ""}
@@ -597,7 +645,7 @@ export function OffboardingProcessForm({
                     </span>
                   </>
                 ) : null}
-              </p>
+              </ScopedLink>
             </section>
 
             <section>
@@ -622,17 +670,25 @@ export function OffboardingProcessForm({
                       items: [],
                     };
                   const open = openChecklistStep === meta.id;
+                  const stepDisabled =
+                    meta.id === "accommodation" &&
+                    !staff.inCompanyAccommodation;
                   const done =
-                    meta.id === "notice"
-                      ? noticeStepDone
-                      : isChecklistStepDone(step);
+                    stepDisabled
+                      ? false
+                      : meta.id === "notice"
+                        ? noticeStepDone
+                        : isChecklistStepDone(step);
                   const itemDone = step.items.filter((i) => i.done).length;
                   const showTimestamps = TIMESTAMPED_STEPS.has(meta.id);
 
                   return (
                     <li
                       key={meta.id}
-                      className="overflow-hidden rounded-xl border border-black/10 bg-white"
+                      className={cn(
+                        "overflow-hidden rounded-xl border border-black/10 bg-white",
+                        stepDisabled && "opacity-60",
+                      )}
                     >
                       <button
                         type="button"
@@ -641,7 +697,7 @@ export function OffboardingProcessForm({
                             current === meta.id ? null : meta.id,
                           )
                         }
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-black/[0.02]"
+                        className="flex w-full items-center gap-3 bg-black/[0.1] px-4 py-3 text-left transition-colors hover:bg-black/[0.14]"
                         aria-expanded={open}
                       >
                         <span
@@ -664,8 +720,10 @@ export function OffboardingProcessForm({
                             {meta.label}
                           </span>
                           <span className="mt-0.5 block text-xs text-black/45">
-                            {meta.description}
-                            {step.items.length > 0
+                            {stepDisabled
+                              ? "Not applicable — employee is not in company accommodation"
+                              : meta.description}
+                            {!stepDisabled && step.items.length > 0
                               ? ` · ${itemDone}/${step.items.length}`
                               : null}
                           </span>
@@ -673,12 +731,14 @@ export function OffboardingProcessForm({
                         <span
                           className={cn(
                             "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                            done
-                              ? "bg-emerald-100 text-emerald-900"
-                              : "bg-black/5 text-black/50",
+                            stepDisabled
+                              ? "bg-black/5 text-black/40"
+                              : done
+                                ? "bg-emerald-100 text-emerald-900"
+                                : "bg-black/5 text-black/50",
                           )}
                         >
-                          {done ? "Done" : "Open"}
+                          {stepDisabled ? "N/A" : done ? "Done" : "Open"}
                         </span>
                         <ChevronDown
                           className={cn(
@@ -721,7 +781,9 @@ export function OffboardingProcessForm({
                               noticeEmailAction={noticeEmailAction}
                               onNoticeEmailActionChange={setNoticeEmailAction}
                               noticeEmailRecords={noticeEmailRecords.filter(
-                                (row) => row.action === noticeEmailAction,
+                                (row) =>
+                                  row.action === "resignation_confirm" ||
+                                  row.action === "termination_notice",
                               )}
                               onOpenNoticeEmailRecord={(id) =>
                                 setViewingNoticeEmailId(id)
@@ -738,14 +800,27 @@ export function OffboardingProcessForm({
                           ) : null}
 
                           {meta.id === "handover" ? (
-                            <div className="space-y-3">
-                              <p className="text-sm text-black/55">
-                                Send a clear handover email to the employee, and
-                                CC management and HODs so duties and assets are
-                                planned before the last working day.
-                              </p>
-                              <StubEmailButton label="Send handover email" />
-                            </div>
+                            <StageEmailActions
+                              description="Send a clear handover email to the employee, and CC management and HODs so duties and assets are planned before the last working day."
+                              actions={[
+                                {
+                                  action: "handover",
+                                  label: "Send handover email",
+                                },
+                              ]}
+                              records={noticeEmailRecords}
+                              canSend={
+                                Boolean(notificationDate) &&
+                                Boolean(terminationDate)
+                              }
+                              onCompose={(action) => {
+                                setEditingComposeDraftId(null);
+                                setComposeAction(action);
+                              }}
+                              onOpenRecord={(id) =>
+                                setViewingNoticeEmailId(id)
+                              }
+                            />
                           ) : null}
 
                           {meta.id === "settlement_calc" ? (
@@ -815,28 +890,117 @@ export function OffboardingProcessForm({
                             </p>
                           ) : null}
 
+                          {meta.id === "accommodation" ? (
+                            <StageEmailActions
+                              description={
+                                stepDisabled
+                                  ? "This employee is not in company accommodation, so this handover does not apply and cannot be completed."
+                                  : "Email the employee with the accommodation clearance deadline, and notify accommodation management of the same date."
+                              }
+                              actions={
+                                stepDisabled
+                                  ? []
+                                  : [
+                                      {
+                                        action: "accommodation_employee",
+                                        label: "Email employee (clearance date)",
+                                      },
+                                      {
+                                        action: "accommodation_management",
+                                        label: "Email accommodation management",
+                                      },
+                                    ]
+                              }
+                              records={noticeEmailRecords}
+                              canSend={
+                                !stepDisabled &&
+                                Boolean(notificationDate) &&
+                                Boolean(terminationDate)
+                              }
+                              onCompose={(action) => {
+                                setEditingComposeDraftId(null);
+                                setComposeAction(action);
+                              }}
+                              onOpenRecord={(id) =>
+                                setViewingNoticeEmailId(id)
+                              }
+                            />
+                          ) : null}
+
                           {meta.id === "benefits_cancel" ? (
-                            <p className="text-sm text-black/55">
-                              Cancel employment-related benefits where
-                              applicable. Timestamps are recorded when marked
-                              done.
-                            </p>
+                            <StageEmailActions
+                              description="Send cancellation requests for visa and insurance where applicable."
+                              actions={[
+                                {
+                                  action: "cancel_visa",
+                                  label: "Email cancel visa",
+                                },
+                                {
+                                  action: "cancel_insurance",
+                                  label: "Email cancel insurance",
+                                },
+                              ]}
+                              records={noticeEmailRecords}
+                              canSend={
+                                Boolean(notificationDate) &&
+                                Boolean(terminationDate)
+                              }
+                              onCompose={(action) => {
+                                setEditingComposeDraftId(null);
+                                setComposeAction(action);
+                              }}
+                              onOpenRecord={(id) =>
+                                setViewingNoticeEmailId(id)
+                              }
+                            />
                           ) : null}
 
                           {meta.id === "final_payment" ? (
-                            <p className="text-sm text-black/55">
-                              Process the final settlement payment once
-                              clearances and documents are complete.
-                            </p>
+                            <StageEmailActions
+                              description="Send additional payment / settlement details to accounts."
+                              actions={[
+                                {
+                                  action: "accounts_payment",
+                                  label: "Email payment details to accounts",
+                                },
+                              ]}
+                              records={noticeEmailRecords}
+                              canSend={
+                                Boolean(notificationDate) &&
+                                Boolean(terminationDate)
+                              }
+                              onCompose={(action) => {
+                                setEditingComposeDraftId(null);
+                                setComposeAction(action);
+                              }}
+                              onOpenRecord={(id) =>
+                                setViewingNoticeEmailId(id)
+                              }
+                            />
                           ) : null}
 
                           {meta.id === "goodbye" ? (
-                            <div className="space-y-3">
-                              <p className="text-sm text-black/55">
-                                Send a final goodbye email to the employee.
-                              </p>
-                              <StubEmailButton label="Send goodbye email" />
-                            </div>
+                            <StageEmailActions
+                              description="Send a final goodbye email to the employee."
+                              actions={[
+                                {
+                                  action: "goodbye",
+                                  label: "Send goodbye email",
+                                },
+                              ]}
+                              records={noticeEmailRecords}
+                              canSend={
+                                Boolean(notificationDate) &&
+                                Boolean(terminationDate)
+                              }
+                              onCompose={(action) => {
+                                setEditingComposeDraftId(null);
+                                setComposeAction(action);
+                              }}
+                              onOpenRecord={(id) =>
+                                setViewingNoticeEmailId(id)
+                              }
+                            />
                           ) : null}
 
                           {step.items.length > 0 ? (
@@ -844,6 +1008,7 @@ export function OffboardingProcessForm({
                               stepId={meta.id}
                               items={step.items}
                               showTimestamps={showTimestamps}
+                              disabled={stepDisabled}
                               onToggle={(itemId) =>
                                 setChecklist((prev) =>
                                   toggleChecklistItem(prev, meta.id, itemId),
@@ -897,7 +1062,9 @@ export function OffboardingProcessForm({
             (noticeEmailRecords.find((r) => r.id === editingNoticeDraftId)
               ?.action ??
               noticeEmailAction ??
-              "resignation_confirm") as OffboardingNoticeEmailAction
+              "resignation_confirm") as
+              | "resignation_confirm"
+              | "termination_notice"
           }
           notificationDate={notificationDate}
           terminationDate={terminationDate}
@@ -912,7 +1079,10 @@ export function OffboardingProcessForm({
               const withoutDraft = prev.filter((row) => row.id !== delivery.id);
               return [...withoutDraft, delivery];
             });
-            setNoticeEmailAction(delivery.action);
+            if (delivery.action === "resignation_confirm" ||
+              delivery.action === "termination_notice") {
+              setNoticeEmailAction(delivery.action);
+            }
             setEditingNoticeDraftId(null);
             setNoticeEmailDialogOpen(false);
             setViewingNoticeEmailId(delivery.id);
@@ -927,7 +1097,10 @@ export function OffboardingProcessForm({
               }
               return [...prev, draft];
             });
-            setNoticeEmailAction(draft.action);
+            if (draft.action === "resignation_confirm" ||
+              draft.action === "termination_notice") {
+              setNoticeEmailAction(draft.action);
+            }
             setEditingNoticeDraftId(null);
           }}
           onScheduled={(delivery) => {
@@ -940,8 +1113,69 @@ export function OffboardingProcessForm({
               }
               return [...prev, delivery];
             });
-            setNoticeEmailAction(delivery.action);
+            if (delivery.action === "resignation_confirm" ||
+              delivery.action === "termination_notice") {
+              setNoticeEmailAction(delivery.action);
+            }
             setEditingNoticeDraftId(null);
+            setViewingNoticeEmailId(delivery.id);
+          }}
+        />
+      ) : null}
+
+      {composeAction ? (
+        <OffboardingNoticeEmailDialog
+          open
+          onClose={() => {
+            setComposeAction(null);
+            setEditingComposeDraftId(null);
+          }}
+          staffId={staff.id}
+          processId={processId}
+          action={composeAction}
+          notificationDate={notificationDate}
+          terminationDate={terminationDate}
+          editingDraft={
+            editingComposeDraftId
+              ? (noticeEmailRecords.find(
+                  (r) => r.id === editingComposeDraftId,
+                ) ?? null)
+              : null
+          }
+          onSent={(delivery) => {
+            setNoticeEmailRecords((prev) => {
+              const withoutDraft = prev.filter((row) => row.id !== delivery.id);
+              return [...withoutDraft, delivery];
+            });
+            setEditingComposeDraftId(null);
+            setComposeAction(null);
+            setViewingNoticeEmailId(delivery.id);
+          }}
+          onDraftSaved={(draft) => {
+            setNoticeEmailRecords((prev) => {
+              const idx = prev.findIndex((row) => row.id === draft.id);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = draft;
+                return next;
+              }
+              return [...prev, draft];
+            });
+            setEditingComposeDraftId(null);
+            setComposeAction(null);
+          }}
+          onScheduled={(delivery) => {
+            setNoticeEmailRecords((prev) => {
+              const idx = prev.findIndex((row) => row.id === delivery.id);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = delivery;
+                return next;
+              }
+              return [...prev, delivery];
+            });
+            setEditingComposeDraftId(null);
+            setComposeAction(null);
             setViewingNoticeEmailId(delivery.id);
           }}
         />
@@ -963,9 +1197,17 @@ export function OffboardingProcessForm({
                   canEdit
                     ? () => {
                         setViewingNoticeEmailId(null);
-                        setNoticeEmailAction(record.action);
-                        setEditingNoticeDraftId(record.id);
-                        setNoticeEmailDialogOpen(true);
+                        if (
+                          record.action === "resignation_confirm" ||
+                          record.action === "termination_notice"
+                        ) {
+                          setNoticeEmailAction(record.action);
+                          setEditingNoticeDraftId(record.id);
+                          setNoticeEmailDialogOpen(true);
+                        } else {
+                          setEditingComposeDraftId(record.id);
+                          setComposeAction(record.action);
+                        }
                       }
                     : undefined
                 }
@@ -990,7 +1232,12 @@ export function OffboardingProcessForm({
                           );
                           return [...without, result.delivery];
                         });
-                        setNoticeEmailAction(result.delivery.action);
+                        if (
+                          result.delivery.action === "resignation_confirm" ||
+                          result.delivery.action === "termination_notice"
+                        ) {
+                          setNoticeEmailAction(result.delivery.action);
+                        }
                         setViewingNoticeEmailId(result.delivery.id);
                         return { ok: true as const, delivery: result.delivery };
                       }
@@ -1017,6 +1264,25 @@ export function OffboardingProcessForm({
                         });
                         setViewingNoticeEmailId(result.draft.id);
                         return { ok: true as const, draft: result.draft };
+                      }
+                    : undefined
+                }
+                onDelete={
+                  record.status === "draft"
+                    ? async () => {
+                        const result = await deleteBoardingNoticeEmailDraft({
+                          id: record.id,
+                          staffId: staff.id,
+                        });
+                        if (!result.ok) return result;
+                        setNoticeEmailRecords((prev) =>
+                          prev.filter((row) => row.id !== record.id),
+                        );
+                        setViewingNoticeEmailId(null);
+                        if (editingNoticeDraftId === record.id) {
+                          setEditingNoticeDraftId(null);
+                        }
+                        return { ok: true as const };
                       }
                     : undefined
                 }
@@ -1581,11 +1847,13 @@ function ChecklistItems({
   stepId,
   items,
   showTimestamps,
+  disabled = false,
   onToggle,
 }: {
   stepId: OffboardingChecklistStepId;
   items: OffboardingChecklistStepState["items"];
   showTimestamps: boolean;
+  disabled?: boolean;
   onToggle: (itemId: string) => void;
 }) {
   return (
@@ -1594,12 +1862,21 @@ function ChecklistItems({
         const stamped = formatDoneAt(item.doneAt);
         return (
           <li key={`${stepId}-${item.id}`}>
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-black/10 bg-white px-3 py-2.5">
+            <label
+              className={cn(
+                "flex items-start gap-3 rounded-lg border border-black/10 bg-white px-3 py-2.5",
+                disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer",
+              )}
+            >
               <input
                 type="checkbox"
                 className="mt-0.5"
                 checked={item.done}
-                onChange={() => onToggle(item.id)}
+                disabled={disabled}
+                onChange={() => {
+                  if (disabled) return;
+                  onToggle(item.id);
+                }}
               />
               <span className="min-w-0 flex-1">
                 <span
@@ -1624,18 +1901,64 @@ function ChecklistItems({
   );
 }
 
-function StubEmailButton({
-  label,
-  disabled,
+function StageEmailActions({
+  description,
+  actions,
+  records,
+  canSend,
+  onCompose,
+  onOpenRecord,
 }: {
-  label: string;
-  disabled?: boolean;
+  description: string;
+  actions: Array<{ action: OffboardingNoticeEmailAction; label: string }>;
+  records: OffboardingNoticeEmailDelivery[];
+  canSend: boolean;
+  onCompose: (action: OffboardingNoticeEmailAction) => void;
+  onOpenRecord: (id: string) => void;
 }) {
+  const actionSet = new Set(actions.map((row) => row.action));
+  const matching = [...records]
+    .filter((row) => actionSet.has(row.action))
+    .reverse();
+
   return (
-    <Button type="button" variant="secondary" disabled={disabled} className="gap-2">
-      <Mail className="h-4 w-4" aria-hidden />
-      {label}
-    </Button>
+    <div className="space-y-3">
+      <p className="text-sm text-black/55">{description}</p>
+      {actions.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {actions.map((row) => (
+            <Button
+              key={row.action}
+              type="button"
+              variant="secondary"
+              className="gap-2"
+              disabled={!canSend}
+              onClick={() => onCompose(row.action)}
+            >
+              <Mail className="h-4 w-4" aria-hidden />
+              {row.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+      {matching.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-black/45">
+            Email records
+          </p>
+          <ul className="space-y-2">
+            {matching.map((record) => (
+              <li key={record.id}>
+                <OffboardingNoticeEmailRecordCard
+                  record={record}
+                  onOpen={() => onOpenRecord(record.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

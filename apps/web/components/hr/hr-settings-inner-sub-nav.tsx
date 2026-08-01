@@ -14,6 +14,7 @@ import {
   GraduationCap,
   HandCoins,
   Heart,
+  LayoutTemplate,
   ListTree,
   Mail,
   Percent,
@@ -36,6 +37,7 @@ import {
   HR_SETTINGS_ATTENDANCE_LEAVE_HREF,
   HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
   HR_SETTINGS_EMAILS_CONNECTION_HREF,
+  HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF,
   HR_SETTINGS_EMAILS_PAYROLL_HREF,
   HR_SETTINGS_EMAILS_PAYSLIPS_HREF,
   HR_SETTINGS_EMAILS_BOARDING_HREF,
@@ -293,6 +295,11 @@ const EMAILS_TABS: Tab[] = [
     icon: Settings2,
   },
   {
+    href: HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF,
+    label: "Header & Footer",
+    icon: LayoutTemplate,
+  },
+  {
     href: HR_SETTINGS_EMAILS_PAYROLL_HREF,
     label: "Payroll email",
     icon: Mail,
@@ -304,7 +311,7 @@ const EMAILS_TABS: Tab[] = [
   },
   {
     href: HR_SETTINGS_EMAILS_BOARDING_HREF,
-    label: "Boarding email",
+    label: "Off-Boarding email",
     icon: UserRound,
   },
 ];

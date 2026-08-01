@@ -9,9 +9,9 @@ import {
 } from "@/lib/hr/payslip-pdf";
 import { Button } from "@/components/ui/button";
 
-/** Sample payload so we can iterate on PDF layout without a real payslip. */
+/** Sample payload — ORL0014 July 2026 (latest generated payslip snapshot). */
 export const SAMPLE_PAYSLIP_PDF_INPUT: PayslipPdfInput = {
-  venueName: "Orilla Restaurant",
+  venueName: "Orilla",
   employerLegalName: "Orilla Restaurant FZE",
   companyAddress:
     "Hotel Local, Flo.27th, Al Barsha South, JVT, Dubai, UAE.",
@@ -19,59 +19,51 @@ export const SAMPLE_PAYSLIP_PDF_INPUT: PayslipPdfInput = {
   periodStart: "2026-06-25",
   periodEnd: "2026-07-24",
   paymentDate: "2026-07-28",
-  empNo: "ORL0059",
-  fullName: "Ahmed Hassan",
-  joiningDate: "2022-03-15",
-  departmentName: "Kitchen",
-  positionName: "Chef de Partie",
-  paidDays: 28,
-  unpaidDays: 2,
-  version: 1,
+  empNo: "ORL0014",
+  fullName: "Lina Daifi",
+  joiningDate: "2025-09-08",
+  departmentName: "Receptions & Reservations",
+  positionName: "Hostess",
+  paidDays: 30,
+  unpaidDays: 0,
+  version: 2,
   paymentMethod: "wps",
-  bankName: "Emirates NBD",
-  accountNumber: "AE070331234567890123456",
+  bankName: "Mashreq Bank",
+  accountNumber: "AE150330000019010437991",
   leaveKinds: [
     {
-      code: "AL",
-      name: "Annual Leave",
-      days: 3,
-      bucket: "paid",
-      explanation: "Fully paid - salary continues for these days",
-    },
-    {
-      code: "PH",
-      name: "Public Holiday Taken",
+      code: "PH-REPL",
+      name: "Public Holiday",
       days: 1,
       bucket: "paid",
       explanation: "Fully paid - salary continues for these days",
     },
-    {
-      code: "SL-FP",
-      name: "Sick Leave - Full Pay",
-      days: 2,
-      bucket: "paid",
-      explanation: "Fully paid - salary continues for these days",
-    },
-    {
-      code: "UPL",
-      name: "Unpaid Leave",
-      days: 2,
-      bucket: "unpaid",
-      explanation: "Unpaid - no salary for these days",
-    },
   ],
   lines: [
-    { category: "Fixed", label: "Basic salary", amount: 4200 },
-    { category: "Fixed", label: "Accommodation", amount: 1750 },
-    { category: "Fixed", label: "Transport", amount: 1050 },
-    { category: "Variable", label: "Service charge", amount: 480.5 },
-    { category: "Variable", label: "Overtime", amount: 220 },
-    { category: "Deduction", label: "Loan repayment", amount: -150 },
-    { category: "Deduction", label: "Advance recovery", amount: -100 },
+    {
+      category: "Fixed",
+      label: "Basic salary",
+      baseAmount: 4800,
+      deductionPercent: 10,
+      deductionValue: 480,
+      amount: 4320,
+    },
+    {
+      category: "Fixed",
+      label: "Accommodation allowance (company housing - not payable)",
+      baseAmount: 0,
+      amount: 0,
+    },
+    {
+      category: "Fixed",
+      label: "Transportation allowance (company housing - not payable)",
+      baseAmount: 0,
+      amount: 0,
+    },
   ],
-  grossEarnings: 7700.5,
-  totalDeductions: 250,
-  netSalary: 7450.5,
+  grossEarnings: 4320,
+  totalDeductions: 480,
+  netSalary: 4320,
 };
 
 function dataUriToObjectUrl(dataUri: string): string {

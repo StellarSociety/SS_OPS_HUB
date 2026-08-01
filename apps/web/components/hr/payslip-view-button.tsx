@@ -20,7 +20,17 @@ function dataUriToObjectUrl(dataUri: string): string {
   return URL.createObjectURL(blob);
 }
 
-export function PayslipViewButton({ payslipId }: { payslipId: string }) {
+export function PayslipViewButton({
+  payslipId,
+  label,
+  tone = "light",
+}: {
+  payslipId: string;
+  /** Optional visible label next to the eye icon. */
+  label?: string;
+  /** `dark` for zinc/dark expanded panels on the payroll run table. */
+  tone?: "light" | "dark";
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -76,21 +86,35 @@ export function PayslipViewButton({ payslipId }: { payslipId: string }) {
     });
   }
 
+  const buttonClass =
+    tone === "dark"
+      ? "inline-flex h-8 items-center gap-1.5 rounded-md border border-white/20 bg-white/10 px-2.5 text-xs font-medium text-zinc-100 transition hover:bg-white/15 disabled:opacity-50"
+      : label
+        ? "inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-[var(--venue-primary,#818a40)] transition hover:bg-[var(--venue-primary,#818a40)]/10 disabled:opacity-50"
+        : "inline-flex size-8 items-center justify-center rounded-md text-[var(--venue-primary,#818a40)] transition hover:bg-[var(--venue-primary,#818a40)]/10 disabled:opacity-50";
+
   return (
     <>
       <span className="inline-flex flex-col items-end gap-1">
         <button
           type="button"
-          aria-label="View payslip"
-          title="View payslip"
+          aria-label={label ?? "View payslip"}
+          title={label ?? "View payslip"}
           disabled={pending}
           onClick={handleView}
-          className="inline-flex size-8 items-center justify-center rounded-md text-[var(--venue-primary,#818a40)] transition hover:bg-[var(--venue-primary,#818a40)]/10 disabled:opacity-50"
+          className={buttonClass}
         >
-          <Eye className="size-4" strokeWidth={2} />
+          <Eye className="size-4 shrink-0" strokeWidth={2} />
+          {label ? <span>{pending ? "…" : label}</span> : null}
         </button>
         {error && !open ? (
-          <span className="max-w-[12rem] text-right text-xs text-red-700">
+          <span
+            className={
+              tone === "dark"
+                ? "max-w-[12rem] text-right text-xs text-red-300"
+                : "max-w-[12rem] text-right text-xs text-red-700"
+            }
+          >
             {error}
           </span>
         ) : null}

@@ -83,6 +83,7 @@ export default async function HrPayrollRunPage({
     settlementsRes,
     paymentsRes,
     eventsRes,
+    payslipsRes,
     adjustmentCodes,
     approvalsSettings,
     candidatesResult,
@@ -140,6 +141,12 @@ export default async function HrPayrollRunPage({
       .eq("run_id", runId)
       .order("created_at", { ascending: false })
       .limit(40),
+    supabase
+      .from("hr_payslips")
+      .select("id, run_employee_id, version")
+      .eq("run_id", runId)
+      .eq("venue_id", venue.id)
+      .order("version", { ascending: false }),
     loadPayrollAdjustmentCodes(supabase, venue.id),
     loadPayrollApprovalsSettingsForVenue(supabase, venue.id),
     listPayrollApproverCandidates(),
@@ -152,11 +159,34 @@ export default async function HrPayrollRunPage({
       adjustmentsRes.error.message,
     );
   }
+  if (payslipsRes.error) {
+    console.error("[hr/payroll/run] payslips:", payslipsRes.error.message);
+  }
+
+  const latestPayslipByEmployee = new Map<
+    string,
+    { id: string; version: number }
+  >();
+  for (const row of payslipsRes.data ?? []) {
+    const empId = row.run_employee_id as string;
+    if (!latestPayslipByEmployee.has(empId)) {
+      latestPayslipByEmployee.set(empId, {
+        id: row.id as string,
+        version: Number(row.version) || 1,
+      });
+    }
+  }
 
   const employeesRaw = (employeesRes.data ?? []) as Array<
     Omit<
       PayrollEmployeeRow,
-      "working_status" | "joining_date" | "termination_date" | "day_fractions" | "effective_paid_days"
+      | "working_status"
+      | "joining_date"
+      | "termination_date"
+      | "day_fractions"
+      | "effective_paid_days"
+      | "payslip_id"
+      | "payslip_version"
     > & {
       snapshot?: {
         dayFractions?: PayrollEmployeeRow["day_fractions"];
@@ -265,6 +295,8 @@ export default async function HrPayrollRunPage({
       day_fractions: Array.isArray(snap?.dayFractions)
         ? snap.dayFractions
         : [],
+      payslip_id: latestPayslipByEmployee.get(e.id)?.id ?? null,
+      payslip_version: latestPayslipByEmployee.get(e.id)?.version ?? null,
     };
   });
 
