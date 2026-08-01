@@ -3,8 +3,8 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { getPayslipSnapshotAction } from "@/lib/actions/hr-payroll";
-import { downloadPayslipPdf } from "@/lib/hr/payslip-pdf";
-import { formatPayrollMonthLabel } from "@/lib/hr/payroll";
+import { downloadPayslipPdfAsync } from "@/lib/hr/payslip-pdf";
+import { payslipSnapshotToPdfInput } from "@/lib/hr/payslip-snapshot-to-pdf-input";
 
 export function PayslipDownloadButton({
   payslipId,
@@ -32,41 +32,11 @@ export function PayslipDownloadButton({
               setError(result.error);
               return;
             }
-            const s = result.snapshot;
-            downloadPayslipPdf({
-              venueName: s.employer.venueName,
-              payrollMonthLabel: formatPayrollMonthLabel(s.payrollMonth),
-              periodStart: s.periodStart,
-              periodEnd: s.periodEnd,
-              paymentDate: s.paymentDate,
-              empNo: s.employee.empNo,
-              fullName: s.employee.fullName,
-              departmentName: s.employee.department,
-              positionName: s.employee.position,
-              paidDays: Number(s.paidDays),
-              unpaidDays: Number(s.unpaidDays),
-              version: s.version,
-              lines: [
-                ...s.fixed.map((l) => ({
-                  category: "Fixed",
-                  label: l.label,
-                  amount: Number(l.amount),
-                })),
-                ...s.variables.map((l) => ({
-                  category: "Variable",
-                  label: l.label,
-                  amount: Number(l.amount),
-                })),
-                ...s.deductions.map((l) => ({
-                  category: "Deduction",
-                  label: l.label,
-                  amount: Number(l.amount),
-                })),
-              ],
-              grossEarnings: Number(s.grossEarnings),
-              totalDeductions: Number(s.totalDeductions),
-              netSalary: Number(s.netSalary),
-            });
+            await downloadPayslipPdfAsync(
+              payslipSnapshotToPdfInput(result.snapshot),
+              result.venueLogoUrl,
+              result.venueStampUrl,
+            );
           });
         }}
       >

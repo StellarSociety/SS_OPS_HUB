@@ -3,6 +3,7 @@ import { HrWelcome } from "@/components/hr/hr-welcome";
 import { ModuleShortcuts } from "@/components/layout/module-shortcuts";
 import { canAccessStaff } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
+import { listOffBoardingItems } from "@/lib/hr/offboarding";
 import { buildHrOverviewStats } from "@/lib/hr/overview";
 import { listStaffForVenue } from "@/lib/hr/store";
 
@@ -26,6 +27,7 @@ export default async function HrOverviewPage() {
 
   const userName = (profile?.full_name as string | null)?.trim() || null;
   const stats = buildHrOverviewStats(staff, []);
+  const offBoarding = listOffBoardingItems(staff);
 
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
@@ -36,7 +38,7 @@ export default async function HrOverviewPage() {
         <hr className="mt-4 border-black/10" />
       </div>
 
-      <HrOverview stats={stats} />
+      <HrOverview stats={stats} offBoarding={offBoarding} />
     </div>
   );
 }

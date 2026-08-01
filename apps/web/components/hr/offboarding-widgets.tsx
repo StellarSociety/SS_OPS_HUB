@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatDateOnly } from "@/lib/hr/derived";
 import {
+  buildOffBoardingMonthWindows,
   currentDubaiMonthKey,
   filterOffBoardingByMonth,
   formatOffBoardingMonthLabel,
@@ -21,8 +22,8 @@ type OffBoardingWidgetsProps = {
   /** Initial month `YYYY-MM`. Defaults to current Dubai calendar month. */
   initialMonthKey?: string;
   /**
-   * `panel` — fixed overview card (matches Headcount / Nationalities sizing).
-   * `list` — full-width stacked list.
+   * `panel` — overview card with previous / current / next month buckets.
+   * `list` — full-width stacked list with month picker.
    */
   variant?: "list" | "panel";
 };
@@ -71,6 +72,11 @@ export function OffBoardingWidgets({
     [items, monthKey],
   );
 
+  const monthWindows = useMemo(
+    () => buildOffBoardingMonthWindows(items),
+    [items],
+  );
+
   const monthLabel = formatOffBoardingMonthLabel(monthKey);
 
   if (variant === "panel") {
@@ -84,49 +90,57 @@ export function OffBoardingWidgets({
           <h3 className="min-w-0 flex-1 truncate font-serif text-base text-[#3D421F]">
             {title}
           </h3>
-          <Input
-            type="month"
-            className="h-7 w-[8.75rem] shrink-0 text-[11px]"
-            value={monthKey}
-            onChange={(e) => setMonthKey(e.target.value)}
-            aria-label="Select off boarding month"
-          />
         </div>
         <hr className="mt-2 shrink-0 border-t-2 border-black/15" />
 
-        {filtered.length === 0 ? (
-          <div className="mt-3 flex flex-1 items-center justify-center text-xs text-black/45">
-            No last day in {monthLabel}
-          </div>
-        ) : (
-          <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-            {filtered.map((item) => {
-              const remaining = daysLabel(item.daysUntilTermination);
-              return (
-                <li key={item.staffId}>
-                  <Link
-                    href={`/hr/${item.staffId}`}
-                    className={cn(
-                      "flex flex-col gap-0.5 rounded-md border px-2 py-1.5 text-xs transition hover:opacity-90",
-                      rowClass(item.daysUntilTermination),
-                    )}
-                  >
-                    <span className="truncate font-medium">
-                      {item.fullName}{" "}
-                      <span className="font-normal text-black/50">
-                        ({item.empNo})
-                      </span>
-                    </span>
-                    <span className="truncate text-[11px] text-black/60">
-                      Last day {formatDateOnly(item.terminationDate)}
-                      {remaining ? ` · ${remaining}` : null}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto">
+          {monthWindows.map((window) => (
+            <section key={window.key} className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <h4 className="min-w-0 flex-1 truncate text-xs font-semibold text-[#3D421F]">
+                  {window.label}
+                  <span className="ml-1.5 font-normal text-black/45">
+                    {window.monthLabel}
+                  </span>
+                </h4>
+                <span className="shrink-0 text-xs tabular-nums text-black/50">
+                  {window.items.length}
+                </span>
+              </div>
+              {window.items.length === 0 ? (
+                <p className="mt-1 text-[11px] text-black/40">No last days</p>
+              ) : (
+                <ul className="mt-1 space-y-1">
+                  {window.items.map((item) => {
+                    const remaining = daysLabel(item.daysUntilTermination);
+                    return (
+                      <li key={item.staffId}>
+                        <Link
+                          href={`/hr/${item.staffId}`}
+                          className={cn(
+                            "flex flex-col gap-0.5 rounded-md border px-2 py-1 text-[11px] transition hover:opacity-90",
+                            rowClass(item.daysUntilTermination),
+                          )}
+                        >
+                          <span className="truncate font-medium">
+                            {item.fullName}{" "}
+                            <span className="font-normal text-black/50">
+                              ({item.empNo})
+                            </span>
+                          </span>
+                          <span className="truncate text-black/60">
+                            Last day {formatDateOnly(item.terminationDate)}
+                            {remaining ? ` · ${remaining}` : null}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          ))}
+        </div>
       </Card>
     );
   }

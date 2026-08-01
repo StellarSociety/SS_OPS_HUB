@@ -164,7 +164,8 @@ export default async function AttendanceValidationPage({
         <div>
           <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
           <p className="mt-1 text-sm text-black/55">
-            Select a department, employee, and week(s). Stage actions in three
+            Select an employee and week(s) or a date range. Department is
+            optional and narrows the employee list. Stage actions in three
             groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL /
             BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as
             calendar PH; working SH earns a PH-REPL credit automatically. Save

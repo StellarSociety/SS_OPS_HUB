@@ -197,9 +197,14 @@ export const HR_SETTINGS_KEYS = {
   scheduleApproval: "schedule_approval",
   leavePolicy: "leave_policy",
   payroll: "payroll",
+  payrollApprovals: "payroll_approvals",
   payrollAdjustmentCodes: "payroll_adjustment_codes",
   benefitsGratuity: "benefits_gratuity",
   benefitsServiceCharge: "benefits_service_charge",
+  emailTransport: "email_transport",
+  payslipEmail: "payslip_email",
+  payslipLetterhead: "payslip_letterhead",
+  boardingEmail: "boarding_email",
 } as const;
 
 /** Paid status for leave type configuration. */
@@ -512,6 +517,601 @@ export const DEFAULT_HR_SCHEDULE_APPROVAL_SETTINGS: HrScheduleApprovalSettings =
   {
     approverUserIds: [],
   };
+
+export type PayrollApprovalStep = "hr_review" | "final_approval";
+
+export type PayrollEmailTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  message: string;
+};
+
+export type HrPayrollApprovalsSettings = {
+  hrReviewApproverUserIds: string[];
+  finalApprovalApproverUserIds: string[];
+  reopenUserIds: string[];
+  email: {
+    fromEmail: string;
+    toEmails: string[];
+    /** Named message templates (subject + body). */
+    templates: PayrollEmailTemplate[];
+    /** Template used when sending; must match a templates[].id. */
+    defaultTemplateId: string;
+    attachPayrollExport: boolean;
+    attachGlExport: boolean;
+    attachOther: boolean;
+    /** When true, send the payroll package email right after Final Approval. */
+    autoSendOnFinalApproval: boolean;
+  };
+};
+
+/** Config-driven mailbox transport (SMTP + optional IMAP Sent append). */
+export type EmailTransportProvider =
+  | "zoho"
+  | "gmail"
+  | "outlook"
+  | "custom"
+  | "resend";
+
+export type HrEmailTransportSettings = {
+  provider: EmailTransportProvider;
+  smtp: {
+    host: string;
+    port: number;
+    /** true = SSL (465), false = STARTTLS (587). */
+    secure: boolean;
+    username: string;
+    fromName: string;
+    fromEmail: string;
+    replyTo: string;
+  };
+  imap: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    sentFolder: string;
+  };
+  /**
+   * AES-256-GCM ciphertext of the app password. Server-only — never return
+   * this field to the browser.
+   */
+  passwordEncrypted?: string | null;
+  lastVerifiedAt?: string | null;
+  lastError?: string | null;
+};
+
+/** Safe shape for server → client (no secret). */
+export type HrEmailTransportPublicSettings = Omit<
+  HrEmailTransportSettings,
+  "passwordEncrypted"
+> & {
+  hasPassword: boolean;
+};
+
+export const EMAIL_TRANSPORT_PRESETS: Record<
+  EmailTransportProvider,
+  {
+    label: string;
+    smtp: { host: string; port: number; secure: boolean };
+    imap: { host: string; port: number };
+  }
+> = {
+  zoho: {
+    // Workplace Professional (paid), US region — free accounts use smtp/imap.zoho.com
+    label: "Zoho",
+    smtp: { host: "smtppro.zoho.com", port: 465, secure: true },
+    imap: { host: "imappro.zoho.com", port: 993 },
+  },
+  gmail: {
+    label: "Gmail",
+    smtp: { host: "smtp.gmail.com", port: 465, secure: true },
+    imap: { host: "imap.gmail.com", port: 993 },
+  },
+  outlook: {
+    label: "Outlook",
+    smtp: { host: "smtp.office365.com", port: 587, secure: false },
+    imap: { host: "outlook.office365.com", port: 993 },
+  },
+  custom: {
+    label: "Custom SMTP",
+    smtp: { host: "", port: 465, secure: true },
+    imap: { host: "", port: 993 },
+  },
+  resend: {
+    label: "Resend",
+    smtp: { host: "", port: 465, secure: true },
+    imap: { host: "", port: 993 },
+  },
+};
+
+export const DEFAULT_HR_EMAIL_TRANSPORT_SETTINGS: HrEmailTransportSettings = {
+  provider: "zoho",
+  smtp: {
+    host: "smtppro.zoho.com",
+    port: 465,
+    secure: true,
+    username: "people@orillarestaurant.com",
+    fromName: "Orilla People",
+    fromEmail: "people@orillarestaurant.com",
+    replyTo: "",
+  },
+  imap: {
+    enabled: true,
+    host: "imappro.zoho.com",
+    port: 993,
+    sentFolder: "Sent",
+  },
+  passwordEncrypted: null,
+  lastVerifiedAt: null,
+  lastError: null,
+};
+
+/** Recipient source for individual payslip emails. */
+export type PayslipEmailRecipientField =
+  | "work"
+  | "personal"
+  | "work_then_personal";
+
+export type PayslipEmailTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  message: string;
+};
+
+export type HrPayslipEmailSettings = {
+  /** When false, payslip email actions stay disabled. */
+  enabled: boolean;
+  /** Prefer work email, personal, or work with personal fallback. */
+  recipientField: PayslipEmailRecipientField;
+  /** Optional from override; blank uses Connection / Transport from address. */
+  fromEmail: string;
+  attachPdf: boolean;
+  /** Send automatically when a payroll run is marked paid. */
+  autoSendOnPaid: boolean;
+  /** Named message templates (subject + body). */
+  templates: PayslipEmailTemplate[];
+  /** Template used when sending; must match a templates[].id. */
+  defaultTemplateId: string;
+};
+
+export const PAYSLIP_EMAIL_TEMPLATE_CODES = [
+  {
+    code: "{{EMPLOYEE_NAME}}",
+    description: "Employee full name",
+  },
+  {
+    code: "{{USER_NAME}}",
+    description: "Employee first / given name",
+  },
+  {
+    code: "{{PAYROLL_MONTH}}",
+    description: "Month name (e.g. July)",
+  },
+  {
+    code: "{{PAYROLL_YEAR}}",
+    description: "Year (e.g. 2026)",
+  },
+  {
+    code: "{{PAYROLL_PERIOD}}",
+    description: "Attendance/pay period start → end",
+  },
+  {
+    code: "{{NET_PAY}}",
+    description: "Employee net pay amount",
+  },
+  {
+    code: "{{PAYMENT_DATE}}",
+    description: "Scheduled salary payment date",
+  },
+  {
+    code: "{{VENUE_NAME}}",
+    description: "Venue / company display name",
+  },
+] as const;
+
+export const DEFAULT_PAYSLIP_EMAIL_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+Please find attached your payslip for {{PAYROLL_MONTH}} {{PAYROLL_YEAR}}.
+
+Payroll period: {{PAYROLL_PERIOD}}
+Net pay: AED {{NET_PAY}}
+Scheduled payment date: {{PAYMENT_DATE}}
+
+If you have any questions about your payslip, please contact People / HR.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_PAYSLIP_EMAIL_TEMPLATE_ID = "default";
+
+export const DEFAULT_PAYSLIP_EMAIL_SUBJECT =
+  "Your payslip — {{PAYROLL_MONTH}} {{PAYROLL_YEAR}} — {{VENUE_NAME}}";
+
+export function createPayslipEmailTemplate(
+  partial?: Partial<PayslipEmailTemplate>,
+): PayslipEmailTemplate {
+  return {
+    id:
+      partial?.id?.trim() ||
+      `tpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    name: String(partial?.name ?? "New template").trim() || "New template",
+    subject:
+      String(partial?.subject ?? DEFAULT_PAYSLIP_EMAIL_SUBJECT).trim() ||
+      DEFAULT_PAYSLIP_EMAIL_SUBJECT,
+    message: String(partial?.message ?? DEFAULT_PAYSLIP_EMAIL_MESSAGE),
+  };
+}
+
+export const DEFAULT_PAYSLIP_EMAIL_TEMPLATE: PayslipEmailTemplate =
+  createPayslipEmailTemplate({
+    id: DEFAULT_PAYSLIP_EMAIL_TEMPLATE_ID,
+    name: "Default",
+    subject: DEFAULT_PAYSLIP_EMAIL_SUBJECT,
+    message: DEFAULT_PAYSLIP_EMAIL_MESSAGE,
+  });
+
+export const DEFAULT_HR_PAYSLIP_EMAIL_SETTINGS: HrPayslipEmailSettings = {
+  enabled: false,
+  recipientField: "work_then_personal",
+  fromEmail: "",
+  attachPdf: true,
+  autoSendOnPaid: false,
+  templates: [DEFAULT_PAYSLIP_EMAIL_TEMPLATE],
+  defaultTemplateId: DEFAULT_PAYSLIP_EMAIL_TEMPLATE_ID,
+};
+
+/** Footer disclaimer printed at the bottom of every payslip PDF. */
+export const DEFAULT_PAYSLIP_FOOTER_DISCLAIMER =
+  "This payslip contains confidential personal and salary information intended solely for the named employee. Unauthorized copying, distribution, or disclosure is prohibited. This is a system generated payslip, no need for signature. INTERNAL CONFIDENTIAL DOCUMENT. All rights reserved.";
+
+/** Legal letterhead shown on payslip PDFs for this venue. */
+export type HrPayslipLetterheadSettings = {
+  companyName: string;
+  companyAddress: string;
+  /** Public URL of the uploaded legal stamp (WebP). Null = use built-in venue stamp if any. */
+  stampUrl: string | null;
+  footerDisclaimer: string;
+};
+
+export const DEFAULT_HR_PAYSLIP_LETTERHEAD_SETTINGS: HrPayslipLetterheadSettings =
+  {
+    companyName: "",
+    companyAddress: "",
+    stampUrl: null,
+    footerDisclaimer: DEFAULT_PAYSLIP_FOOTER_DISCLAIMER,
+  };
+
+/** Active subject/message from the default (or first) template. */
+export function resolvePayslipEmailTemplate(
+  settings: HrPayslipEmailSettings,
+): PayslipEmailTemplate {
+  const byId = settings.templates.find((t) => t.id === settings.defaultTemplateId);
+  return byId ?? settings.templates[0] ?? DEFAULT_PAYSLIP_EMAIL_TEMPLATE;
+}
+
+// ---------------------------------------------------------------------------
+// Boarding / offboarding emails
+// ---------------------------------------------------------------------------
+
+export type BoardingEmailAction =
+  | "resignation_confirm"
+  | "termination_notice";
+
+export type BoardingEmailTemplate = {
+  id: string;
+  name: string;
+  /** Which offboarding notice action this template serves. */
+  action: BoardingEmailAction;
+  subject: string;
+  message: string;
+};
+
+export type HrBoardingEmailSettings = {
+  enabled: boolean;
+  recipientField: PayslipEmailRecipientField;
+  fromEmail: string;
+  templates: BoardingEmailTemplate[];
+  /** Default template id per notice action. */
+  defaultTemplateByAction: Record<BoardingEmailAction, string>;
+};
+
+export const BOARDING_EMAIL_ACTIONS: {
+  value: BoardingEmailAction;
+  label: string;
+}[] = [
+  { value: "resignation_confirm", label: "Resignation confirmation" },
+  { value: "termination_notice", label: "Termination notice" },
+];
+
+export const BOARDING_EMAIL_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{USER_NAME}}", description: "Employee first / given name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  { code: "{{DEPARTMENT}}", description: "Department name" },
+  { code: "{{POSITION}}", description: "Position / job title" },
+  {
+    code: "{{NOTIFICATION_DATE}}",
+    description: "Date the notice / resignation was given",
+  },
+  {
+    code: "{{LAST_WORKING_DAY}}",
+    description: "Confirmed last working day",
+  },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+] as const;
+
+export const DEFAULT_RESIGNATION_CONFIRM_SUBJECT =
+  "Confirmation of your resignation — {{VENUE_NAME}}";
+
+export const DEFAULT_RESIGNATION_CONFIRM_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+We acknowledge receipt of your resignation letter dated {{NOTIFICATION_DATE}}.
+
+Please confirm whether you accept this acknowledgement and that your last working day will be {{LAST_WORKING_DAY}}.
+
+If you have any questions, please contact People / HR.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_TERMINATION_NOTICE_SUBJECT =
+  "Notice of termination — {{VENUE_NAME}}";
+
+export const DEFAULT_TERMINATION_NOTICE_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+This letter serves as formal notice of the termination of your employment with {{VENUE_NAME}}.
+
+Your last working day will be {{LAST_WORKING_DAY}}.
+
+Further information about your final settlement and offboarding steps will follow from People / HR.
+
+Kind regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID = "resignation_confirm";
+export const DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID = "termination_notice";
+
+export function createBoardingEmailTemplate(
+  partial?: Partial<BoardingEmailTemplate>,
+): BoardingEmailTemplate {
+  const action: BoardingEmailAction =
+    partial?.action === "termination_notice"
+      ? "termination_notice"
+      : "resignation_confirm";
+  const defaults =
+    action === "termination_notice"
+      ? {
+          name: "Termination notice",
+          subject: DEFAULT_TERMINATION_NOTICE_SUBJECT,
+          message: DEFAULT_TERMINATION_NOTICE_MESSAGE,
+        }
+      : {
+          name: "Resignation confirmation",
+          subject: DEFAULT_RESIGNATION_CONFIRM_SUBJECT,
+          message: DEFAULT_RESIGNATION_CONFIRM_MESSAGE,
+        };
+  return {
+    id:
+      partial?.id?.trim() ||
+      `tpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    name: String(partial?.name ?? defaults.name).trim() || defaults.name,
+    action,
+    subject:
+      String(partial?.subject ?? defaults.subject).trim() || defaults.subject,
+    message: String(partial?.message ?? defaults.message),
+  };
+}
+
+export const DEFAULT_BOARDING_EMAIL_TEMPLATES: BoardingEmailTemplate[] = [
+  createBoardingEmailTemplate({
+    id: DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID,
+    name: "Resignation confirmation",
+    action: "resignation_confirm",
+    subject: DEFAULT_RESIGNATION_CONFIRM_SUBJECT,
+    message: DEFAULT_RESIGNATION_CONFIRM_MESSAGE,
+  }),
+  createBoardingEmailTemplate({
+    id: DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID,
+    name: "Termination notice",
+    action: "termination_notice",
+    subject: DEFAULT_TERMINATION_NOTICE_SUBJECT,
+    message: DEFAULT_TERMINATION_NOTICE_MESSAGE,
+  }),
+];
+
+export const DEFAULT_HR_BOARDING_EMAIL_SETTINGS: HrBoardingEmailSettings = {
+  enabled: true,
+  recipientField: "work_then_personal",
+  fromEmail: "",
+  templates: DEFAULT_BOARDING_EMAIL_TEMPLATES,
+  defaultTemplateByAction: {
+    resignation_confirm: DEFAULT_RESIGNATION_CONFIRM_TEMPLATE_ID,
+    termination_notice: DEFAULT_TERMINATION_NOTICE_TEMPLATE_ID,
+  },
+};
+
+export function resolveBoardingEmailTemplate(
+  settings: HrBoardingEmailSettings,
+  action: BoardingEmailAction,
+  templateId?: string | null,
+): BoardingEmailTemplate {
+  const forAction = settings.templates.filter((t) => t.action === action);
+  const requested = String(templateId ?? "").trim();
+  if (requested) {
+    const byId =
+      forAction.find((t) => t.id === requested) ??
+      settings.templates.find((t) => t.id === requested);
+    if (byId) return byId;
+  }
+  const defaultId = settings.defaultTemplateByAction[action];
+  const byDefault = forAction.find((t) => t.id === defaultId);
+  return (
+    byDefault ??
+    forAction[0] ??
+    settings.templates[0] ??
+    DEFAULT_BOARDING_EMAIL_TEMPLATES[0]!
+  );
+}
+
+/** Codes available in payroll approval email subject/message templates. */
+export const PAYROLL_EMAIL_TEMPLATE_CODES = [
+  {
+    code: "{{USER_NAME}}",
+    description: "Sender / signed-in user name",
+  },
+  {
+    code: "{{PAYROLL_MONTH}}",
+    description: "Month name (e.g. July)",
+  },
+  {
+    code: "{{PAYROLL_YEAR}}",
+    description: "Year (e.g. 2026)",
+  },
+  {
+    code: "{{PAYROLL_PERIOD}}",
+    description: "Attendance/pay period start → end",
+  },
+  {
+    code: "{{TOTAL_EMPLOYEES}}",
+    description: "Included employee count",
+  },
+  {
+    code: "{{TOTAL_NET_PAYROLL}}",
+    description: "Total net payroll amount (number)",
+  },
+  {
+    code: "{{PAYMENT_DATE}}",
+    description: "Scheduled salary payment date",
+  },
+  {
+    code: "{{VENUE_NAME}}",
+    description: "Venue / company display name",
+  },
+  {
+    code: "{{PERIOD_START}}",
+    description: "Period start date (YYYY-MM-DD)",
+  },
+  {
+    code: "{{PERIOD_END}}",
+    description: "Period end date (YYYY-MM-DD)",
+  },
+] as const;
+
+export const DEFAULT_PAYROLL_EMAIL_MESSAGE = `Dear Paper Chase Team,
+
+Please find attached the payroll package for {{PAYROLL_MONTH}} {{PAYROLL_YEAR}} for processing.
+
+The attached documents include:
+
+* Payroll Summary
+* Employee Payroll Breakdown
+* Salary Transfer Details (if applicable)
+* Overtime Report
+* Leave & Attendance Adjustments
+* New Joiners / Resignations
+* Final Settlements (if applicable)
+* Supporting payroll documents
+
+Payroll Information
+
+* Company: Orilla Restaurant FZE
+* Payroll Period: {{PAYROLL_PERIOD}}
+* Total Employees: {{TOTAL_EMPLOYEES}}
+* Total Net Payroll: AED {{TOTAL_NET_PAYROLL}}
+* Scheduled Salary Payment Date: {{PAYMENT_DATE}}
+
+Please process the payroll according to the attached documentation and advise us once the payment file has been completed or if any clarification is required.
+
+If you identify any discrepancies or missing information during your review, kindly notify us before processing.
+
+Thank you for your continued support.
+
+Kind regards,
+
+Orilla Restaurant
+Human Resources Department
+Stellar Society Group`;
+
+export const DEFAULT_PAYROLL_EMAIL_TEMPLATE_ID = "default";
+
+export const DEFAULT_PAYROLL_EMAIL_SUBJECT =
+  "Payroll package — {{PAYROLL_MONTH}} {{PAYROLL_YEAR}} — Orilla Restaurant FZE";
+
+export function createPayrollEmailTemplate(
+  partial?: Partial<PayrollEmailTemplate>,
+): PayrollEmailTemplate {
+  return {
+    id:
+      partial?.id?.trim() ||
+      `tpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    name: String(partial?.name ?? "New template").trim() || "New template",
+    subject:
+      String(partial?.subject ?? DEFAULT_PAYROLL_EMAIL_SUBJECT).trim() ||
+      DEFAULT_PAYROLL_EMAIL_SUBJECT,
+    message: String(partial?.message ?? DEFAULT_PAYROLL_EMAIL_MESSAGE),
+  };
+}
+
+export const DEFAULT_PAYROLL_EMAIL_TEMPLATE: PayrollEmailTemplate =
+  createPayrollEmailTemplate({
+    id: DEFAULT_PAYROLL_EMAIL_TEMPLATE_ID,
+    name: "Default",
+    subject: DEFAULT_PAYROLL_EMAIL_SUBJECT,
+    message: DEFAULT_PAYROLL_EMAIL_MESSAGE,
+  });
+
+/** Active subject/message from the default (or first) payroll email template. */
+export function resolvePayrollEmailTemplate(
+  email: HrPayrollApprovalsSettings["email"],
+): PayrollEmailTemplate {
+  const byId = email.templates.find((t) => t.id === email.defaultTemplateId);
+  return byId ?? email.templates[0] ?? DEFAULT_PAYROLL_EMAIL_TEMPLATE;
+}
+
+export const DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS: HrPayrollApprovalsSettings =
+  {
+    hrReviewApproverUserIds: [],
+    finalApprovalApproverUserIds: [],
+    reopenUserIds: [],
+    email: {
+      fromEmail: "people@orillarestaurant.com",
+      toEmails: ["admin@orillarestaurant.com"],
+      templates: [DEFAULT_PAYROLL_EMAIL_TEMPLATE],
+      defaultTemplateId: DEFAULT_PAYROLL_EMAIL_TEMPLATE_ID,
+      attachPayrollExport: true,
+      attachGlExport: false,
+      attachOther: false,
+      autoSendOnFinalApproval: true,
+    },
+  };
+
+export type PayrollApprovalRequestStatus =
+  | "pending"
+  | "approved"
+  | "cancelled";
+
+export type PayrollApprovalRequest = {
+  id: string;
+  venue_id: string;
+  run_id: string;
+  step: PayrollApprovalStep;
+  status: PayrollApprovalRequestStatus;
+  requested_by: string;
+  requested_at: string;
+  approver_user_ids: string[];
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export type ScheduleApprovalStatus = "pending" | "approved" | "cancelled";
 

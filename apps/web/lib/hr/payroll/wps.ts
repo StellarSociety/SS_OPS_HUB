@@ -83,9 +83,14 @@ const EXPORT_HEADERS = [
 export function buildPayrollExportRows(opts: {
   employees: CalculatedEmployeePayroll[];
   adjustments?: PayrollExportAdjustment[];
+  /** Shown in the IBAN column when the employee has no bank account. */
+  noBankPaymentMethod?: "cash" | "cheque" | "other";
 }): { rows: PayrollExportRow[]; errors: string[] } {
   const errors: string[] = [];
   const rows: PayrollExportRow[] = [];
+  const noBankLabel = formatNoBankPaymentLabel(
+    opts.noBankPaymentMethod ?? "cash",
+  );
 
   const adjustmentsByStaff = new Map<string, PayrollExportAdjustment[]>();
   for (const adj of opts.adjustments ?? []) {
@@ -103,7 +108,8 @@ export function buildPayrollExportRows(opts: {
       continue;
     }
 
-    const iban = e.iban?.replace(/\s+/g, "").toUpperCase() || "";
+    const cleanedIban = e.iban?.replace(/\s+/g, "").toUpperCase() || "";
+    const iban = cleanedIban || noBankLabel;
 
     const daysPaid =
       e.effectivePaidDays != null && !Number.isNaN(e.effectivePaidDays)
@@ -156,11 +162,20 @@ export function buildPayrollExportRows(opts: {
   return { rows, errors };
 }
 
+function formatNoBankPaymentLabel(
+  method: "cash" | "cheque" | "other",
+): string {
+  if (method === "cheque") return "Cheque";
+  if (method === "other") return "Other";
+  return "Cash";
+}
+
 export async function buildPayrollExport(opts: {
   companyName: string;
   payrollMonthLabel: string;
   employees: CalculatedEmployeePayroll[];
   adjustments?: PayrollExportAdjustment[];
+  noBankPaymentMethod?: "cash" | "cheque" | "other";
 }): Promise<{
   buffer: Buffer;
   rows: PayrollExportRow[];

@@ -27,6 +27,17 @@ export function currentDubaiMonthKey(asOf: Date = new Date()): string {
   }).format(asOf);
 }
 
+/** Shift a `YYYY-MM` key by `delta` calendar months. */
+export function shiftMonthKey(monthKey: string, delta: number): string {
+  if (!MONTH_KEY.test(monthKey)) return monthKey;
+  const [y, m] = monthKey.split("-").map(Number);
+  if (!y || !m) return monthKey;
+  const date = new Date(y, m - 1 + delta, 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
 export function formatOffBoardingMonthLabel(monthKey: string): string {
   if (!MONTH_KEY.test(monthKey)) return monthKey;
   const [y, m] = monthKey.split("-").map(Number);
@@ -35,6 +46,48 @@ export function formatOffBoardingMonthLabel(monthKey: string): string {
     month: "long",
     year: "numeric",
   });
+}
+
+export type OffBoardingMonthWindow = {
+  key: "previous" | "current" | "next";
+  label: string;
+  monthKey: string;
+  monthLabel: string;
+  items: OffBoardingItem[];
+};
+
+/** Previous / current / next Dubai calendar months with matching leavers. */
+export function buildOffBoardingMonthWindows(
+  items: OffBoardingItem[],
+  asOf: Date = new Date(),
+): OffBoardingMonthWindow[] {
+  const current = currentDubaiMonthKey(asOf);
+  const previous = shiftMonthKey(current, -1);
+  const next = shiftMonthKey(current, 1);
+
+  return [
+    {
+      key: "previous",
+      label: "Previous month",
+      monthKey: previous,
+      monthLabel: formatOffBoardingMonthLabel(previous),
+      items: filterOffBoardingByMonth(items, previous),
+    },
+    {
+      key: "current",
+      label: "Current month",
+      monthKey: current,
+      monthLabel: formatOffBoardingMonthLabel(current),
+      items: filterOffBoardingByMonth(items, current),
+    },
+    {
+      key: "next",
+      label: "Next month",
+      monthKey: next,
+      monthLabel: formatOffBoardingMonthLabel(next),
+      items: filterOffBoardingByMonth(items, next),
+    },
+  ];
 }
 
 function isoDateOnly(value: string | null | undefined): string | null {

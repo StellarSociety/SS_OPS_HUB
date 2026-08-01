@@ -10,6 +10,10 @@ const VENUE_BADGES: Record<string, string> = {
   orilla: "/venues/orilla-badge.svg",
 };
 
+const VENUE_COMPANY_STAMPS: Record<string, string> = {
+  orilla: "/venues/orilla-company-stamp.png?v=3",
+};
+
 export { ORILLA_OLIVE, ORILLA_CREAM } from "@/lib/venue/orilla-brand";
 
 export const ORILLA_ICON_URL = VENUE_ICONS.orilla;
@@ -49,6 +53,13 @@ export function getDefaultBrandAssetUrl(
 
 export function getVenueWordmarkUrl(slug: string): string | null {
   return VENUE_WORDMARKS[slug] ?? null;
+}
+
+/** Company rubber-stamp asset for payslip / official documents. */
+export function getVenueCompanyStampUrl(
+  venue: VenueBrandAssetSource | { slug: string },
+): string | null {
+  return VENUE_COMPANY_STAMPS[venue.slug] ?? null;
 }
 
 /** Full venue logo / wordmark for headers and exports. */

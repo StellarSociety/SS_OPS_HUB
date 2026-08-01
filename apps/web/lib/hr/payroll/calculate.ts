@@ -20,6 +20,7 @@ import { payFractionForLabel } from "./pay-fraction";
 import {
   calendarDaysInclusive,
   eachIsoDate,
+  formatPayrollMonthLabel,
   isPayrollLeaver,
   maxIsoDate,
   minIsoDate,
@@ -86,6 +87,9 @@ export type BenefitAllocationInput = {
   staff_id: string;
   benefit_type: string;
   amount: number;
+  /** Named benefit month (YYYY-MM-01) when known. */
+  benefit_month?: string | null;
+  period_start?: string | null;
 };
 
 export type ManualAdjustmentInput = {
@@ -101,6 +105,40 @@ export type ManualAdjustmentInput = {
 
 function empKey(empNo: string | null | undefined): string {
   return (empNo ?? "").trim().toLowerCase();
+}
+
+function benefitMonthKey(b: BenefitAllocationInput): string | null {
+  const raw = (b.benefit_month ?? b.period_start ?? "").trim();
+  if (!raw) return null;
+  const ym = raw.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return null;
+  return `${ym}-01`;
+}
+
+function benefitLineLabel(
+  benefitType: string,
+  monthKey: string | null,
+): string {
+  let monthName: string | null = null;
+  if (monthKey) {
+    try {
+      const label = formatPayrollMonthLabel(monthKey);
+      monthName = label.replace(/\s+\d{4}$/, "").trim() || null;
+    } catch {
+      monthName = null;
+    }
+  }
+
+  if (benefitType === "tips") {
+    return monthName ? `Tips (${monthName} Gratuity)` : "Tips (Gratuity)";
+  }
+  if (benefitType === "service_charge") {
+    return monthName ? `Service charge (${monthName})` : "Service charge";
+  }
+  if (benefitType === "compensation") {
+    return monthName ? `Compensations (${monthName})` : "Compensations";
+  }
+  return monthName ? `Other benefit (${monthName})` : "Other benefit";
 }
 
 /** Spread a signed delta across BASIC / ACCOM / TRANSP fixed lines. */
@@ -592,19 +630,14 @@ export function calculateVenuePayroll(input: {
             : b.benefit_type === "compensation"
               ? "COMPENSATION"
               : "BENEFIT_OTHER";
+      const monthKey = benefitMonthKey(b);
       lines.push({
         category: "variable",
         code,
-        label:
-          b.benefit_type === "tips"
-            ? "Tips (Gratuity)"
-            : b.benefit_type === "service_charge"
-              ? "Service charge"
-              : b.benefit_type === "compensation"
-                ? "Compensations"
-                : "Other benefit",
+        label: benefitLineLabel(b.benefit_type, monthKey),
         amount: round2(b.amount),
         source: "benefits",
+        meta: monthKey ? { benefitMonth: monthKey } : undefined,
         sortOrder: sort++,
       });
     }

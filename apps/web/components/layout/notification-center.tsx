@@ -48,6 +48,9 @@ function notificationHref(n: NotificationRow): string | null {
   if (n.module_key === "hr" && n.entity === "schedule_week") {
     return `/hr/schedules`;
   }
+  if (n.module_key === "hr" && n.entity === "payroll_run") {
+    return `/hr/payroll/${n.entity_id}`;
+  }
   return null;
 }
 

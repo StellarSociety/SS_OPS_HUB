@@ -26,7 +26,7 @@ export default async function HrSettingsLayout({
         <ModulePageTitle>Human Resources Settings</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Configuration for {venue.name} — organised by Staff Details,
-          Attendance, Pay, Boarding, Notifications, and Data Management.
+          Attendance, Pay, Boarding, Notifications, Data Management, and Emails.
         </p>
         <hr className="mt-4 border-black/10" />
       </div>

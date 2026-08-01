@@ -24,19 +24,22 @@ export const PAYROLL_STATUS_LABELS: Record<PayrollStatus, string> = {
   locked: "Locked",
 };
 
-/** Forward-only happy path; rejects jump back with comment. */
+/**
+ * Happy path skips attendance_validated / finance_review in the UI stepper.
+ * Reopen from paid/locked returns to final_approval for alterations.
+ */
 export const PAYROLL_STATUS_TRANSITIONS: Record<
   PayrollStatus,
   PayrollStatus[]
 > = {
-  draft: ["attendance_validated"],
+  draft: ["attendance_validated", "hr_review"],
   attendance_validated: ["hr_review", "draft"],
-  hr_review: ["finance_review", "attendance_validated"],
+  hr_review: ["finance_review", "final_approval", "attendance_validated", "draft"],
   finance_review: ["final_approval", "hr_review"],
-  final_approval: ["payment_processing", "finance_review"],
+  final_approval: ["payment_processing", "finance_review", "hr_review"],
   payment_processing: ["paid", "final_approval"],
-  paid: ["locked"],
-  locked: [],
+  paid: ["locked", "final_approval"],
+  locked: ["final_approval"],
 };
 
 export type PayrollLineCategory =

@@ -4,6 +4,7 @@ import {
   Bell,
   CalendarCheck,
   Database,
+  Mail,
   UserPlus,
   UserRound,
   Wallet,
@@ -15,6 +16,7 @@ import {
   HR_SETTINGS_ATTENDANCE_HREF,
   HR_SETTINGS_BOARDING_HREF,
   HR_SETTINGS_DATA_MANAGEMENT_HREF,
+  HR_SETTINGS_EMAILS_HREF,
   HR_SETTINGS_NOTIFICATIONS_HREF,
   HR_SETTINGS_PAY_HREF,
   HR_SETTINGS_STAFF_DETAILS_HREF,
@@ -50,6 +52,11 @@ const TOP_TABS: Tab[] = [
     href: HR_SETTINGS_DATA_MANAGEMENT_HREF,
     label: "Data Management",
     icon: Database,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_HREF,
+    label: "Emails",
+    icon: Mail,
   },
 ];
 

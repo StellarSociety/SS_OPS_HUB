@@ -7,10 +7,15 @@ import { cn } from "@/lib/utils";
 type ModulePageTitleProps = {
   children: React.ReactNode;
   className?: string;
+  iconClassName?: string;
 };
 
 /** Page title that automatically prefixes the matching module sidebar symbol. */
-export function ModulePageTitle({ children, className }: ModulePageTitleProps) {
+export function ModulePageTitle({
+  children,
+  className,
+  iconClassName,
+}: ModulePageTitleProps) {
   const pathname = useRelativePathname();
   const Icon = getModuleSidebarIconForPath(pathname);
 
@@ -23,7 +28,10 @@ export function ModulePageTitle({ children, className }: ModulePageTitleProps) {
     >
       {Icon ? (
         <Icon
-          className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
+          className={cn(
+            "h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]",
+            iconClassName,
+          )}
           strokeWidth={1.5}
           aria-hidden
         />

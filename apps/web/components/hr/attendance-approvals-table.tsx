@@ -357,8 +357,6 @@ export function AttendanceApprovalsTable({
     dayStart,
     dayEnd,
     hydrated,
-    setDepartmentId,
-    setEmpNo,
     setSelectedWeekKeys,
     setDayRange,
     patchFilters,
@@ -407,11 +405,13 @@ export function AttendanceApprovalsTable({
     if (!staffId) return;
     if (appliedInitialStaffRef.current === staffId) return;
     const employee = employees.find((e) => e.id === staffId);
-    if (!employee?.departmentId) return;
+    if (!employee) return;
     appliedInitialStaffRef.current = staffId;
     patchFilters({
-      departmentId: employee.departmentId,
       empNo: employee.empNo,
+      ...(employee.departmentId
+        ? { departmentId: employee.departmentId }
+        : {}),
     });
   }, [hydrated, initialStaffId, employees, patchFilters]);
 
@@ -453,9 +453,10 @@ export function AttendanceApprovalsTable({
   );
 
   const employeeOptions = useMemo(() => {
-    if (!departmentId) return [];
-    return employees
-      .filter((e) => e.departmentId === departmentId)
+    const pool = departmentId
+      ? employees.filter((e) => e.departmentId === departmentId)
+      : employees;
+    return pool
       .map((employee) => ({
         value: employee.empNo,
         label: `${employee.fullName} (${employee.empNo})`,
@@ -468,9 +469,7 @@ export function AttendanceApprovalsTable({
     [employees, empNo],
   );
 
-  const ready = Boolean(
-    departmentId && empNo && (hasWeekFilter || hasDayRange),
-  );
+  const ready = Boolean(empNo && (hasWeekFilter || hasDayRange));
 
   useEffect(() => {
     if (!ready || !empNo || selectedDates.length === 0) {
@@ -501,7 +500,6 @@ export function AttendanceApprovalsTable({
           );
           for (const row of result.rows) {
             if (row.empNo.trim().toLowerCase() !== empKey) continue;
-            if (row.departmentId !== departmentId) continue;
             byKey.set(draftKey(row.empNo, row.workDate), row);
           }
           return [...byKey.values()];
@@ -512,7 +510,7 @@ export function AttendanceApprovalsTable({
     return () => {
       cancelled = true;
     };
-  }, [ready, empNo, departmentId, periodKey, selectedDates]);
+  }, [ready, empNo, periodKey, selectedDates]);
 
   const draftEntries = useMemo(() => Object.entries(drafts), [drafts]);
   const draftCount = draftEntries.length;
@@ -939,8 +937,13 @@ export function AttendanceApprovalsTable({
   }
 
   function onDepartmentChange(next: string) {
-    setDepartmentId(next);
-    setEmpNo("");
+    const selected = employees.find((e) => e.empNo === empNo);
+    const clearEmp =
+      Boolean(next) && Boolean(empNo) && selected?.departmentId !== next;
+    patchFilters({
+      departmentId: next,
+      empNo: clearEmp ? "" : empNo,
+    });
     setSelectedWeekKeys([]);
     setDayRange("", "");
     setDrafts({});
@@ -949,7 +952,13 @@ export function AttendanceApprovalsTable({
   }
 
   function onEmployeeChange(next: string) {
-    setEmpNo(next);
+    const employee = employees.find((e) => e.empNo === next);
+    patchFilters({
+      empNo: next,
+      ...(employee?.departmentId
+        ? { departmentId: employee.departmentId }
+        : {}),
+    });
     setSelectedIds(new Set());
     setActionError(null);
   }
@@ -959,33 +968,26 @@ export function AttendanceApprovalsTable({
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-[12rem] flex-1 flex-col gap-1 sm:max-w-[16rem]">
           <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-            1. Department
+            Department
           </span>
           <SearchableSelect
             value={departmentId}
             onChange={onDepartmentChange}
             options={departmentOptions}
-            placeholder="Select department"
+            placeholder="All departments"
             searchPlaceholder="Search department…"
           />
         </div>
-        <div
-          className={cn(
-            "flex min-w-[14rem] flex-1 flex-col gap-1 sm:max-w-[20rem]",
-            !departmentId && "pointer-events-none opacity-45",
-          )}
-        >
+        <div className="flex min-w-[14rem] flex-1 flex-col gap-1 sm:max-w-[20rem]">
           <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-            2. Employee
+            Employee
           </span>
           <SearchableSelect
             value={empNo}
             onChange={onEmployeeChange}
             options={employeeOptions}
-            placeholder={
-              departmentId ? "Select employee" : "Select department first"
-            }
-            searchPlaceholder="Search employee…"
+            placeholder="Select employee"
+            searchPlaceholder="Search name or emp no…"
           />
         </div>
         <div
@@ -995,7 +997,7 @@ export function AttendanceApprovalsTable({
           )}
         >
           <AttendanceMultiWeekPicker
-            fieldLabel="3. Weeks"
+            fieldLabel="Weeks"
             emptyLabel={empNo ? "Select week(s)" : "Select employee first"}
             selectedWeekKeys={selectedWeekKeys}
             onChange={(keys) => {
@@ -1015,7 +1017,7 @@ export function AttendanceApprovalsTable({
           )}
         >
           <AttendanceDayRangePicker
-            fieldLabel="4. Days"
+            fieldLabel="Days"
             emptyLabel={empNo ? "Select date range" : "Select employee first"}
             startDate={dayStart}
             endDate={dayEnd}

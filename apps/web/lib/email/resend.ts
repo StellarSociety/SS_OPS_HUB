@@ -1,17 +1,56 @@
-type SendEmailParams = {
-  to: string;
-  subject: string;
-  html: string;
+type SendEmailAttachment = {
+  filename: string;
+  /** Base64-encoded file contents (Resend API). */
+  content: string;
+  content_type?: string;
+  /** Content-ID for inline images (`cid:<id>` in HTML). */
+  content_id?: string;
 };
 
-export async function sendResendEmail({ to, subject, html }: SendEmailParams) {
+type SendEmailParams = {
+  to: string | string[];
+  subject: string;
+  html: string;
+  /** Overrides RESEND_FROM_EMAIL when set. */
+  from?: string;
+  attachments?: SendEmailAttachment[];
+};
+
+export async function sendResendEmail({
+  to,
+  subject,
+  html,
+  from: fromOverride,
+  attachments,
+}: SendEmailParams) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
+  const from =
+    fromOverride?.trim() || process.env.RESEND_FROM_EMAIL || undefined;
 
   if (!apiKey || !from) {
     throw new Error(
-      "Email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.",
+      "Email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL (or pass from).",
     );
+  }
+
+  const recipients = Array.isArray(to) ? to : [to];
+  if (recipients.length === 0) {
+    throw new Error("At least one email recipient is required.");
+  }
+
+  const payload: Record<string, unknown> = {
+    from,
+    to: recipients,
+    subject,
+    html,
+  };
+  if (attachments && attachments.length > 0) {
+    payload.attachments = attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      ...(a.content_type ? { content_type: a.content_type } : {}),
+      ...(a.content_id ? { content_id: a.content_id } : {}),
+    }));
   }
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -20,7 +59,7 @@ export async function sendResendEmail({ to, subject, html }: SendEmailParams) {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to: [to], subject, html }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

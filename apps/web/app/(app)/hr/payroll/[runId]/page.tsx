@@ -14,12 +14,17 @@ import {
 } from "@/components/hr/payroll-run-client";
 import { PayrollShell } from "@/components/hr/payroll-shell";
 import {
+  listPayrollApproverCandidates,
+  listPendingPayrollApprovalsForRun,
+} from "@/lib/actions/hr-payroll-approvals";
+import {
   canAccessPayroll,
   canEditPayroll,
   canViewSalary,
 } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { parsePayrollRunTab, sumVenueNetRevenueForPeriod } from "@/lib/hr/payroll";
+import { loadPayrollApprovalsSettingsForVenue } from "@/lib/hr/payroll/approvals-settings";
 import type { PayrollPeriodNetRevenue } from "@/lib/hr/payroll/period-revenue";
 import { loadPayrollAdjustmentCodes } from "@/lib/hr/payroll/persist-run";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -39,7 +44,7 @@ export default async function HrPayrollRunPage({
   const { tab: tabParam } = await searchParams;
   const tab = parsePayrollRunTab(tabParam);
 
-  const { supabase, venue, permissions } = await getHrPageContext();
+  const { supabase, venue, permissions, user } = await getHrPageContext();
 
   if (!canAccessPayroll(permissions, venue.id)) {
     return (
@@ -79,6 +84,9 @@ export default async function HrPayrollRunPage({
     paymentsRes,
     eventsRes,
     adjustmentCodes,
+    approvalsSettings,
+    candidatesResult,
+    pendingApprovals,
   ] = await Promise.all([
     supabase
       .from("hr_payroll_run_employees")
@@ -87,25 +95,21 @@ export default async function HrPayrollRunPage({
       )
       .eq("run_id", runId)
       .order("emp_no"),
-    tab === "run"
-      ? supabase
-          .from("hr_payroll_lines")
-          .select(
-            "id, run_employee_id, category, code, label, amount, quantity, sort_order, source",
-          )
-          .eq("run_id", runId)
-          .order("sort_order")
-      : Promise.resolve({ data: [] as PayrollLineRow[], error: null }),
-    tab === "exceptions" || tab === "run"
-      ? supabase
-          .from("hr_payroll_exceptions")
-          .select(
-            "id, emp_no, severity, exception_type, message, work_date, waived, waive_comment",
-          )
-          .eq("run_id", runId)
-          .neq("exception_type", "missing_wps_id")
-          .order("created_at", { ascending: false })
-      : Promise.resolve({ data: [] as PayrollExceptionRow[], error: null }),
+    supabase
+      .from("hr_payroll_lines")
+      .select(
+        "id, run_employee_id, category, code, label, amount, quantity, sort_order, source",
+      )
+      .eq("run_id", runId)
+      .order("sort_order"),
+    supabase
+      .from("hr_payroll_exceptions")
+      .select(
+        "id, emp_no, severity, exception_type, message, work_date, waived, waive_comment",
+      )
+      .eq("run_id", runId)
+      .neq("exception_type", "missing_wps_id")
+      .order("created_at", { ascending: false }),
     payrollDataClient
       .from("hr_payroll_adjustments")
       .select(
@@ -132,11 +136,14 @@ export default async function HrPayrollRunPage({
       : Promise.resolve({ data: [] as PayrollPaymentRow[], error: null }),
     supabase
       .from("hr_payroll_run_events")
-      .select("id, from_status, to_status, comment, created_at")
+      .select("id, from_status, to_status, comment, created_at, actor_id")
       .eq("run_id", runId)
       .order("created_at", { ascending: false })
       .limit(40),
     loadPayrollAdjustmentCodes(supabase, venue.id),
+    loadPayrollApprovalsSettingsForVenue(supabase, venue.id),
+    listPayrollApproverCandidates(),
+    listPendingPayrollApprovalsForRun(runId),
   ]);
 
   if (adjustmentsRes.error) {
@@ -288,6 +295,46 @@ export default async function HrPayrollRunPage({
     full_name: e.full_name,
   }));
 
+  const eventsRaw = (eventsRes.data ?? []) as Array<
+    PayrollEventRow & { actor_id?: string | null }
+  >;
+  const actorIds = [
+    ...new Set(
+      [
+        ...eventsRaw.map((e) => e.actor_id),
+        ...pendingApprovals.flatMap((a) => [
+          a.approved_by,
+          a.requested_by,
+          ...(a.approver_user_ids ?? []),
+        ]),
+      ].filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const actorNameById = new Map<string, string>();
+  for (const c of candidatesResult.candidates ?? []) {
+    actorNameById.set(c.id, c.fullName);
+  }
+  if (actorIds.length > 0) {
+    const missing = actorIds.filter((id) => !actorNameById.has(id));
+    if (missing.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", missing);
+      for (const p of profiles ?? []) {
+        actorNameById.set(
+          p.id as string,
+          String(p.full_name ?? "").trim() || String(p.email ?? "User"),
+        );
+      }
+    }
+  }
+  const events: PayrollEventRow[] = eventsRaw.map((e) => ({
+    ...e,
+    actor_name: e.actor_id ? (actorNameById.get(e.actor_id) ?? null) : null,
+  }));
+  const userNames = Object.fromEntries(actorNameById);
+
   let periodNetRevenue: PayrollPeriodNetRevenue | null = null;
   if (showSalary || canEdit) {
     try {
@@ -325,12 +372,17 @@ export default async function HrPayrollRunPage({
           adjustments={adjustments}
           settlements={(settlementsRes.data ?? []) as PayrollSettlementRow[]}
           payments={(paymentsRes.data ?? []) as PayrollPaymentRow[]}
-          events={(eventsRes.data ?? []) as PayrollEventRow[]}
+          events={events}
           staffOptions={staffOptions}
           canViewSalary={showSalary}
           canEdit={canEdit}
           periodNetRevenue={periodNetRevenue}
           adjustmentCodes={adjustmentCodes}
+          currentUserId={user.id}
+          approvalsSettings={approvalsSettings}
+          approvalCandidates={candidatesResult.candidates ?? []}
+          pendingApprovals={pendingApprovals}
+          userNames={userNames}
         />
       </PayrollShell>
     </Suspense>

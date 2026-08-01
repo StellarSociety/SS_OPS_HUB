@@ -27,12 +27,12 @@ export type PayrollLeaveSummary = {
 };
 
 const PAID_STATUS_EXPLANATION: Record<string, string> = {
-  paid: "Fully paid — salary continues for these days",
+  paid: "Fully paid - salary continues for these days",
   paid_plus_compensation:
-    "Paid plus compensation — salary continues (extra day owed)",
+    "Paid plus compensation - salary continues (extra day owed)",
   variable: "Variable pay treatment per leave policy",
-  half_pay: "Half pay — 50% of daily rate for these days",
-  unpaid: "Unpaid — no salary for these days",
+  half_pay: "Half pay - 50% of daily rate for these days",
+  unpaid: "Unpaid - no salary for these days",
   unknown: "Treated as unpaid until the roster code is mapped",
 };
 

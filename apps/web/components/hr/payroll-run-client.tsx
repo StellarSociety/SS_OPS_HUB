@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChevronUp, ChevronsUpDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,17 @@ import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
+import { PayrollMonthPicker } from "@/components/hr/payroll-month-picker";
+import { PayrollWorkflowStepper } from "@/components/hr/payroll-workflow-stepper";
 import { SalesImportProgressBar } from "@/components/sales/sales-import-progress-bar";
+import {
+  DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS,
+  type HrPayrollApprovalsSettings,
+} from "@/lib/hr/types";
+import type {
+  PendingPayrollApproval,
+  PayrollApproverCandidate,
+} from "@/lib/actions/hr-payroll-approvals";
 import {
   addPayrollAdjustment,
   addBulkPayrollAdjustment,
@@ -19,20 +29,22 @@ import {
   updateBulkPayrollAdjustment,
   deletePayrollAdjustment,
   deleteBulkPayrollAdjustment,
-  exportPayrollGl,
   generatePayslips,
   generateWpsFile,
-  markPayrollPaid,
+  listBenefitsForPayrollImport,
+  importBenefitsToPayrollRun,
+  refreshImportedBenefitsOnPayrollRun,
+  clearImportedBenefitsFromPayrollRun,
   recalculatePayrollRun,
   setEmployeeIncluded,
-  transitionPayrollRun,
   updatePayrollBudgetRevenue,
   upsertSettlement,
   waivePayrollException,
+  type PayrollBenefitImportRow,
+  type PayrollBenefitImportType,
 } from "@/lib/actions/hr-payroll";
 import {
   PAYROLL_STATUS_LABELS,
-  PAYROLL_STATUS_TRANSITIONS,
   adjustmentCodesForCategory,
   canEditPayrollRun,
   defaultLabelForAdjustmentCode,
@@ -44,7 +56,6 @@ import {
   DEFAULT_PAYROLL_ADJUSTMENT_CODES,
   resolveManualAdjustmentAmount,
   isDailyRateDiscountAdjustment,
-  isPayrollLocked,
   summarizePayrollLeave,
   parsePayrollRunTab,
   payrollOverRevenuePct,
@@ -75,6 +86,31 @@ function formatPct(value: number | null | undefined): string {
 function shareOfTotal(part: number, total: number): number | null {
   if (!total || Number.isNaN(total) || Number.isNaN(part)) return null;
   return (part / total) * 100;
+}
+
+/** Amount + share % flush-right in department summary cells. */
+function DeptMetric({
+  value,
+  pct,
+  emphasize = false,
+}: {
+  value: ReactNode;
+  pct: string;
+  emphasize?: boolean;
+}) {
+  return (
+    <span className="flex w-full items-baseline justify-end gap-2 tabular-nums">
+      <span className="min-w-0 text-right">{value}</span>
+      <span
+        className={cn(
+          "w-12 shrink-0 text-right text-xs text-black/40",
+          emphasize && "font-normal",
+        )}
+      >
+        {pct}
+      </span>
+    </span>
+  );
 }
 
 function formatMoney(
@@ -533,6 +569,8 @@ export type PayrollEventRow = {
   to_status: string;
   comment: string | null;
   created_at: string;
+  actor_id?: string | null;
+  actor_name?: string | null;
 };
 
 export type PayrollStaffOption = {
@@ -556,6 +594,11 @@ type PayrollRunClientProps = {
   canEdit: boolean;
   periodNetRevenue: PayrollPeriodNetRevenue | null;
   adjustmentCodes?: PayrollAdjustmentCodeConfig[];
+  currentUserId?: string | null;
+  approvalsSettings?: HrPayrollApprovalsSettings;
+  approvalCandidates?: PayrollApproverCandidate[];
+  pendingApprovals?: PendingPayrollApproval[];
+  userNames?: Record<string, string>;
 };
 
 type PayrollActionOutcome =
@@ -577,17 +620,6 @@ type PayrollCsvOutcome =
 type PayrollActionFn = () => Promise<PayrollActionOutcome>;
 type PayrollCsvFn = () => Promise<PayrollCsvOutcome>;
 
-const PAYROLL_STATUSES_ORDER: PayrollStatus[] = [
-  "draft",
-  "attendance_validated",
-  "hr_review",
-  "finance_review",
-  "final_approval",
-  "payment_processing",
-  "paid",
-  "locked",
-];
-
 export function PayrollRunClient({
   tab: _tab,
   run,
@@ -603,6 +635,11 @@ export function PayrollRunClient({
   canEdit,
   periodNetRevenue,
   adjustmentCodes = DEFAULT_PAYROLL_ADJUSTMENT_CODES,
+  currentUserId = null,
+  approvalsSettings = DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS,
+  approvalCandidates = [],
+  pendingApprovals = [],
+  userNames = {},
 }: PayrollRunClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -616,6 +653,7 @@ export function PayrollRunClient({
   const [departmentSummaryOpen, setDepartmentSummaryOpen] = useState(false);
   const [budgetSectionOpen, setBudgetSectionOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [importBenefitsOpen, setImportBenefitsOpen] = useState(false);
 
   const venueNetRevenue =
     periodNetRevenue?.netRevenue ?? run.revenue_amount ?? null;
@@ -635,9 +673,6 @@ export function PayrollRunClient({
     totals.leaverCount ?? employees.filter((e) => e.is_leaver).length;
 
   const editable = canEdit && canEditPayrollRun(run.status);
-  const locked = isPayrollLocked(run.status);
-  const nextStatuses =
-    PAYROLL_STATUS_TRANSITIONS[run.status as PayrollStatus] ?? [];
 
   const linesByEmployee: Map<string, PayrollLineRow[]> = new Map();
   for (const line of lines) {
@@ -708,33 +743,6 @@ export function PayrollRunClient({
         setMessage(err instanceof Error ? err.message : `${label} failed`);
       }
     });
-  }
-
-  function handleTransition(to: PayrollStatus) {
-    const fromIdx = PAYROLL_STATUSES_ORDER.indexOf(run.status as PayrollStatus);
-    const toIdx = PAYROLL_STATUSES_ORDER.indexOf(to);
-    const isBackward = fromIdx > toIdx;
-
-    // Returning to draft is a common attendance fix path — don't block on a
-    // cancelable prompt (browser prompts often feel like a no-op when dismissed).
-    let comment: string | undefined;
-    if (to === "draft") {
-      comment = "Returned to draft";
-    } else if (isBackward) {
-      const entered = window.prompt(
-        "Comment for sending this run back (optional):",
-        `Returned to ${statusLabel(to)}`,
-      );
-      // Cancel → still proceed with a default note so the action isn't silent
-      comment = entered?.trim() || `Returned to ${statusLabel(to)}`;
-    } else {
-      const entered = window.prompt("Optional comment:");
-      comment = entered?.trim() || undefined;
-    }
-
-    runAction(`Move to ${statusLabel(to)}`, () =>
-      transitionPayrollRun(run.id, to, comment),
-    );
   }
 
   function handleSaveBudget() {
@@ -824,7 +832,20 @@ export function PayrollRunClient({
   }, [departmentSummary]);
 
   const attendanceHref = `/hr/attendance/validation?from=${encodeURIComponent(run.period_start.slice(0, 10))}&to=${encodeURIComponent(run.period_end.slice(0, 10))}&payrollRunId=${encodeURIComponent(run.id)}`;
-  const canReturnToDraft = nextStatuses.includes("draft");
+
+  const attendanceComplete = !exceptions.some(
+    (e) =>
+      !e.waived &&
+      e.severity === "blocking" &&
+      (e.exception_type === "attendance_not_approved" ||
+        e.exception_type === "attendance_incomplete"),
+  );
+  const benefitsImported = lines.some((l) => l.source === "benefits");
+  const hasRecalculated =
+    employees.length > 0 ||
+    events.some((e) =>
+      (e.comment ?? "").toLowerCase().includes("recalculated"),
+    );
 
   return (
     <div className="space-y-6">
@@ -847,101 +868,26 @@ export function PayrollRunClient({
               <span className="text-xs text-black/50">{countsHint}</span>
             </div>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={attendanceHref}
-              className="inline-flex h-9 items-center justify-center rounded-md border border-black/15 bg-white px-3 text-sm font-medium text-[#3D421F] transition hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
-            >
-              Update attendance
-            </Link>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
-              disabled={pending || !editable}
-              onClick={() =>
-                runAction("Recalculate", () => recalculatePayrollRun(run.id))
-              }
-            >
-              Recalculate
-            </Button>
-            {canReturnToDraft ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
-                disabled={pending || !canEdit || locked}
-                onClick={() => handleTransition("draft")}
-              >
-                ← Back to draft
-              </Button>
-            ) : null}
-            {nextStatuses
-              .filter((to) => to !== "draft")
-              .map((to) => (
-                <Button
-                  key={to}
-                  type="button"
-                  size="sm"
-                  disabled={pending || !canEdit || locked}
-                  onClick={() => handleTransition(to)}
-                >
-                  {`→ ${statusLabel(to)}`}
-                </Button>
-              ))}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
-              disabled={pending || !canEdit}
-              onClick={() =>
-                downloadCsv("Payroll export", () => generateWpsFile(run.id))
-              }
-            >
-              Export Payroll
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
-              disabled={pending || !canEdit}
-              onClick={() =>
-                runAction("Mark paid", () => markPayrollPaid(run.id))
-              }
-            >
-              Mark paid / lock
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
-              disabled={pending || !canEdit}
-              onClick={() =>
-                runAction("Generate payslips", () => generatePayslips(run.id))
-              }
-            >
-              Generate payslips
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="border-black/15 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary,#F0F3DD)]/60"
-              disabled={pending || !canEdit}
-              onClick={() =>
-                downloadCsv("GL export", () => exportPayrollGl(run.id))
-              }
-            >
-              Export GL
-            </Button>
-          </div>
         </div>
+
+        <PayrollWorkflowStepper
+          runId={run.id}
+          runStatus={run.status}
+          attendanceHref={attendanceHref}
+          canEdit={canEdit}
+          currentUserId={currentUserId}
+          approvalsSettings={approvalsSettings}
+          approvalCandidates={approvalCandidates}
+          pendingApprovals={pendingApprovals}
+          userNames={userNames}
+          attendanceComplete={attendanceComplete}
+          benefitsImported={benefitsImported}
+          hasRecalculated={hasRecalculated}
+          events={events}
+          onOpenImportBenefits={() => setImportBenefitsOpen(true)}
+          onMessage={setMessage}
+          onRefresh={refresh}
+        />
 
         <button
           type="button"
@@ -1040,8 +986,11 @@ export function PayrollRunClient({
           <div>
             <h3 className="font-serif text-lg text-[#3D421F]">By department</h3>
             <p className="text-sm text-black/55">
-              Included employees with fixed, variable, deductions, and net per
-              department.
+              <span className="font-semibold text-[#3D421F]">
+                {formatPayrollMonthLabel(run.payroll_month)}
+              </span>{" "}
+              — included employees with fixed, variable, deductions, and net
+              per department.
             </p>
           </div>
           <ChevronDown
@@ -1079,66 +1028,55 @@ export function PayrollRunClient({
               ) : (
                 departmentSummary.map((row) => (
                   <tr key={row.department}>
-                    <td className="px-3 py-2.5 text-[#3D421F]">
+                    <td className="px-3 py-2.5 text-left text-[#3D421F]">
                       {row.department}
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
-                      <span className="inline-flex items-baseline justify-end gap-2">
-                        <span>{row.people}</span>
-                        <span className="text-xs text-black/40">
-                          {formatPct(
-                            shareOfTotal(row.people, departmentTotals.people),
-                          )}
-                        </span>
-                      </span>
+                    <td className="px-3 py-2.5 text-right text-black/70">
+                      <DeptMetric
+                        value={row.people}
+                        pct={formatPct(
+                          shareOfTotal(row.people, departmentTotals.people),
+                        )}
+                      />
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
-                      <span className="inline-flex items-baseline justify-end gap-2">
-                        <span>{formatMoney(row.fixed, canViewSalary)}</span>
-                        <span className="text-xs text-black/40">
-                          {formatPct(
-                            shareOfTotal(row.fixed, departmentTotals.fixed),
-                          )}
-                        </span>
-                      </span>
+                    <td className="px-3 py-2.5 text-right text-black/70">
+                      <DeptMetric
+                        value={formatMoney(row.fixed, canViewSalary)}
+                        pct={formatPct(
+                          shareOfTotal(row.fixed, departmentTotals.fixed),
+                        )}
+                      />
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
-                      <span className="inline-flex items-baseline justify-end gap-2">
-                        <span>{formatMoney(row.variable, canViewSalary)}</span>
-                        <span className="text-xs text-black/40">
-                          {formatPct(
-                            shareOfTotal(
-                              row.variable,
-                              departmentTotals.variable,
-                            ),
-                          )}
-                        </span>
-                      </span>
+                    <td className="px-3 py-2.5 text-right text-black/70">
+                      <DeptMetric
+                        value={formatMoney(row.variable, canViewSalary)}
+                        pct={formatPct(
+                          shareOfTotal(
+                            row.variable,
+                            departmentTotals.variable,
+                          ),
+                        )}
+                      />
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-black/70">
-                      <span className="inline-flex items-baseline justify-end gap-2">
-                        <span>
-                          {formatMoney(row.deductions, canViewSalary)}
-                        </span>
-                        <span className="text-xs text-black/40">
-                          {formatPct(
-                            shareOfTotal(
-                              row.deductions,
-                              departmentTotals.deductions,
-                            ),
-                          )}
-                        </span>
-                      </span>
+                    <td className="px-3 py-2.5 text-right text-black/70">
+                      <DeptMetric
+                        value={formatMoney(row.deductions, canViewSalary)}
+                        pct={formatPct(
+                          shareOfTotal(
+                            row.deductions,
+                            departmentTotals.deductions,
+                          ),
+                        )}
+                      />
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#3D421F]">
-                      <span className="inline-flex items-baseline justify-end gap-2">
-                        <span>{formatMoney(row.net, canViewSalary)}</span>
-                        <span className="text-xs font-normal text-black/40">
-                          {formatPct(
-                            shareOfTotal(row.net, departmentTotals.net),
-                          )}
-                        </span>
-                      </span>
+                    <td className="px-3 py-2.5 text-right font-medium text-[#3D421F]">
+                      <DeptMetric
+                        value={formatMoney(row.net, canViewSalary)}
+                        pct={formatPct(
+                          shareOfTotal(row.net, departmentTotals.net),
+                        )}
+                        emphasize
+                      />
                     </td>
                   </tr>
                 ))
@@ -1147,57 +1085,47 @@ export function PayrollRunClient({
             {departmentSummary.length > 0 ? (
               <tfoot className="border-t-2 border-black/10 bg-black/[0.03]">
                 <tr className="font-medium text-[#3D421F]">
-                  <td className="px-3 py-2.5">Total</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    <span className="inline-flex items-baseline justify-end gap-2">
-                      <span>{departmentTotals.people}</span>
-                      <span className="text-xs font-normal text-black/40">
-                        100.0%
-                      </span>
-                    </span>
+                  <td className="px-3 py-2.5 text-left">Total</td>
+                  <td className="px-3 py-2.5 text-right">
+                    <DeptMetric
+                      value={departmentTotals.people}
+                      pct="100.0%"
+                      emphasize
+                    />
                   </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    <span className="inline-flex items-baseline justify-end gap-2">
-                      <span>
-                        {formatMoney(departmentTotals.fixed, canViewSalary)}
-                      </span>
-                      <span className="text-xs font-normal text-black/40">
-                        100.0%
-                      </span>
-                    </span>
+                  <td className="px-3 py-2.5 text-right">
+                    <DeptMetric
+                      value={formatMoney(departmentTotals.fixed, canViewSalary)}
+                      pct="100.0%"
+                      emphasize
+                    />
                   </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    <span className="inline-flex items-baseline justify-end gap-2">
-                      <span>
-                        {formatMoney(departmentTotals.variable, canViewSalary)}
-                      </span>
-                      <span className="text-xs font-normal text-black/40">
-                        100.0%
-                      </span>
-                    </span>
+                  <td className="px-3 py-2.5 text-right">
+                    <DeptMetric
+                      value={formatMoney(
+                        departmentTotals.variable,
+                        canViewSalary,
+                      )}
+                      pct="100.0%"
+                      emphasize
+                    />
                   </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    <span className="inline-flex items-baseline justify-end gap-2">
-                      <span>
-                        {formatMoney(
-                          departmentTotals.deductions,
-                          canViewSalary,
-                        )}
-                      </span>
-                      <span className="text-xs font-normal text-black/40">
-                        100.0%
-                      </span>
-                    </span>
+                  <td className="px-3 py-2.5 text-right">
+                    <DeptMetric
+                      value={formatMoney(
+                        departmentTotals.deductions,
+                        canViewSalary,
+                      )}
+                      pct="100.0%"
+                      emphasize
+                    />
                   </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">
-                    <span className="inline-flex items-baseline justify-end gap-2">
-                      <span>
-                        {formatMoney(departmentTotals.net, canViewSalary)}
-                      </span>
-                      <span className="text-xs font-normal text-black/40">
-                        100.0%
-                      </span>
-                    </span>
+                  <td className="px-3 py-2.5 text-right">
+                    <DeptMetric
+                      value={formatMoney(departmentTotals.net, canViewSalary)}
+                      pct="100.0%"
+                      emphasize
+                    />
                   </td>
                 </tr>
               </tfoot>
@@ -1270,6 +1198,38 @@ export function PayrollRunClient({
           }
         />
       ) : null}
+
+      <ImportBenefitsDialog
+        open={importBenefitsOpen}
+        runId={run.id}
+        defaultMonth={run.payroll_month}
+        canViewSalary={canViewSalary}
+        pending={pending}
+        onClose={() => setImportBenefitsOpen(false)}
+        onImport={(input) => {
+          runAction("Import benefits", () =>
+            importBenefitsToPayrollRun({ runId: run.id, ...input }),
+          );
+          setImportBenefitsOpen(false);
+        }}
+        onRefreshApplied={(input) => {
+          runAction("Refresh imported benefits", () =>
+            refreshImportedBenefitsOnPayrollRun({
+              runId: run.id,
+              ...input,
+            }),
+          );
+        }}
+        onClearImported={(input) => {
+          runAction("Delete imported benefits", () =>
+            clearImportedBenefitsFromPayrollRun({
+              runId: run.id,
+              ...input,
+            }),
+          );
+          setImportBenefitsOpen(false);
+        }}
+      />
 
       {tab === "exceptions" ? (
         <ExceptionsTab
@@ -2090,18 +2050,20 @@ function RunEmployeesTab({
                 </button>
               </>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                disabled={pending}
-                onClick={() => {
-                  setSelectMode(true);
-                  setSelectedStaffIds(new Set());
-                }}
-                className="border border-black/10 bg-white text-[#3D421F] hover:bg-black/[0.03]"
-              >
-                Bulk adjustment
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => {
+                    setSelectMode(true);
+                    setSelectedStaffIds(new Set());
+                  }}
+                  className="border border-black/10 bg-white text-[#3D421F] hover:bg-black/[0.03]"
+                >
+                  Bulk adjustment
+                </Button>
+              </>
             )}
           </div>
         ) : null}
@@ -2375,7 +2337,11 @@ function RunEmployeesTab({
                 <SortLabel label="Dept" column="department_name" />
               </th>
               <th className="px-3 py-2.5 font-medium">
-                <SortLabel label="Status" column="working_status" />
+                <SortLabel
+                  label="Status"
+                  column="working_status"
+                  align="center"
+                />
               </th>
               <th className="px-3 py-2.5 font-medium">
                 <SortLabel label="Paid days" column="paid_days" align="end" />
@@ -2716,7 +2682,7 @@ function FragmentRows({
         <td className="px-3 py-2 text-black/60">
           {row.department_name ?? "—"}
         </td>
-        <td className="px-3 py-2">
+        <td className="px-3 py-2 text-center">
           <WorkingStatusBadge status={resolvePayrollWorkingStatus(row)} />
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
@@ -3238,6 +3204,405 @@ function SeverityBadge({ severity }: { severity: string }) {
     >
       {severity}
     </span>
+  );
+}
+
+function benefitTypeLabel(type: string): string {
+  switch (type) {
+    case "tips":
+      return "Tips (Gratuity)";
+    case "service_charge":
+      return "Service charge";
+    case "compensation":
+      return "Compensations";
+    default:
+      return "Other benefit";
+  }
+}
+
+function ImportBenefitsDialog({
+  open,
+  runId,
+  defaultMonth,
+  canViewSalary,
+  pending,
+  onClose,
+  onImport,
+  onRefreshApplied,
+  onClearImported,
+}: {
+  open: boolean;
+  runId: string;
+  defaultMonth: string;
+  canViewSalary: boolean;
+  pending: boolean;
+  onClose: () => void;
+  onImport: (input: {
+    benefitMonth: string;
+    benefitType: PayrollBenefitImportType | "all";
+    allocationIds: string[];
+  }) => void;
+  onRefreshApplied: (input: {
+    benefitMonth: string;
+    benefitType: PayrollBenefitImportType | "all";
+  }) => void;
+  onClearImported: (input: {
+    benefitMonth: string;
+    benefitType: PayrollBenefitImportType | "all";
+  }) => void;
+}) {
+  const defaultMonthValue = defaultMonth.slice(0, 7);
+  const [benefitMonth, setBenefitMonth] = useState(defaultMonthValue);
+  const [benefitType, setBenefitType] = useState<
+    PayrollBenefitImportType | "all"
+  >("all");
+  const [rows, setRows] = useState<PayrollBenefitImportRow[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [staffQuery, setStaffQuery] = useState("");
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  useEffect(() => {
+    if (!open) return;
+    setBenefitMonth(defaultMonthValue);
+    setBenefitType("all");
+    setStaffQuery("");
+    setLoadError(null);
+  }, [open, defaultMonthValue]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    void listBenefitsForPayrollImport({
+      runId,
+      benefitMonth,
+      benefitType,
+    }).then((result) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!result.ok) {
+        setRows([]);
+        setSelectedIds(new Set());
+        setLoadError(result.error);
+        return;
+      }
+      setRows(result.rows);
+      setSelectedIds(
+        new Set(
+          result.rows
+            .filter((r) => r.amount > 0 || r.alreadyApplied)
+            .map((r) => r.allocationId),
+        ),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, runId, benefitMonth, benefitType, reloadNonce]);
+
+  // After a parent action finishes (pending → idle), reload the list so
+  // "applied" badges and amounts stay in sync when the dialog stays open.
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      wasPending.current = false;
+      return;
+    }
+    if (pending) {
+      wasPending.current = true;
+      return;
+    }
+    if (wasPending.current) {
+      wasPending.current = false;
+      setReloadNonce((n) => n + 1);
+    }
+  }, [pending, open]);
+
+  const filteredRows = useMemo(() => {
+    const q = staffQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) =>
+        r.empNo.toLowerCase().includes(q) ||
+        r.fullName.toLowerCase().includes(q) ||
+        (r.departmentName?.toLowerCase().includes(q) ?? false),
+    );
+  }, [rows, staffQuery]);
+
+  const appliedCount = useMemo(
+    () => rows.filter((r) => r.alreadyApplied).length,
+    [rows],
+  );
+
+  const selectedTotal = useMemo(() => {
+    let sum = 0;
+    for (const row of rows) {
+      if (selectedIds.has(row.allocationId)) sum += row.amount;
+    }
+    return sum;
+  }, [rows, selectedIds]);
+
+  if (!open) return null;
+
+  function selectAll() {
+    setSelectedIds(new Set(filteredRows.map((r) => r.allocationId)));
+  }
+
+  function selectNone() {
+    setSelectedIds(new Set());
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleRefreshApplied() {
+    onRefreshApplied({ benefitMonth, benefitType });
+  }
+
+  function handleClearImported() {
+    const label =
+      benefitType === "all"
+        ? "all imported benefits for this month"
+        : `imported ${benefitTypeLabel(benefitType).toLowerCase()} for this month`;
+    if (
+      !window.confirm(
+        `Remove ${label} from this payroll? Net pay will be recalculated.`,
+      )
+    ) {
+      return;
+    }
+    onClearImported({ benefitMonth, benefitType });
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (!pending && !loading && event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-benefits-title"
+        className="flex max-h-[min(90vh,720px)] w-full max-w-3xl flex-col rounded-xl border border-black/10 bg-white shadow-xl"
+      >
+        <div className="border-b border-black/10 px-6 py-4">
+          <h2
+            id="import-benefits-title"
+            className="font-serif text-xl text-[#3D421F]"
+          >
+            Import Benefits
+          </h2>
+          <p className="mt-1 text-sm text-black/55">
+            Pull finalized Tips / Service Charge amounts into this payroll as
+            variable lines. Net pay updates on recalculate; amounts appear on
+            payslips.
+          </p>
+        </div>
+
+        <div className="space-y-4 overflow-y-auto px-6 py-4">
+          <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+            <PayrollMonthPicker
+              id="import-benefit-month"
+              label="Benefit month"
+              value={benefitMonth}
+              onChange={setBenefitMonth}
+              disabled={pending || loading}
+            />
+            <div className="flex flex-col gap-1">
+              <label
+                htmlFor="import-benefit-type"
+                className="text-[11px] font-medium uppercase tracking-wide text-black/45"
+              >
+                Benefit
+              </label>
+              <select
+                id="import-benefit-type"
+                value={benefitType}
+                disabled={pending || loading}
+                onChange={(e) =>
+                  setBenefitType(
+                    e.target.value as PayrollBenefitImportType | "all",
+                  )
+                }
+                className={cn(lightSelectClass, "h-10")}
+              >
+                <option value="all">All benefits</option>
+                <option value="tips">Tips (Gratuity)</option>
+                <option value="service_charge">Service charge</option>
+                <option value="compensation">Compensations</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Input
+              value={staffQuery}
+              disabled={pending || loading}
+              onChange={(e) => setStaffQuery(e.target.value)}
+              placeholder="Search employees…"
+              className="h-9 max-w-xs"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={pending || loading || filteredRows.length === 0}
+                onClick={selectAll}
+                className="h-8 rounded-md border border-black/10 bg-white px-3 text-xs font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                disabled={pending || loading || selectedIds.size === 0}
+                onClick={selectNone}
+                className="h-8 rounded-md border border-black/10 bg-white px-3 text-xs font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+              >
+                Select none
+              </button>
+            </div>
+          </div>
+
+          {appliedCount > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--venue-primary,#818a40)]/25 bg-[var(--venue-secondary,#e8ebc8)]/35 px-3 py-2">
+              <p className="mr-auto text-xs text-[#3D421F]/80">
+                {appliedCount} already applied to this payroll
+              </p>
+              <button
+                type="button"
+                disabled={pending || loading}
+                onClick={handleRefreshApplied}
+                className="h-8 rounded-md border border-black/10 bg-white px-3 text-xs font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+              >
+                {pending ? "Refreshing…" : "Refresh applied"}
+              </button>
+              <button
+                type="button"
+                disabled={pending || loading}
+                onClick={handleClearImported}
+                className="h-8 rounded-md border border-red-200 bg-white px-3 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                {pending ? "Deleting…" : "Delete imported"}
+              </button>
+            </div>
+          ) : null}
+
+          {loadError ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {loadError}
+            </p>
+          ) : null}
+
+          {loading ? (
+            <SalesImportProgressBar label="Loading benefit allocations…" />
+          ) : (
+            <div className="max-h-[min(40vh,360px)] overflow-auto rounded-lg border border-black/10">
+              <table className="min-w-full text-left text-sm">
+                <thead className="sticky top-0 bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
+                  <tr>
+                    <th className="px-3 py-2 font-medium"> </th>
+                    <th className="px-3 py-2 font-medium">Emp no</th>
+                    <th className="px-3 py-2 font-medium">Name</th>
+                    <th className="px-3 py-2 font-medium">Benefit</th>
+                    <th className="px-3 py-2 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/5">
+                  {filteredRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="px-3 py-8 text-center text-sm text-black/45"
+                      >
+                        No benefit allocations for this month. Finalize a
+                        Benefits run first.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRows.map((row) => (
+                      <tr key={row.allocationId} className="hover:bg-black/[0.02]">
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(row.allocationId)}
+                            disabled={pending}
+                            onChange={() => toggleOne(row.allocationId)}
+                            className="h-4 w-4 rounded border-black/20 accent-[var(--venue-primary,#818a40)]"
+                            aria-label={`Import ${row.fullName}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">
+                          {row.empNo}
+                        </td>
+                        <td className="px-3 py-2 text-[#3D421F]">
+                          {row.fullName}
+                          {row.alreadyApplied ? (
+                            <span className="ml-1.5 text-[10px] uppercase tracking-wide text-black/40">
+                              applied
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-2 text-black/60">
+                          {benefitTypeLabel(row.benefitType)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatMoney(row.amount, canViewSalary)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="text-xs text-black/50">
+            {selectedIds.size} selected · total{" "}
+            {formatMoney(selectedTotal, canViewSalary)}
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-black/10 px-6 py-4">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onClose}
+            className="h-9 rounded-md border border-black/10 bg-white px-3.5 text-sm font-medium text-[#3D421F] hover:bg-black/[0.03] disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pending || loading || selectedIds.size === 0}
+            onClick={() =>
+              onImport({
+                benefitMonth,
+                benefitType,
+                allocationIds: [...selectedIds],
+              })
+            }
+            className="h-9 rounded-md bg-[var(--venue-primary,#818a40)] px-3.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {pending ? "Importing…" : "Import"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

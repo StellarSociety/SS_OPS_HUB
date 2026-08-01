@@ -15,7 +15,9 @@ import {
   HandCoins,
   Heart,
   ListTree,
+  Mail,
   Percent,
+  Stamp,
   Settings2,
   ShieldCheck,
   Tags,
@@ -33,12 +35,18 @@ import {
   HR_SETTINGS_ATTENDANCE_HREF,
   HR_SETTINGS_ATTENDANCE_LEAVE_HREF,
   HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
+  HR_SETTINGS_EMAILS_CONNECTION_HREF,
+  HR_SETTINGS_EMAILS_PAYROLL_HREF,
+  HR_SETTINGS_EMAILS_PAYSLIPS_HREF,
+  HR_SETTINGS_EMAILS_BOARDING_HREF,
   HR_SETTINGS_NOTIFICATIONS_HREF,
   HR_SETTINGS_PAY_ADJUSTMENTS_HREF,
+  HR_SETTINGS_PAY_APPROVALS_HREF,
   HR_SETTINGS_PAY_BENEFITS_GRATUITY_HREF,
   HR_SETTINGS_PAY_BENEFITS_HREF,
   HR_SETTINGS_PAY_BENEFITS_SERVICE_CHARGE_HREF,
   HR_SETTINGS_PAY_HREF,
+  HR_SETTINGS_PAY_PAYSLIP_DOCUMENT_HREF,
   HR_SETTINGS_STAFF_DETAILS_HREF,
 } from "@/lib/hr/settings-nav";
 
@@ -249,9 +257,19 @@ const PAY_CATEGORY_TABS: Tab[] = [
     icon: ListTree,
   },
   {
+    href: HR_SETTINGS_PAY_APPROVALS_HREF,
+    label: "Payroll Approvals",
+    icon: ShieldCheck,
+  },
+  {
     href: HR_SETTINGS_PAY_BENEFITS_HREF,
     label: "Benefits",
     icon: Gift,
+  },
+  {
+    href: HR_SETTINGS_PAY_PAYSLIP_DOCUMENT_HREF,
+    label: "Payslip document",
+    icon: Stamp,
   },
 ];
 
@@ -265,6 +283,29 @@ const PAY_BENEFITS_TABS: Tab[] = [
     href: HR_SETTINGS_PAY_BENEFITS_SERVICE_CHARGE_HREF,
     label: "Service Charge",
     icon: Percent,
+  },
+];
+
+const EMAILS_TABS: Tab[] = [
+  {
+    href: HR_SETTINGS_EMAILS_CONNECTION_HREF,
+    label: "Connection / Transport",
+    icon: Settings2,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_PAYROLL_HREF,
+    label: "Payroll email",
+    icon: Mail,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_PAYSLIPS_HREF,
+    label: "Payslips Email",
+    icon: Wallet,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_BOARDING_HREF,
+    label: "Boarding email",
+    icon: UserRound,
   },
 ];
 
@@ -407,5 +448,14 @@ export function HrPaySettingsSubNav() {
         <InnerSubNav tabs={PAY_BENEFITS_TABS} ariaLabel="Benefits settings" />
       ) : null}
     </div>
+  );
+}
+
+export function HrEmailsSettingsSubNav() {
+  return (
+    <InnerSubNav
+      tabs={EMAILS_TABS}
+      ariaLabel="Email settings"
+    />
   );
 }

@@ -1,4 +1,4 @@
-import { sendResendEmail } from "@/lib/email/resend";
+import { sendAppEmail } from "@/lib/email/transport";
 import { formatDateOnly } from "@/lib/hr/derived";
 import type { NotificationRow, NotificationRecipient } from "./types";
 
@@ -56,22 +56,21 @@ export async function sendNotificationEmailSafe(params: {
   to: string;
   subject: string;
   html: string;
+  venueId?: string | null;
+  supabase?: import("@supabase/supabase-js").SupabaseClient;
 }): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
-
-  if (!apiKey || !from) {
-    console.warn(
-      "[notifications] Email skipped — set RESEND_API_KEY and RESEND_FROM_EMAIL to enable.",
-    );
-    return false;
-  }
-
   try {
-    await sendResendEmail(params);
+    await sendAppEmail(
+      {
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+      },
+      { venueId: params.venueId, supabase: params.supabase },
+    );
     return true;
   } catch (err) {
-    console.warn("[notifications] Resend send failed:", err);
+    console.warn("[notifications] Email send failed:", err);
     return false;
   }
 }
@@ -97,6 +96,7 @@ export async function emailPendingNotificationsForRecipient(
       notifications,
       appUrl,
     }),
+    supabase: service,
   });
 
   if (!sent) return 0;

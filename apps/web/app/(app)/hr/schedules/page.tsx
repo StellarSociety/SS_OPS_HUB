@@ -33,6 +33,7 @@ import type { PublicHoliday } from "@/lib/hr/types";
 const SCHEDULE_ELIGIBLE_STATUS_NAMES = new Set([
   "ON Board",
   "OFF Board",
+  "OFF Boarding",
   "OUT",
 ]);
 const DEFAULT_WORKING_STATUS = "Active";

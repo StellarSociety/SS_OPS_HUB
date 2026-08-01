@@ -156,11 +156,13 @@ export async function persistCalculatedPayrollRun(opts: {
         .eq("run_id", runId),
       service
         .from("hr_benefit_allocations")
-        .select("staff_id, benefit_type, amount, status")
+        .select(
+          "staff_id, benefit_type, amount, status, period_start, run:hr_benefit_runs(benefit_month)",
+        )
         .eq("venue_id", venueId)
         .lte("period_start", period.periodEnd)
         .gte("period_end", period.periodStart)
-        .in("status", ["finalized", "applied_to_payroll"]),
+        .in("status", ["applied_to_payroll"]),
     ]);
 
   const shiftTemplateMap = Object.fromEntries(
@@ -184,11 +186,24 @@ export async function persistCalculatedPayrollRun(opts: {
     source: "adjustment" as const,
   }));
 
-  const benefits = (benefitsRes.data ?? []).map((b) => ({
-    staff_id: b.staff_id as string,
-    benefit_type: b.benefit_type as string,
-    amount: Number(b.amount),
-  }));
+  const benefits = (benefitsRes.data ?? []).map((b) => {
+    const runRaw = b.run as
+      | { benefit_month?: string }
+      | { benefit_month?: string }[]
+      | null;
+    const run = Array.isArray(runRaw) ? runRaw[0] : runRaw;
+    return {
+      staff_id: b.staff_id as string,
+      benefit_type: b.benefit_type as string,
+      amount: Number(b.amount),
+      benefit_month: run?.benefit_month
+        ? String(run.benefit_month).slice(0, 10)
+        : null,
+      period_start: b.period_start
+        ? String(b.period_start).slice(0, 10)
+        : null,
+    };
+  });
 
   const { employees, exceptions, totals } = calculateVenuePayroll({
     period,
@@ -639,12 +654,14 @@ export async function persistSingleEmployeePayroll(opts: {
         .eq("staff_id", staffId),
       service
         .from("hr_benefit_allocations")
-        .select("staff_id, benefit_type, amount, status")
+        .select(
+          "staff_id, benefit_type, amount, status, period_start, run:hr_benefit_runs(benefit_month)",
+        )
         .eq("venue_id", venueId)
         .eq("staff_id", staffId)
         .lte("period_start", period.periodEnd)
         .gte("period_end", period.periodStart)
-        .in("status", ["finalized", "applied_to_payroll"]),
+        .in("status", ["applied_to_payroll"]),
     ]);
 
   const shiftTemplateMap = Object.fromEntries(
@@ -668,11 +685,24 @@ export async function persistSingleEmployeePayroll(opts: {
     source: "adjustment" as const,
   }));
 
-  const benefits = (benefitsRes.data ?? []).map((b) => ({
-    staff_id: b.staff_id as string,
-    benefit_type: b.benefit_type as string,
-    amount: Number(b.amount),
-  }));
+  const benefits = (benefitsRes.data ?? []).map((b) => {
+    const runRaw = b.run as
+      | { benefit_month?: string }
+      | { benefit_month?: string }[]
+      | null;
+    const run = Array.isArray(runRaw) ? runRaw[0] : runRaw;
+    return {
+      staff_id: b.staff_id as string,
+      benefit_type: b.benefit_type as string,
+      amount: Number(b.amount),
+      benefit_month: run?.benefit_month
+        ? String(run.benefit_month).slice(0, 10)
+        : null,
+      period_start: b.period_start
+        ? String(b.period_start).slice(0, 10)
+        : null,
+    };
+  });
 
   const { employees, exceptions } = calculateVenuePayroll({
     period,

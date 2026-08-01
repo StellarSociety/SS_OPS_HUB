@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
   BookOpen,
   Building2,
+  ChevronDown,
   ClipboardList,
   Code2,
   LayoutDashboard,
@@ -27,7 +28,9 @@ import { moduleCategoryMeta } from "@/lib/module-categories";
 import {
   getModuleSidebarForPath,
   isModuleSidebarItemActive,
+  type ModuleSidebarCategory,
   type ModuleSidebarDef,
+  type ModuleSidebarItem,
 } from "@/lib/module-sidebar";
 import { VenueSelector } from "@/components/layout/venue-selector";
 import type { Venue } from "@/lib/types/database";
@@ -239,18 +242,54 @@ function SidebarTopLink({
   );
 }
 
-function SidebarCategoryLabel({ label }: { label: string }) {
+function SidebarCategoryLabel({
+  label,
+  expanded,
+  onToggle,
+}: {
+  label: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <p className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-black/40">
-      {label}
-    </p>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className="flex w-full items-center justify-between gap-1 rounded-md px-3 pb-0.5 pt-2 text-left text-[10px] font-semibold uppercase tracking-wider text-black/40 transition-colors hover:bg-black/5 hover:text-black/60"
+    >
+      <span className="truncate">{label}</span>
+      <ChevronDown
+        className={cn(
+          "h-3 w-3 shrink-0 transition-transform duration-200",
+          expanded ? "rotate-0" : "-rotate-90",
+        )}
+        aria-hidden
+      />
+    </button>
   );
+}
+
+function activeCategoryKeys(
+  categories: ModuleSidebarCategory[],
+  itemByHref: Map<string, ModuleSidebarItem>,
+  pathname: string,
+): string[] {
+  return categories
+    .filter((category) =>
+      category.itemHrefs.some((href) => {
+        const item = itemByHref.get(href);
+        return item ? isModuleSidebarItemActive(pathname, item) : false;
+      }),
+    )
+    .map((category) => category.key);
 }
 
 /**
  * Renders a module's nav items. When the module defines `categories`, items are
  * grouped under their category label (matching the module shortcuts bar);
  * otherwise it falls back to a flat list using each item's `dividerAfter`.
+ * Category sections collapse so only the active group stays open by default.
  */
 function ModuleSidebarItems({
   moduleSidebar,
@@ -262,6 +301,49 @@ function ModuleSidebarItems({
   collapsed: boolean;
 }) {
   const categories = moduleSidebar.categories ?? [];
+
+  const itemByHref = useMemo(
+    () => new Map(moduleSidebar.items.map((item) => [item.href, item])),
+    [moduleSidebar.items],
+  );
+
+  const routeActiveKeys = useMemo(
+    () => activeCategoryKeys(categories, itemByHref, pathname),
+    [categories, itemByHref, pathname],
+  );
+
+  const [openKeys, setOpenKeys] = useState<Set<string>>(
+    () => new Set(routeActiveKeys),
+  );
+
+  useEffect(() => {
+    if (routeActiveKeys.length === 0) {
+      return;
+    }
+    setOpenKeys((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const key of routeActiveKeys) {
+        if (!next.has(key)) {
+          next.add(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [routeActiveKeys]);
+
+  const toggleCategory = (key: string) => {
+    setOpenKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   if (categories.length === 0) {
     return (
@@ -289,9 +371,6 @@ function ModuleSidebarItems({
     );
   }
 
-  const itemByHref = new Map(
-    moduleSidebar.items.map((item) => [item.href, item]),
-  );
   const categorizedHrefs = new Set(
     categories.flatMap((category) => category.itemHrefs),
   );
@@ -321,16 +400,25 @@ function ModuleSidebarItems({
   return (
     <>
       {leadingItems.map((item) => renderItem(item.href))}
-      {categories.map((category) => (
-        <Fragment key={category.key}>
-          {collapsed ? (
-            <SidebarDivider collapsed={collapsed} />
-          ) : (
-            <SidebarCategoryLabel label={category.label} />
-          )}
-          {category.itemHrefs.map((href) => renderItem(href))}
-        </Fragment>
-      ))}
+      {categories.map((category) => {
+        const expanded = collapsed || openKeys.has(category.key);
+        return (
+          <Fragment key={category.key}>
+            {collapsed ? (
+              <SidebarDivider collapsed={collapsed} />
+            ) : (
+              <SidebarCategoryLabel
+                label={category.label}
+                expanded={expanded}
+                onToggle={() => toggleCategory(category.key)}
+              />
+            )}
+            {expanded
+              ? category.itemHrefs.map((href) => renderItem(href))
+              : null}
+          </Fragment>
+        );
+      })}
     </>
   );
 }

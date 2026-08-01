@@ -2,23 +2,48 @@
 export const EMPLOYMENT_STATUS_NAMES = {
   hiring: "Hiring",
   onBoard: "ON Board",
-  offBoard: "OFF Board",
+  /** Canonical DB name (seed historically used "OFF Board"). */
+  offBoard: "OFF Boarding",
   out: "OUT",
 } as const;
 
 export type SuggestedEmploymentStatusName =
   (typeof EMPLOYMENT_STATUS_NAMES)[keyof typeof EMPLOYMENT_STATUS_NAMES];
 
+/** Legacy / alternate spellings that resolve to the same status. */
+const EMPLOYMENT_STATUS_ALIASES: Record<string, string> = {
+  "off board": EMPLOYMENT_STATUS_NAMES.offBoard,
+  "off boarding": EMPLOYMENT_STATUS_NAMES.offBoard,
+};
+
 /**
  * Shared surface styles for status badges, selects, and filter chips.
- * Hiring = pink, ON Board = green, OFF Board = amber, OUT = red.
+ * Hiring = pink, ON Board = green, OFF Boarding = amber, OUT = red.
  */
 export const EMPLOYMENT_STATUS_SURFACE: Record<string, string> = {
   Hiring: "border-pink-200 bg-pink-100 text-pink-800",
   "ON Board": "border-emerald-200 bg-emerald-100 text-emerald-800",
   "OFF Board": "border-amber-200 bg-amber-100 text-amber-800",
+  "OFF Boarding": "border-amber-200 bg-amber-100 text-amber-800",
   OUT: "border-red-200 bg-red-100 text-red-800",
 };
+
+/** Normalize status labels so "OFF Board" and "OFF Boarding" compare equal. */
+export function normalizeEmploymentStatusName(
+  name: string | null | undefined,
+): string {
+  const raw = name?.trim() ?? "";
+  if (!raw) return "";
+  return EMPLOYMENT_STATUS_ALIASES[raw.toLowerCase()] ?? raw;
+}
+
+export function isOffBoardEmploymentStatus(
+  name: string | null | undefined,
+): boolean {
+  return (
+    normalizeEmploymentStatusName(name) === EMPLOYMENT_STATUS_NAMES.offBoard
+  );
+}
 
 /** Display / filter order: Hiring → ON Board → OFF Board → OUT. */
 export const EMPLOYMENT_STATUS_SORT_ORDER: readonly string[] = [
@@ -29,19 +54,26 @@ export const EMPLOYMENT_STATUS_SORT_ORDER: readonly string[] = [
 ];
 
 export function compareEmploymentStatusNames(a: string, b: string): number {
-  const ai = EMPLOYMENT_STATUS_SORT_ORDER.indexOf(a);
-  const bi = EMPLOYMENT_STATUS_SORT_ORDER.indexOf(b);
+  const aNorm = normalizeEmploymentStatusName(a);
+  const bNorm = normalizeEmploymentStatusName(b);
+  const ai = EMPLOYMENT_STATUS_SORT_ORDER.indexOf(aNorm);
+  const bi = EMPLOYMENT_STATUS_SORT_ORDER.indexOf(bNorm);
   const aRank = ai === -1 ? EMPLOYMENT_STATUS_SORT_ORDER.length : ai;
   const bRank = bi === -1 ? EMPLOYMENT_STATUS_SORT_ORDER.length : bi;
   if (aRank !== bRank) return aRank - bRank;
-  return a.localeCompare(b);
+  return aNorm.localeCompare(bNorm);
 }
 
 export function employmentStatusSurfaceClass(
   statusName: string | null | undefined,
 ): string {
   if (!statusName) return "";
-  return EMPLOYMENT_STATUS_SURFACE[statusName] ?? "";
+  const normalized = normalizeEmploymentStatusName(statusName);
+  return (
+    EMPLOYMENT_STATUS_SURFACE[statusName] ??
+    EMPLOYMENT_STATUS_SURFACE[normalized] ??
+    ""
+  );
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -103,8 +135,12 @@ export function findStatusIdByName(
   statuses: { id: string; name: string }[],
   name: string,
 ): string | null {
-  const needle = name.toLowerCase();
-  return statuses.find((s) => s.name.toLowerCase() === needle)?.id ?? null;
+  const needle = normalizeEmploymentStatusName(name).toLowerCase();
+  return (
+    statuses.find(
+      (s) => normalizeEmploymentStatusName(s.name).toLowerCase() === needle,
+    )?.id ?? null
+  );
 }
 
 export function findStatusNameById(

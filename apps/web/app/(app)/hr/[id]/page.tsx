@@ -33,6 +33,14 @@ export default async function StaffDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // Guard against non-UUID segments colliding with this catch-all (e.g. typos).
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      id,
+    )
+  ) {
+    redirect("/hr");
+  }
   const supabase = await getRenderClient();
   const user = await getRenderUser();
   if (!user) redirect("/login");

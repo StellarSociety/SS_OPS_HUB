@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentMonthKey, resolveFetchMonthKeys } from "@/lib/hr/attendance-months";
-import { EMPLOYMENT_STATUS_NAMES } from "@/lib/hr/employment-status";
+import {
+  EMPLOYMENT_STATUS_NAMES,
+  normalizeEmploymentStatusName,
+} from "@/lib/hr/employment-status";
 import {
   DEFAULT_SCHEDULE_VARIANCE_MINUTES,
   measureShiftPunchVariance,
@@ -42,6 +45,12 @@ const VALIDATION_ELIGIBLE_STATUS_NAMES = new Set<string>([
   EMPLOYMENT_STATUS_NAMES.onBoard,
   EMPLOYMENT_STATUS_NAMES.offBoard,
 ]);
+
+function isValidationEligibleStatus(name: string | null | undefined): boolean {
+  return VALIDATION_ELIGIBLE_STATUS_NAMES.has(
+    normalizeEmploymentStatusName(name),
+  );
+}
 
 function formatScheduleTime(
   startTime: string | null | undefined,
@@ -290,9 +299,7 @@ export function validationEmployeeOptions(
   staff: Awaited<ReturnType<typeof listStaffForVenue>>,
 ): ValidationEmployeeOption[] {
   return staff
-    .filter((s) =>
-      VALIDATION_ELIGIBLE_STATUS_NAMES.has(s.employment_status?.name ?? ""),
-    )
+    .filter((s) => isValidationEligibleStatus(s.employment_status?.name))
     .map((s) => ({
       id: s.id,
       empNo: s.emp_no,
