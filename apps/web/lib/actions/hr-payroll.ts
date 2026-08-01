@@ -38,7 +38,13 @@ import type { PayslipPdfLeaveKind } from "@/lib/hr/payslip-pdf";
 import { sortPayslipLines } from "@/lib/hr/payslip-line-order";
 import { loadPayslipLetterheadForVenue } from "@/lib/hr/payslip-letterhead";
 import { HR_MODULE_KEY, HR_SETTINGS_KEYS } from "@/lib/hr/types";
-import { persistCalculatedPayrollRun, persistSingleEmployeePayroll, loadPayrollSettings, loadPayrollAdjustmentCodes } from "@/lib/hr/payroll/persist-run";
+import {
+  persistCalculatedPayrollRun,
+  persistSingleEmployeePayroll,
+  loadPayrollSettings,
+  loadPayrollAdjustmentCodes,
+  syncPayrollRunTotals,
+} from "@/lib/hr/payroll/persist-run";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 
@@ -1781,7 +1787,7 @@ export async function setEmployeeIncluded(
 ): Promise<PayrollActionResult> {
   const auth = await getPayrollAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
-  const { venue, permissions, supabase } = auth;
+  const { user, venue, permissions, supabase } = auth;
 
   if (!canEditPayroll(permissions, venue.id)) {
     return { ok: false, error: "No permission." };
@@ -1811,6 +1817,21 @@ export async function setEmployeeIncluded(
     .eq("id", runEmployeeId);
 
   if (error) return { ok: false, error: error.message };
+
+  try {
+    await syncPayrollRunTotals({
+      service,
+      venueId: venue.id,
+      runId: emp.run_id as string,
+      userId: user.id,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Failed to update run totals",
+    };
+  }
+
   revalidatePayroll(emp.run_id as string);
   return { ok: true };
 }

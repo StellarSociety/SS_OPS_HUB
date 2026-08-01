@@ -520,7 +520,7 @@ function staffRowToInput(
   };
 }
 
-async function recomputeRunTotalsFromDb(
+export async function recomputeRunTotalsFromDb(
   service: ReturnType<typeof createServiceClient>,
   runId: string,
 ): Promise<PayrollRunTotals> {
@@ -592,6 +592,29 @@ async function recomputeRunTotalsFromDb(
 
   if (employees.length === 0) return emptyPayrollTotals();
   return summarizeEmployees(employees);
+}
+
+/** Recompute and persist run.totals from current employee rows (e.g. after include/exclude). */
+export async function syncPayrollRunTotals(opts: {
+  service: ReturnType<typeof createServiceClient>;
+  venueId: string;
+  runId: string;
+  userId?: string;
+}): Promise<PayrollRunTotals> {
+  const { service, venueId, runId, userId } = opts;
+  const totals = await recomputeRunTotalsFromDb(service, runId);
+  const { error } = await service
+    .from("hr_payroll_runs")
+    .update({
+      totals,
+      ...(userId ? { updated_by: userId } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId)
+    .eq("venue_id", venueId);
+
+  if (error) throw new Error(error.message);
+  return totals;
 }
 
 /**

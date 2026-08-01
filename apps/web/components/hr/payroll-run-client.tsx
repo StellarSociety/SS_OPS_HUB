@@ -671,14 +671,12 @@ export function PayrollRunClient({
   );
 
   const totals = (run.totals ?? {}) as Record<string, number>;
-  const includedCount =
-    totals.includedCount ?? employees.filter((e) => e.included).length;
-  const excludedCount =
-    totals.excludedCount ?? employees.filter((e) => !e.included).length;
-  const joinerCount =
-    totals.newJoinerCount ?? employees.filter((e) => e.is_new_joiner).length;
-  const leaverCount =
-    totals.leaverCount ?? employees.filter((e) => e.is_leaver).length;
+  // Prefer live employee flags so include/exclude updates counts immediately
+  // even if persisted run.totals were stale before sync.
+  const includedCount = employees.filter((e) => e.included).length;
+  const excludedCount = employees.length - includedCount;
+  const joinerCount = employees.filter((e) => e.is_new_joiner).length;
+  const leaverCount = employees.filter((e) => e.is_leaver).length;
 
   const editable = canEdit && canEditPayrollRun(run.status);
 
@@ -1954,7 +1952,9 @@ function RunEmployeesTab({
     let netSalary = 0;
     let includedCount = 0;
     for (const row of filtered) {
+      if (!row.included) continue;
       const empAdjustments = adjustmentsByStaff.get(row.staff_id) ?? [];
+      includedCount += 1;
       paidDays += Number(row.effective_paid_days) || 0;
       paidLeaveDays += paidLeaveDaysForRow(row);
       unpaidDays += Number(row.unpaid_days) || 0;
@@ -1962,7 +1962,6 @@ function RunEmployeesTab({
       variableEarnings += Number(row.variable_earnings) || 0;
       totalDeductions += employeeDisplayedDeductions(row, empAdjustments);
       netSalary += Number(row.net_salary) || 0;
-      if (row.included) includedCount += 1;
     }
     return {
       employeeCount: filtered.length,
@@ -2292,6 +2291,8 @@ function RunEmployeesTab({
         ) : null}
         <p className="mb-1.5 ml-auto text-xs text-black/45">
           Showing {filtered.length} of {employees.length}
+          {" · "}
+          {columnTotals.includedCount} included
           {selectMode ? ` · ${selectedStaffIds.size} selected` : ""}
         </p>
       </div>
@@ -2468,7 +2469,11 @@ function RunEmployeesTab({
               <tr className="font-medium text-[#3D421F]">
                 {selectMode ? <td className="px-3 py-2.5" /> : null}
                 <td className="px-3 py-2.5" colSpan={2}>
-                  Filtered total ({columnTotals.employeeCount})
+                  Included total ({columnTotals.includedCount}
+                  {columnTotals.includedCount !== columnTotals.employeeCount
+                    ? ` of ${columnTotals.employeeCount}`
+                    : ""}
+                  )
                 </td>
                 <td className="px-3 py-2.5" colSpan={2} />
                 <td className="px-3 py-2.5 text-right tabular-nums">
