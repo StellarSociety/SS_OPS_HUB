@@ -64,7 +64,10 @@ export function mergePayrollApprovalsSettings(
     | undefined,
 ): HrPayrollApprovalsSettings {
   const base = DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS;
-  const emailPartial = partial?.email ?? {};
+  const emailPartial: Partial<HrPayrollApprovalsSettings["email"]> & {
+    subject?: string;
+    message?: string;
+  } = partial?.email ?? {};
   const templates = normalizePayrollEmailTemplates(emailPartial.templates, {
     subject: emailPartial.subject,
     message: emailPartial.message,

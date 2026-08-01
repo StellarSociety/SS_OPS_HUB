@@ -29,6 +29,7 @@ import {
   type HrPayrollApprovalsSettings,
   type PayrollApprovalRequest,
   type PayrollApprovalStep,
+  type PayrollEmailTemplate,
 } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
