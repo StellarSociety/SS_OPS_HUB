@@ -80,7 +80,7 @@ async function getAuth() {
 
 function revalidateApprovals(runId?: string) {
   revalidatePath("/hr/settings/pay/approvals", "page");
-  revalidatePath("/hr/settings/emails/payroll", "page");
+  revalidatePath("/hr/settings/emails/pay/payroll", "page");
   revalidatePath("/hr/settings/emails", "layout");
   revalidatePath("/hr/settings", "layout");
   revalidatePath("/hr/payroll", "page");

@@ -136,6 +136,7 @@ export function StaffPdfDocument({
 
             <Section title="Contact">
               <Row label="Phone" value={dash(value.contact_phone)} />
+              <Row label="WhatsApp" value={dash(value.whatsapp)} />
               <Row label="Personal email" value={dash(value.personal_email)} />
               <Row label="Work email" value={dash(value.work_email)} />
             </Section>

@@ -20,6 +20,7 @@ export type StaffFormState = {
   dob: string;
   nationality_id: string;
   contact_phone: string;
+  whatsapp: string;
   personal_email: string;
   work_email: string;
   passport_no: string;
@@ -61,6 +62,7 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     dob: "",
     nationality_id: "",
     contact_phone: "",
+    whatsapp: "",
     personal_email: "",
     work_email: "",
     passport_no: "",
@@ -100,6 +102,7 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     dob: str(s.dob),
     nationality_id: str(s.nationality_id),
     contact_phone: str(s.contact_phone),
+    whatsapp: str(s.whatsapp),
     personal_email: str(s.personal_email),
     work_email: str(s.work_email),
     passport_no: str(s.passport_no),

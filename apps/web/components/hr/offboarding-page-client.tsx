@@ -40,14 +40,21 @@ export function OffboardingPageClient({
   const { scope, slug } = useVenueScope();
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  const currentProcesses = useMemo(
+    () => processes.filter((p) => !p.archivedAt),
+    [processes],
+  );
+
   const activeStaffIds = useMemo(
     () =>
       new Set(
-        processes
-          .filter((p) => p.status !== "completed" && p.status !== "cancelled")
+        currentProcesses
+          .filter(
+            (p) => p.status !== "completed" && p.status !== "cancelled",
+          )
           .map((p) => p.staffId),
       ),
-    [processes],
+    [currentProcesses],
   );
 
   const pickerStaff = useMemo(
@@ -96,15 +103,16 @@ export function OffboardingPageClient({
           <h2 className="font-serif text-base text-[#3D421F]">
             Current processes
           </h2>
-          {processes.length > 0 ? (
+          {currentProcesses.length > 0 ? (
             <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-medium text-black/50">
-              {processes.length}
+              {currentProcesses.length}
             </span>
           ) : null}
         </div>
         <OffboardingProcessTable
           processes={processes}
           onOpenProcess={handleOpenProcess}
+          canManage={canStart}
         />
       </section>
 

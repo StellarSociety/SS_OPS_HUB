@@ -1,15 +1,20 @@
-import { Building2, Globe } from "lucide-react";
+import { Building2, Globe, UserPlus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { ContinentBreakdownChart } from "@/components/hr/continent-breakdown-chart";
 import { OffBoardingWidgets } from "@/components/hr/offboarding-widgets";
+import { ProbationWidgets } from "@/components/hr/probation-widgets";
 import type { HrBreakdownRow, HrOverviewStats } from "@/lib/hr/overview";
 import type { OffBoardingItem } from "@/lib/hr/offboarding";
+import type { OnProbationItem } from "@/lib/hr/probation";
 import { cn } from "@/lib/utils";
 
 type HrOverviewProps = {
   stats: HrOverviewStats;
-  /** When set, renders as a third panel to the right of Top Nationalities. */
+  /** When set, renders Off boarding (and an empty On Boarding slot before it). */
   offBoarding?: OffBoardingItem[];
+  /** When set, renders as a panel after On Boarding. */
+  onProbation?: OnProbationItem[];
 };
 
 function CountPercent({
@@ -85,36 +90,83 @@ function BreakdownCard({
   );
 }
 
-export function HrOverview({ stats, offBoarding }: HrOverviewProps) {
+/** Placeholder panel — same chrome as Off boarding; content TBD. */
+function OnBoardingPanel() {
+  return (
+    <Card className="flex h-full min-h-[17.5rem] flex-col p-4">
+      <div className="flex items-center gap-1.5">
+        <UserPlus
+          className="h-4 w-4 shrink-0 text-emerald-600/80"
+          aria-hidden
+        />
+        <h3 className="min-w-0 flex-1 truncate font-serif text-base text-[#3D421F]">
+          On Boarding
+        </h3>
+        <span className="shrink-0 text-xs tabular-nums text-black/50">0</span>
+      </div>
+      <hr className="mt-2 shrink-0 border-t-2 border-black/15" />
+      <div className="mt-3 flex flex-1 items-center justify-center text-xs text-black/45">
+        No upcoming joins
+      </div>
+    </Card>
+  );
+}
+
+export function HrOverview({
+  stats,
+  offBoarding,
+  onProbation,
+}: HrOverviewProps) {
   const showOffBoarding = offBoarding != null;
+  const showProbation = onProbation != null;
+  const boardingCount =
+    (showOffBoarding ? 2 : 0) + (showProbation ? 1 : 0);
 
   return (
-    <div
-      className={cn(
-        "mx-auto grid w-full gap-4",
-        showOffBoarding
-          ? "max-w-5xl sm:grid-cols-2 lg:grid-cols-3"
-          : "max-w-3xl sm:grid-cols-2",
-      )}
-    >
-      <BreakdownCard
-        icon={Building2}
-        title="Headcount by Department"
-        rows={stats.byDepartment}
-        emptyLabel="No department data"
-      />
-      <BreakdownCard
-        icon={Globe}
-        title="Top Nationalities"
-        rows={stats.byNationality}
-        emptyLabel="No nationality data"
-      />
-      {showOffBoarding ? (
-        <OffBoardingWidgets
-          items={offBoarding}
-          title="Off boarding"
-          variant="panel"
+    <div className="space-y-4">
+      <div className="grid w-full gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <BreakdownCard
+          icon={Building2}
+          title="Headcount by Department"
+          rows={stats.byDepartment}
+          emptyLabel="No department data"
         />
+        <ContinentBreakdownChart rows={stats.byContinent} />
+        <BreakdownCard
+          icon={Globe}
+          title="Top Nationalities"
+          rows={stats.byNationality}
+          emptyLabel="No nationality data"
+        />
+      </div>
+
+      {boardingCount > 0 ? (
+        <div
+          className={cn(
+            "grid w-full gap-4",
+            boardingCount >= 3
+              ? "sm:grid-cols-2 lg:grid-cols-3"
+              : boardingCount === 2
+                ? "sm:grid-cols-2"
+                : "max-w-sm",
+          )}
+        >
+          {showOffBoarding ? <OnBoardingPanel /> : null}
+          {showProbation ? (
+            <ProbationWidgets
+              items={onProbation}
+              title="On probation"
+              variant="panel"
+            />
+          ) : null}
+          {showOffBoarding ? (
+            <OffBoardingWidgets
+              items={offBoarding}
+              title="Off boarding"
+              variant="panel"
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

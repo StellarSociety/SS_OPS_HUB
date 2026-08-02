@@ -67,15 +67,40 @@ export type CertificationType = {
 };
 
 /** How employment ended — set on staff profile when termination_date is filled. */
-export type StaffTerminationType = "resignation" | "termination";
+export type StaffTerminationType =
+  | "resignation"
+  | "termination_with_notice"
+  | "termination";
 
 export const STAFF_TERMINATION_TYPE_OPTIONS: {
   value: StaffTerminationType;
   label: string;
 }[] = [
   { value: "resignation", label: "Resignation" },
-  { value: "termination", label: "Termination (involuntary)" },
+  { value: "termination_with_notice", label: "Termination with notice" },
+  { value: "termination", label: "Immediate termination" },
 ];
+
+export function isStaffTerminationType(
+  value: string | null | undefined,
+): value is StaffTerminationType {
+  return (
+    value === "resignation" ||
+    value === "termination_with_notice" ||
+    value === "termination"
+  );
+}
+
+/** Collapse directory types into benefit entitlement buckets. */
+export function employmentEndedAsFromTerminationType(
+  type: string | null | undefined,
+): "resignation" | "termination" | null {
+  if (type === "resignation") return "resignation";
+  if (type === "termination" || type === "termination_with_notice") {
+    return "termination";
+  }
+  return null;
+}
 
 export type Staff = {
   id: string;
@@ -90,6 +115,7 @@ export type Staff = {
   last_name: string | null;
   full_name: string;
   contact_phone: string | null;
+  whatsapp: string | null;
   personal_email: string | null;
   work_email: string | null;
   gender: string | null;
@@ -206,6 +232,12 @@ export const HR_SETTINGS_KEYS = {
   payslipEmail: "payslip_email",
   payslipLetterhead: "payslip_letterhead",
   boardingEmail: "boarding_email",
+  workAnniversaryEmail: "work_anniversary_email",
+  /** Dedupe map of auto/manual anniversary emails already sent. */
+  workAnniversaryEmailSent: "work_anniversary_email_sent",
+  updatedDocsRequestEmail: "updated_docs_request_email",
+  /** Zoho WorkDrive connection + folder/naming rules for staff documents. */
+  workDrive: "work_drive",
 } as const;
 
 /** Paid status for leave type configuration. */
@@ -648,6 +680,176 @@ export const DEFAULT_HR_EMAIL_TRANSPORT_SETTINGS: HrEmailTransportSettings = {
   lastError: null,
 };
 
+/** Zoho accounts / API data center for WorkDrive. */
+export type ZohoWorkDriveRegion =
+  | "com"
+  | "eu"
+  | "in"
+  | "com.au"
+  | "jp"
+  | "uk"
+  | "ca"
+  | "sa";
+
+/**
+ * Document kinds that map to auto-created subfolders under each employee
+ * folder in WorkDrive. More kinds can be added as upload surfaces ship.
+ */
+export type HrWorkDriveDocKind =
+  | "profile_photo"
+  | "passport"
+  | "emirates_id"
+  | "bank"
+  | "offer_letter"
+  | "contract"
+  | "addendums"
+  | "eresidence_card"
+  | "ohc"
+  | "medical_insurance"
+  | "training_certificates"
+  | "others";
+
+export type HrWorkDriveDocSubfolder = {
+  kind: HrWorkDriveDocKind;
+  /** Folder name under the employee folder, e.g. "Passport". */
+  folderName: string;
+  /**
+   * Used as `{doc_label}` in fileNameTemplate (prefer compact forms like
+   * EmiratesID). Also shown in the Drive Setup document column.
+   */
+  label: string;
+  active: boolean;
+};
+
+export type HrWorkDriveConnectionStatus =
+  | "disconnected"
+  | "connected"
+  | "error";
+
+/**
+ * Venue-scoped Zoho WorkDrive config (hr_venue_settings key `work_drive`).
+ * Files are stored in WorkDrive — not Supabase Storage. Secrets stay encrypted
+ * server-side and are never returned to the client.
+ *
+ * Live model (2026-08-02): HUMAN RESOURCES *is* the team folder
+ * (`teamFolderId` === `hrFolderId`). Per-employee trees are created under
+ * `employeeDocsFolderId` (Employee Documents) — swappable without code changes.
+ */
+export type HrWorkDriveSettings = {
+  enabled: boolean;
+  region: ZohoWorkDriveRegion;
+  clientId: string;
+  clientSecretEncrypted?: string | null;
+  refreshTokenEncrypted?: string | null;
+  /** Display name for the HR team folder (verified: HUMAN RESOURCES). */
+  teamFolderName: string;
+  teamFolderId: string;
+  /** Same folder as the team folder in the live Orilla account. */
+  hrFolderName: string;
+  hrFolderId: string;
+  /**
+   * Working parent for `{emp_no} — {full_name}` folders (Employee Documents).
+   * Single swappable config — folder model is deferred.
+   */
+  employeeDocsFolderId: string;
+  /**
+   * Template for per-employee folders under employeeDocsFolderId.
+   * Tokens: {emp_no} {full_name} {first_name} {last_name}
+   */
+  employeeFolderTemplate: string;
+  /**
+   * Template for uploaded file names (extension preserved separately).
+   * Tokens: {emp_no} {full_name} {doc_kind} {doc_label} {yyyy} {MM} {dd}
+   *         {yyyy-MM-dd} {original_name}
+   */
+  fileNameTemplate: string;
+  /** Create missing employee / doc-type folders on upload. */
+  autoCreateFolders: boolean;
+  docSubfolders: HrWorkDriveDocSubfolder[];
+  connectionStatus: HrWorkDriveConnectionStatus;
+  lastVerifiedAt?: string | null;
+  lastError?: string | null;
+};
+
+export type HrWorkDrivePublicSettings = Omit<
+  HrWorkDriveSettings,
+  "clientSecretEncrypted" | "refreshTokenEncrypted"
+> & {
+  hasClientSecret: boolean;
+  hasRefreshToken: boolean;
+};
+
+export const DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS: HrWorkDriveDocSubfolder[] = [
+  {
+    kind: "profile_photo",
+    folderName: "Profile Photo",
+    label: "ProfilePhoto",
+    active: true,
+  },
+  { kind: "passport", folderName: "Passport", label: "Passport", active: true },
+  {
+    kind: "emirates_id",
+    folderName: "Emirates ID",
+    label: "EmiratesID",
+    active: true,
+  },
+  { kind: "bank", folderName: "Bank", label: "Bank", active: true },
+  {
+    kind: "offer_letter",
+    folderName: "Offer Letter",
+    label: "OfferLetter",
+    active: true,
+  },
+  { kind: "contract", folderName: "Contract", label: "Contract", active: true },
+  {
+    kind: "addendums",
+    folderName: "Addendums",
+    label: "Addendum",
+    active: true,
+  },
+  {
+    kind: "eresidence_card",
+    folderName: "eResidence Card",
+    label: "eResidence",
+    active: true,
+  },
+  { kind: "ohc", folderName: "OHC", label: "OHC", active: true },
+  {
+    kind: "medical_insurance",
+    folderName: "Medical Insurance",
+    label: "MedicalInsurance",
+    active: true,
+  },
+  {
+    kind: "training_certificates",
+    folderName: "Training Certificates",
+    label: "TrainingCert",
+    active: true,
+  },
+  { kind: "others", folderName: "Others", label: "Other", active: true },
+];
+
+/** Verified live folder IDs (Orilla WorkDrive, 2026-08-02). */
+export const DEFAULT_HR_WORK_DRIVE_SETTINGS: HrWorkDriveSettings = {
+  enabled: false,
+  region: "com",
+  clientId: "",
+  clientSecretEncrypted: null,
+  refreshTokenEncrypted: null,
+  teamFolderName: "HUMAN RESOURCES",
+  teamFolderId: "sae44cf1e2c4af89c4b2db0cbfcf01bcb006a",
+  hrFolderName: "HUMAN RESOURCES",
+  hrFolderId: "sae44cf1e2c4af89c4b2db0cbfcf01bcb006a",
+  employeeDocsFolderId: "vtvbm62a07bbd35f041bd996fea000998c43a",
+  employeeFolderTemplate: "{emp_no} — {full_name}",
+  fileNameTemplate: "{doc_label}_{emp_no}_{yyyy-MM-dd}",
+  autoCreateFolders: true,
+  docSubfolders: DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS,
+  connectionStatus: "disconnected",
+  lastVerifiedAt: null,
+  lastError: null,
+};
+
 /** Recipient source for individual payslip emails. */
 export type PayslipEmailRecipientField =
   | "work"
@@ -764,6 +966,124 @@ export const DEFAULT_HR_PAYSLIP_EMAIL_SETTINGS: HrPayslipEmailSettings = {
   templates: [DEFAULT_PAYSLIP_EMAIL_TEMPLATE],
   defaultTemplateId: DEFAULT_PAYSLIP_EMAIL_TEMPLATE_ID,
 };
+
+// ---------------------------------------------------------------------------
+// Work anniversary congratulations email
+// ---------------------------------------------------------------------------
+
+export type HrWorkAnniversaryEmailSettings = {
+  enabled: boolean;
+  /** When true, send congratulations automatically on the anniversary day. */
+  autoSendOnAnniversary: boolean;
+  recipientField: PayslipEmailRecipientField;
+  fromEmail: string;
+  subject: string;
+  message: string;
+};
+
+export const WORK_ANNIVERSARY_EMAIL_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  { code: "{{YEARS}}", description: "Years of service being celebrated" },
+  {
+    code: "{{YEARS_LABEL}}",
+    description: "“year” or “years” from the count",
+  },
+  {
+    code: "{{ANNIVERSARY_DATE}}",
+    description: "Anniversary date (e.g. 15 Aug 2026)",
+  },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_WORK_ANNIVERSARY_EMAIL_SUBJECT =
+  "Congratulations on {{YEARS}} {{YEARS_LABEL}} with {{VENUE_NAME}}";
+
+export const DEFAULT_WORK_ANNIVERSARY_EMAIL_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+Congratulations on completing {{YEARS}} {{YEARS_LABEL}} with {{VENUE_NAME}}!
+
+Your dedication and contribution mean a great deal to the team. We are proud to celebrate this milestone with you on {{ANNIVERSARY_DATE}}.
+
+With warm regards,
+
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_WORK_ANNIVERSARY_EMAIL_SETTINGS: HrWorkAnniversaryEmailSettings =
+  {
+    enabled: true,
+    autoSendOnAnniversary: false,
+    recipientField: "work_then_personal",
+    fromEmail: "",
+    subject: DEFAULT_WORK_ANNIVERSARY_EMAIL_SUBJECT,
+    message: DEFAULT_WORK_ANNIVERSARY_EMAIL_MESSAGE,
+  };
+
+// ---------------------------------------------------------------------------
+// Updated documents / missing details request email
+// ---------------------------------------------------------------------------
+
+export type HrUpdatedDocsRequestEmailSettings = {
+  enabled: boolean;
+  recipientField: PayslipEmailRecipientField;
+  fromEmail: string;
+  subject: string;
+  message: string;
+};
+
+export const UPDATED_DOCS_REQUEST_EMAIL_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{MISSING_DETAILS}}",
+    description: "Bullet list of details currently missing for this employee",
+  },
+  {
+    code: "{{MISSING_DETAILS_COUNT}}",
+    description: "Number of missing detail items",
+  },
+  {
+    code: "{{DOC_LABEL}}",
+    description: "Expiring/expired document label when sent from Upcoming expiries",
+  },
+  {
+    code: "{{EXPIRY_DATE}}",
+    description: "Document expiry date when sent from Upcoming expiries",
+  },
+  {
+    code: "{{DAYS_STATUS}}",
+    description: "e.g. “88 days overdue” or “in 13 days”",
+  },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_SUBJECT =
+  "Action required: updated documents / details — {{EMPLOYEE_NAME}}";
+
+export const DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+We are reviewing your employee records with {{VENUE_NAME}} and need you to provide the following updated information and/or documents:
+
+{{MISSING_DETAILS}}
+
+Please reply with the requested details at your earliest convenience. If you have already submitted any of these items, kindly resend them so we can update your file.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_UPDATED_DOCS_REQUEST_EMAIL_SETTINGS: HrUpdatedDocsRequestEmailSettings =
+  {
+    enabled: true,
+    recipientField: "personal",
+    fromEmail: "",
+    subject: DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_SUBJECT,
+    message: DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_MESSAGE,
+  };
 
 /** Footer disclaimer printed at the bottom of every payslip PDF. */
 export const DEFAULT_PAYSLIP_FOOTER_DISCLAIMER =

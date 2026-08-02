@@ -10,7 +10,7 @@ export default function HrDataManagementLayout({
     <div className="space-y-4">
       <HrSettingsSectionHeader
         title="Data Management"
-        description="Bulk import and export employee and attendance data via Excel templates."
+        description="Bulk import/export, attendance files, and Zoho WorkDrive setup for staff documents."
       />
       <HrDataManagementSubNav />
       <div className="w-full xl:w-2/3">{children}</div>

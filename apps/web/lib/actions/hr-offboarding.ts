@@ -43,7 +43,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
 
 const PROCESS_SELECT =
-  "id, venue_id, staff_id, employment_status_id, emp_no, full_name, department_name, position_name, employment_status_name, joining_date, termination_kind, notification_date, termination_date, notice_email_action, hub_access_disable_date, al_balance, ph_balance, leave_handling, leave_entries, checklist, auto_adjustments, settlement, status, started_at, notes, created_at, updated_at";
+  "id, venue_id, staff_id, employment_status_id, emp_no, full_name, department_name, position_name, employment_status_name, joining_date, termination_kind, notification_date, termination_date, notice_email_action, hub_access_disable_date, al_balance, ph_balance, leave_handling, leave_entries, checklist, auto_adjustments, settlement, status, started_at, archived_at, notes, created_at, updated_at";
 
 type ProcessRow = {
   id: string;
@@ -70,6 +70,7 @@ type ProcessRow = {
   settlement: unknown;
   status: string;
   started_at: string;
+  archived_at: string | null;
   notes: string;
 };
 
@@ -231,6 +232,7 @@ function rowToProcess(
     settlement: parseSettlement(row.settlement),
     status: parseStatus(row.status),
     startedAt: row.started_at,
+    archivedAt: row.archived_at ? String(row.archived_at) : null,
     notes: row.notes ?? "",
   };
 }
@@ -267,6 +269,7 @@ function processToRow(
     settlement: process.settlement,
     status: process.status,
     started_at: process.startedAt || now,
+    archived_at: process.archivedAt || null,
     notes: process.notes ?? "",
     updated_by: userId,
     updated_at: now,
@@ -482,6 +485,157 @@ export async function upsertOffboardingProcessAction(
   };
 }
 
+export async function archiveOffboardingProcess(
+  processId: string,
+): Promise<{ error?: string; success?: true }> {
+  return setOffboardingProcessArchived(processId, true);
+}
+
+export async function unarchiveOffboardingProcess(
+  processId: string,
+): Promise<{ error?: string; success?: true }> {
+  return setOffboardingProcessArchived(processId, false);
+}
+
+async function setOffboardingProcessArchived(
+  processId: string,
+  archive: boolean,
+): Promise<{ error?: string; success?: true }> {
+  const ctx = await getActionAuthContext();
+  if ("error" in ctx) return { error: ctx.error };
+  if (!canEditStaff(ctx.permissions, ctx.venue.id)) {
+    return { error: "You do not have permission to edit offboarding." };
+  }
+
+  const service = createServiceClient();
+  const { data: existing, error: loadError } = await service
+    .from("hr_offboarding_processes")
+    .select("id, staff_id, status, archived_at")
+    .eq("venue_id", ctx.venue.id)
+    .eq("id", processId)
+    .maybeSingle();
+
+  if (loadError) return { error: loadError.message };
+  if (!existing) return { error: "Offboarding process not found." };
+
+  const archivedAt = archive ? new Date().toISOString() : null;
+
+  if (!archive && existing.archived_at) {
+    // Restoring must not collide with another active process for the same staff.
+    const status = String(existing.status ?? "");
+    if (status !== "completed" && status !== "cancelled") {
+      const { data: conflict } = await service
+        .from("hr_offboarding_processes")
+        .select("id")
+        .eq("venue_id", ctx.venue.id)
+        .eq("staff_id", existing.staff_id)
+        .neq("id", processId)
+        .not("status", "in", "(completed,cancelled)")
+        .is("archived_at", null)
+        .maybeSingle();
+      if (conflict) {
+        return {
+          error:
+            "Another active offboarding process already exists for this staff member. Archive or complete it first.",
+        };
+      }
+    }
+  }
+
+  const { error } = await service
+    .from("hr_offboarding_processes")
+    .update({
+      archived_at: archivedAt,
+      updated_by: ctx.user.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", processId)
+    .eq("venue_id", ctx.venue.id);
+
+  if (error) return { error: error.message };
+
+  const { writeAuditLog } = await import("@/lib/audit");
+  const { revalidatePath } = await import("next/cache");
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "update",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_offboarding_processes",
+    entity_id: processId,
+    venue_id: ctx.venue.id,
+    before: { archived_at: existing.archived_at },
+    after: { archived_at: archivedAt },
+  });
+
+  revalidatePath("/hr/offboarding");
+  revalidatePath(`/hr/offboarding/${processId}`);
+  revalidatePath("/hr/staff");
+
+  return { success: true };
+}
+
+export async function deleteOffboardingProcess(
+  processId: string,
+): Promise<{ error?: string; success?: true }> {
+  const ctx = await getActionAuthContext();
+  if ("error" in ctx) return { error: ctx.error };
+  if (!canEditStaff(ctx.permissions, ctx.venue.id)) {
+    return { error: "You do not have permission to delete offboarding." };
+  }
+
+  const service = createServiceClient();
+  const { data: existing, error: loadError } = await service
+    .from("hr_offboarding_processes")
+    .select("id, staff_id, full_name, status, archived_at")
+    .eq("venue_id", ctx.venue.id)
+    .eq("id", processId)
+    .maybeSingle();
+
+  if (loadError) return { error: loadError.message };
+  if (!existing) return { error: "Offboarding process not found." };
+
+  // Remove linked notice emails and unlinked orphans for this staff.
+  // Emails belonging to a different process are left alone.
+  const { error: emailError } = await service
+    .from("hr_boarding_emails")
+    .delete()
+    .eq("venue_id", ctx.venue.id)
+    .eq("staff_id", existing.staff_id)
+    .or(`process_id.eq.${processId},process_id.is.null`);
+
+  if (emailError) return { error: emailError.message };
+
+  const { error } = await service
+    .from("hr_offboarding_processes")
+    .delete()
+    .eq("id", processId)
+    .eq("venue_id", ctx.venue.id);
+
+  if (error) return { error: error.message };
+
+  const { writeAuditLog } = await import("@/lib/audit");
+  const { revalidatePath } = await import("next/cache");
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "delete",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_offboarding_processes",
+    entity_id: processId,
+    venue_id: ctx.venue.id,
+    before: existing,
+    after: { deleted: true, emails_deleted: true },
+  });
+
+  revalidatePath("/hr/offboarding");
+  revalidatePath(`/hr/offboarding/${processId}`);
+  revalidatePath("/hr/staff");
+  revalidatePath(`/hr/${existing.staff_id}`);
+
+  return { success: true };
+}
+
 function toNumber(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -682,7 +836,7 @@ export async function getOffboardingLeaveSnapshot(input: {
 export async function syncStaffOffboardingDirectoryFields(input: {
   staffId: string;
   terminationDate: string;
-  terminationType: "resignation" | "termination";
+  terminationType: "resignation" | "termination_with_notice" | "termination";
   employmentStatusId: string;
 }): Promise<{ error?: string; success?: true }> {
   const supabase = await createClient();

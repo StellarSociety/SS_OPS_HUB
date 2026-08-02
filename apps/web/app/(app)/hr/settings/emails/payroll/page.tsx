@@ -1,36 +1,8 @@
-import { PayrollApprovalsSettingsPanel } from "@/components/hr/payroll-approvals-settings-panel";
-import {
-  getPayrollApprovalsSettings,
-  listPayrollApproverCandidates,
-} from "@/lib/actions/hr-payroll-approvals";
-import { getHrPageContext } from "@/lib/hr/page-context";
-import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
+import { redirect } from "next/navigation";
+import { HR_SETTINGS_EMAILS_PAYROLL_HREF } from "@/lib/hr/settings-nav";
+import { scopedPath } from "@/lib/venue/active-venue";
 
-export default async function HrEmailsPayrollSettingsPage() {
-  const { venue, permissions } = await getHrPageContext();
-
-  const canConfigure =
-    canEditPayroll(permissions, venue.id) ||
-    canAdminLookups(permissions, venue.id);
-
-  const [settings, candidatesResult] = await Promise.all([
-    getPayrollApprovalsSettings(),
-    listPayrollApproverCandidates(),
-  ]);
-
-  return (
-    <div className="space-y-4">
-      {canConfigure ? (
-        <PayrollApprovalsSettingsPanel
-          section="emails"
-          settings={settings}
-          candidates={candidatesResult.candidates ?? []}
-        />
-      ) : (
-        <p className="text-sm text-black/55">
-          You need payroll edit access to change these settings.
-        </p>
-      )}
-    </div>
-  );
+/** Legacy path — now under Emails → PAY email → Payroll. */
+export default async function HrEmailsPayrollSettingsRedirectPage() {
+  redirect(await scopedPath(HR_SETTINGS_EMAILS_PAYROLL_HREF));
 }

@@ -30,12 +30,25 @@ export function moduleBrandedNavIconClass(active: boolean) {
 export const segmentedSubNavShellClass =
   "flex w-full overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md";
 
+export const verticalSegmentedSubNavShellClass =
+  "flex w-full flex-col overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-52 sm:shrink-0";
+
 export const pillSubNavShellClass =
   "flex flex-wrap gap-1 rounded-lg border border-black/10 bg-white/50 p-1.5";
 
 export function segmentedSubNavLinkClass(active: boolean) {
   return cn(
     "flex min-w-0 flex-1 basis-0 items-center justify-center gap-1.5 whitespace-nowrap border-r border-black/10 px-2 py-2.5 transition-colors last:border-r-0 sm:px-3",
+    subNavLabelClass,
+    active
+      ? "bg-[var(--venue-primary)]/15 text-[#3D421F]"
+      : "text-black/55 hover:bg-black/[0.03] hover:text-[#3D421F]",
+  );
+}
+
+export function verticalSegmentedSubNavLinkClass(active: boolean) {
+  return cn(
+    "flex w-full items-center gap-1.5 whitespace-nowrap border-b border-black/10 px-3 py-2.5 text-left transition-colors last:border-b-0",
     subNavLabelClass,
     active
       ? "bg-[var(--venue-primary)]/15 text-[#3D421F]"

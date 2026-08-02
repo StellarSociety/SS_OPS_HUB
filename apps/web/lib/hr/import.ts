@@ -15,6 +15,8 @@ const HEADER_ALIASES: Record<string, string> = {
   "contact phone": "contact_phone",
   contact_phone: "contact_phone",
   phone: "contact_phone",
+  whatsapp: "whatsapp",
+  "whatsapp number": "whatsapp",
   "personal email": "personal_email",
   personal_email: "personal_email",
   "work email": "work_email",

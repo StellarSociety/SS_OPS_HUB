@@ -82,8 +82,11 @@ export function EmailMessageEditor({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // While focused, never clobber the live DOM from React props — serialization
+    // of browser markup can differ slightly from the stored string even when
+    // visually identical, which was wiping caret position and reformatting lines.
+    if (isFocused.current) return;
     if (value === lastEmitted.current && el.childNodes.length > 0) return;
-    if (isFocused.current && value === lastEmitted.current) return;
     el.innerHTML = storedMessageToEditorHtml(value);
     lastEmitted.current = value;
   }, [value]);
@@ -103,13 +106,23 @@ export function EmailMessageEditor({
     const el = ref.current;
     if (!el) return;
     const next = editorHtmlToStoredMessage(el);
+    if (next === lastEmitted.current) return;
     lastEmitted.current = next;
     onChange(next);
+  }
+
+  function preferBrParagraphs() {
+    try {
+      document.execCommand("defaultParagraphSeparator", false, "br");
+    } catch {
+      // Unsupported in some browsers; serialization still handles div/p.
+    }
   }
 
   function runFormat(command: "bold" | "italic" | "underline") {
     if (disabled) return;
     ref.current?.focus();
+    preferBrParagraphs();
     document.execCommand(command);
     emitFromDom();
   }
@@ -171,10 +184,16 @@ export function EmailMessageEditor({
         suppressContentEditableWarning
         onFocus={() => {
           isFocused.current = true;
+          preferBrParagraphs();
         }}
         onBlur={() => {
           isFocused.current = false;
           emitFromDom();
+          // Re-sync from canonical stored string so the DOM matches what we save.
+          const el = ref.current;
+          if (el) {
+            el.innerHTML = storedMessageToEditorHtml(lastEmitted.current);
+          }
         }}
         onInput={emitFromDom}
         onKeyDown={handleKeyDown}
@@ -182,6 +201,8 @@ export function EmailMessageEditor({
           "w-full overflow-y-auto rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-[#3D421F] outline-none",
           "focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20",
           "whitespace-pre-wrap break-words",
+          // Browsers wrap lines in <div>/<p>; kill default paragraph gaps.
+          "[&_p]:m-0 [&_div]:m-0",
           disabled && "cursor-not-allowed opacity-50",
         )}
         style={{ minHeight }}

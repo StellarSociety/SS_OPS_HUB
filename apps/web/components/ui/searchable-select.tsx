@@ -11,7 +11,12 @@ import { createPortal } from "react-dom";
 import { ChevronDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type SelectOption = { value: string; label: string };
+export type SelectOption = {
+  value: string;
+  label: string;
+  /** Extra text used only for filtering (e.g. full country name). */
+  searchText?: string;
+};
 
 type SearchableSelectProps = {
   value: string;
@@ -22,10 +27,15 @@ type SearchableSelectProps = {
   /** Placeholder inside the search input. */
   searchPlaceholder?: string;
   className?: string;
+  disabled?: boolean;
+  /** When false, hides clear control and empty option. Default true. */
+  clearable?: boolean;
+  id?: string;
+  "aria-label"?: string;
 };
 
 const triggerClass =
-  "flex h-10 w-full items-center gap-2 rounded-md border border-black/10 bg-white pl-3 pr-2 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20";
+  "flex h-10 w-full items-center gap-2 rounded-md border border-black/10 bg-white pl-3 pr-2 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20 disabled:cursor-not-allowed disabled:bg-black/[0.03] disabled:text-black/55";
 
 export function SearchableSelect({
   value,
@@ -34,6 +44,10 @@ export function SearchableSelect({
   placeholder,
   searchPlaceholder = "Type to search…",
   className,
+  disabled = false,
+  clearable = true,
+  id,
+  "aria-label": ariaLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -50,7 +64,10 @@ export function SearchableSelect({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
+    return options.filter((o) => {
+      const haystack = `${o.label} ${o.searchText ?? ""}`.toLowerCase();
+      return haystack.includes(q);
+    });
   }, [options, query]);
 
   function updatePanelPos() {
@@ -112,9 +129,15 @@ export function SearchableSelect({
   return (
     <div ref={containerRef} className={cn("relative", className)}>
       <button
+        id={id}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((o) => !o);
+        }}
         className={triggerClass}
+        aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
@@ -126,13 +149,14 @@ export function SearchableSelect({
         >
           {selected?.label ?? placeholder}
         </span>
-        {value ? (
+        {clearable && value ? (
           <span
             role="button"
             tabIndex={-1}
             aria-label="Clear"
             onClick={(e) => {
               e.stopPropagation();
+              if (disabled) return;
               onChange("");
             }}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-black/5 text-black/45 transition-colors hover:bg-black/15 hover:text-[#3D421F]"
@@ -168,18 +192,20 @@ export function SearchableSelect({
                 role="listbox"
                 className="max-h-60 overflow-y-auto py-1 text-sm"
               >
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => select("")}
-                    className={cn(
-                      "flex w-full items-center px-3 py-2 text-left transition-colors hover:bg-[var(--venue-secondary)]/40",
-                      value === "" && "font-medium text-[#3D421F]",
-                    )}
-                  >
-                    {placeholder}
-                  </button>
-                </li>
+                {clearable ? (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => select("")}
+                      className={cn(
+                        "flex w-full items-center px-3 py-2 text-left transition-colors hover:bg-[var(--venue-secondary)]/40",
+                        value === "" && "font-medium text-[#3D421F]",
+                      )}
+                    >
+                      {placeholder}
+                    </button>
+                  </li>
+                ) : null}
                 {filtered.map((o) => (
                   <li key={o.value}>
                     <button
@@ -192,7 +218,9 @@ export function SearchableSelect({
                           : "text-black/70",
                       )}
                     >
-                      {o.label}
+                      {o.searchText
+                        ? `${o.label} · ${o.searchText.replace(/; /g, ", ")}`
+                        : o.label}
                     </button>
                   </li>
                 ))}

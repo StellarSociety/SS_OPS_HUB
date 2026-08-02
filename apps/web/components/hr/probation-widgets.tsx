@@ -9,21 +9,91 @@ type ProbationWidgetsProps = {
   items: OnProbationItem[];
   title?: string;
   titleClassName?: string;
+  /**
+   * `panel` — overview card matching Off boarding panel chrome.
+   * `list` — full-width stacked list (default).
+   */
+  variant?: "list" | "panel";
 };
 
 const defaultTitleClass = "font-serif text-base text-[#3D421F]";
 
 function remainingClass(remainingDays: number) {
-  if (remainingDays <= 14) return "border-amber-300/80 bg-amber-100 text-amber-900";
-  if (remainingDays <= 30) return "border-amber-200 bg-amber-50 text-amber-800";
-  return "border-amber-200/70 bg-amber-50/70 text-amber-800";
+  if (remainingDays <= 14) return "border-amber-300/80 bg-amber-100 text-amber-950";
+  if (remainingDays <= 30) return "border-amber-200 bg-amber-50 text-amber-900";
+  return "border-amber-200/70 bg-amber-50/70 text-amber-900";
+}
+
+function remainingLabel(remainingDays: number): string {
+  return `${remainingDays} day${remainingDays === 1 ? "" : "s"} remaining`;
 }
 
 export function ProbationWidgets({
   items,
   title = "On probation",
   titleClassName = defaultTitleClass,
+  variant = "list",
 }: ProbationWidgetsProps) {
+  if (variant === "panel") {
+    return (
+      <Card className="flex h-full min-h-[17.5rem] flex-col p-4">
+        <div className="flex items-center gap-1.5">
+          <Clock
+            className="h-4 w-4 shrink-0 text-amber-600/80"
+            aria-hidden
+          />
+          <h3 className="min-w-0 flex-1 truncate font-serif text-base text-[#3D421F]">
+            {title}
+          </h3>
+          <span className="shrink-0 text-xs tabular-nums text-black/50">
+            {items.length}
+          </span>
+        </div>
+        <hr className="mt-2 shrink-0 border-t-2 border-black/15" />
+
+        {items.length === 0 ? (
+          <div className="mt-3 flex flex-1 items-center justify-center text-xs text-black/45">
+            No staff on probation
+          </div>
+        ) : (
+          <ul className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+            {items.map((item) => (
+              <li key={item.staffId}>
+                <Link
+                  href={`/hr/${item.staffId}`}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md border px-2 py-1.5 transition hover:opacity-90",
+                    remainingClass(item.remainingDays),
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-medium">
+                      {item.fullName}{" "}
+                      <span className="font-normal text-black/50">
+                        ({item.empNo})
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block truncate text-[10px] text-black/60">
+                      Last day {formatDateOnly(item.legalEndDate)}
+                    </span>
+                  </div>
+                  <div className="shrink-0 text-right leading-none">
+                    <span className="block text-lg font-semibold tabular-nums">
+                      {item.remainingDays}
+                    </span>
+                    <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-wide text-black/50">
+                      {item.remainingDays === 1 ? "day" : "days"}
+                    </span>
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <Card className="p-3">
@@ -89,8 +159,7 @@ export function ProbationWidgets({
                     ·
                   </span>
                   <span className="font-medium text-amber-900/90">
-                    {item.remainingDays} day
-                    {item.remainingDays === 1 ? "" : "s"} remaining
+                    {remainingLabel(item.remainingDays)}
                   </span>
                   {item.calendarDaysElapsed != null ? (
                     <>

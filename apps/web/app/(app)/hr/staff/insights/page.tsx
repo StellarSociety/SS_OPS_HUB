@@ -1,10 +1,17 @@
 import { ExpiryWidgets } from "@/components/hr/expiry-widgets";
 import { HrOverview } from "@/components/hr/hr-overview";
-import { ProbationWidgets } from "@/components/hr/probation-widgets";
+import { MissingDetailsWidgets } from "@/components/hr/missing-details-widgets";
+import { WorkAnniversaryWidgets } from "@/components/hr/work-anniversary-widgets";
 import { getHrPageContext } from "@/lib/hr/page-context";
+import { listMissingDetailItems } from "@/lib/hr/missing-details";
 import { buildHrOverviewStats } from "@/lib/hr/overview";
 import { listOffBoardingItems } from "@/lib/hr/offboarding";
 import { listOnProbationItems } from "@/lib/hr/probation";
+import { processDueWorkAnniversaryEmails } from "@/lib/hr/process-work-anniversary-emails";
+import {
+  DEFAULT_ANNIVERSARY_LEAD_DAYS,
+  listWorkAnniversaryItems,
+} from "@/lib/hr/work-anniversaries";
 import {
   getExpiryItems,
   getHrVenueSetting,
@@ -17,6 +24,12 @@ import {
 
 export default async function StaffInsightsPage() {
   const { supabase, venue } = await getHrPageContext();
+
+  // Flush due auto-sends so today's anniversaries don't wait only on cron.
+  await processDueWorkAnniversaryEmails({
+    venueId: venue.id,
+    limit: 25,
+  });
 
   const expirySettings = await getHrVenueSetting(
     supabase,
@@ -36,22 +49,40 @@ export default async function StaffInsightsPage() {
   const stats = buildHrOverviewStats(staff, expiryItems);
   const onProbation = listOnProbationItems(staff);
   const offBoarding = listOffBoardingItems(staff);
+  const missingDetails = listMissingDetailItems(staff);
+  const anniversaries = listWorkAnniversaryItems(
+    staff,
+    DEFAULT_ANNIVERSARY_LEAD_DAYS,
+  );
 
   return (
     <div className="space-y-4">
-      <HrOverview stats={stats} offBoarding={offBoarding} />
+      <div className="grid w-full gap-4 lg:grid-cols-2">
+        <WorkAnniversaryWidgets
+          items={anniversaries}
+          leadDays={DEFAULT_ANNIVERSARY_LEAD_DAYS}
+          title="Work anniversaries"
+        />
 
-      <hr className="border-black/10" />
-
-      <div className="space-y-3">
         <ExpiryWidgets
           items={expiryItems}
           leadDays={leadDays}
           title="Upcoming expiries"
         />
-
-        <ProbationWidgets items={onProbation} title="On probation" />
       </div>
+
+      <hr className="border-black/10" />
+
+      <HrOverview
+        stats={stats}
+        offBoarding={offBoarding}
+        onProbation={onProbation}
+      />
+
+      <MissingDetailsWidgets
+        items={missingDetails}
+        title="Missing details"
+      />
     </div>
   );
 }

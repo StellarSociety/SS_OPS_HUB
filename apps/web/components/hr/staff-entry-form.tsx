@@ -1,10 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, Mail, UserMinus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { DateInput } from "@/components/ui/date-input";
+import { toast } from "@/components/ui/toast";
+import {
+  CONTACT_ACTION_CLASS,
+  PhoneWithCountryInput,
+} from "@/components/hr/phone-with-country-input";
+import { ScopedLink } from "@/components/layout/scoped-link";
 import { StaffProfilePhotoEditor } from "@/components/hr/staff-profile-photo-editor";
+import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-slot";
+import { StaffCommunicationsTrail } from "@/components/hr/staff-communications-trail";
+import { StaffEmploymentPath } from "@/components/hr/staff-employment-path";
+import { uploadStaffWorkDriveDocument } from "@/lib/actions/hr-workdrive";
 import {
   computeSalaryBreakdown,
   formatAed,
@@ -36,6 +47,18 @@ import { cn } from "@/lib/utils";
 
 export const STAFF_ENTRY_FORM_ID = "staff-entry-form";
 
+export const STAFF_ENTRY_TABS = [
+  "identity",
+  "contact",
+  "employment",
+  "employment_path",
+  "documents",
+  "employment_docs",
+  "communications",
+] as const;
+
+export type StaffEntryTab = (typeof STAFF_ENTRY_TABS)[number];
+
 type StaffEntryFormProps = {
   value: StaffFormState;
   onChange: (patch: Partial<StaffFormState>) => void;
@@ -47,6 +70,8 @@ type StaffEntryFormProps = {
   onPhotoClearedChange: (cleared: boolean) => void;
   readOnly: boolean;
   lockEmpNo: boolean;
+  activeTab: StaffEntryTab | null;
+  onRequestTab?: (tab: StaffEntryTab) => void;
   departments: Department[];
   positions: Position[];
   statuses: EmploymentStatus[];
@@ -55,9 +80,28 @@ type StaffEntryFormProps = {
   civilStatuses: CivilStatus[];
   salaryPct: SalaryPercentages;
   canViewSalary: boolean;
+  /** Permission to record position/salary alterations on Employment Path. */
+  canEditPath?: boolean;
+  /** Called when a persisted path alteration updates current staff fields. */
+  onPersistedStaffPatch?: (patch: Partial<StaffFormState>) => void;
+  /** Saved staff id — required to start or open offboarding. */
+  staffId?: string | null;
+  /** Active (non-completed / non-cancelled) offboarding process id, if any. */
+  offboardingProcessId?: string | null;
+  /** Permission to start a new offboarding process. */
+  canStartOffboarding?: boolean;
 };
 
+/** Same shape used elsewhere in the app (users, email transport). */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(value: string) {
+  return EMAIL_RE.test(value.trim());
+}
+
 const labelClass = "mb-1 block text-xs font-medium text-black/55";
+const inlineLabelClass =
+  "mb-0 w-40 shrink-0 text-xs font-medium text-black/55";
 const fieldClass =
   "h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20 disabled:cursor-not-allowed disabled:bg-black/[0.03] disabled:text-black/55";
 const readonlyFieldClass =
@@ -67,17 +111,28 @@ function SectionCard({
   title,
   children,
   contentClassName,
+  className,
 }: {
-  title: string;
+  title?: string;
   children: React.ReactNode;
   contentClassName?: string;
+  className?: string;
 }) {
   return (
-    <Card className="flex flex-col p-5">
-      <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-[#3D421F]">
-        {title}
-      </h3>
-      <div className={cn(contentClassName ?? "space-y-4")}>{children}</div>
+    <Card className={cn("flex flex-col p-5", className)}>
+      {title ? (
+        <h3 className="mb-4 text-xs font-semibold uppercase tracking-wide text-[#3D421F]">
+          {title}
+        </h3>
+      ) : null}
+      <div
+        className={cn(
+          "min-h-0 flex-1",
+          contentClassName ?? "space-y-4",
+        )}
+      >
+        {children}
+      </div>
     </Card>
   );
 }
@@ -87,12 +142,32 @@ function Field({
   htmlFor,
   children,
   hint,
+  layout = "stacked",
 }: {
   label: string;
   htmlFor?: string;
   children: React.ReactNode;
   hint?: string;
+  layout?: "stacked" | "inline";
 }) {
+  if (layout === "inline") {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-3">
+          <label htmlFor={htmlFor} className={inlineLabelClass}>
+            {label}
+          </label>
+          <div className="min-w-0 flex-1">{children}</div>
+        </div>
+        {hint ? (
+          <p className="pl-[calc(10rem+0.75rem)] text-[11px] text-black/35">
+            {hint}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div>
       <label htmlFor={htmlFor} className={labelClass}>
@@ -115,6 +190,8 @@ export function StaffEntryForm({
   onPhotoClearedChange,
   readOnly,
   lockEmpNo,
+  activeTab,
+  onRequestTab,
   departments,
   positions,
   statuses,
@@ -123,9 +200,23 @@ export function StaffEntryForm({
   civilStatuses,
   salaryPct,
   canViewSalary,
+  canEditPath = false,
+  onPersistedStaffPatch,
+  staffId = null,
+  offboardingProcessId = null,
+  canStartOffboarding = false,
 }: StaffEntryFormProps) {
   const [autoEmploymentStatus, setAutoEmploymentStatus] = useState(true);
   const [autoStatusHelpOpen, setAutoStatusHelpOpen] = useState(false);
+  const [compensationUnlocked, setCompensationUnlocked] = useState(false);
+  const [compensationConfirmOpen, setCompensationConfirmOpen] = useState(false);
+  const [passportDocumentFile, setPassportDocumentFile] = useState<File | null>(
+    null,
+  );
+  const [passportDriveNote, setPassportDriveNote] = useState<string | null>(
+    null,
+  );
+  const [passportUploading, startPassportUpload] = useTransition();
   const prevAutoRef = useRef(false);
   const prevDatesRef = useRef({
     joining: value.joining_date,
@@ -259,6 +350,23 @@ export function StaffEntryForm({
     onChange,
   ]);
 
+  useEffect(() => {
+    if (readOnly) {
+      setCompensationUnlocked(false);
+      setCompensationConfirmOpen(false);
+    }
+  }, [readOnly, staffId]);
+
+  /** Existing staff: lock Compensation until they confirm editing without a Path record. */
+  const compensationGuarded = Boolean(staffId) && !readOnly;
+  const compensationDisabled =
+    readOnly || (compensationGuarded && !compensationUnlocked);
+
+  function requestCompensationEdit() {
+    if (readOnly || compensationUnlocked || !staffId) return;
+    setCompensationConfirmOpen(true);
+  }
+
   const inAccommodation = value.company_accommodation.toLowerCase() === "yes";
   const wageNumber =
     value.wage_package.trim() === "" ? null : Number(value.wage_package);
@@ -277,6 +385,30 @@ export function StaffEntryForm({
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Validate here instead of HTML `required` — inactive tab panels use
+    // `display: none`, and browsers refuse to focus hidden required fields.
+    if (!value.emp_no.trim()) {
+      onRequestTab?.("identity");
+      toast.error("Employee number is required.");
+      return;
+    }
+    if (!value.full_name.trim()) {
+      onRequestTab?.("identity");
+      toast.error("Full name is required.");
+      return;
+    }
+    const personalEmail = value.personal_email.trim();
+    if (personalEmail && !isValidEmail(personalEmail)) {
+      onRequestTab?.("contact");
+      toast.error("Personal email must be a valid email address.");
+      return;
+    }
+    const workEmail = value.work_email.trim();
+    if (workEmail && !isValidEmail(workEmail)) {
+      onRequestTab?.("contact");
+      toast.error("Work email must be a valid email address.");
+      return;
+    }
     onSubmit(new FormData(e.currentTarget));
   }
 
@@ -298,8 +430,9 @@ export function StaffEntryForm({
   }
 
   const identityCard = (
-    <SectionCard title="Identity">
+    <SectionCard contentClassName="space-y-3">
       <Field
+        layout="inline"
         label="Employee no *"
         htmlFor="emp_no"
         hint="Auto-generated by default — override if needed."
@@ -307,14 +440,28 @@ export function StaffEntryForm({
         <input
           id="emp_no"
           name="emp_no"
-          required
           value={value.emp_no}
           onChange={set("emp_no")}
           disabled={readOnly || lockEmpNo}
           className={fieldClass}
         />
       </Field>
-      <Field label="First name" htmlFor="first_name">
+      <Field
+        layout="inline"
+        label="Full name *"
+        htmlFor="full_name"
+        hint="First + last."
+      >
+        <input
+          id="full_name"
+          name="full_name"
+          value={value.full_name}
+          onChange={set("full_name")}
+          disabled={readOnly}
+          className={fieldClass}
+        />
+      </Field>
+      <Field layout="inline" label="First name" htmlFor="first_name">
         <input
           id="first_name"
           name="first_name"
@@ -324,7 +471,7 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
-      <Field label="Last name" htmlFor="last_name">
+      <Field layout="inline" label="Last name" htmlFor="last_name">
         <input
           id="last_name"
           name="last_name"
@@ -334,18 +481,7 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
-      <Field label="Full name *" htmlFor="full_name" hint="First + last.">
-        <input
-          id="full_name"
-          name="full_name"
-          required
-          value={value.full_name}
-          onChange={set("full_name")}
-          disabled={readOnly}
-          className={fieldClass}
-        />
-      </Field>
-      <Field label="Gender" htmlFor="gender">
+      <Field layout="inline" label="Gender" htmlFor="gender">
         <select
           id="gender"
           name="gender"
@@ -362,7 +498,7 @@ export function StaffEntryForm({
           ))}
         </select>
       </Field>
-      <Field label="Civil status" htmlFor="civil_status">
+      <Field layout="inline" label="Civil status" htmlFor="civil_status">
         <select
           id="civil_status"
           name="civil_status"
@@ -379,7 +515,7 @@ export function StaffEntryForm({
           ))}
         </select>
       </Field>
-      <Field label="Date of birth" htmlFor="dob">
+      <Field layout="inline" label="Date of birth" htmlFor="dob">
         <DateInput
           id="dob"
           name="dob"
@@ -390,7 +526,7 @@ export function StaffEntryForm({
           inputClassName={fieldClass}
         />
       </Field>
-      <Field label="Nationality" htmlFor="nationality_id">
+      <Field layout="inline" label="Nationality" htmlFor="nationality_id">
         <select
           id="nationality_id"
           name="nationality_id"
@@ -411,45 +547,143 @@ export function StaffEntryForm({
   );
 
   const contactCard = (
-    <SectionCard title="Contact">
-      <Field label="Contact phone" htmlFor="contact_phone">
-        <input
+    <SectionCard contentClassName="space-y-3">
+      <Field layout="inline" label="Contact phone" htmlFor="contact_phone">
+        <PhoneWithCountryInput
           id="contact_phone"
           name="contact_phone"
           value={value.contact_phone}
-          onChange={set("contact_phone")}
+          onChange={(next) => onChange({ contact_phone: next })}
           disabled={readOnly}
-          className={fieldClass}
+          inputClassName={fieldClass}
+          reserveTrailing
         />
       </Field>
-      <Field label="Personal email" htmlFor="personal_email">
-        <input
-          id="personal_email"
-          name="personal_email"
-          type="email"
-          value={value.personal_email}
-          onChange={set("personal_email")}
+      <Field layout="inline" label="WhatsApp" htmlFor="whatsapp">
+        <PhoneWithCountryInput
+          id="whatsapp"
+          name="whatsapp"
+          value={value.whatsapp}
+          onChange={(next) => onChange({ whatsapp: next })}
           disabled={readOnly}
-          className={fieldClass}
+          placeholder="Same as phone if unchanged"
+          inputClassName={fieldClass}
+          whatsappLink
         />
       </Field>
-      <Field label="Work email" htmlFor="work_email">
-        <input
-          id="work_email"
-          name="work_email"
-          type="email"
-          value={value.work_email}
-          onChange={set("work_email")}
-          disabled={readOnly}
-          className={fieldClass}
-        />
+      <Field layout="inline" label="Personal email" htmlFor="personal_email">
+        <div className="flex gap-2">
+          <input
+            id="personal_email"
+            name="personal_email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="name@example.com"
+            value={value.personal_email}
+            onChange={set("personal_email")}
+            disabled={readOnly}
+            aria-invalid={
+              value.personal_email.trim() !== "" &&
+              !isValidEmail(value.personal_email)
+            }
+            className={cn(
+              fieldClass,
+              "min-w-0 flex-1",
+              value.personal_email.trim() !== "" &&
+                !isValidEmail(value.personal_email) &&
+                "border-red-400 focus:border-red-400 focus:ring-red-400/20",
+            )}
+          />
+          {isValidEmail(value.personal_email) ? (
+            <a
+              href={`mailto:${value.personal_email.trim()}`}
+              title="Send email"
+              aria-label="Send personal email"
+              className={cn(
+                CONTACT_ACTION_CLASS,
+                "border-[var(--venue-primary)]/30 bg-[var(--venue-primary)]/10 text-[#3D421F] hover:bg-[var(--venue-primary)]/20",
+              )}
+            >
+              <Mail className="h-4 w-4" />
+            </a>
+          ) : (
+            <span
+              title={
+                value.personal_email.trim()
+                  ? "Enter a valid email"
+                  : "Enter an email first"
+              }
+              aria-hidden
+              className={cn(
+                CONTACT_ACTION_CLASS,
+                "border-black/10 bg-black/[0.03] text-black/25",
+              )}
+            >
+              <Mail className="h-4 w-4" />
+            </span>
+          )}
+        </div>
+      </Field>
+      <Field layout="inline" label="Work email" htmlFor="work_email">
+        <div className="flex gap-2">
+          <input
+            id="work_email"
+            name="work_email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="name@example.com"
+            value={value.work_email}
+            onChange={set("work_email")}
+            disabled={readOnly}
+            aria-invalid={
+              value.work_email.trim() !== "" && !isValidEmail(value.work_email)
+            }
+            className={cn(
+              fieldClass,
+              "min-w-0 flex-1",
+              value.work_email.trim() !== "" &&
+                !isValidEmail(value.work_email) &&
+                "border-red-400 focus:border-red-400 focus:ring-red-400/20",
+            )}
+          />
+          {isValidEmail(value.work_email) ? (
+            <a
+              href={`mailto:${value.work_email.trim()}`}
+              title="Send email"
+              aria-label="Send work email"
+              className={cn(
+                CONTACT_ACTION_CLASS,
+                "border-[var(--venue-primary)]/30 bg-[var(--venue-primary)]/10 text-[#3D421F] hover:bg-[var(--venue-primary)]/20",
+              )}
+            >
+              <Mail className="h-4 w-4" />
+            </a>
+          ) : (
+            <span
+              title={
+                value.work_email.trim()
+                  ? "Enter a valid email"
+                  : "Enter an email first"
+              }
+              aria-hidden
+              className={cn(
+                CONTACT_ACTION_CLASS,
+                "border-black/10 bg-black/[0.03] text-black/25",
+              )}
+            >
+              <Mail className="h-4 w-4" />
+            </span>
+          )}
+        </div>
       </Field>
     </SectionCard>
   );
 
   const rolesCard = (
-    <SectionCard title="Roles &amp; status">
-      <Field label="Department" htmlFor="department_id">
+    <SectionCard title="Roles &amp; status" contentClassName="space-y-3">
+      <Field layout="inline" label="Department" htmlFor="department_id">
         <select
           id="department_id"
           name="department_id"
@@ -468,7 +702,7 @@ export function StaffEntryForm({
           ))}
         </select>
       </Field>
-      <Field label="Position" htmlFor="position_id">
+      <Field layout="inline" label="Position" htmlFor="position_id">
         <select
           id="position_id"
           name="position_id"
@@ -486,6 +720,32 @@ export function StaffEntryForm({
         </select>
       </Field>
       <hr className="border-black/10" />
+      <Field
+        layout="inline"
+        label="Employment Status"
+        htmlFor="employment_status_id"
+      >
+        <select
+          id="employment_status_id"
+          name="employment_status_id"
+          value={value.employment_status_id}
+          onChange={set("employment_status_id")}
+          disabled={readOnly}
+          className={cn(
+            fieldClass,
+            employmentStatusSurfaceClass(
+              findStatusNameById(statuses, value.employment_status_id),
+            ),
+          )}
+        >
+          <option value="">—</option>
+          {statuses.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </Field>
       <div className="rounded-lg border border-black/10 bg-white/70 px-3 py-2.5 text-left">
         <div className="flex items-center justify-between gap-3">
           <button
@@ -553,63 +813,12 @@ export function StaffEntryForm({
           </div>
         ) : null}
       </div>
-      <Field label="Employment Status" htmlFor="employment_status_id">
-        <select
-          id="employment_status_id"
-          name="employment_status_id"
-          value={value.employment_status_id}
-          onChange={set("employment_status_id")}
-          disabled={readOnly}
-          className={cn(
-            fieldClass,
-            employmentStatusSurfaceClass(
-              findStatusNameById(statuses, value.employment_status_id),
-            ),
-          )}
-        >
-          <option value="">—</option>
-          {statuses.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Visa status" htmlFor="visa_status">
-        <select
-          id="visa_status"
-          name="visa_status"
-          value={value.visa_status}
-          onChange={set("visa_status")}
-          disabled={readOnly}
-          className={fieldClass}
-        >
-          <option value="">—</option>
-          <option value="Visa Self Owned">Visa Self Owned</option>
-          <option value="Visa Provided">Visa Provided</option>
-          <option value="Visa Pending">Visa Pending</option>
-        </select>
-      </Field>
-      <Field label="Visa expiry" htmlFor="visa_expiry">
-        <DateInput
-          id="visa_expiry"
-          name="visa_expiry"
-          value={value.visa_expiry}
-          onChange={(iso) => onChange({ visa_expiry: iso })}
-          disabled={readOnly}
-          className="w-full"
-          inputClassName={fieldClass}
-        />
-      </Field>
     </SectionCard>
   );
 
   const employmentCard = (
-    <SectionCard
-      title="Employment"
-      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
-    >
-      <Field label="Joining date" htmlFor="joining_date">
+    <SectionCard title="Employment" contentClassName="space-y-3">
+      <Field layout="inline" label="Joining date" htmlFor="joining_date">
         <DateInput
           id="joining_date"
           name="joining_date"
@@ -620,7 +829,7 @@ export function StaffEntryForm({
           inputClassName={fieldClass}
         />
       </Field>
-      <Field label="Contract type" htmlFor="contract_kind">
+      <Field layout="inline" label="Contract type" htmlFor="contract_kind">
         <select
           id="contract_kind"
           name="contract_kind"
@@ -635,46 +844,8 @@ export function StaffEntryForm({
           <option value="Freelancing">Freelancing</option>
         </select>
       </Field>
-      <Field label="Termination date" htmlFor="termination_date">
-        <DateInput
-          id="termination_date"
-          name="termination_date"
-          value={value.termination_date}
-          onChange={(iso) =>
-            onChange({
-              termination_date: iso,
-              ...(iso ? {} : { termination_type: "" }),
-            })
-          }
-          disabled={readOnly}
-          className="w-full"
-          inputClassName={fieldClass}
-        />
-      </Field>
-      {value.termination_date ? (
-        <Field
-          label="Termination type"
-          htmlFor="termination_type"
-          hint="Used for gratuity & service charge entitlement. Venue policy is set under Settings → Pay → Benefits."
-        >
-          <select
-            id="termination_type"
-            name="termination_type"
-            value={value.termination_type}
-            onChange={set("termination_type")}
-            disabled={readOnly}
-            className={fieldClass}
-          >
-            <option value="">— Select —</option>
-            {STAFF_TERMINATION_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : null}
       <Field
+        layout="inline"
         label="Probation duration"
         htmlFor="probation_duration_value"
         hint={`Configurable, maximum ${PROBATION_MAX_MONTHS} calendar months. Leave and absence do not extend the end date.`}
@@ -717,8 +888,7 @@ export function StaffEntryForm({
           </p>
         ) : null}
       </Field>
-      <div>
-        <p className={labelClass}>Probation period</p>
+      <Field layout="inline" label="Probation period">
         <div
           className={cn(
             readonlyFieldClass,
@@ -741,22 +911,165 @@ export function StaffEntryForm({
           name="probation_status"
           value={probation.status ?? ""}
         />
+      </Field>
+      <div className="-mx-1 space-y-3 rounded-lg bg-black/[0.07] px-3 py-3">
+        <Field
+          layout="inline"
+          label="Termination date"
+          htmlFor="termination_date"
+        >
+          <DateInput
+            id="termination_date"
+            name="termination_date"
+            value={value.termination_date}
+            onChange={(iso) =>
+              onChange({
+                termination_date: iso,
+                ...(iso ? {} : { termination_type: "" }),
+              })
+            }
+            disabled={readOnly}
+            className="w-full"
+            inputClassName={fieldClass}
+          />
+        </Field>
+        {value.termination_date ? (
+          <>
+            <Field
+              layout="inline"
+              label="Termination type"
+              htmlFor="termination_type"
+              hint="Used for gratuity & service charge entitlement. Venue policy is set under Settings → Pay → Benefits."
+            >
+              <select
+                id="termination_type"
+                name="termination_type"
+                value={value.termination_type}
+                onChange={set("termination_type")}
+                disabled={readOnly}
+                className={fieldClass}
+              >
+                <option value="">— Select —</option>
+                {STAFF_TERMINATION_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {staffId ? (
+              offboardingProcessId || canStartOffboarding ? (
+                <ScopedLink
+                  href={
+                    offboardingProcessId
+                      ? `/hr/offboarding/${offboardingProcessId}`
+                      : `/hr/offboarding/start?staffId=${encodeURIComponent(staffId)}`
+                  }
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#3D421F] px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                >
+                  <UserMinus
+                    className="h-4 w-4 shrink-0 opacity-90"
+                    aria-hidden
+                  />
+                  {offboardingProcessId
+                    ? "Open OFF-Boarding Process"
+                    : "Initiate OFF-Boarding Process"}
+                </ScopedLink>
+              ) : null
+            ) : (
+              <p className="text-xs text-black/45">
+                Save the employee first to start offboarding.
+              </p>
+            )}
+          </>
+        ) : null}
       </div>
     </SectionCard>
   );
 
+  const visaCard = (
+    <SectionCard title="Visa" contentClassName="space-y-3">
+      <Field layout="inline" label="Visa status" htmlFor="visa_status">
+        <select
+          id="visa_status"
+          name="visa_status"
+          value={value.visa_status}
+          onChange={set("visa_status")}
+          disabled={readOnly}
+          className={fieldClass}
+        >
+          <option value="">—</option>
+          <option value="Visa Self Owned">Visa Self Owned</option>
+          <option value="Visa Provided">Visa Provided</option>
+          <option value="Visa Pending">Visa Pending</option>
+        </select>
+      </Field>
+      <Field layout="inline" label="Visa expiry" htmlFor="visa_expiry">
+        <DateInput
+          id="visa_expiry"
+          name="visa_expiry"
+          value={value.visa_expiry}
+          onChange={(iso) => onChange({ visa_expiry: iso })}
+          disabled={readOnly}
+          className="w-full"
+          inputClassName={fieldClass}
+        />
+      </Field>
+    </SectionCard>
+  );
+
   const compensationCard = canViewSalary ? (
-    <SectionCard
-      title="Compensation"
-      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
-    >
-      <Field label="Company accommodation" htmlFor="company_accommodation">
+    <SectionCard title="Compensation" contentClassName="space-y-3">
+      {compensationGuarded && !compensationUnlocked ? (
+        <p className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-950/80">
+          Prefer recording salary changes under{" "}
+          <button
+            type="button"
+            className="font-semibold underline decoration-amber-700/40 underline-offset-2 hover:decoration-amber-800"
+            onClick={() => onRequestTab?.("employment_path")}
+          >
+            Employment Path → Position / Salary
+          </button>
+          . Edit here only if you intentionally skip a path reference.
+        </p>
+      ) : null}
+      <div
+        className={
+          compensationGuarded && !compensationUnlocked
+            ? "relative space-y-3"
+            : "space-y-3"
+        }
+      >
+        {compensationGuarded && !compensationUnlocked ? (
+          <button
+            type="button"
+            className="absolute inset-0 z-10 cursor-pointer rounded-md"
+            aria-label="Unlock compensation editing"
+            onClick={requestCompensationEdit}
+          />
+        ) : null}
+      <Field
+        layout="inline"
+        label="Company accommodation"
+        htmlFor="company_accommodation"
+      >
+        {compensationDisabled && !readOnly ? (
+          <input
+            type="hidden"
+            name="company_accommodation"
+            value={value.company_accommodation}
+          />
+        ) : null}
         <select
           id="company_accommodation"
-          name="company_accommodation"
+          name={
+            compensationDisabled && !readOnly
+              ? undefined
+              : "company_accommodation"
+          }
           value={value.company_accommodation}
           onChange={set("company_accommodation")}
-          disabled={readOnly}
+          disabled={compensationDisabled}
           className={fieldClass}
         >
           <option value="No">No</option>
@@ -764,6 +1077,7 @@ export function StaffEntryForm({
         </select>
       </Field>
       <Field
+        layout="inline"
         label="Wage package (AED)"
         htmlFor="wage_package"
         hint={`Split ${salaryPct.basic}/${salaryPct.accom}/${salaryPct.transp}.`}
@@ -778,10 +1092,11 @@ export function StaffEntryForm({
           value={value.wage_package}
           onChange={set("wage_package")}
           disabled={readOnly}
+          readOnly={compensationGuarded && !compensationUnlocked}
           className={fieldClass}
         />
       </Field>
-      <Field label={`Basic salary ${salaryPct.basic}%`}>
+      <Field layout="inline" label={`Basic salary ${salaryPct.basic}%`}>
         <input
           name="basic_salary_60"
           readOnly
@@ -789,7 +1104,7 @@ export function StaffEntryForm({
           className={readonlyFieldClass}
         />
       </Field>
-      <Field label={`Accom. allowance ${salaryPct.accom}%`}>
+      <Field layout="inline" label={`Accom. allowance ${salaryPct.accom}%`}>
         <input
           name="accom_all_25"
           readOnly
@@ -797,7 +1112,7 @@ export function StaffEntryForm({
           className={readonlyFieldClass}
         />
       </Field>
-      <Field label={`Transport allowance ${salaryPct.transp}%`}>
+      <Field layout="inline" label={`Transport allowance ${salaryPct.transp}%`}>
         <input
           name="transp_all_15"
           readOnly
@@ -805,7 +1120,11 @@ export function StaffEntryForm({
           className={readonlyFieldClass}
         />
       </Field>
-      <Field label="Fly home ticket / year" htmlFor="fly_home_ticket_per_year">
+      <Field
+        layout="inline"
+        label="Fly home ticket / year"
+        htmlFor="fly_home_ticket_per_year"
+      >
         <input
           id="fly_home_ticket_per_year"
           name="fly_home_ticket_per_year"
@@ -816,6 +1135,7 @@ export function StaffEntryForm({
         />
       </Field>
       <Field
+        layout="inline"
         label="Salary to pay"
         hint={
           inAccommodation
@@ -831,36 +1151,165 @@ export function StaffEntryForm({
           className={readonlyFieldClass}
         />
       </Field>
+      </div>
+
+      {compensationConfirmOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  setCompensationConfirmOpen(false);
+                }
+              }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="compensation-confirm-title"
+                className="w-full max-w-lg rounded-xl border border-black/10 bg-white p-6 shadow-xl"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <h2
+                  id="compensation-confirm-title"
+                  className="font-serif text-xl text-[#3D421F]"
+                >
+                  Modify compensation?
+                </h2>
+                <p className="mt-3 text-sm leading-relaxed text-black/65">
+                  Are you sure you want to modify Compensation without creating
+                  a reference on the Employment Path?
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-black/45">
+                  Salary and position changes recorded under{" "}
+                  <span className="font-medium text-[#3D421F]">
+                    Employment Path → Position / Salary
+                  </span>{" "}
+                  keep a dated history. Editing here only updates the current
+                  values with no path entry.
+                </p>
+                <div className="mt-5 flex flex-row flex-nowrap items-stretch justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCompensationConfirmOpen(false)}
+                    className="inline-flex h-11 shrink-0 items-center justify-center rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] hover:bg-black/[0.03]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompensationConfirmOpen(false);
+                      onRequestTab?.("employment_path");
+                    }}
+                    className="inline-flex h-11 min-w-0 flex-1 items-center justify-center rounded-md border border-[var(--venue-primary)]/30 bg-[var(--venue-primary)]/10 px-3 text-center text-sm font-medium leading-tight text-[#3D421F] hover:bg-[var(--venue-primary)]/20 sm:flex-none sm:px-3.5"
+                  >
+                    Open Employment Path
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompensationUnlocked(true);
+                      setCompensationConfirmOpen(false);
+                    }}
+                    className="inline-flex h-11 shrink-0 items-center justify-center rounded-md bg-[#3D421F] px-3 text-sm font-semibold text-white hover:bg-[#2f3318] sm:px-3.5"
+                  >
+                    Continue anyway
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </SectionCard>
   ) : null;
 
-  const documentsCard = (
-    <SectionCard
-      title="Documents"
-      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
-    >
-      <Field label="Passport no." htmlFor="passport_no">
-        <input
-          id="passport_no"
-          name="passport_no"
-          value={value.passport_no}
-          onChange={set("passport_no")}
-          disabled={readOnly}
-          className={fieldClass}
+  const passportRow = (
+    <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
+      <SectionCard
+        title="Passport"
+        className="h-full"
+        contentClassName="flex h-full flex-col space-y-3"
+      >
+        <Field layout="inline" label="Passport no." htmlFor="passport_no">
+          <input
+            id="passport_no"
+            name="passport_no"
+            value={value.passport_no}
+            onChange={set("passport_no")}
+            disabled={readOnly}
+            className={fieldClass}
+          />
+        </Field>
+        <Field layout="inline" label="Passport expiry" htmlFor="passport_expiry">
+          <DateInput
+            id="passport_expiry"
+            name="passport_expiry"
+            value={value.passport_expiry}
+            onChange={(iso) => onChange({ passport_expiry: iso })}
+            disabled={readOnly}
+            className="w-full"
+            inputClassName={fieldClass}
+          />
+        </Field>
+      </SectionCard>
+      <SectionCard
+        title="Passport document"
+        className="h-full"
+        contentClassName="flex h-full flex-col"
+      >
+        <StaffDocumentUploadSlot
+          label="Drag & drop or click to upload"
+          file={passportDocumentFile}
+          onFileChange={(next) => {
+            setPassportDocumentFile(next);
+            setPassportDriveNote(null);
+          }}
+          readOnly={readOnly}
+          uploadingToDrive={passportUploading}
+          driveUploadNote={passportDriveNote}
+          onUploadToDrive={
+            readOnly || !passportDocumentFile
+              ? undefined
+              : () => {
+                  startPassportUpload(async () => {
+                    if (!passportDocumentFile) return;
+                    if (!staffId) {
+                      toast.error("Save the staff record before uploading.");
+                      return;
+                    }
+                    const fd = new FormData();
+                    fd.set("staff_id", staffId);
+                    fd.set("emp_no", value.emp_no.trim());
+                    fd.set("full_name", value.full_name.trim());
+                    fd.set("doc_kind", "passport");
+                    fd.set("file", passportDocumentFile);
+                    const result = await uploadStaffWorkDriveDocument(fd);
+                    if (!result.ok) {
+                      toast.error(result.error);
+                      setPassportDriveNote(result.error);
+                      return;
+                    }
+                    toast.saved("Passport uploaded to WorkDrive");
+                    setPassportDriveNote(
+                      result.permalink
+                        ? `Saved as ${result.fileName} · ${result.path}`
+                        : `Saved as ${result.fileName}`,
+                    );
+                    setPassportDocumentFile(null);
+                  });
+                }
+          }
         />
-      </Field>
-      <Field label="Passport expiry" htmlFor="passport_expiry">
-        <DateInput
-          id="passport_expiry"
-          name="passport_expiry"
-          value={value.passport_expiry}
-          onChange={(iso) => onChange({ passport_expiry: iso })}
-          disabled={readOnly}
-          className="w-full"
-          inputClassName={fieldClass}
-        />
-      </Field>
-      <Field label="EID no." htmlFor="eid_no">
+      </SectionCard>
+    </div>
+  );
+
+  const emiratesIdCard = (
+    <SectionCard title="Emirates ID" contentClassName="space-y-3">
+      <Field layout="inline" label="EID no." htmlFor="eid_no">
         <input
           id="eid_no"
           name="eid_no"
@@ -870,7 +1319,7 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
-      <Field label="EID expiry" htmlFor="eid_expiry">
+      <Field layout="inline" label="EID expiry" htmlFor="eid_expiry">
         <DateInput
           id="eid_expiry"
           name="eid_expiry"
@@ -885,11 +1334,8 @@ export function StaffEntryForm({
   );
 
   const bankCard = (
-    <SectionCard
-      title="Bank details"
-      contentClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
-    >
-      <Field label="IBAN" htmlFor="iban">
+    <SectionCard title="Bank details" contentClassName="space-y-3">
+      <Field layout="inline" label="IBAN" htmlFor="iban">
         <input
           id="iban"
           name="iban"
@@ -899,7 +1345,7 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
-      <Field label="Swift code" htmlFor="swift_code">
+      <Field layout="inline" label="Swift code" htmlFor="swift_code">
         <input
           id="swift_code"
           name="swift_code"
@@ -909,7 +1355,7 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
-      <Field label="Bank name" htmlFor="bank_name">
+      <Field layout="inline" label="Bank name" htmlFor="bank_name">
         <input
           id="bank_name"
           name="bank_name"
@@ -919,7 +1365,7 @@ export function StaffEntryForm({
           className={fieldClass}
         />
       </Field>
-      <Field label="WPS employee ID" htmlFor="wps_employee_id">
+      <Field layout="inline" label="WPS employee ID" htmlFor="wps_employee_id">
         <input
           id="wps_employee_id"
           name="wps_employee_id"
@@ -956,25 +1402,119 @@ export function StaffEntryForm({
     </SectionCard>
   );
 
+  const employmentDocsCards = (
+    <>
+      {(
+        [
+          "Offer Letter",
+          "Contract",
+          "Addendums",
+          "eResidence Card",
+          "OHC Occupational Health Certificate",
+          "Medical Insurance",
+          "Training Certificates",
+          "Others",
+        ] as const
+      ).map((title) => (
+        <SectionCard key={title} title={title} contentClassName="space-y-3">
+          <p className="text-sm text-black/45">No document on file.</p>
+        </SectionCard>
+      ))}
+    </>
+  );
+
+  const communicationsPlaceholder = (
+    <StaffCommunicationsTrail staffId={staffId} />
+  );
+
+  const employmentPathPanel = (
+    <StaffEmploymentPath
+      staffId={staffId}
+      joiningDate={value.joining_date || null}
+      canViewSalary={canViewSalary}
+      canEdit={canEditPath}
+      departments={departments}
+      positions={positions}
+      currentDepartmentId={value.department_id}
+      currentPositionId={value.position_id}
+      currentWagePackage={value.wage_package}
+      currentCompanyAccommodation={value.company_accommodation}
+      salaryPct={salaryPct}
+      onPositionSalaryApplied={(patch) => {
+        onChange(patch);
+        onPersistedStaffPatch?.(patch);
+      }}
+    />
+  );
+
+  const wideTab =
+    activeTab === "communications" ||
+    activeTab === "employment_path" ||
+    activeTab === "documents";
+
   return (
     <form
       id={STAFF_ENTRY_FORM_ID}
       onSubmit={handleSubmit}
       onKeyDown={handleKeyDown}
-      className="space-y-4"
+      className={cn(
+        "w-full space-y-4",
+        activeTab === "documents"
+          ? "max-w-5xl"
+          : wideTab
+            ? "max-w-3xl"
+            : "max-w-lg",
+      )}
     >
-      <div className="grid items-start gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <div className="space-y-4">{identityCard}</div>
-        <div className="space-y-4">{rolesCard}</div>
-        <div className="space-y-4">
-          {photoCard}
-          {contactCard}
-        </div>
+      {/* Keep inactive panels mounted so FormData still includes every field. */}
+      <div
+        className={cn("space-y-4", activeTab !== "identity" && "hidden")}
+        aria-hidden={activeTab !== "identity"}
+      >
+        {identityCard}
       </div>
-      {employmentCard}
-      {documentsCard}
-      {bankCard}
-      {compensationCard}
+      <div
+        className={cn(activeTab !== "contact" && "hidden")}
+        aria-hidden={activeTab !== "contact"}
+      >
+        {contactCard}
+      </div>
+      <div
+        className={cn("space-y-4", activeTab !== "employment" && "hidden")}
+        aria-hidden={activeTab !== "employment"}
+      >
+        {rolesCard}
+        {employmentCard}
+        {visaCard}
+        {compensationCard}
+      </div>
+      <div
+        className={cn(activeTab !== "employment_path" && "hidden")}
+        aria-hidden={activeTab !== "employment_path"}
+      >
+        {employmentPathPanel}
+      </div>
+      <div
+        className={cn("space-y-4", activeTab !== "documents" && "hidden")}
+        aria-hidden={activeTab !== "documents"}
+      >
+        {photoCard}
+        {passportRow}
+        {emiratesIdCard}
+        {bankCard}
+      </div>
+      <div
+        className={cn("space-y-4", activeTab !== "employment_docs" && "hidden")}
+        aria-hidden={activeTab !== "employment_docs"}
+      >
+        {employmentDocsCards}
+      </div>
+      <div
+        className={cn(activeTab !== "communications" && "hidden")}
+        aria-hidden={activeTab !== "communications"}
+      >
+        {communicationsPlaceholder}
+      </div>
     </form>
   );
 }

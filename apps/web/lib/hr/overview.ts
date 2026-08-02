@@ -1,3 +1,4 @@
+import { continentFromNationalityName } from "./nationality-flag";
 import type { ExpiryItem, StaffWithLookups } from "./types";
 
 export type HrBreakdownRow = {
@@ -5,6 +6,18 @@ export type HrBreakdownRow = {
   count: number;
   /** Share of the filtered (ON Board) cohort, 0–100. */
   percent: number;
+};
+
+export type HrContinentRow = HrBreakdownRow & {
+  /** Nationalities within this continent, highest count first. */
+  nationalities: { name: string; count: number }[];
+  /** ON Board staff in this continent, sorted by name. */
+  staff: {
+    staffId: string;
+    empNo: string;
+    fullName: string;
+    country: string;
+  }[];
 };
 
 export type HrOverviewStats = {
@@ -17,6 +30,7 @@ export type HrOverviewStats = {
   overdue: number;
   byDepartment: HrBreakdownRow[];
   byStatus: HrBreakdownRow[];
+  byContinent: HrContinentRow[];
   byNationality: HrBreakdownRow[];
 };
 
@@ -100,6 +114,71 @@ function takeTopWithOther(
   return withPercents([...top, { label: OTHER, count: otherCount }], total);
 }
 
+function tallyContinents(staff: StaffWithLookups[]): HrContinentRow[] {
+  const total = staff.length;
+  const byContinent = new Map<
+    string,
+    {
+      count: number;
+      nationalities: Map<string, number>;
+      staff: {
+        staffId: string;
+        empNo: string;
+        fullName: string;
+        country: string;
+      }[];
+    }
+  >();
+
+  for (const member of staff) {
+    const continent =
+      continentFromNationalityName(member.nationality?.name) ?? UNSPECIFIED;
+    const nationality = member.nationality?.name?.trim() || UNSPECIFIED;
+    let bucket = byContinent.get(continent);
+    if (!bucket) {
+      bucket = { count: 0, nationalities: new Map(), staff: [] };
+      byContinent.set(continent, bucket);
+    }
+    bucket.count += 1;
+    bucket.nationalities.set(
+      nationality,
+      (bucket.nationalities.get(nationality) ?? 0) + 1,
+    );
+    bucket.staff.push({
+      staffId: member.id,
+      empNo: member.emp_no,
+      fullName: member.full_name,
+      country: nationality,
+    });
+  }
+
+  const rows = Array.from(byContinent, ([label, bucket]) => ({
+    label,
+    count: bucket.count,
+    nationalities: Array.from(bucket.nationalities, ([name, count]) => ({
+      name,
+      count,
+    })).sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+    ),
+    staff: [...bucket.staff].sort(
+      (a, b) =>
+        a.fullName.localeCompare(b.fullName) ||
+        a.empNo.localeCompare(b.empNo, undefined, { numeric: true }),
+    ),
+  })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+  const percents = assignPercents(
+    rows.map((row) => row.count),
+    total,
+  );
+
+  return rows.map((row, index) => ({
+    ...row,
+    percent: percents[index] ?? 0,
+  }));
+}
+
 /** A staff member is treated as active when they have no termination date set. */
 function isActive(member: StaffWithLookups): boolean {
   return !member.termination_date;
@@ -123,6 +202,7 @@ export function buildHrOverviewStats(
     staff,
     (member) => member.employment_status?.name ?? UNSPECIFIED,
   );
+  const byContinent = tallyContinents(onBoardStaff);
   const byNationality = takeTopWithOther(
     tallyBy(
       onBoardStaff,
@@ -149,6 +229,7 @@ export function buildHrOverviewStats(
     overdue,
     byDepartment,
     byStatus,
+    byContinent,
     byNationality,
   };
 }

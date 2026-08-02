@@ -6,6 +6,7 @@ import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
   canAccessStaff,
   canEditOwnStaff,
+  canEditStaff,
   canViewSalary,
   canViewStaff,
   maskSensitiveStaffFields,
@@ -73,6 +74,7 @@ export default async function StaffDetailPage({
     genders,
     civilStatuses,
     salaryDefaults,
+    activeOffboarding,
   ] = await Promise.all([
     listDepartments(supabase, venue.id),
     listPositions(supabase, venue.id),
@@ -86,6 +88,16 @@ export default async function StaffDetailPage({
       HR_SETTINGS_KEYS.salaryDefaults,
       DEFAULT_HR_SALARY_DEFAULTS,
     ),
+    supabase
+      .from("hr_offboarding_processes")
+      .select("id")
+      .eq("venue_id", venue.id)
+      .eq("staff_id", id)
+      .not("status", "in", "(completed,cancelled)")
+      .is("archived_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   return (
@@ -122,6 +134,8 @@ export default async function StaffDetailPage({
         canEdit={canEditOwnStaff(perms, venue.id, staffRaw.created_by, user.id)}
         canViewSalary={showSalary}
         venueName={venue.name}
+        offboardingProcessId={activeOffboarding.data?.id ?? null}
+        canStartOffboarding={canEditStaff(perms, venue.id)}
       />
     </div>
   );

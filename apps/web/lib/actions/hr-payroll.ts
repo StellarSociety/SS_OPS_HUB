@@ -23,6 +23,7 @@ import {
   isPayrollLocked,
   parsePayrollMonth,
   payrollMonthKey,
+  formatPayrollMonthLabel,
   summarizePayrollLeave,
   type HrPayrollSettings,
   type PayrollLineCategory,
@@ -1947,6 +1948,94 @@ export async function listPayslipsForVenue(): Promise<PayslipListItem[]> {
       employment_status: emp?.employment_status?.trim() || null,
     };
   });
+}
+
+export type StaffMonthlyPayslipItem = {
+  payslipId: string;
+  payrollMonth: string;
+  payrollMonthLabel: string;
+  version: number;
+  netSalary: number;
+};
+
+/**
+ * Latest payslip version per payroll month for one staff member, with net pay.
+ * Newest month first.
+ */
+export async function listStaffMonthlyPayslips(
+  staffId: string,
+): Promise<
+  | { ok: true; items: StaffMonthlyPayslipItem[] }
+  | { ok: false; error: string }
+> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { supabase, venue, permissions } = auth;
+
+  if (
+    !canViewPayslips(permissions, venue.id) &&
+    !canViewSalary(permissions, venue.id)
+  ) {
+    return { ok: false, error: "No permission to view pay history." };
+  }
+
+  const id = staffId.trim();
+  if (!id) return { ok: false, error: "Staff member is required." };
+
+  const { data, error } = await supabase
+    .from("hr_payslips")
+    .select(
+      "id, version, snapshot, run:hr_payroll_runs(payroll_month)",
+    )
+    .eq("venue_id", venue.id)
+    .eq("staff_id", id)
+    .order("created_at", { ascending: false })
+    .limit(240);
+
+  if (error) {
+    console.error("[payroll] list staff monthly payslips:", error.message);
+    return { ok: false, error: error.message };
+  }
+
+  const byMonth = new Map<string, StaffMonthlyPayslipItem>();
+
+  for (const row of data ?? []) {
+    const run = row.run as { payroll_month?: string } | null;
+    const snapshot = row.snapshot as Record<string, unknown> | null;
+    const rawMonth =
+      (typeof run?.payroll_month === "string" && run.payroll_month) ||
+      (typeof snapshot?.payrollMonth === "string" && snapshot.payrollMonth) ||
+      "";
+    const monthKey = rawMonth.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(monthKey)) continue;
+
+    const version = Number(row.version) || 1;
+    const existing = byMonth.get(monthKey);
+    if (existing && version <= existing.version) continue;
+
+    const payrollMonth =
+      rawMonth.length >= 10 ? rawMonth.slice(0, 10) : `${monthKey}-01`;
+    let label = monthKey;
+    try {
+      label = formatPayrollMonthLabel(payrollMonth);
+    } catch {
+      /* keep YYYY-MM */
+    }
+
+    byMonth.set(monthKey, {
+      payslipId: row.id as string,
+      payrollMonth,
+      payrollMonthLabel: label,
+      version,
+      netSalary: Number(snapshot?.netSalary ?? 0),
+    });
+  }
+
+  const items = [...byMonth.values()].sort((a, b) =>
+    b.payrollMonth.localeCompare(a.payrollMonth),
+  );
+
+  return { ok: true, items };
 }
 
 export type PayslipLeaveSnapshot = {

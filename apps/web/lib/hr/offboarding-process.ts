@@ -139,6 +139,8 @@ export type OffboardingProcess = {
   settlement: OffboardingSettlementPreview;
   status: OffboardingProcessStatus;
   startedAt: string;
+  /** When set, process is archived (hidden from the default current list). */
+  archivedAt: string | null;
   notes: string;
 };
 
@@ -478,7 +480,7 @@ export type OffboardingStaffSnapshot = {
   employmentStatusName: string | null;
   joiningDate: string | null;
   terminationDate: string | null;
-  terminationType: "resignation" | "termination" | null;
+  terminationType: "resignation" | "termination_with_notice" | "termination" | null;
   wagePackage: number | null;
   basicSalary: number | null;
   provisionalEosb: number | null;
@@ -578,17 +580,20 @@ export function terminationKindLabel(kind: OffboardingTerminationKind): string {
 }
 
 export function kindFromDirectoryType(
-  type: "resignation" | "termination" | null,
+  type: "resignation" | "termination_with_notice" | "termination" | null,
 ): OffboardingTerminationKind | null {
   if (type === "resignation") return "resignation";
+  if (type === "termination_with_notice") return "termination_with_notice";
   if (type === "termination") return "immediate_termination";
   return null;
 }
 
 export function directoryTerminationTypeFromKind(
   kind: OffboardingTerminationKind,
-): "resignation" | "termination" {
-  return kind === "resignation" ? "resignation" : "termination";
+): "resignation" | "termination_with_notice" | "termination" {
+  if (kind === "resignation") return "resignation";
+  if (kind === "termination_with_notice") return "termination_with_notice";
+  return "termination";
 }
 
 function round1(n: number): number {

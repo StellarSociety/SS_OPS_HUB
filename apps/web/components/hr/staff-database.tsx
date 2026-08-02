@@ -218,6 +218,14 @@ export function StaffDatabase({
         render: (s) => s.contact_phone ?? "—",
       },
       {
+        key: "whatsapp",
+        label: "WhatsApp",
+        kind: "text",
+        sortValue: (s) => s.whatsapp ?? "",
+        text: (s) => s.whatsapp ?? "",
+        render: (s) => s.whatsapp ?? "—",
+      },
+      {
         key: "personal_email",
         label: "Personal email",
         kind: "text",

@@ -241,6 +241,7 @@ export type Staff = {
   last_name: string | null;
   full_name: string;
   contact_phone: string | null;
+  whatsapp: string | null;
   personal_email: string | null;
   work_email: string | null;
   gender: string | null;

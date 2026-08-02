@@ -36,6 +36,7 @@ export const EMPLOYEE_IMPORT_COLUMNS: EmployeeImportColumn[] = [
   { key: "last_name", label: "Last name", type: "text", value: (s) => s.last_name },
   { key: "full_name", label: "Full name", type: "text", value: (s) => s.full_name },
   { key: "contact_phone", label: "Contact phone", type: "text", value: (s) => s.contact_phone },
+  { key: "whatsapp", label: "WhatsApp", type: "text", value: (s) => s.whatsapp },
   { key: "personal_email", label: "Personal email", type: "text", value: (s) => s.personal_email },
   { key: "work_email", label: "Work email", type: "text", value: (s) => s.work_email },
   { key: "gender", label: "Gender", type: "text", value: (s) => s.gender },

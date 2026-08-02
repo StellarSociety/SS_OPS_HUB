@@ -21,6 +21,7 @@ import {
   applyStaffOverrides,
   readStaffOverridesFromSnapshot,
 } from "./staff-overrides";
+import { employmentEndedAsFromTerminationType } from "@/lib/hr/types";
 
 type ServiceClient = SupabaseClient;
 
@@ -106,9 +107,7 @@ async function loadStaffForBenefits(
     const posName = position?.name ?? null;
     const terminationType = row.termination_type as string | null | undefined;
     const employmentEndedAs =
-      terminationType === "resignation" || terminationType === "termination"
-        ? terminationType
-        : null;
+      employmentEndedAsFromTerminationType(terminationType);
 
     return {
       id: row.id as string,

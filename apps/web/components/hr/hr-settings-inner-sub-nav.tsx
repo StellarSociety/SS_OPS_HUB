@@ -10,6 +10,7 @@ import {
   CalendarOff,
   Clock3,
   Flag,
+  FileText,
   Gift,
   GraduationCap,
   HandCoins,
@@ -17,6 +18,8 @@ import {
   LayoutTemplate,
   ListTree,
   Mail,
+  Mails,
+  PartyPopper,
   Percent,
   Stamp,
   Settings2,
@@ -38,6 +41,10 @@ import {
   HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
   HR_SETTINGS_EMAILS_CONNECTION_HREF,
   HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF,
+  HR_SETTINGS_EMAILS_OTHER_HREF,
+  HR_SETTINGS_EMAILS_OTHER_UPDATED_DOCS_HREF,
+  HR_SETTINGS_EMAILS_OTHER_WORK_ANNIVERSARY_HREF,
+  HR_SETTINGS_EMAILS_PAY_HREF,
   HR_SETTINGS_EMAILS_PAYROLL_HREF,
   HR_SETTINGS_EMAILS_PAYSLIPS_HREF,
   HR_SETTINGS_EMAILS_BOARDING_HREF,
@@ -300,19 +307,45 @@ const EMAILS_TABS: Tab[] = [
     icon: LayoutTemplate,
   },
   {
-    href: HR_SETTINGS_EMAILS_PAYROLL_HREF,
-    label: "Payroll email",
-    icon: Mail,
-  },
-  {
-    href: HR_SETTINGS_EMAILS_PAYSLIPS_HREF,
-    label: "Payslips Email",
+    href: HR_SETTINGS_EMAILS_PAY_HREF,
+    label: "PAY email",
     icon: Wallet,
   },
   {
     href: HR_SETTINGS_EMAILS_BOARDING_HREF,
     label: "Off-Boarding email",
     icon: UserRound,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_HREF,
+    label: "Other Template emails",
+    icon: Mails,
+  },
+];
+
+const EMAILS_PAY_TABS: Tab[] = [
+  {
+    href: HR_SETTINGS_EMAILS_PAYROLL_HREF,
+    label: "Payroll",
+    icon: Mail,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_PAYSLIPS_HREF,
+    label: "Payslips",
+    icon: Wallet,
+  },
+];
+
+const EMAILS_OTHER_TABS: Tab[] = [
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_WORK_ANNIVERSARY_HREF,
+    label: "Work Anniversary email",
+    icon: PartyPopper,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_UPDATED_DOCS_HREF,
+    label: "Updated Docs Request",
+    icon: FileText,
   },
 ];
 
@@ -459,10 +492,25 @@ export function HrPaySettingsSubNav() {
 }
 
 export function HrEmailsSettingsSubNav() {
+  const pathname = useRelativePathname();
+  const onPayEmail = pathMatchesTab(pathname, HR_SETTINGS_EMAILS_PAY_HREF);
+  const onOtherTemplates = pathMatchesTab(
+    pathname,
+    HR_SETTINGS_EMAILS_OTHER_HREF,
+  );
+
   return (
-    <InnerSubNav
-      tabs={EMAILS_TABS}
-      ariaLabel="Email settings"
-    />
+    <div className="space-y-3">
+      <InnerSubNav tabs={EMAILS_TABS} ariaLabel="Email settings" />
+      {onPayEmail ? (
+        <InnerSubNav tabs={EMAILS_PAY_TABS} ariaLabel="PAY email settings" />
+      ) : null}
+      {onOtherTemplates ? (
+        <InnerSubNav
+          tabs={EMAILS_OTHER_TABS}
+          ariaLabel="Other template email settings"
+        />
+      ) : null}
+    </div>
   );
 }

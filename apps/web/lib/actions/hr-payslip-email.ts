@@ -211,7 +211,7 @@ export async function savePayslipEmailSettings(
     });
 
     revalidatePath("/hr/settings/emails", "layout");
-    revalidatePath("/hr/settings/emails/payslips", "page");
+    revalidatePath("/hr/settings/emails/pay/payslips", "page");
     revalidatePath("/hr/payslips", "page");
     return { ok: true };
   } catch (e) {

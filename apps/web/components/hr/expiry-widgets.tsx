@@ -1,4 +1,5 @@
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { UpdatedDocsRequestSendButton } from "@/components/hr/updated-docs-request-send-button";
 import { AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { formatDateOnly } from "@/lib/hr/derived";
@@ -20,6 +21,15 @@ function urgencyClass(daysUntil: number) {
   if (daysUntil <= 14) return "text-red-600 bg-red-50/80";
   if (daysUntil <= 30) return "text-amber-700 bg-amber-50";
   return "text-[#3D421F] bg-white/60";
+}
+
+function daysCaption(daysUntil: number): string {
+  if (daysUntil < 0) {
+    return Math.abs(daysUntil) === 1 ? "day overdue" : "days overdue";
+  }
+  if (daysUntil === 0) return "today";
+  if (daysUntil === 1) return "day";
+  return "days";
 }
 
 export function ExpiryWidgets({
@@ -56,27 +66,54 @@ export function ExpiryWidgets({
       <ul className="space-y-1">
         {display.map((item) => (
           <li key={`${item.staffId}-${item.field}`}>
-            <Link
-              href={`/hr/${item.staffId}`}
+            <div
               className={cn(
-                "flex flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-xs transition hover:opacity-90 sm:flex-row sm:items-center sm:gap-2.5",
+                "flex items-center gap-1 rounded-md px-2.5 py-1.5",
                 urgencyClass(item.daysUntil),
               )}
             >
-              <span className="min-w-0 flex-1 truncate font-medium">
-                {item.fullName}{" "}
-                <span className="font-normal text-black/50">({item.empNo})</span>
-              </span>
-              <span className="shrink-0 text-black/60">{item.label}</span>
-              <span className="shrink-0 font-medium">
-                {formatDateOnly(item.expiryDate)}
-                <span className="ml-1 font-normal text-black/50">
-                  {item.daysUntil < 0
-                    ? `(${Math.abs(item.daysUntil)}d overdue)`
-                    : `(in ${item.daysUntil}d)`}
+              <Link
+                href={`/hr/${item.staffId}`}
+                className="min-w-0 flex-1 truncate text-xs transition hover:opacity-90"
+              >
+                <span className="font-medium">
+                  {item.fullName}{" "}
+                  <span className="font-normal text-black/50">
+                    ({item.empNo})
+                  </span>
                 </span>
-              </span>
-            </Link>
+                <span className="mx-1.5 text-black/25" aria-hidden>
+                  ·
+                </span>
+                <span className="text-black/60">{item.label}</span>
+                <span className="mx-1.5 text-black/25" aria-hidden>
+                  ·
+                </span>
+                <span className="text-black/60">
+                  {formatDateOnly(item.expiryDate)}
+                </span>
+              </Link>
+              {!compact ? (
+                <UpdatedDocsRequestSendButton
+                  staffId={item.staffId}
+                  fullName={item.fullName}
+                  empNo={item.empNo}
+                  expiry={{
+                    label: item.label,
+                    expiryDate: item.expiryDate,
+                    daysUntil: item.daysUntil,
+                  }}
+                />
+              ) : null}
+              <div className="shrink-0 text-center leading-none">
+                <span className="block text-lg font-semibold tabular-nums">
+                  {Math.abs(item.daysUntil)}
+                </span>
+                <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-wide text-black/50">
+                  {daysCaption(item.daysUntil)}
+                </span>
+              </div>
+            </div>
           </li>
         ))}
       </ul>

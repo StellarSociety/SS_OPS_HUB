@@ -1,5 +1,6 @@
 import { StaffEntryWorkspace } from "@/components/hr/staff-entry-workspace";
 import {
+  canEditStaff,
   canSubmitStaff,
   canViewSalary,
   maskSensitiveStaffFields,
@@ -51,6 +52,7 @@ export default async function StaffEntryPage() {
     salaryDefaults,
     suggestedEmpNo,
     staff,
+    activeOffboarding,
   ] = await Promise.all([
     listDepartments(supabase, venue.id),
     listPositions(supabase, venue.id),
@@ -66,12 +68,28 @@ export default async function StaffEntryPage() {
     ),
     suggestNextEmpNo(supabase, venue.id),
     listStaffForVenue(supabase, venue.id),
+    supabase
+      .from("hr_offboarding_processes")
+      .select("id, staff_id")
+      .eq("venue_id", venue.id)
+      .not("status", "in", "(completed,cancelled)")
+      .is("archived_at", null)
+      .order("started_at", { ascending: false }),
   ]);
 
   const showSalary = canViewSalary(permissions, venue.id);
   const roster = showSalary
     ? staff
     : staff.map((s) => maskSensitiveStaffFields(s, permissions, venue.id));
+
+  const offboardingByStaffId: Record<string, string> = {};
+  for (const row of activeOffboarding.data ?? []) {
+    const staffId = String(row.staff_id ?? "");
+    const processId = String(row.id ?? "");
+    if (staffId && processId && !offboardingByStaffId[staffId]) {
+      offboardingByStaffId[staffId] = processId;
+    }
+  }
 
   return (
     <StaffEntryWorkspace
@@ -90,6 +108,8 @@ export default async function StaffEntryPage() {
       suggestedEmpNo={suggestedEmpNo}
       staff={roster}
       venueName={venue.name}
+      offboardingByStaffId={offboardingByStaffId}
+      canStartOffboarding={canEditStaff(permissions, venue.id)}
     />
   );
 }

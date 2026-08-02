@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarCheck, Users } from "lucide-react";
+import { CalendarCheck, HardDrive, Users } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
@@ -17,6 +17,11 @@ function tabsForBase(basePath: string) {
       href: `${basePath}/attendance`,
       label: "Attendance",
       icon: CalendarCheck,
+    },
+    {
+      href: `${basePath}/drive-setup`,
+      label: "Drive Setup",
+      icon: HardDrive,
     },
   ] as const;
 }

@@ -506,6 +506,7 @@ export function OffboardingProcessForm({
       settlement,
       status: initialProcess?.status ?? "in_progress",
       startedAt: initialProcess?.startedAt ?? new Date().toISOString(),
+      archivedAt: initialProcess?.archivedAt ?? null,
       notes: notes.trim(),
     };
   }

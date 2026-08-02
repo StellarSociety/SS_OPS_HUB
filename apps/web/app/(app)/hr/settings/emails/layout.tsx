@@ -10,7 +10,7 @@ export default function HrEmailsSettingsLayout({
     <div className="space-y-4">
       <HrSettingsSectionHeader
         title="Emails"
-        description="Mailbox connection, default header and footer, payroll package email, and employee payslip delivery for this venue."
+        description="Mailbox connection, default header and footer, PAY email (payroll package and payslips), and boarding delivery for this venue."
       />
       <HrEmailsSettingsSubNav />
       {/* Full width on smaller viewports; ~2/3 of the window once there’s room. */}

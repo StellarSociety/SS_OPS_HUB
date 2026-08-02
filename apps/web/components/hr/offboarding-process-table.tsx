@@ -1,13 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Mail, Search, UserMinus, X } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import {
+  Archive,
+  ArchiveRestore,
+  Loader2,
+  Mail,
+  Search,
+  Trash2,
+  UserMinus,
+  X,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   OffboardingNoticeEmailRecordCard,
   OffboardingNoticeEmailRecordViewer,
 } from "@/components/hr/offboarding-notice-email-record";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toast";
+import {
+  archiveOffboardingProcess,
+  deleteOffboardingProcess,
+  unarchiveOffboardingProcess,
+} from "@/lib/actions/hr-offboarding";
 import { listBoardingNoticeEmails, countSentBoardingNoticeEmailsByStaff } from "@/lib/actions/hr-boarding-email";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import {
@@ -25,6 +42,7 @@ import { cn } from "@/lib/utils";
 type OffboardingProcessTableProps = {
   processes: OffboardingProcess[];
   onOpenProcess?: (process: OffboardingProcess) => void;
+  canManage?: boolean;
 };
 
 const STATUS_FILTER_OPTIONS: OffboardingProcessStatus[] = [
@@ -34,6 +52,8 @@ const STATUS_FILTER_OPTIONS: OffboardingProcessStatus[] = [
   "completed",
   "cancelled",
 ];
+
+type ArchiveFilter = "active" | "archived" | "all";
 
 const selectClass =
   "h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20";
@@ -47,10 +67,17 @@ function recordSortTime(record: OffboardingNoticeEmailDelivery): number {
   return Number.isFinite(t) ? t : 0;
 }
 
+function isArchived(process: OffboardingProcess): boolean {
+  return Boolean(process.archivedAt);
+}
+
 export function OffboardingProcessTable({
   processes,
   onOpenProcess,
+  canManage = false,
 }: OffboardingProcessTableProps) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [kind, setKind] = useState<"" | OffboardingTerminationKind>("");
@@ -58,9 +85,14 @@ export function OffboardingProcessTable({
   const [leaveHandling, setLeaveHandling] = useState<
     "" | OffboardingLeaveHandling
   >("");
+  const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>("active");
   const [commsProcess, setCommsProcess] = useState<OffboardingProcess | null>(
     null,
   );
+  const [deleteTarget, setDeleteTarget] = useState<OffboardingProcess | null>(
+    null,
+  );
+  const [actionId, setActionId] = useState<string | null>(null);
   const [sentCounts, setSentCounts] = useState<Record<string, number>>({});
 
   const staffIdsKey = useMemo(
@@ -98,6 +130,9 @@ export function OffboardingProcessTable({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return processes.filter((row) => {
+      const archived = isArchived(row);
+      if (archiveFilter === "active" && archived) return false;
+      if (archiveFilter === "archived" && !archived) return false;
       if (department && row.departmentName !== department) return false;
       if (kind && row.terminationKind !== kind) return false;
       if (status && row.status !== status) return false;
@@ -110,14 +145,68 @@ export function OffboardingProcessTable({
         (row.positionName?.toLowerCase().includes(q) ?? false)
       );
     });
-  }, [processes, search, department, kind, status, leaveHandling]);
+  }, [
+    processes,
+    search,
+    department,
+    kind,
+    status,
+    leaveHandling,
+    archiveFilter,
+  ]);
 
   const filtersActive =
     Boolean(search.trim()) ||
     Boolean(department) ||
     Boolean(kind) ||
     Boolean(status) ||
-    Boolean(leaveHandling);
+    Boolean(leaveHandling) ||
+    archiveFilter !== "active";
+
+  function refreshAfterAction() {
+    startTransition(() => {
+      router.refresh();
+    });
+  }
+
+  async function handleArchiveToggle(process: OffboardingProcess) {
+    setActionId(process.id);
+    try {
+      const result = isArchived(process)
+        ? await unarchiveOffboardingProcess(process.id)
+        : await archiveOffboardingProcess(process.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(
+        isArchived(process)
+          ? `Restored ${process.fullName}'s process.`
+          : `Archived ${process.fullName}'s process.`,
+      );
+      refreshAfterAction();
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setActionId(target.id);
+    try {
+      const result = await deleteOffboardingProcess(target.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(`Deleted ${target.fullName}'s offboarding process.`);
+      setDeleteTarget(null);
+      refreshAfterAction();
+    } finally {
+      setActionId(null);
+    }
+  }
 
   if (processes.length === 0) {
     return (
@@ -203,6 +292,16 @@ export function OffboardingProcessTable({
             </option>
           ))}
         </select>
+        <select
+          value={archiveFilter}
+          onChange={(e) => setArchiveFilter(e.target.value as ArchiveFilter)}
+          className={selectClass}
+          aria-label="Filter by archive state"
+        >
+          <option value="active">Current</option>
+          <option value="archived">Archived</option>
+          <option value="all">All (incl. archived)</option>
+        </select>
         {filtersActive ? (
           <button
             type="button"
@@ -212,6 +311,7 @@ export function OffboardingProcessTable({
               setKind("");
               setStatus("");
               setLeaveHandling("");
+              setArchiveFilter("active");
             }}
             className="h-10 rounded-md px-3 text-sm font-medium text-black/55 transition-colors hover:bg-black/5 hover:text-[#3D421F]"
           >
@@ -223,6 +323,7 @@ export function OffboardingProcessTable({
       <p className="text-sm text-black/50">
         {filtered.length} process{filtered.length === 1 ? "" : "es"}
         {filtersActive ? ` of ${processes.length}` : ""}
+        {pending ? " · refreshing…" : ""}
       </p>
 
       {filtered.length === 0 ? (
@@ -234,7 +335,7 @@ export function OffboardingProcessTable({
       ) : (
         <div className="overflow-hidden rounded-xl border border-black/10 bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-black/10 bg-[#f7f6f1] text-[10px] font-semibold uppercase tracking-wide text-black/45">
                   <th className="px-4 py-3">Employee</th>
@@ -246,121 +347,173 @@ export function OffboardingProcessTable({
                   <th className="px-4 py-3">Leave handling</th>
                   <th className="px-4 py-3 text-right">Settlement</th>
                   <th className="px-4 py-3">Status</th>
-                  <th className="px-3 py-3 text-center">
-                    <span className="sr-only">Sent emails</span>
-                    <Mail
-                      className="mx-auto h-4 w-4 text-[var(--venue-primary,#818a40)]"
-                      aria-hidden
-                    />
-                  </th>
+                  <th className="px-3 py-3 text-center">Communications</th>
+                  {canManage ? (
+                    <th className="px-3 py-3 text-right">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={cn(
-                      "border-b border-black/5 last:border-0",
-                      onOpenProcess
-                        ? "cursor-pointer hover:bg-[var(--venue-primary,#818a40)]/[0.06]"
-                        : "hover:bg-black/[0.015]",
-                    )}
-                    onClick={() => onOpenProcess?.(row)}
-                    onKeyDown={(e) => {
-                      if (!onOpenProcess) return;
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onOpenProcess(row);
+                {filtered.map((row) => {
+                  const archived = isArchived(row);
+                  const busy = actionId === row.id;
+                  return (
+                    <tr
+                      key={row.id}
+                      className={cn(
+                        "border-b border-black/5 last:border-0",
+                        archived && "bg-black/[0.02] opacity-80",
+                        onOpenProcess
+                          ? "cursor-pointer hover:bg-[var(--venue-primary,#818a40)]/[0.06]"
+                          : "hover:bg-black/[0.015]",
+                      )}
+                      onClick={() => onOpenProcess?.(row)}
+                      onKeyDown={(e) => {
+                        if (!onOpenProcess) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onOpenProcess(row);
+                        }
+                      }}
+                      tabIndex={onOpenProcess ? 0 : undefined}
+                      role={onOpenProcess ? "button" : undefined}
+                      aria-label={
+                        onOpenProcess
+                          ? `Open offboarding settings for ${row.fullName}`
+                          : undefined
                       }
-                    }}
-                    tabIndex={onOpenProcess ? 0 : undefined}
-                    role={onOpenProcess ? "button" : undefined}
-                    aria-label={
-                      onOpenProcess
-                        ? `Open offboarding settings for ${row.fullName}`
-                        : undefined
-                    }
-                  >
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-[#3D421F]">
-                        {row.fullName}
-                      </p>
-                      <ScopedLink
-                        href={`/hr/${row.staffId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-0.5 block text-xs text-black/45 underline-offset-2 transition-colors hover:text-[#3D421F] hover:underline"
-                      >
-                        {row.empNo}
-                        {row.departmentName ? ` · ${row.departmentName}` : ""}
-                      </ScopedLink>
-                    </td>
-                    <td className="px-4 py-3 text-[#3D421F]">
-                      {terminationKindLabel(row.terminationKind)}
-                    </td>
-                    <td className="px-4 py-3 tabular-nums text-black/70">
-                      {formatDateOnly(row.notificationDate)}
-                    </td>
-                    <td className="px-4 py-3 tabular-nums text-black/70">
-                      {formatDateOnly(row.terminationDate)}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[#3D421F]">
-                      {formatDays(row.alBalance)}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[#3D421F]">
-                      {formatDays(row.phBalance)}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-black/65">
-                      {row.leaveHandling === "pay_off"
-                        ? "Pay off"
-                        : row.leaveEntries.length === 0
-                          ? "Use leave"
-                          : `Use leave · ${row.leaveEntries.length} entr${row.leaveEntries.length === 1 ? "y" : "ies"}`}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[#3D421F]">
-                      {row.leaveHandling === "pay_off"
-                        ? formatAed(row.settlement.estimatedTotal)
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusPill status={row.status} />
-                    </td>
-                    <td className="px-3 py-3 text-center">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCommsProcess(row);
-                        }}
-                        className={cn(
-                          "inline-flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors",
-                          (sentCounts[row.staffId] ?? 0) > 0
-                            ? "text-emerald-700 hover:bg-emerald-50"
-                            : "text-[var(--venue-primary,#818a40)] hover:bg-[var(--venue-primary,#818a40)]/10",
-                        )}
-                        aria-label={`View emails for ${row.fullName}${
-                          (sentCounts[row.staffId] ?? 0) > 0
-                            ? `, ${sentCounts[row.staffId]} sent`
-                            : ""
-                        }`}
-                        title="Email communications"
-                      >
-                        <Mail className="h-5 w-5" strokeWidth={2} aria-hidden />
-                        <span
-                          className={cn(
-                            "min-w-[1ch] text-sm font-semibold tabular-nums",
-                            (sentCounts[row.staffId] ?? 0) > 0
-                              ? "text-emerald-800"
-                              : "text-[#3D421F]/70",
-                          )}
+                    >
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-[#3D421F]">
+                          {row.fullName}
+                          {archived ? (
+                            <span className="ml-2 inline-flex rounded-full bg-black/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/45">
+                              Archived
+                            </span>
+                          ) : null}
+                        </p>
+                        <ScopedLink
+                          href={`/hr/${row.staffId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5 block text-xs text-black/45 underline-offset-2 transition-colors hover:text-[#3D421F] hover:underline"
                         >
-                          {sentCounts[row.staffId] ?? 0}
-                        </span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                          {row.empNo}
+                          {row.departmentName ? ` · ${row.departmentName}` : ""}
+                        </ScopedLink>
+                      </td>
+                      <td className="px-4 py-3 text-[#3D421F]">
+                        {terminationKindLabel(row.terminationKind)}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-black/70">
+                        {formatDateOnly(row.notificationDate)}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-black/70">
+                        {formatDateOnly(row.terminationDate)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[#3D421F]">
+                        {formatDays(row.alBalance)}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[#3D421F]">
+                        {formatDays(row.phBalance)}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-black/65">
+                        {row.leaveHandling === "pay_off"
+                          ? "Pay off"
+                          : row.leaveEntries.length === 0
+                            ? "Use leave"
+                            : `Use leave · ${row.leaveEntries.length} entr${row.leaveEntries.length === 1 ? "y" : "ies"}`}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[#3D421F]">
+                        {row.leaveHandling === "pay_off"
+                          ? formatAed(row.settlement.estimatedTotal)
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusPill status={row.status} />
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCommsProcess(row);
+                          }}
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors",
+                            (sentCounts[row.staffId] ?? 0) > 0
+                              ? "text-emerald-700 hover:bg-emerald-50"
+                              : "text-[var(--venue-primary,#818a40)] hover:bg-[var(--venue-primary,#818a40)]/10",
+                          )}
+                          aria-label={`View emails for ${row.fullName}${
+                            (sentCounts[row.staffId] ?? 0) > 0
+                              ? `, ${sentCounts[row.staffId]} sent`
+                              : ""
+                          }`}
+                          title="Email communications"
+                        >
+                          <Mail className="h-5 w-5" strokeWidth={2} aria-hidden />
+                          <span
+                            className={cn(
+                              "min-w-[1ch] text-sm font-semibold tabular-nums",
+                              (sentCounts[row.staffId] ?? 0) > 0
+                                ? "text-emerald-800"
+                                : "text-[#3D421F]/70",
+                            )}
+                          >
+                            {sentCounts[row.staffId] ?? 0}
+                          </span>
+                        </button>
+                      </td>
+                      {canManage ? (
+                        <td className="px-3 py-3">
+                          <div
+                            className="flex items-center justify-end gap-0.5"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void handleArchiveToggle(row)}
+                              className="rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
+                              title={archived ? "Restore from archive" : "Archive"}
+                              aria-label={
+                                archived
+                                  ? `Restore ${row.fullName}'s process`
+                                  : `Archive ${row.fullName}'s process`
+                              }
+                            >
+                              {busy ? (
+                                <Loader2
+                                  className="h-4 w-4 animate-spin"
+                                  aria-hidden
+                                />
+                              ) : archived ? (
+                                <ArchiveRestore className="h-4 w-4" aria-hidden />
+                              ) : (
+                                <Archive className="h-4 w-4" aria-hidden />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setDeleteTarget(row)}
+                              className="rounded-md p-1.5 text-black/45 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
+                              title="Delete permanently"
+                              aria-label={`Delete ${row.fullName}'s process`}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden />
+                            </button>
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -373,6 +526,113 @@ export function OffboardingProcessTable({
           onClose={() => setCommsProcess(null)}
         />
       ) : null}
+
+      {deleteTarget ? (
+        <DeleteProcessDialog
+          process={deleteTarget}
+          busy={actionId === deleteTarget.id}
+          onClose={() => {
+            if (actionId === deleteTarget.id) return;
+            setDeleteTarget(null);
+          }}
+          onConfirm={() => void handleConfirmDelete()}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DeleteProcessDialog({
+  process,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  process: OffboardingProcess;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        aria-label="Close"
+        disabled={busy}
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ob-delete-title"
+        className="relative z-10 w-full max-w-md overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700/80">
+              Delete permanently
+            </p>
+            <h2
+              id="ob-delete-title"
+              className="mt-0.5 font-serif text-lg text-[#3D421F]"
+            >
+              Delete {process.fullName}&apos;s process?
+            </h2>
+          </div>
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close dialog"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-5 py-4 text-sm text-black/65">
+          <p>
+            This permanently removes the offboarding process for{" "}
+            <span className="font-medium text-[#3D421F]">{process.fullName}</span>
+            {process.empNo ? ` (${process.empNo})` : ""}.
+          </p>
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900">
+            All related email records (drafts, scheduled, and sent) for this
+            process will also be deleted. This cannot be undone.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-black/10 bg-[#faf9f6] px-5 py-3">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={onClose}
+            className="text-[#3D421F]"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="bg-rose-700 text-white hover:bg-rose-800 hover:opacity-100"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Deleting…
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4" aria-hidden />
+                Delete process
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

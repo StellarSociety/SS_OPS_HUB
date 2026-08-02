@@ -184,6 +184,7 @@ async function importStaffRows(rows: ImportStaffRow[]) {
 
     const TEXT_FIELDS = [
       "contact_phone",
+      "whatsapp",
       "personal_email",
       "work_email",
       "gender",
@@ -346,6 +347,8 @@ async function updateStaffInner(
   }
 
   const payload = formDataToStaffPayload(formData);
+  const emailError = validateStaffEmails(payload);
+  if (emailError) return { error: emailError };
   const probationError = validateProbationPayload(payload);
   if (probationError) return { error: probationError };
 
@@ -449,6 +452,8 @@ async function createStaffInner(formData: FormData) {
     created_by: user.id,
   };
 
+  const emailError = validateStaffEmails(payload);
+  if (emailError) return { error: emailError };
   const probationError = validateProbationPayload(payload);
   if (probationError) return { error: probationError };
 
@@ -881,6 +886,21 @@ export async function saveHrNotificationSettings(
   });
 }
 
+const STAFF_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateStaffEmails(payload: {
+  personal_email?: string | null;
+  work_email?: string | null;
+}): string | null {
+  if (payload.personal_email && !STAFF_EMAIL_RE.test(payload.personal_email)) {
+    return "Personal email must be a valid email address.";
+  }
+  if (payload.work_email && !STAFF_EMAIL_RE.test(payload.work_email)) {
+    return "Work email must be a valid email address.";
+  }
+  return null;
+}
+
 function validateProbationPayload(payload: {
   joining_date?: string | null;
   probation_duration_value?: number | null;
@@ -925,7 +945,9 @@ function formDataToStaffPayload(formData: FormData) {
   const terminationDate = parseDate(str("termination_date") ?? undefined);
   const terminationTypeRaw = str("termination_type");
   const terminationType =
-    terminationTypeRaw === "resignation" || terminationTypeRaw === "termination"
+    terminationTypeRaw === "resignation" ||
+    terminationTypeRaw === "termination_with_notice" ||
+    terminationTypeRaw === "termination"
       ? terminationTypeRaw
       : null;
 
@@ -955,6 +977,7 @@ function formDataToStaffPayload(formData: FormData) {
     last_name: str("last_name"),
     full_name: str("full_name") ?? "",
     contact_phone: str("contact_phone"),
+    whatsapp: str("whatsapp"),
     personal_email: str("personal_email"),
     work_email: str("work_email"),
     gender: str("gender"),

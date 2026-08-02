@@ -1,28 +1,37 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { toScopedHref } from "@/lib/venue/scope-routing";
 import {
-  Check,
+  Briefcase,
   FilePlus2,
   FileText,
+  FolderOpen,
+  IdCard,
+  Mail,
   Pencil,
+  Phone,
+  Route,
   Save,
   Search,
   UserPlus,
+  X,
+  type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import {
   STAFF_ENTRY_FORM_ID,
   StaffEntryForm,
+  type StaffEntryTab,
 } from "@/components/hr/staff-entry-form";
 import { StaffPdfDocument } from "@/components/hr/staff-pdf-document";
 import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
 import { createStaff, updateStaff } from "@/lib/actions/hr";
-import type { SalaryPercentages } from "@/lib/hr/derived";
+import { computeAge, computeWorkedTime, type SalaryPercentages } from "@/lib/hr/derived";
 import {
   emptyStaffForm,
   staffToForm,
@@ -37,6 +46,12 @@ import type {
   Position,
   StaffWithLookups,
 } from "@/lib/hr/types";
+import {
+  verticalSegmentedSubNavLinkClass,
+  verticalSegmentedSubNavShellClass,
+} from "@/lib/sub-nav-ui";
+import { getUserInitials } from "@/lib/user/display";
+import { nationalityDisplay } from "@/lib/hr/nationality-flag";
 import { cn } from "@/lib/utils";
 
 type View = "none" | "hiring" | "form";
@@ -53,7 +68,20 @@ type StaffEntryWorkspaceProps = {
   suggestedEmpNo: string;
   staff: StaffWithLookups[];
   venueName: string;
+  /** staffId → active offboarding process id */
+  offboardingByStaffId?: Record<string, string>;
+  canStartOffboarding?: boolean;
 };
+
+const ENTRY_TABS: { id: StaffEntryTab; label: string; icon: LucideIcon }[] = [
+  { id: "identity", label: "Identity", icon: IdCard },
+  { id: "contact", label: "Contact", icon: Phone },
+  { id: "employment", label: "Employment", icon: Briefcase },
+  { id: "employment_path", label: "Employment Path", icon: Route },
+  { id: "documents", label: "Personal Doc's", icon: FolderOpen },
+  { id: "employment_docs", label: "Employment Doc's", icon: FileText },
+  { id: "communications", label: "Communications", icon: Mail },
+];
 
 const modeButtonClass = (active: boolean) =>
   cn(
@@ -62,6 +90,116 @@ const modeButtonClass = (active: boolean) =>
       ? "border-[#3D421F]/30 bg-[#3D421F]/20 text-[#3D421F] shadow-sm"
       : "border-[#3D421F]/15 bg-[#3D421F]/[0.08] text-[#3D421F]/70 hover:bg-[#3D421F]/15 hover:text-[#3D421F]",
   );
+
+function StaffProfileHero({
+  value,
+  departmentName,
+  positionName,
+  nationalityName,
+}: {
+  value: StaffFormState;
+  departmentName: string | null;
+  positionName: string | null;
+  nationalityName: string | null;
+}) {
+  const displayName = value.full_name.trim() || "New employee";
+  const initials = getUserInitials(
+    value.full_name.trim() || null,
+    value.work_email || value.personal_email || "?",
+  );
+  const empNo = value.emp_no.trim();
+  const nationality = nationalityDisplay(nationalityName);
+  const age = computeAge(value.dob || null);
+  const employmentTime = computeWorkedTime(
+    value.joining_date || null,
+    value.termination_date || null,
+  );
+
+  return (
+    <div className="w-full max-w-lg shrink-0">
+      <Card className="px-6 py-8 sm:px-8">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10 sm:h-32 sm:w-32">
+            {value.photo_url ? (
+              <Image
+                src={value.photo_url}
+                alt=""
+                fill
+                className="object-cover"
+                unoptimized
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-3xl font-medium text-white sm:text-4xl">
+                {initials}
+              </div>
+            )}
+          </div>
+
+          <div className="min-w-0 w-full space-y-0.5">
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-black/45">
+              Employee
+            </p>
+            <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight text-[#3D421F] sm:text-3xl">
+              {displayName}
+            </h2>
+          </div>
+
+          <dl className="mt-1 flex w-full flex-col items-center gap-1.5 text-xs text-black/55">
+            <div className="flex w-2/3 flex-col items-center gap-1.5 rounded-lg bg-black/[0.04] px-4 py-2.5">
+              <div className="flex items-center gap-1.5">
+                <dt className="text-black/40">Country</dt>
+                <dd className="font-medium text-[#3D421F]/80">
+                  {nationality ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      {nationality.flag ? (
+                        <span className="text-base leading-none" aria-hidden>
+                          {nationality.flag}
+                        </span>
+                      ) : null}
+                      <span>{nationality.label}</span>
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <dt className="text-black/40">Age</dt>
+                <dd className="font-medium text-[#3D421F]/80">
+                  {age != null ? `${age} years` : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <dt className="text-black/40">Employment time</dt>
+                <dd className="font-medium tabular-nums text-[#3D421F]/80">
+                  {employmentTime || "—"}
+                </dd>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <dt className="text-black/40">Emp. no.</dt>
+              <dd className="font-mono font-medium text-[#3D421F]/80">
+                {empNo || "—"}
+              </dd>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <dt className="text-black/40">Department</dt>
+              <dd className="font-medium text-[#3D421F]/80">
+                {departmentName || "—"}
+              </dd>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <dt className="text-black/40">Position</dt>
+              <dd className="font-medium text-[#3D421F]/80">
+                {positionName || "—"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </Card>
+    </div>
+  );
+}
 
 export function StaffEntryWorkspace({
   departments,
@@ -75,6 +213,8 @@ export function StaffEntryWorkspace({
   suggestedEmpNo,
   staff,
   venueName,
+  offboardingByStaffId = {},
+  canStartOffboarding = false,
 }: StaffEntryWorkspaceProps) {
   const router = useRouter();
   const { scope, slug } = useVenueScope();
@@ -84,8 +224,12 @@ export function StaffEntryWorkspace({
   const [saving, setSaving] = useState(false);
   const [loadedStaffId, setLoadedStaffId] = useState<string | null>(null);
   const [editing, setEditing] = useState(true);
+  const [activeTab, setActiveTab] = useState<StaffEntryTab | null>(null);
   const [value, setValue] = useState<StaffFormState>(() =>
     emptyStaffForm(suggestedEmpNo),
+  );
+  const [savedSnapshot, setSavedSnapshot] = useState<StaffFormState | null>(
+    null,
   );
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoSourceFile, setPhotoSourceFile] = useState<File | null>(null);
@@ -94,10 +238,19 @@ export function StaffEntryWorkspace({
 
   const readOnly = loadedStaffId != null && !editing;
 
+  const departmentName =
+    departments.find((d) => d.id === value.department_id)?.name ?? null;
+  const positionName =
+    positions.find((p) => p.id === value.position_id)?.name ?? null;
+  const nationalityName =
+    nationalities.find((n) => n.id === value.nationality_id)?.name ?? null;
+
   function startAdd() {
     setValue(emptyStaffForm(suggestedEmpNo));
+    setSavedSnapshot(null);
     setLoadedStaffId(null);
     setEditing(true);
+    setActiveTab(null);
     setPhotoFile(null);
     setPhotoSourceFile(null);
     setPhotoCleared(false);
@@ -105,14 +258,25 @@ export function StaffEntryWorkspace({
   }
 
   function handleSelect(selected: StaffWithLookups) {
-    setValue(staffToForm(selected));
+    const form = staffToForm(selected);
+    setValue(form);
+    setSavedSnapshot(form);
     setLoadedStaffId(selected.id);
     setEditing(false);
+    setActiveTab(null);
     setPhotoFile(null);
     setPhotoSourceFile(null);
     setPhotoCleared(false);
     setView("form");
     setSearchOpen(false);
+  }
+
+  function cancelEdits() {
+    if (savedSnapshot) setValue(savedSnapshot);
+    setPhotoFile(null);
+    setPhotoSourceFile(null);
+    setPhotoCleared(false);
+    setEditing(false);
   }
 
   async function handleSubmit(formData: FormData) {
@@ -142,12 +306,13 @@ export function StaffEntryWorkspace({
         setPhotoFile(null);
         setPhotoSourceFile(null);
         setPhotoCleared(false);
-        if (result.photo_url !== undefined) {
-          setValue((current) => ({
-            ...current,
-            photo_url: result.photo_url ?? "",
-          }));
-        }
+        const nextValue =
+          result.photo_url !== undefined
+            ? { ...value, photo_url: result.photo_url ?? "" }
+            : value;
+        setValue(nextValue);
+        setSavedSnapshot(nextValue);
+        setEditing(false);
         router.refresh();
         return;
       }
@@ -214,39 +379,6 @@ export function StaffEntryWorkspace({
 
           {showForm ? (
             <div className="ml-auto flex items-center gap-2">
-              {showEditButton ? (
-                <button
-                  type="button"
-                  onClick={() => setEditing(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Edit
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="submit"
-                    form={STAFF_ENTRY_FORM_ID}
-                    disabled={saving || photoBusy}
-                    className="inline-flex h-10 items-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-                  >
-                    <Save className="h-4 w-4" />
-                    {saving ? "Saving…" : "Save"}
-                  </button>
-                  {loadedStaffId != null ? (
-                    <button
-                      type="button"
-                      onClick={() => setEditing(false)}
-                      className="inline-flex h-10 items-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30"
-                    >
-                      <Check className="h-4 w-4" />
-                      Done
-                    </button>
-                  ) : null}
-                </>
-              )}
-
               <button
                 type="button"
                 onClick={() => window.print()}
@@ -263,6 +395,92 @@ export function StaffEntryWorkspace({
       {/* Content ------------------------------------------------------- */}
       {showForm ? (
         <>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <StaffProfileHero
+              value={value}
+              departmentName={departmentName}
+              positionName={positionName}
+              nationalityName={nationalityName}
+            />
+
+            <div className="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0">
+              <div className="flex flex-col gap-2">
+                {showEditButton ? (
+                  <button
+                    key="staff-action-edit"
+                    type="button"
+                    onClick={() => {
+                      // Defer so this click cannot land on the Save submit
+                      // button that replaces Edit in the same slot.
+                      queueMicrotask(() => setEditing(true));
+                    }}
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit
+                  </button>
+                ) : (
+                  <div key="staff-action-edit-mode" className="flex flex-col gap-2">
+                    <button
+                      key="staff-action-save"
+                      type="button"
+                      disabled={saving || photoBusy}
+                      onClick={() => {
+                        const form = document.getElementById(
+                          STAFF_ENTRY_FORM_ID,
+                        ) as HTMLFormElement | null;
+                        form?.requestSubmit();
+                      }}
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                    >
+                      <Save className="h-4 w-4" />
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                    {loadedStaffId != null ? (
+                      <button
+                        key="staff-action-cancel"
+                        type="button"
+                        onClick={cancelEdits}
+                        disabled={saving}
+                        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
+                      >
+                        <X className="h-4 w-4" />
+                        Cancel
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+
+              <div className={verticalSegmentedSubNavShellClass} role="tablist">
+                {ENTRY_TABS.map((tab) => {
+                  const Icon = tab.icon;
+                  const active = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() =>
+                        setActiveTab((current) =>
+                          current === tab.id ? null : tab.id,
+                        )
+                      }
+                      className={verticalSegmentedSubNavLinkClass(active)}
+                    >
+                      <Icon
+                        className="h-3.5 w-3.5 shrink-0 opacity-80"
+                        aria-hidden
+                      />
+                      <span className="min-w-0 truncate">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
           <StaffEntryForm
             value={value}
             onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
@@ -274,6 +492,8 @@ export function StaffEntryWorkspace({
             onPhotoClearedChange={setPhotoCleared}
             readOnly={readOnly}
             lockEmpNo={loadedStaffId != null}
+            activeTab={activeTab}
+            onRequestTab={setActiveTab}
             departments={departments}
             positions={positions}
             statuses={statuses}
@@ -282,6 +502,19 @@ export function StaffEntryWorkspace({
             civilStatuses={civilStatuses}
             salaryPct={salaryPct}
             canViewSalary={canViewSalary}
+            canEditPath={Boolean(loadedStaffId)}
+            onPersistedStaffPatch={(patch) => {
+              setSavedSnapshot((current) =>
+                current ? { ...current, ...patch } : current,
+              );
+            }}
+            staffId={loadedStaffId}
+            offboardingProcessId={
+              loadedStaffId
+                ? (offboardingByStaffId[loadedStaffId] ?? null)
+                : null
+            }
+            canStartOffboarding={canStartOffboarding}
           />
           <StaffPdfDocument
             value={value}
