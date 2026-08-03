@@ -233,7 +233,10 @@ export async function deliverUpdatedDocsRequestEmail(params: {
   try {
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
-      venue: params.venue,
+      venue: {
+        ...params.venue,
+        slug: params.venue.slug ?? "",
+      },
     });
 
     await sendAppEmail(

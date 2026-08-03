@@ -255,7 +255,10 @@ export async function deliverWorkAnniversaryEmail(params: {
   try {
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
-      venue: params.venue,
+      venue: {
+        ...params.venue,
+        slug: params.venue.slug ?? "",
+      },
     });
 
     await sendAppEmail(
@@ -373,16 +376,27 @@ export async function processDueWorkAnniversaryEmails(options?: {
       continue;
     }
 
-    const todayItems = listWorkAnniversaryItems(
-      (staffRows ?? []) as {
-        id: string;
-        emp_no: string;
-        full_name: string;
-        joining_date: string | null;
-        employment_status?: { name: string } | null;
-      }[],
-      0,
-    ).filter((item) => item.daysUntil === 0);
+    const anniversaryStaff = (staffRows ?? []).map((row) => {
+      const status = row.employment_status as
+        | { name: string }
+        | { name: string }[]
+        | null
+        | undefined;
+      const statusRow = Array.isArray(status) ? status[0] : status;
+      return {
+        id: String(row.id),
+        emp_no: String(row.emp_no ?? ""),
+        full_name: String(row.full_name ?? ""),
+        joining_date: (row.joining_date as string | null) ?? null,
+        employment_status: statusRow?.name
+          ? { name: String(statusRow.name) }
+          : null,
+      };
+    });
+
+    const todayItems = listWorkAnniversaryItems(anniversaryStaff, 0).filter(
+      (item) => item.daysUntil === 0,
+    );
 
     const sentLog = await loadSentLog(service, venueId);
     let venueDirty = false;
