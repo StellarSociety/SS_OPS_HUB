@@ -39,7 +39,7 @@ export function PayslipEmailSettingsPanel({
   connectionFromEmail = "",
 }: {
   settings: HrPayslipEmailSettings;
-  /** From address configured under Emails → Connection. */
+  /** From address configured under Venue Settings → Email config. */
   connectionFromEmail?: string;
 }) {
   const [enabled, setEnabled] = useState(settings.enabled);
@@ -157,7 +157,7 @@ export function PayslipEmailSettingsPanel({
         <h2 className="font-serif text-lg text-[#3D421F]">Payslips</h2>
         <p className="mt-1 text-sm text-black/55">
           Configure how individual payslip emails are sent to employees. Delivery
-          uses Connection / Transport.
+          uses Venue Settings → Email config.
         </p>
       </div>
 
@@ -249,7 +249,7 @@ export function PayslipEmailSettingsPanel({
               value={fromEmail}
               onChange={(e) => setFromEmail(e.target.value)}
               placeholder={
-                connectionFromEmail.trim() || "Set under Emails → Connection"
+                connectionFromEmail.trim() || "Set under Venue Settings → Email config"
               }
               disabled={!enabled}
             />
@@ -257,8 +257,8 @@ export function PayslipEmailSettingsPanel({
               {fromEmail.trim()
                 ? "Payslips will send from this address."
                 : connectionFromEmail.trim()
-                  ? `Leave blank to send from ${connectionFromEmail.trim()} (Connection).`
-                  : "Leave blank to use the From address under Emails → Connection."}
+                  ? `Leave blank to send from ${connectionFromEmail.trim()} (Email config).`
+                  : "Leave blank to use the From address under Venue Settings → Email config."}
             </p>
           </div>
         </div>

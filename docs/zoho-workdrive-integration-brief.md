@@ -45,7 +45,7 @@ Notes:
 **Recommended client type: Self Client** (server-to-server).
 
 1. Create Self Client at the DC API Console (`https://api-console.zoho.com` for US). Log in as the Team Folder owner.
-2. Scopes (least privilege): `WorkDrive.files.CREATE,WorkDrive.files.UPDATE,WorkDrive.files.READ,WorkDrive.teamfolders.READ` — or `WorkDrive.files.ALL,WorkDrive.teamfolders.READ,WorkDrive.team.READ`.
+2. Scopes (least privilege for upload/list): `WorkDrive.files.CREATE,WorkDrive.files.UPDATE,WorkDrive.files.READ,WorkDrive.teamfolders.READ`. **For in-app preview/download and trash**, use `WorkDrive.files.ALL,WorkDrive.teamfolders.READ` (recommended).
 3. Generate Code → exchange once for `refresh_token` + `api_domain`. Access token lasts 1 hour; refresh token does not expire.
 4. Keep WorkDrive OAuth **separate** from Zoho Mail SMTP/IMAP.
 

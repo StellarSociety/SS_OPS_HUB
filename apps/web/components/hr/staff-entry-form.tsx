@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Mail, UserMinus } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -13,9 +13,13 @@ import {
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { StaffProfilePhotoEditor } from "@/components/hr/staff-profile-photo-editor";
 import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-slot";
+import { StaffWorkDriveDocumentList } from "@/components/hr/staff-workdrive-document-list";
 import { StaffCommunicationsTrail } from "@/components/hr/staff-communications-trail";
 import { StaffEmploymentPath } from "@/components/hr/staff-employment-path";
-import { uploadStaffWorkDriveDocument } from "@/lib/actions/hr-workdrive";
+import {
+  listStaffWorkDriveDocs,
+  type StaffWorkDriveDocumentListItem,
+} from "@/lib/actions/hr-workdrive";
 import {
   computeSalaryBreakdown,
   formatAed,
@@ -39,11 +43,115 @@ import type {
   Department,
   EmploymentStatus,
   Gender,
+  HrWorkDriveDocKind,
   Nationality,
   Position,
 } from "@/lib/hr/types";
 import { STAFF_TERMINATION_TYPE_OPTIONS } from "@/lib/hr/types";
+import { DETACHED_FILE_FORM_ID } from "@/lib/hr/detached-file-form";
 import { cn } from "@/lib/utils";
+
+type StaffDocumentUploadResult =
+  | {
+      ok: true;
+      workdriveFileId: string;
+      permalink: string;
+      path: string;
+      fileName: string;
+    }
+  | { ok: false; error: string };
+
+/** XHR upload so we can report byte progress (fetch has no upload progress). */
+function uploadStaffDocumentViaApi(input: {
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  docKind: HrWorkDriveDocKind;
+  fileSlotId?: string;
+  file: File;
+  onProgress?: (percent: number) => void;
+}): Promise<StaffDocumentUploadResult> {
+  const fd = new FormData();
+  fd.set("staff_id", input.staffId);
+  fd.set("emp_no", input.empNo);
+  fd.set("full_name", input.fullName);
+  fd.set("doc_kind", input.docKind);
+  if (input.fileSlotId) fd.set("file_slot_id", input.fileSlotId);
+  fd.set("file", input.file, input.file.name);
+
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/hr/workdrive/upload");
+    xhr.withCredentials = true;
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || event.total <= 0) return;
+      const pct = Math.min(99, Math.round((event.loaded / event.total) * 100));
+      input.onProgress?.(pct);
+    };
+    xhr.upload.onload = () => {
+      // Bytes reached the server; Zoho handoff may still be running.
+      input.onProgress?.(100);
+    };
+
+    xhr.onload = () => {
+      let payload: unknown = null;
+      try {
+        payload = JSON.parse(xhr.responseText) as unknown;
+      } catch {
+        payload = null;
+      }
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const error =
+          payload &&
+          typeof payload === "object" &&
+          "error" in payload &&
+          typeof (payload as { error: unknown }).error === "string"
+            ? (payload as { error: string }).error
+            : `Upload failed (${xhr.status}).`;
+        resolve({ ok: false, error });
+        return;
+      }
+
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        (payload as { ok?: unknown }).ok !== true
+      ) {
+        resolve({ ok: false, error: "Unexpected upload response." });
+        return;
+      }
+
+      const okPayload = payload as {
+        workdriveFileId: string;
+        permalink: string;
+        path: string;
+        fileName: string;
+      };
+      resolve({
+        ok: true,
+        workdriveFileId: okPayload.workdriveFileId,
+        permalink: okPayload.permalink,
+        path: okPayload.path,
+        fileName: okPayload.fileName,
+      });
+    };
+
+    xhr.onerror = () => {
+      resolve({
+        ok: false,
+        error: "Upload failed — check your connection and try again.",
+      });
+    };
+    xhr.onabort = () => {
+      resolve({ ok: false, error: "Upload cancelled." });
+    };
+
+    input.onProgress?.(0);
+    xhr.send(fd);
+  });
+}
 
 export const STAFF_ENTRY_FORM_ID = "staff-entry-form";
 
@@ -137,6 +245,244 @@ function SectionCard({
   );
 }
 
+type EmploymentDocDateField = {
+  field: keyof StaffFormState;
+  label: string;
+  inputId: string;
+};
+
+const EMPLOYMENT_DOC_SLOTS: {
+  title: string;
+  docKind: HrWorkDriveDocKind;
+  documentTitle: string;
+  dateFields?: EmploymentDocDateField[];
+}[] = [
+  {
+    title: "Offer Letter",
+    docKind: "offer_letter",
+    documentTitle: "Offer Letter document",
+  },
+  {
+    title: "Labour Contract",
+    docKind: "contract",
+    documentTitle: "Labour Contract document",
+    dateFields: [
+      {
+        field: "contract_expiry",
+        label: "Contract expiry",
+        inputId: "contract_expiry",
+      },
+    ],
+  },
+  {
+    title: "Addendums",
+    docKind: "addendums",
+    documentTitle: "Addendums document",
+  },
+  {
+    title: "eResidence Card",
+    docKind: "eresidence_card",
+    documentTitle: "eResidence Card document",
+    dateFields: [
+      {
+        field: "eresidence_expiry",
+        label: "eResidence expiry",
+        inputId: "eresidence_expiry",
+      },
+    ],
+  },
+  {
+    title: "OHC Occupational Health Certificate",
+    docKind: "ohc",
+    documentTitle: "OHC document",
+    dateFields: [
+      {
+        field: "ohc_date",
+        label: "OHC date",
+        inputId: "ohc_date",
+      },
+    ],
+  },
+  {
+    title: "Medical Insurance",
+    docKind: "medical_insurance",
+    documentTitle: "Medical Insurance document",
+    dateFields: [
+      {
+        field: "medical_insurance_expiry_date",
+        label: "Insurance expiry",
+        inputId: "medical_insurance_expiry_date",
+      },
+    ],
+  },
+  {
+    title: "Training Certificates",
+    docKind: "training_certificates",
+    documentTitle: "Training Certificates document",
+    dateFields: [
+      { field: "pic_date", label: "PIC date", inputId: "pic_date" },
+      {
+        field: "basic_food_safety_date",
+        label: "Food safety date",
+        inputId: "basic_food_safety_date",
+      },
+      {
+        field: "fire_safety_date",
+        label: "Fire safety date",
+        inputId: "fire_safety_date",
+      },
+      {
+        field: "first_aid_date",
+        label: "First aid date",
+        inputId: "first_aid_date",
+      },
+    ],
+  },
+  {
+    title: "Others",
+    docKind: "others",
+    documentTitle: "Others document",
+  },
+];
+
+function WorkDriveDocUploadCard({
+  title,
+  docKind,
+  fileSlotId,
+  staffId,
+  empNo,
+  fullName,
+  readOnly,
+  successLabel,
+}: {
+  title: string;
+  docKind: HrWorkDriveDocKind;
+  fileSlotId?: string;
+  staffId: string | null;
+  empNo: string;
+  fullName: string;
+  readOnly: boolean;
+  successLabel: string;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [driveNote, setDriveNote] = useState<string | null>(null);
+  const [docs, setDocs] = useState<StaffWorkDriveDocumentListItem[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!staffId) {
+      setDocs([]);
+      setDocsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setDocsLoading(true);
+    void listStaffWorkDriveDocs({ staffId, docKind }).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setDocs(result.items);
+      else setDocs([]);
+      setDocsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [staffId, docKind]);
+
+  return (
+    <SectionCard
+      title={title}
+      className="h-full w-full"
+      contentClassName="flex h-full flex-col"
+    >
+      <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row md:items-start">
+        <StaffDocumentUploadSlot
+          className="shrink-0"
+          label="Drag & drop or click to upload"
+          file={file}
+          onFileChange={(next) => {
+            setFile(next);
+            setDriveNote(null);
+          }}
+          readOnly={readOnly}
+          uploadingToDrive={uploading}
+          uploadProgress={uploadProgress}
+          driveUploadNote={driveNote}
+          onUploadToDrive={
+            readOnly || !file
+              ? undefined
+              : () => {
+                  if (uploading) return;
+                  void (async () => {
+                    if (!file) return;
+                    if (!staffId) {
+                      toast.error("Save the staff record before uploading.");
+                      return;
+                    }
+                    setUploading(true);
+                    setUploadProgress(0);
+                    try {
+                      const result = await uploadStaffDocumentViaApi({
+                        staffId,
+                        empNo: empNo.trim(),
+                        fullName: fullName.trim(),
+                        docKind,
+                        fileSlotId,
+                        file,
+                        onProgress: setUploadProgress,
+                      });
+                      if (!result.ok) {
+                        toast.error(result.error);
+                        setDriveNote(result.error);
+                        return;
+                      }
+                      toast.saved(`${successLabel} uploaded to WorkDrive`);
+                      setDriveNote(null);
+                      setFile(null);
+                      const refreshed = await listStaffWorkDriveDocs({
+                        staffId,
+                        docKind,
+                      });
+                      if (refreshed.ok) setDocs(refreshed.items);
+                    } catch (error) {
+                      const message =
+                        error instanceof Error
+                          ? error.message
+                          : "Upload failed.";
+                      toast.error(message);
+                      setDriveNote(message);
+                    } finally {
+                      setUploading(false);
+                      setUploadProgress(null);
+                    }
+                  })();
+                }
+          }
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          {docsLoading && docs.length === 0 ? (
+            <p className="text-[11px] text-black/40">Loading documents…</p>
+          ) : null}
+          <StaffWorkDriveDocumentList
+            items={docs}
+            readOnly={readOnly}
+            className="mt-0"
+            onDeleted={(documentId) => {
+              setDocs((prev) => prev.filter((row) => row.id !== documentId));
+            }}
+          />
+          {!docsLoading && docs.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-4 text-center text-[11px] text-black/40">
+              No files uploaded yet
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
 function Field({
   label,
   htmlFor,
@@ -210,13 +556,6 @@ export function StaffEntryForm({
   const [autoStatusHelpOpen, setAutoStatusHelpOpen] = useState(false);
   const [compensationUnlocked, setCompensationUnlocked] = useState(false);
   const [compensationConfirmOpen, setCompensationConfirmOpen] = useState(false);
-  const [passportDocumentFile, setPassportDocumentFile] = useState<File | null>(
-    null,
-  );
-  const [passportDriveNote, setPassportDriveNote] = useState<string | null>(
-    null,
-  );
-  const [passportUploading, startPassportUpload] = useTransition();
   const prevAutoRef = useRef(false);
   const prevDatesRef = useRef({
     joining: value.joining_date,
@@ -1227,199 +1566,245 @@ export function StaffEntryForm({
   ) : null;
 
   const passportRow = (
-    <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
-      <SectionCard
-        title="Passport"
-        className="h-full"
-        contentClassName="flex h-full flex-col space-y-3"
-      >
-        <Field layout="inline" label="Passport no." htmlFor="passport_no">
-          <input
-            id="passport_no"
-            name="passport_no"
-            value={value.passport_no}
-            onChange={set("passport_no")}
-            disabled={readOnly}
-            className={fieldClass}
-          />
-        </Field>
-        <Field layout="inline" label="Passport expiry" htmlFor="passport_expiry">
-          <DateInput
-            id="passport_expiry"
-            name="passport_expiry"
-            value={value.passport_expiry}
-            onChange={(iso) => onChange({ passport_expiry: iso })}
-            disabled={readOnly}
-            className="w-full"
-            inputClassName={fieldClass}
-          />
-        </Field>
-      </SectionCard>
-      <SectionCard
-        title="Passport document"
-        className="h-full"
-        contentClassName="flex h-full flex-col"
-      >
-        <StaffDocumentUploadSlot
-          label="Drag & drop or click to upload"
-          file={passportDocumentFile}
-          onFileChange={(next) => {
-            setPassportDocumentFile(next);
-            setPassportDriveNote(null);
+    <div className="flex flex-col items-stretch gap-4 md:flex-row">
+      <div className="w-full max-w-lg shrink-0">
+        <SectionCard
+          title="Passport"
+          className="h-full"
+          contentClassName="flex h-full flex-col space-y-3"
+        >
+          <Field layout="inline" label="Passport no." htmlFor="passport_no">
+            <input
+              id="passport_no"
+              name="passport_no"
+              value={value.passport_no}
+              onChange={set("passport_no")}
+              disabled={readOnly}
+              className={fieldClass}
+            />
+          </Field>
+          <Field layout="inline" label="Passport expiry" htmlFor="passport_expiry">
+            <DateInput
+              id="passport_expiry"
+              name="passport_expiry"
+              value={value.passport_expiry}
+              onChange={(iso) => onChange({ passport_expiry: iso })}
+              disabled={readOnly}
+              className="w-full"
+              inputClassName={fieldClass}
+            />
+          </Field>
+        </SectionCard>
+      </div>
+      <div className="min-w-0 w-full flex-1">
+        <WorkDriveDocUploadCard
+          title="Passport document"
+          docKind="passport"
+          staffId={staffId}
+          empNo={value.emp_no}
+          fullName={value.full_name}
+          readOnly={readOnly}
+          successLabel="Passport"
+        />
+      </div>
+    </div>
+  );
+
+  const emiratesIdRow = (
+    <div className="flex flex-col items-stretch gap-4 md:flex-row">
+      <div className="w-full max-w-lg shrink-0">
+        <SectionCard
+          title="Emirates ID"
+          className="h-full"
+          contentClassName="flex h-full flex-col space-y-3"
+        >
+          <Field layout="inline" label="EID no." htmlFor="eid_no">
+            <input
+              id="eid_no"
+              name="eid_no"
+              value={value.eid_no}
+              onChange={set("eid_no")}
+              disabled={readOnly}
+              className={fieldClass}
+            />
+          </Field>
+          <Field layout="inline" label="EID expiry" htmlFor="eid_expiry">
+            <DateInput
+              id="eid_expiry"
+              name="eid_expiry"
+              value={value.eid_expiry}
+              onChange={(iso) => onChange({ eid_expiry: iso })}
+              disabled={readOnly}
+              className="w-full"
+              inputClassName={fieldClass}
+            />
+          </Field>
+        </SectionCard>
+      </div>
+      <div className="min-w-0 w-full flex-1">
+        <WorkDriveDocUploadCard
+          title="Emirates ID Document"
+          docKind="emirates_id"
+          staffId={staffId}
+          empNo={value.emp_no}
+          fullName={value.full_name}
+          readOnly={readOnly}
+          successLabel="Emirates ID"
+        />
+      </div>
+    </div>
+  );
+
+  const bankRow = (
+    <div className="flex flex-col items-stretch gap-4 md:flex-row">
+      <div className="w-full max-w-lg shrink-0">
+        <SectionCard
+          title="Bank details"
+          className="h-full"
+          contentClassName="flex h-full flex-col space-y-3"
+        >
+          <Field layout="inline" label="IBAN" htmlFor="iban">
+            <input
+              id="iban"
+              name="iban"
+              value={value.iban}
+              onChange={set("iban")}
+              disabled={readOnly}
+              className={fieldClass}
+            />
+          </Field>
+          <Field layout="inline" label="Swift code" htmlFor="swift_code">
+            <input
+              id="swift_code"
+              name="swift_code"
+              value={value.swift_code}
+              onChange={set("swift_code")}
+              disabled={readOnly}
+              className={fieldClass}
+            />
+          </Field>
+          <Field layout="inline" label="Bank name" htmlFor="bank_name">
+            <input
+              id="bank_name"
+              name="bank_name"
+              value={value.bank_name}
+              onChange={set("bank_name")}
+              disabled={readOnly}
+              className={fieldClass}
+            />
+          </Field>
+          <Field layout="inline" label="WPS employee ID" htmlFor="wps_employee_id">
+            <input
+              id="wps_employee_id"
+              name="wps_employee_id"
+              value={value.wps_employee_id}
+              onChange={set("wps_employee_id")}
+              disabled={readOnly}
+              className={fieldClass}
+              placeholder="MOL / WPS employee number"
+            />
+          </Field>
+        </SectionCard>
+      </div>
+      <div className="min-w-0 w-full flex-1">
+        <WorkDriveDocUploadCard
+          title="Bank details Certificate"
+          docKind="bank"
+          staffId={staffId}
+          empNo={value.emp_no}
+          fullName={value.full_name}
+          readOnly={readOnly}
+          successLabel="Bank certificate"
+        />
+      </div>
+    </div>
+  );
+
+  const photoCard = (
+    <div className="w-full max-w-lg">
+      <SectionCard title="Profile photo">
+        <StaffProfilePhotoEditor
+          photoUrl={value.photo_url}
+          onPhotoUrlChange={(url) => {
+            onChange({ photo_url: url });
+            if (url) onPhotoClearedChange(false);
+          }}
+          onPhotoFileChange={onPhotoFileChange}
+          onSourceFileChange={onPhotoSourceFileChange}
+          onPhotoBusyChange={onPhotoBusyChange}
+          onCleared={() => {
+            onPhotoClearedChange(true);
+            onChange({ photo_url: "" });
+            onPhotoFileChange(null);
+            onPhotoSourceFileChange?.(null);
           }}
           readOnly={readOnly}
-          uploadingToDrive={passportUploading}
-          driveUploadNote={passportDriveNote}
-          onUploadToDrive={
-            readOnly || !passportDocumentFile
-              ? undefined
-              : () => {
-                  startPassportUpload(async () => {
-                    if (!passportDocumentFile) return;
-                    if (!staffId) {
-                      toast.error("Save the staff record before uploading.");
-                      return;
-                    }
-                    const fd = new FormData();
-                    fd.set("staff_id", staffId);
-                    fd.set("emp_no", value.emp_no.trim());
-                    fd.set("full_name", value.full_name.trim());
-                    fd.set("doc_kind", "passport");
-                    fd.set("file", passportDocumentFile);
-                    const result = await uploadStaffWorkDriveDocument(fd);
-                    if (!result.ok) {
-                      toast.error(result.error);
-                      setPassportDriveNote(result.error);
-                      return;
-                    }
-                    toast.saved("Passport uploaded to WorkDrive");
-                    setPassportDriveNote(
-                      result.permalink
-                        ? `Saved as ${result.fileName} · ${result.path}`
-                        : `Saved as ${result.fileName}`,
-                    );
-                    setPassportDocumentFile(null);
-                  });
-                }
-          }
         />
+        {photoCleared ? (
+          <input type="hidden" name="photo_clear" value="1" />
+        ) : null}
       </SectionCard>
     </div>
   );
 
-  const emiratesIdCard = (
-    <SectionCard title="Emirates ID" contentClassName="space-y-3">
-      <Field layout="inline" label="EID no." htmlFor="eid_no">
-        <input
-          id="eid_no"
-          name="eid_no"
-          value={value.eid_no}
-          onChange={set("eid_no")}
-          disabled={readOnly}
-          className={fieldClass}
-        />
-      </Field>
-      <Field layout="inline" label="EID expiry" htmlFor="eid_expiry">
-        <DateInput
-          id="eid_expiry"
-          name="eid_expiry"
-          value={value.eid_expiry}
-          onChange={(iso) => onChange({ eid_expiry: iso })}
-          disabled={readOnly}
-          className="w-full"
-          inputClassName={fieldClass}
-        />
-      </Field>
-    </SectionCard>
-  );
-
-  const bankCard = (
-    <SectionCard title="Bank details" contentClassName="space-y-3">
-      <Field layout="inline" label="IBAN" htmlFor="iban">
-        <input
-          id="iban"
-          name="iban"
-          value={value.iban}
-          onChange={set("iban")}
-          disabled={readOnly}
-          className={fieldClass}
-        />
-      </Field>
-      <Field layout="inline" label="Swift code" htmlFor="swift_code">
-        <input
-          id="swift_code"
-          name="swift_code"
-          value={value.swift_code}
-          onChange={set("swift_code")}
-          disabled={readOnly}
-          className={fieldClass}
-        />
-      </Field>
-      <Field layout="inline" label="Bank name" htmlFor="bank_name">
-        <input
-          id="bank_name"
-          name="bank_name"
-          value={value.bank_name}
-          onChange={set("bank_name")}
-          disabled={readOnly}
-          className={fieldClass}
-        />
-      </Field>
-      <Field layout="inline" label="WPS employee ID" htmlFor="wps_employee_id">
-        <input
-          id="wps_employee_id"
-          name="wps_employee_id"
-          value={value.wps_employee_id}
-          onChange={set("wps_employee_id")}
-          disabled={readOnly}
-          className={fieldClass}
-          placeholder="MOL / WPS employee number"
-        />
-      </Field>
-    </SectionCard>
-  );
-
-  const photoCard = (
-    <SectionCard title="Profile photo">
-      <StaffProfilePhotoEditor
-        photoUrl={value.photo_url}
-        onPhotoUrlChange={(url) => {
-          onChange({ photo_url: url });
-          if (url) onPhotoClearedChange(false);
-        }}
-        onPhotoFileChange={onPhotoFileChange}
-        onSourceFileChange={onPhotoSourceFileChange}
-        onPhotoBusyChange={onPhotoBusyChange}
-        onCleared={() => {
-          onPhotoClearedChange(true);
-          onChange({ photo_url: "" });
-          onPhotoFileChange(null);
-          onPhotoSourceFileChange?.(null);
-        }}
-        readOnly={readOnly}
-      />
-      {photoCleared ? <input type="hidden" name="photo_clear" value="1" /> : null}
-    </SectionCard>
-  );
-
   const employmentDocsCards = (
     <>
-      {(
-        [
-          "Offer Letter",
-          "Contract",
-          "Addendums",
-          "eResidence Card",
-          "OHC Occupational Health Certificate",
-          "Medical Insurance",
-          "Training Certificates",
-          "Others",
-        ] as const
-      ).map((title) => (
-        <SectionCard key={title} title={title} contentClassName="space-y-3">
-          <p className="text-sm text-black/45">No document on file.</p>
-        </SectionCard>
-      ))}
+      {EMPLOYMENT_DOC_SLOTS.map(
+        ({ title, docKind, documentTitle, dateFields }) => (
+          <div
+            key={docKind}
+            className="flex flex-col items-stretch gap-4 md:flex-row"
+          >
+            <div className="w-full max-w-lg shrink-0">
+              <SectionCard
+                title={title}
+                className="h-full"
+                contentClassName={
+                  dateFields?.length
+                    ? "flex h-full flex-col space-y-3"
+                    : "flex h-full flex-col justify-center space-y-3"
+                }
+              >
+                {dateFields?.length ? (
+                  dateFields.map(({ field, label, inputId }) => (
+                    <Field
+                      key={field}
+                      layout="inline"
+                      label={label}
+                      htmlFor={inputId}
+                    >
+                      <DateInput
+                        id={inputId}
+                        name={field}
+                        value={value[field]}
+                        onChange={(iso) =>
+                          onChange({ [field]: iso } as Partial<StaffFormState>)
+                        }
+                        disabled={readOnly}
+                        className="w-full"
+                        inputClassName={fieldClass}
+                      />
+                    </Field>
+                  ))
+                ) : (
+                  <p className="text-sm text-black/45">No document on file.</p>
+                )}
+              </SectionCard>
+            </div>
+            <div className="min-w-0 w-full flex-1">
+              <WorkDriveDocUploadCard
+                title={documentTitle}
+                docKind={docKind}
+                staffId={staffId}
+                empNo={value.emp_no}
+                fullName={value.full_name}
+                readOnly={readOnly}
+                successLabel={title}
+              />
+            </div>
+          </div>
+        ),
+      )}
     </>
   );
 
@@ -1450,71 +1835,81 @@ export function StaffEntryForm({
   const wideTab =
     activeTab === "communications" ||
     activeTab === "employment_path" ||
-    activeTab === "documents";
+    activeTab === "documents" ||
+    activeTab === "employment_docs";
 
   return (
-    <form
-      id={STAFF_ENTRY_FORM_ID}
-      onSubmit={handleSubmit}
-      onKeyDown={handleKeyDown}
-      className={cn(
-        "w-full space-y-4",
-        activeTab === "documents"
-          ? "max-w-5xl"
-          : wideTab
-            ? "max-w-3xl"
-            : "max-w-lg",
-      )}
-    >
-      {/* Keep inactive panels mounted so FormData still includes every field. */}
-      <div
-        className={cn("space-y-4", activeTab !== "identity" && "hidden")}
-        aria-hidden={activeTab !== "identity"}
+    <>
+      {/* Outside staff-entry-form so file inputs never join its multipart payload. */}
+      <form
+        id={DETACHED_FILE_FORM_ID}
+        className="hidden"
+        aria-hidden
+        onSubmit={(e) => e.preventDefault()}
+      />
+      <form
+        id={STAFF_ENTRY_FORM_ID}
+        onSubmit={handleSubmit}
+        onKeyDown={handleKeyDown}
+        className={cn(
+          "w-full space-y-4",
+          activeTab === "documents" || activeTab === "employment_docs"
+            ? "max-w-none"
+            : wideTab
+              ? "max-w-3xl"
+              : "max-w-lg",
+        )}
       >
-        {identityCard}
-      </div>
-      <div
-        className={cn(activeTab !== "contact" && "hidden")}
-        aria-hidden={activeTab !== "contact"}
-      >
-        {contactCard}
-      </div>
-      <div
-        className={cn("space-y-4", activeTab !== "employment" && "hidden")}
-        aria-hidden={activeTab !== "employment"}
-      >
-        {rolesCard}
-        {employmentCard}
-        {visaCard}
-        {compensationCard}
-      </div>
-      <div
-        className={cn(activeTab !== "employment_path" && "hidden")}
-        aria-hidden={activeTab !== "employment_path"}
-      >
-        {employmentPathPanel}
-      </div>
-      <div
-        className={cn("space-y-4", activeTab !== "documents" && "hidden")}
-        aria-hidden={activeTab !== "documents"}
-      >
-        {photoCard}
-        {passportRow}
-        {emiratesIdCard}
-        {bankCard}
-      </div>
-      <div
-        className={cn("space-y-4", activeTab !== "employment_docs" && "hidden")}
-        aria-hidden={activeTab !== "employment_docs"}
-      >
-        {employmentDocsCards}
-      </div>
-      <div
-        className={cn(activeTab !== "communications" && "hidden")}
-        aria-hidden={activeTab !== "communications"}
-      >
-        {communicationsPlaceholder}
-      </div>
-    </form>
+        {/* Keep inactive panels mounted so FormData still includes every field. */}
+        <div
+          className={cn("space-y-4", activeTab !== "identity" && "hidden")}
+          aria-hidden={activeTab !== "identity"}
+        >
+          {identityCard}
+        </div>
+        <div
+          className={cn(activeTab !== "contact" && "hidden")}
+          aria-hidden={activeTab !== "contact"}
+        >
+          {contactCard}
+        </div>
+        <div
+          className={cn("space-y-4", activeTab !== "employment" && "hidden")}
+          aria-hidden={activeTab !== "employment"}
+        >
+          {rolesCard}
+          {employmentCard}
+          {visaCard}
+          {compensationCard}
+        </div>
+        <div
+          className={cn(activeTab !== "employment_path" && "hidden")}
+          aria-hidden={activeTab !== "employment_path"}
+        >
+          {employmentPathPanel}
+        </div>
+        <div
+          className={cn("space-y-4", activeTab !== "documents" && "hidden")}
+          aria-hidden={activeTab !== "documents"}
+        >
+          {photoCard}
+          {passportRow}
+          {emiratesIdRow}
+          {bankRow}
+        </div>
+        <div
+          className={cn("space-y-4", activeTab !== "employment_docs" && "hidden")}
+          aria-hidden={activeTab !== "employment_docs"}
+        >
+          {employmentDocsCards}
+        </div>
+        <div
+          className={cn(activeTab !== "communications" && "hidden")}
+          aria-hidden={activeTab !== "communications"}
+        >
+          {communicationsPlaceholder}
+        </div>
+      </form>
+    </>
   );
 }

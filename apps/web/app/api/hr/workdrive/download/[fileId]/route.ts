@@ -56,9 +56,13 @@ export async function GET(_request: Request, context: RouteContext) {
   try {
     const settings = await loadWorkDriveSettings(service, venue.id);
     const credentials = credentialsFromSettings(settings);
-    const { accessToken } = await ensureAccessToken(venue.id, credentials);
+    const { accessToken, apiDomain } = await ensureAccessToken(
+      venue.id,
+      credentials,
+    );
     const downloaded = await downloadFile({
       region: settings.region,
+      apiDomain,
       accessToken,
       resourceId: fileId,
     });
@@ -85,12 +89,16 @@ export async function GET(_request: Request, context: RouteContext) {
 
     return new NextResponse(downloaded.body, { status: 200, headers });
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "WorkDrive download failed.";
+    const scopeIssue = /INVALID_OAUTHSCOPE/i.test(message);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "WorkDrive download failed.",
+        error: scopeIssue
+          ? "WorkDrive token is missing download permission. In Zoho API Console, generate a new Self Client code with scopes WorkDrive.files.ALL,WorkDrive.teamfolders.READ, then exchange it under Drive config."
+          : message,
       },
-      { status: 502 },
+      { status: scopeIssue ? 403 : 502 },
     );
   }
 }

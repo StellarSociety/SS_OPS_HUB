@@ -77,3 +77,54 @@ export async function getStaffWorkDriveDocumentByFileId(
   if (error) throw new Error(error.message);
   return (data as StaffWorkDriveDocumentRow | null) ?? null;
 }
+
+export async function listStaffWorkDriveDocuments(
+  supabase: SupabaseClient,
+  venueId: string,
+  staffId: string,
+  docKind: HrWorkDriveDocKind,
+): Promise<StaffWorkDriveDocumentRow[]> {
+  const { data, error } = await supabase
+    .from("hr_staff_workdrive_documents")
+    .select("*")
+    .eq("venue_id", venueId)
+    .eq("staff_id", staffId)
+    .eq("doc_kind", docKind)
+    .order("uploaded_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as StaffWorkDriveDocumentRow[];
+}
+
+export async function deleteStaffWorkDriveDocumentMeta(
+  supabase: SupabaseClient,
+  venueId: string,
+  documentId: string,
+): Promise<StaffWorkDriveDocumentRow | null> {
+  const { data, error } = await supabase
+    .from("hr_staff_workdrive_documents")
+    .delete()
+    .eq("venue_id", venueId)
+    .eq("id", documentId)
+    .select("*")
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return (data as StaffWorkDriveDocumentRow | null) ?? null;
+}
+
+export async function getStaffWorkDriveDocumentById(
+  supabase: SupabaseClient,
+  venueId: string,
+  documentId: string,
+): Promise<StaffWorkDriveDocumentRow | null> {
+  const { data, error } = await supabase
+    .from("hr_staff_workdrive_documents")
+    .select("*")
+    .eq("venue_id", venueId)
+    .eq("id", documentId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return (data as StaffWorkDriveDocumentRow | null) ?? null;
+}

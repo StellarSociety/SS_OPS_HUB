@@ -9,6 +9,8 @@ const HR_EXPIRY_FIELDS = [
   { field: "passport_expiry", label: "Passport" },
   { field: "eid_expiry", label: "Emirates ID" },
   { field: "visa_expiry", label: "Visa" },
+  { field: "contract_expiry", label: "Labour contract" },
+  { field: "eresidence_expiry", label: "eResidence card" },
   { field: "medical_insurance_expiry_date", label: "Medical insurance" },
   { field: "ohc_date", label: "OHC training", renewalMonths: 12 },
   { field: "pic_date", label: "PIC training", renewalMonths: 12 },
@@ -18,7 +20,7 @@ const HR_EXPIRY_FIELDS = [
 ] as const;
 
 const STAFF_EXPIRY_SELECT =
-  "id, emp_no, full_name, home_venue_id, passport_expiry, eid_expiry, visa_expiry, medical_insurance_expiry_date, ohc_date, pic_date, basic_food_safety_date, fire_safety_date, first_aid_date";
+  "id, emp_no, full_name, home_venue_id, passport_expiry, eid_expiry, visa_expiry, contract_expiry, eresidence_expiry, medical_insurance_expiry_date, ohc_date, pic_date, basic_food_safety_date, fire_safety_date, first_aid_date";
 
 function formatDaysPhrase(daysUntil: number): string {
   if (daysUntil < 0) {

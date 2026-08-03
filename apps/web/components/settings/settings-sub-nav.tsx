@@ -1,6 +1,6 @@
 "use client";
 
-import { Blocks, LayoutGrid, Users } from "lucide-react";
+import { Blocks, HardDrive, LayoutGrid, Mail, Users } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
@@ -8,6 +8,8 @@ const items = [
   { label: "Overview", href: "/settings", icon: LayoutGrid },
   { label: "Users & access", href: "/settings/users", icon: Users },
   { label: "Venue modules", href: "/settings/venue-modules", icon: Blocks },
+  { label: "Email config", href: "/settings/email-config", icon: Mail },
+  { label: "Drive config", href: "/settings/drive-config", icon: HardDrive },
 ];
 
 export function SettingsSubNav() {

@@ -92,7 +92,7 @@ export function UpdatedDocsRequestEmailSettingsPanel({
         <p className="mt-1 text-sm text-black/55">
           Requests the details currently missing for an employee (and any
           expiring document when sent from Staff Insights). Delivery uses
-          Connection / Transport.
+          Venue Settings → Email config.
         </p>
       </div>
 
@@ -152,7 +152,7 @@ export function UpdatedDocsRequestEmailSettingsPanel({
               value={fromEmail}
               onChange={(e) => setFromEmail(e.target.value)}
               placeholder={
-                connectionFromEmail.trim() || "Set under Emails → Connection"
+                connectionFromEmail.trim() || "Set under Venue Settings → Email config"
               }
               disabled={!enabled}
             />
@@ -160,8 +160,8 @@ export function UpdatedDocsRequestEmailSettingsPanel({
               {fromEmail.trim()
                 ? "Emails will send from this address."
                 : connectionFromEmail.trim()
-                  ? `Leave blank to send from ${connectionFromEmail.trim()} (Connection).`
-                  : "Leave blank to use the From address under Emails → Connection."}
+                  ? `Leave blank to send from ${connectionFromEmail.trim()} (Email config).`
+                  : "Leave blank to use the From address under Venue Settings → Email config."}
             </p>
           </div>
         </div>

@@ -248,6 +248,33 @@ export async function renameFile(
   }
 }
 
+/** Move a file or folder to WorkDrive trash (`status: 51`). */
+export async function trashFile(
+  apiDomain: string,
+  accessToken: string,
+  resourceId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${apiBase(apiDomain)}/files/${encodeURIComponent(resourceId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...authHeader(accessToken),
+        "Content-Type": "application/vnd.api+json",
+      },
+      body: JSON.stringify({
+        data: {
+          type: "files",
+          attributes: { status: "51" },
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new WorkDriveApiError(await readError(res), res.status, "");
+  }
+}
+
 export async function uploadFile(params: {
   apiDomain: string;
   accessToken: string;
@@ -292,11 +319,13 @@ export async function uploadFile(params: {
 }
 
 /**
- * Stream file bytes from WorkDrive (OAS: `GET download.zoho…/v1/workdrive/download/{id}`).
- * Prefer this over Permalink so previews never expose a public share link.
+ * Stream file bytes from WorkDrive.
+ * Prefers the authenticated API host (`…/workdrive/api/v1/download/{id}`),
+ * which accepts WorkDrive.files.READ. Falls back to download.zoho… when needed.
  */
 export async function downloadFile(params: {
   region: HrWorkDriveSettings["region"];
+  apiDomain: string;
   accessToken: string;
   resourceId: string;
 }): Promise<{
@@ -305,16 +334,31 @@ export async function downloadFile(params: {
   contentLength: string | null;
   fileName: string | null;
 }> {
-  const host = zohoWorkDriveDownloadHost(params.region);
-  const url = `https://${host}/v1/workdrive/download/${encodeURIComponent(params.resourceId)}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Zoho-oauthtoken ${params.accessToken}`,
-    },
-  });
+  const auth = {
+    Authorization: `Zoho-oauthtoken ${params.accessToken}`,
+  };
+  const primaryUrl = `${apiBase(params.apiDomain)}/download/${encodeURIComponent(params.resourceId)}`;
+  let res = await fetch(primaryUrl, { method: "GET", headers: auth });
+
   if (!res.ok) {
-    throw new WorkDriveApiError(await readError(res), res.status, "");
+    const primaryError = await readError(res);
+    const host = zohoWorkDriveDownloadHost(params.region);
+    const fallbackUrl = `https://${host}/v1/workdrive/download/${encodeURIComponent(params.resourceId)}`;
+    const fallback = await fetch(fallbackUrl, { method: "GET", headers: auth });
+    if (!fallback.ok) {
+      const fallbackError = await readError(fallback);
+      const combined = [primaryError, fallbackError]
+        .filter(Boolean)
+        .join(" | ");
+      throw new WorkDriveApiError(
+        /INVALID_OAUTHSCOPE/i.test(combined)
+          ? `${combined}. Regenerate the Self Client grant with scope WorkDrive.files.ALL,WorkDrive.teamfolders.READ and exchange it again in Drive config.`
+          : combined || `HTTP ${fallback.status}`,
+        fallback.status,
+        "",
+      );
+    }
+    res = fallback;
   }
 
   const disposition = res.headers.get("content-disposition");

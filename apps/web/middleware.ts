@@ -158,6 +158,11 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    /*
+     * Skip WorkDrive upload: middleware body buffering truncates large
+     * multipart payloads (default 10mb) and breaks request.formData().
+     * Auth for that route is enforced in the route handler.
+     */
+    "/((?!_next/static|_next/image|favicon.ico|api/hr/workdrive/upload|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

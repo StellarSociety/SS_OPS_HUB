@@ -133,6 +133,8 @@ export type Staff = {
   termination_date: string | null;
   termination_type: StaffTerminationType | null;
   contract_kind: string | null;
+  contract_expiry: string | null;
+  eresidence_expiry: string | null;
   visa_status: string | null;
   visa_expiry: string | null;
   probation_duration_value: number | null;
@@ -200,6 +202,8 @@ export const EXPIRY_FIELDS = [
   { field: "passport_expiry", label: "Passport" },
   { field: "eid_expiry", label: "Emirates ID" },
   { field: "visa_expiry", label: "Visa" },
+  { field: "contract_expiry", label: "Labour contract" },
+  { field: "eresidence_expiry", label: "eResidence card" },
   { field: "medical_insurance_expiry_date", label: "Medical insurance" },
   { field: "ohc_date", label: "OHC training", renewalMonths: 12 },
   { field: "pic_date", label: "PIC training", renewalMonths: 12 },
@@ -622,6 +626,46 @@ export type HrEmailTransportPublicSettings = Omit<
   hasPassword: boolean;
 };
 
+/** One mailbox connection stored under email_transport. */
+export type HrEmailConnection = HrEmailTransportSettings & {
+  id: string;
+  label: string;
+};
+
+export type HrEmailConnectionPublic = HrEmailTransportPublicSettings & {
+  id: string;
+  label: string;
+  isDefault: boolean;
+};
+
+/** Multi-connection store persisted in hr_venue_settings.email_transport. */
+export type HrEmailTransportStore = {
+  connections: HrEmailConnection[];
+  defaultConnectionId: string | null;
+};
+
+export const EMPTY_HR_EMAIL_TRANSPORT_SETTINGS: HrEmailTransportSettings = {
+  provider: "zoho",
+  smtp: {
+    host: "smtppro.zoho.com",
+    port: 465,
+    secure: true,
+    username: "",
+    fromName: "",
+    fromEmail: "",
+    replyTo: "",
+  },
+  imap: {
+    enabled: true,
+    host: "imappro.zoho.com",
+    port: 993,
+    sentFolder: "Sent",
+  },
+  passwordEncrypted: null,
+  lastVerifiedAt: null,
+  lastError: null,
+};
+
 export const EMAIL_TRANSPORT_PRESETS: Record<
   EmailTransportProvider,
   {
@@ -709,17 +753,175 @@ export type HrWorkDriveDocKind =
   | "training_certificates"
   | "others";
 
+/**
+ * One uploadable part within a document kind. Most kinds have a single
+ * "File" slot; Emirates ID typically has Front + Back.
+ */
+export type HrWorkDriveDocFileSlot = {
+  /** Stable id within the doc kind, e.g. "front", "back", "default". */
+  id: string;
+  /** UI label for the part, e.g. "Front". */
+  label: string;
+  /**
+   * Auto file-name template for this part (extension preserved separately).
+   * Primary tokens: {first_name} {last_name} {doc_name} {doc_expiry}
+   * Also: {emp_no} {full_name} {slot_label} {yyyy-MM-dd} {original_name}
+   * {doc_expiry} is dd-mm-yy from the staff record when available.
+   */
+  fileNameTemplate: string;
+};
+
 export type HrWorkDriveDocSubfolder = {
   kind: HrWorkDriveDocKind;
   /** Folder name under the employee folder, e.g. "Passport". */
   folderName: string;
   /**
-   * Used as `{doc_label}` in fileNameTemplate (prefer compact forms like
+   * Used as `{doc_label}` in file-name templates (prefer compact forms like
    * EmiratesID). Also shown in the Drive Setup document column.
    */
   label: string;
   active: boolean;
+  /** One or more file parts stored under this document subfolder. */
+  fileSlots: HrWorkDriveDocFileSlot[];
 };
+
+function defaultDocFileSlot(
+  label: string,
+  template?: string,
+): HrWorkDriveDocFileSlot {
+  return {
+    id: "default",
+    label: "File",
+    fileNameTemplate:
+      template?.trim() ||
+      `{doc_name}_{first_name}_{last_name}_{doc_expiry}`,
+  };
+}
+
+export const DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS: HrWorkDriveDocSubfolder[] = [
+  {
+    kind: "profile_photo",
+    folderName: "Profile Photo",
+    label: "ProfilePhoto",
+    active: true,
+    fileSlots: [defaultDocFileSlot("ProfilePhoto")],
+  },
+  {
+    kind: "passport",
+    folderName: "Passport",
+    label: "Passport",
+    active: true,
+    fileSlots: [defaultDocFileSlot("Passport")],
+  },
+  {
+    kind: "emirates_id",
+    folderName: "Emirates ID",
+    label: "EmiratesID",
+    active: true,
+    fileSlots: [
+      {
+        id: "front",
+        label: "Front",
+        fileNameTemplate:
+          "{doc_name}_Front_{first_name}_{last_name}_{doc_expiry}",
+      },
+      {
+        id: "back",
+        label: "Back",
+        fileNameTemplate:
+          "{doc_name}_Back_{first_name}_{last_name}_{doc_expiry}",
+      },
+    ],
+  },
+  {
+    kind: "bank",
+    folderName: "Bank",
+    label: "Bank",
+    active: true,
+    fileSlots: [defaultDocFileSlot("Bank")],
+  },
+  {
+    kind: "offer_letter",
+    folderName: "Offer Letter",
+    label: "OfferLetter",
+    active: true,
+    fileSlots: [defaultDocFileSlot("OfferLetter")],
+  },
+  {
+    kind: "contract",
+    folderName: "Labour Contract",
+    label: "LabourContract",
+    active: true,
+    fileSlots: [defaultDocFileSlot("LabourContract")],
+  },
+  {
+    kind: "addendums",
+    folderName: "Addendums",
+    label: "Addendum",
+    active: true,
+    fileSlots: [defaultDocFileSlot("Addendum")],
+  },
+  {
+    kind: "eresidence_card",
+    folderName: "eResidence Card",
+    label: "eResidence",
+    active: true,
+    fileSlots: [defaultDocFileSlot("eResidence")],
+  },
+  {
+    kind: "ohc",
+    folderName: "OHC",
+    label: "OHC",
+    active: true,
+    fileSlots: [defaultDocFileSlot("OHC")],
+  },
+  {
+    kind: "medical_insurance",
+    folderName: "Medical Insurance",
+    label: "MedicalInsurance",
+    active: true,
+    fileSlots: [defaultDocFileSlot("MedicalInsurance")],
+  },
+  {
+    kind: "training_certificates",
+    folderName: "Training Certificates",
+    label: "TrainingCert",
+    active: true,
+    fileSlots: [
+      {
+        id: "pic",
+        label: "PIC",
+        fileNameTemplate:
+          "{doc_name}_PIC_{first_name}_{last_name}_{doc_expiry}",
+      },
+      {
+        id: "basic_food_safety",
+        label: "Food Safety",
+        fileNameTemplate:
+          "{doc_name}_FoodSafety_{first_name}_{last_name}_{doc_expiry}",
+      },
+      {
+        id: "fire_safety",
+        label: "Fire Safety",
+        fileNameTemplate:
+          "{doc_name}_FireSafety_{first_name}_{last_name}_{doc_expiry}",
+      },
+      {
+        id: "first_aid",
+        label: "First Aid",
+        fileNameTemplate:
+          "{doc_name}_FirstAid_{first_name}_{last_name}_{doc_expiry}",
+      },
+    ],
+  },
+  {
+    kind: "others",
+    folderName: "Others",
+    label: "Other",
+    active: true,
+    fileSlots: [defaultDocFileSlot("Other")],
+  },
+];
 
 export type HrWorkDriveConnectionStatus =
   | "disconnected"
@@ -731,9 +933,8 @@ export type HrWorkDriveConnectionStatus =
  * Files are stored in WorkDrive — not Supabase Storage. Secrets stay encrypted
  * server-side and are never returned to the client.
  *
- * Live model (2026-08-02): HUMAN RESOURCES *is* the team folder
- * (`teamFolderId` === `hrFolderId`). Per-employee trees are created under
- * `employeeDocsFolderId` (Employee Documents) — swappable without code changes.
+ * Tree: SS-OPS-HUB (team) → Human Resources (module) → Employee Documents →
+ * `{emp_no} — {full_name}` → doc-type subfolders.
  */
 export type HrWorkDriveSettings = {
   enabled: boolean;
@@ -741,26 +942,30 @@ export type HrWorkDriveSettings = {
   clientId: string;
   clientSecretEncrypted?: string | null;
   refreshTokenEncrypted?: string | null;
-  /** Display name for the HR team folder (verified: HUMAN RESOURCES). */
+  /** Team / workspace root (SS-OPS-HUB). */
   teamFolderName: string;
   teamFolderId: string;
-  /** Same folder as the team folder in the live Orilla account. */
+  /** Module folder under the team root (e.g. Human Resources). */
   hrFolderName: string;
   hrFolderId: string;
   /**
    * Working parent for `{emp_no} — {full_name}` folders (Employee Documents).
-   * Single swappable config — folder model is deferred.
    */
   employeeDocsFolderId: string;
+  /** Display name for the Employee Documents folder. */
+  employeeDocsFolderName: string;
+  /**
+   * Extra folders under the module folder (siblings of Employee Documents).
+   */
+  extraFolders: HrWorkDriveExtraFolder[];
   /**
    * Template for per-employee folders under employeeDocsFolderId.
    * Tokens: {emp_no} {full_name} {first_name} {last_name}
    */
   employeeFolderTemplate: string;
   /**
-   * Template for uploaded file names (extension preserved separately).
-   * Tokens: {emp_no} {full_name} {doc_kind} {doc_label} {yyyy} {MM} {dd}
-   *         {yyyy-MM-dd} {original_name}
+   * Legacy fallback file-name template when a doc slot has none.
+   * Prefer per-slot `fileSlots[].fileNameTemplate` in Drive Setup.
    */
   fileNameTemplate: string;
   /** Create missing employee / doc-type folders on upload. */
@@ -779,68 +984,78 @@ export type HrWorkDrivePublicSettings = Omit<
   hasRefreshToken: boolean;
 };
 
-export const DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS: HrWorkDriveDocSubfolder[] = [
-  {
-    kind: "profile_photo",
-    folderName: "Profile Photo",
-    label: "ProfilePhoto",
-    active: true,
-  },
-  { kind: "passport", folderName: "Passport", label: "Passport", active: true },
-  {
-    kind: "emirates_id",
-    folderName: "Emirates ID",
-    label: "EmiratesID",
-    active: true,
-  },
-  { kind: "bank", folderName: "Bank", label: "Bank", active: true },
-  {
-    kind: "offer_letter",
-    folderName: "Offer Letter",
-    label: "OfferLetter",
-    active: true,
-  },
-  { kind: "contract", folderName: "Contract", label: "Contract", active: true },
-  {
-    kind: "addendums",
-    folderName: "Addendums",
-    label: "Addendum",
-    active: true,
-  },
-  {
-    kind: "eresidence_card",
-    folderName: "eResidence Card",
-    label: "eResidence",
-    active: true,
-  },
-  { kind: "ohc", folderName: "OHC", label: "OHC", active: true },
-  {
-    kind: "medical_insurance",
-    folderName: "Medical Insurance",
-    label: "MedicalInsurance",
-    active: true,
-  },
-  {
-    kind: "training_certificates",
-    folderName: "Training Certificates",
-    label: "TrainingCert",
-    active: true,
-  },
-  { kind: "others", folderName: "Others", label: "Other", active: true },
-];
+/** Extra child folder under a module folder (sibling of Employee Documents). */
+export type HrWorkDriveExtraFolder = {
+  id: string;
+  name: string;
+  folderId: string;
+};
 
-/** Verified live folder IDs (Orilla WorkDrive, 2026-08-02). */
+/** Team-folder tree under a WorkDrive OAuth connection. */
+export type HrWorkDriveFolder = {
+  id: string;
+  label: string;
+  /** Module that consumes this tree; `hr` is used by staff document uploads. */
+  moduleKey: string;
+  teamFolderName: string;
+  teamFolderId: string;
+  hrFolderName: string;
+  hrFolderId: string;
+  employeeDocsFolderId: string;
+  employeeDocsFolderName: string;
+  extraFolders: HrWorkDriveExtraFolder[];
+  employeeFolderTemplate: string;
+  fileNameTemplate: string;
+  autoCreateFolders: boolean;
+  docSubfolders: HrWorkDriveDocSubfolder[];
+};
+
+/** OAuth connection + its folder trees. */
+export type HrWorkDriveConnection = {
+  id: string;
+  label: string;
+  enabled: boolean;
+  region: ZohoWorkDriveRegion;
+  clientId: string;
+  clientSecretEncrypted?: string | null;
+  refreshTokenEncrypted?: string | null;
+  connectionStatus: HrWorkDriveConnectionStatus;
+  lastVerifiedAt?: string | null;
+  lastError?: string | null;
+  folders: HrWorkDriveFolder[];
+};
+
+export type HrWorkDriveStore = {
+  connections: HrWorkDriveConnection[];
+  defaultConnectionId: string | null;
+};
+
+export type HrWorkDriveFolderPublic = HrWorkDriveFolder;
+
+export type HrWorkDriveConnectionPublic = Omit<
+  HrWorkDriveConnection,
+  "clientSecretEncrypted" | "refreshTokenEncrypted" | "folders"
+> & {
+  hasClientSecret: boolean;
+  hasRefreshToken: boolean;
+  folders: HrWorkDriveFolderPublic[];
+  isDefault: boolean;
+};
+
+/** Default / seed values for WorkDrive folder tree. */
 export const DEFAULT_HR_WORK_DRIVE_SETTINGS: HrWorkDriveSettings = {
   enabled: false,
   region: "com",
   clientId: "",
   clientSecretEncrypted: null,
   refreshTokenEncrypted: null,
-  teamFolderName: "HUMAN RESOURCES",
-  teamFolderId: "sae44cf1e2c4af89c4b2db0cbfcf01bcb006a",
-  hrFolderName: "HUMAN RESOURCES",
+  teamFolderName: "SS-OPS-HUB",
+  teamFolderId: "",
+  hrFolderName: "Human Resources",
   hrFolderId: "sae44cf1e2c4af89c4b2db0cbfcf01bcb006a",
   employeeDocsFolderId: "vtvbm62a07bbd35f041bd996fea000998c43a",
+  employeeDocsFolderName: "Employee Documents",
+  extraFolders: [],
   employeeFolderTemplate: "{emp_no} — {full_name}",
   fileNameTemplate: "{doc_label}_{emp_no}_{yyyy-MM-dd}",
   autoCreateFolders: true,
@@ -868,7 +1083,7 @@ export type HrPayslipEmailSettings = {
   enabled: boolean;
   /** Prefer work email, personal, or work with personal fallback. */
   recipientField: PayslipEmailRecipientField;
-  /** Optional from override; blank uses Connection / Transport from address. */
+  /** Optional from override; blank uses Venue Settings → Email config from address. */
   fromEmail: string;
   attachPdf: boolean;
   /** Send automatically when a payroll run is marked paid. */

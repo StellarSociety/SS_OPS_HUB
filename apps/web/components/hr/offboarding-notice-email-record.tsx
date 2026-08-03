@@ -185,7 +185,7 @@ export function OffboardingNoticeEmailRecordViewer({
               <dt className="text-xs text-black/45">From</dt>
               <dd className="mt-0.5 break-all text-[#3D421F]">
                 {record.fromEmail?.trim() ||
-                  (canAct ? "—" : "Connection / Transport default")}
+                  (canAct ? "—" : "Email config default")}
               </dd>
             </div>
             <div>

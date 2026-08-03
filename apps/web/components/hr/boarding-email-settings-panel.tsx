@@ -207,7 +207,7 @@ export function BoardingEmailSettingsPanel({
         <h2 className="font-serif text-lg text-[#3D421F]">Off-Boarding email</h2>
         <p className="mt-1 text-sm text-black/55">
           Templates grouped by offboarding checklist stage. Delivery uses
-          Connection / Transport.
+          Venue Settings → Email config.
         </p>
       </div>
 
@@ -277,7 +277,7 @@ export function BoardingEmailSettingsPanel({
               type="email"
               value={fromEmail}
               onChange={(e) => setFromEmail(e.target.value)}
-              placeholder="Uses Connection / Transport if blank"
+              placeholder="Uses Email config if blank"
               disabled={!enabled}
             />
           </div>

@@ -12,6 +12,7 @@ import {
 import { ZOHO_WD_VERIFIED } from "@/lib/hr/workdrive/constants";
 import type {
   HrWorkDriveDocKind,
+  HrWorkDriveDocFileSlot,
   HrWorkDriveSettings,
 } from "@/lib/hr/types";
 
@@ -23,6 +24,13 @@ export type UploadStaffDocInput = {
   firstName?: string;
   lastName?: string;
   docKind: HrWorkDriveDocKind;
+  /** Optional file part within the doc kind (e.g. emirates_id "front"). */
+  fileSlotId?: string;
+  /**
+   * Document expiry as ISO `YYYY-MM-DD` (or similar). Used for `{doc_expiry}`
+   * as `dd-mm-yy` in the file name.
+   */
+  docExpiry?: string | null;
   bytes: Buffer;
   originalFileName: string;
   contentType: string;
@@ -53,6 +61,75 @@ function dateTokens(d = new Date()) {
     dd,
     "yyyy-MM-dd": `${yyyy}-${MM}-${dd}`,
   };
+}
+
+/** Format ISO / YYYY-MM-DD as dd-mm-yy for file names (safe chars). */
+export function formatDocExpiryDdMmYy(
+  iso: string | null | undefined,
+): string {
+  const raw = String(iso ?? "").trim();
+  if (!raw) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (m) {
+    return `${m[3]}-${m[2]}-${m[1].slice(-2)}`;
+  }
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${String(
+    d.getFullYear(),
+  ).slice(-2)}`;
+}
+
+/** Staff date field used for `{doc_expiry}` for a doc kind / file part. */
+export type HrWorkDriveDocExpiryField =
+  | "passport_expiry"
+  | "eid_expiry"
+  | "visa_expiry"
+  | "contract_expiry"
+  | "eresidence_expiry"
+  | "medical_insurance_expiry_date"
+  | "ohc_date"
+  | "pic_date"
+  | "basic_food_safety_date"
+  | "fire_safety_date"
+  | "first_aid_date";
+
+/** Expiry field on staff for a given WorkDrive document kind / file part. */
+export function docExpiryFieldForKind(
+  kind: HrWorkDriveDocKind,
+  fileSlotId?: string | null,
+): HrWorkDriveDocExpiryField | null {
+  if (kind === "training_certificates") {
+    switch (String(fileSlotId ?? "").trim()) {
+      case "pic":
+        return "pic_date";
+      case "basic_food_safety":
+        return "basic_food_safety_date";
+      case "fire_safety":
+        return "fire_safety_date";
+      case "first_aid":
+        return "first_aid_date";
+      default:
+        return "pic_date";
+    }
+  }
+
+  switch (kind) {
+    case "passport":
+      return "passport_expiry";
+    case "emirates_id":
+      return "eid_expiry";
+    case "contract":
+      return "contract_expiry";
+    case "eresidence_card":
+      return "eresidence_expiry";
+    case "medical_insurance":
+      return "medical_insurance_expiry_date";
+    case "ohc":
+      return "ohc_date";
+    default:
+      return null;
+  }
 }
 
 export function renderWorkDriveTemplate(
@@ -143,6 +220,26 @@ export async function uploadStaffDocumentToWorkDrive(
     );
   }
 
+  const slots: HrWorkDriveDocFileSlot[] =
+    sub.fileSlots?.length > 0
+      ? sub.fileSlots
+      : [
+          {
+            id: "default",
+            label: "File",
+            fileNameTemplate: settings.fileNameTemplate,
+          },
+        ];
+  const slot =
+    (input.fileSlotId
+      ? slots.find((row) => row.id === input.fileSlotId)
+      : undefined) ?? slots[0];
+  if (!slot) {
+    throw new Error(
+      `File part "${input.fileSlotId ?? "default"}" is not configured for "${input.docKind}".`,
+    );
+  }
+
   const credentials = credentialsFromSettings(settings);
   const { accessToken, apiDomain } = await ensureAccessToken(
     input.venueId,
@@ -150,13 +247,25 @@ export async function uploadStaffDocumentToWorkDrive(
   );
 
   const dates = dateTokens();
+  const firstName = (input.firstName ?? "").trim();
+  const lastName = (input.lastName ?? "").trim();
+  const docName = sub.folderName.trim() || sub.label.trim() || input.docKind;
+  const docExpiry = formatDocExpiryDdMmYy(input.docExpiry);
   const templateVars: Record<string, string> = {
     emp_no: input.empNo.trim(),
     full_name: input.fullName.trim(),
-    first_name: (input.firstName ?? "").trim(),
-    last_name: (input.lastName ?? "").trim(),
+    first_name: firstName,
+    last_name: lastName,
+    employee_first_name: firstName,
+    employee_last_name: lastName,
     doc_kind: input.docKind,
     doc_label: sub.label,
+    doc_name: docName,
+    document_name: docName,
+    slot_id: slot.id,
+    slot_label: slot.label,
+    doc_expiry: docExpiry,
+    doc_expiry_ddmmyy: docExpiry,
     original_name: input.originalFileName.replace(/\.[^.]+$/, ""),
     ...dates,
   };
@@ -185,8 +294,12 @@ export async function uploadStaffDocumentToWorkDrive(
   });
 
   const ext = extensionOf(input.originalFileName) || guessExt(input.contentType);
+  const namingTemplate =
+    slot.fileNameTemplate.trim() ||
+    settings.fileNameTemplate.trim() ||
+    "{doc_label}_{emp_no}_{yyyy-MM-dd}";
   const stem = sanitizeFileName(
-    renderWorkDriveTemplate(settings.fileNameTemplate, templateVars),
+    renderWorkDriveTemplate(namingTemplate, templateVars),
   );
   const fileName = sanitizeFileName(`${stem}${ext}`);
 
@@ -215,7 +328,9 @@ export async function uploadStaffDocumentToWorkDrive(
   }
 
   const path = [
-    ZOHO_WD_VERIFIED.employeeDocsFolderName,
+    settings.teamFolderName || ZOHO_WD_VERIFIED.teamFolderName,
+    settings.hrFolderName || ZOHO_WD_VERIFIED.hrFolderName,
+    settings.employeeDocsFolderName || ZOHO_WD_VERIFIED.employeeDocsFolderName,
     empFolderName,
     sub.folderName,
     fileName,

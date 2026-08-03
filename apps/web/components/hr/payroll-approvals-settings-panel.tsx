@@ -323,7 +323,7 @@ export function PayrollApprovalsSettingsPanel({
         <p className="mt-1 text-sm text-black/55">
           {isApprovers
             ? "Add or remove people for each payroll workflow step."
-            : "Configure recipients, subject, message, and attachments for the payroll package. Delivery uses Connection / Transport under Emails settings."}
+            : "Configure recipients, subject, message, and attachments for the payroll package. Delivery uses Venue Settings → Email config."}
         </p>
       </div>
 

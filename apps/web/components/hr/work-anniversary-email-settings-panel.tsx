@@ -102,7 +102,7 @@ export function WorkAnniversaryEmailSettingsPanel({
         </h2>
         <p className="mt-1 text-sm text-black/55">
           Congratulation message sent from Staff Insights when celebrating years
-          of service. Delivery uses Connection / Transport.
+          of service. Delivery uses Venue Settings → Email config.
         </p>
       </div>
 
@@ -190,7 +190,7 @@ export function WorkAnniversaryEmailSettingsPanel({
               value={fromEmail}
               onChange={(e) => setFromEmail(e.target.value)}
               placeholder={
-                connectionFromEmail.trim() || "Set under Emails → Connection"
+                connectionFromEmail.trim() || "Set under Venue Settings → Email config"
               }
               disabled={!enabled}
             />
@@ -198,8 +198,8 @@ export function WorkAnniversaryEmailSettingsPanel({
               {fromEmail.trim()
                 ? "Emails will send from this address."
                 : connectionFromEmail.trim()
-                  ? `Leave blank to send from ${connectionFromEmail.trim()} (Connection).`
-                  : "Leave blank to use the From address under Emails → Connection."}
+                  ? `Leave blank to send from ${connectionFromEmail.trim()} (Email config).`
+                  : "Leave blank to use the From address under Venue Settings → Email config."}
             </p>
           </div>
         </div>

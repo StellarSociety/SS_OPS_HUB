@@ -2,11 +2,12 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptSecret } from "@/lib/email/secret";
-import { getHrVenueSetting } from "@/lib/hr/store";
 import {
   DEFAULT_HR_EMAIL_TRANSPORT_SETTINGS,
   HR_SETTINGS_KEYS,
+  type HrEmailConnection,
   type HrEmailTransportSettings,
+  type HrEmailTransportStore,
 } from "@/lib/hr/types";
 import { sendViaResend } from "./resend-transport";
 import { sendViaSmtp } from "./smtp";
@@ -43,17 +44,134 @@ export function mergeEmailTransportSettings(
   };
 }
 
+function connectionLabel(settings: HrEmailTransportSettings, label?: string): string {
+  const trimmed = String(label ?? "").trim();
+  if (trimmed) return trimmed;
+  return (
+    settings.smtp.fromName.trim() ||
+    settings.smtp.fromEmail.trim() ||
+    settings.smtp.username.trim() ||
+    "Email connection"
+  );
+}
+
+function stripConnectionMeta(
+  connection: HrEmailConnection,
+): HrEmailTransportSettings {
+  const { id: _id, label: _label, ...settings } = connection;
+  return settings;
+}
+
+function isStoreShape(value: unknown): value is {
+  connections: unknown[];
+  defaultConnectionId?: string | null;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as { connections?: unknown }).connections)
+  );
+}
+
+function isLegacyTransportShape(value: unknown): value is Partial<HrEmailTransportSettings> {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return "provider" in v || "smtp" in v;
+}
+
+/** Normalize raw DB JSON (legacy single object or multi-connection store). */
+export function normalizeEmailTransportStore(
+  raw: unknown,
+): HrEmailTransportStore {
+  if (!raw || (typeof raw === "object" && Object.keys(raw as object).length === 0)) {
+    return { connections: [], defaultConnectionId: null };
+  }
+
+  if (isStoreShape(raw)) {
+    const connections: HrEmailConnection[] = raw.connections
+      .map((entry) => {
+        if (typeof entry !== "object" || entry === null) return null;
+        const row = entry as Partial<HrEmailConnection>;
+        const id = String(row.id ?? "").trim();
+        if (!id) return null;
+        const settings = mergeEmailTransportSettings(row);
+        return {
+          id,
+          label: connectionLabel(settings, row.label),
+          ...settings,
+        };
+      })
+      .filter((c): c is HrEmailConnection => c !== null);
+
+    const defaultConnectionId =
+      (raw.defaultConnectionId &&
+        connections.some((c) => c.id === raw.defaultConnectionId)
+        ? raw.defaultConnectionId
+        : connections[0]?.id) ?? null;
+
+    return { connections, defaultConnectionId };
+  }
+
+  if (isLegacyTransportShape(raw)) {
+    const settings = mergeEmailTransportSettings(raw);
+    const connection: HrEmailConnection = {
+      id: "default",
+      label: connectionLabel(settings),
+      ...settings,
+    };
+    return {
+      connections: [connection],
+      defaultConnectionId: "default",
+    };
+  }
+
+  return { connections: [], defaultConnectionId: null };
+}
+
+export function pickDefaultEmailTransport(
+  store: HrEmailTransportStore,
+): HrEmailTransportSettings | null {
+  if (store.connections.length === 0) return null;
+  const preferred =
+    store.connections.find((c) => c.id === store.defaultConnectionId) ??
+    store.connections[0];
+  return preferred ? stripConnectionMeta(preferred) : null;
+}
+
+async function fetchEmailTransportRaw(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<unknown | null> {
+  const { data, error } = await supabase
+    .from("hr_venue_settings")
+    .select("value")
+    .eq("venue_id", venueId)
+    .eq("key", HR_SETTINGS_KEYS.emailTransport)
+    .maybeSingle();
+  if (error) {
+    console.error("[email] loadEmailTransportStore:", error.message);
+    return null;
+  }
+  return data?.value ?? null;
+}
+
+export async function loadEmailTransportStore(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<HrEmailTransportStore> {
+  const raw = await fetchEmailTransportRaw(supabase, venueId);
+  return normalizeEmailTransportStore(raw);
+}
+
 export async function loadEmailTransportSettings(
   supabase: SupabaseClient,
   venueId: string,
 ): Promise<HrEmailTransportSettings> {
-  const stored = await getHrVenueSetting<Partial<HrEmailTransportSettings>>(
-    supabase,
-    venueId,
-    HR_SETTINGS_KEYS.emailTransport,
-    {},
+  const store = await loadEmailTransportStore(supabase, venueId);
+  return (
+    pickDefaultEmailTransport(store) ??
+    mergeEmailTransportSettings({ provider: "resend" })
   );
-  return mergeEmailTransportSettings(stored);
 }
 
 /**
@@ -80,10 +198,10 @@ export async function resolveEmailTransportSettings(
   }
 
   for (const row of data ?? []) {
-    const settings = mergeEmailTransportSettings(
-      row.value as Partial<HrEmailTransportSettings>,
-    );
+    const store = normalizeEmailTransportStore(row.value);
+    const settings = pickDefaultEmailTransport(store);
     if (
+      settings &&
       settings.provider !== "resend" &&
       settings.passwordEncrypted &&
       settings.smtp.host
@@ -92,8 +210,11 @@ export async function resolveEmailTransportSettings(
     }
   }
 
-  const first = data?.[0]?.value as Partial<HrEmailTransportSettings> | undefined;
-  if (first) return mergeEmailTransportSettings(first);
+  const first = data?.[0]?.value;
+  if (first) {
+    const settings = pickDefaultEmailTransport(normalizeEmailTransportStore(first));
+    if (settings) return settings;
+  }
   return mergeEmailTransportSettings({ provider: "resend" });
 }
 

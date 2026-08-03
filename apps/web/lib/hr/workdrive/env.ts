@@ -85,17 +85,17 @@ export function applyWorkDriveEnvDefaults(
       e.employeeDocsFolderId || ZOHO_WD_VERIFIED.employeeDocsFolderId;
   }
 
-  if (
-    !next.teamFolderName ||
-    next.teamFolderName === "SS-OPS-HUB"
-  ) {
+  if (!next.teamFolderName) {
     next.teamFolderName = ZOHO_WD_VERIFIED.teamFolderName;
   }
-  if (
-    !next.hrFolderName ||
-    next.hrFolderName === "Human Resources"
-  ) {
+  if (!next.hrFolderName) {
     next.hrFolderName = ZOHO_WD_VERIFIED.hrFolderName;
+  }
+  if (!next.employeeDocsFolderName) {
+    next.employeeDocsFolderName = ZOHO_WD_VERIFIED.employeeDocsFolderName;
+  }
+  if (!Array.isArray(next.extraFolders)) {
+    next.extraFolders = [];
   }
 
   return next;

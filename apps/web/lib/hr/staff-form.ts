@@ -38,6 +38,8 @@ export type StaffFormState = {
   termination_date: string;
   termination_type: string;
   contract_kind: string;
+  contract_expiry: string;
+  eresidence_expiry: string;
   visa_status: string;
   visa_expiry: string;
   probation_duration_value: string;
@@ -45,6 +47,12 @@ export type StaffFormState = {
   probation_status: string;
   company_accommodation: string;
   wage_package: string;
+  ohc_date: string;
+  pic_date: string;
+  basic_food_safety_date: string;
+  fire_safety_date: string;
+  first_aid_date: string;
+  medical_insurance_expiry_date: string;
   /** Public URL of the cropped passport-ratio staff photo. */
   photo_url: string;
 };
@@ -80,6 +88,8 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     termination_date: "",
     termination_type: "",
     contract_kind: "",
+    contract_expiry: "",
+    eresidence_expiry: "",
     visa_status: "",
     visa_expiry: "",
     probation_duration_value: String(DEFAULT_PROBATION_DURATION_VALUE),
@@ -87,6 +97,12 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     probation_status: "",
     company_accommodation: "No",
     wage_package: "",
+    ohc_date: "",
+    pic_date: "",
+    basic_food_safety_date: "",
+    fire_safety_date: "",
+    first_aid_date: "",
+    medical_insurance_expiry_date: "",
     photo_url: "",
   };
 }
@@ -120,6 +136,8 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     termination_date: str(s.termination_date),
     termination_type: str(s.termination_type),
     contract_kind: str(s.contract_kind),
+    contract_expiry: str(s.contract_expiry),
+    eresidence_expiry: str(s.eresidence_expiry),
     visa_status: str(s.visa_status),
     visa_expiry: str(s.visa_expiry),
     probation_duration_value: str(s.probation_duration_value) || String(DEFAULT_PROBATION_DURATION_VALUE),
@@ -130,6 +148,12 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
       ? "Yes"
       : "No",
     wage_package: str(s.wage_package),
+    ohc_date: str(s.ohc_date),
+    pic_date: str(s.pic_date),
+    basic_food_safety_date: str(s.basic_food_safety_date),
+    fire_safety_date: str(s.fire_safety_date),
+    first_aid_date: str(s.first_aid_date),
+    medical_insurance_expiry_date: str(s.medical_insurance_expiry_date),
     photo_url: str(s.photo_url),
   };
 }

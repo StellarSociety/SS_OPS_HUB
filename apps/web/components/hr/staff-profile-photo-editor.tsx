@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronsUpDown, ImagePlus, Trash2, Upload } from "lucide-react";
+import { DETACHED_FILE_FORM_ID } from "@/lib/hr/detached-file-form";
 import { cn } from "@/lib/utils";
 
 /** ICAO passport photo aspect (~35×45 mm). Client crops; server stores WebP. */
@@ -458,6 +459,7 @@ export function StaffProfilePhotoEditor({
               ref={fileInputRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              form={DETACHED_FILE_FORM_ID}
               className="hidden"
               disabled={readOnly}
               onChange={(e) => handleFile(e.target.files?.[0] ?? null)}

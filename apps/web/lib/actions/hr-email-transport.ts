@@ -1,23 +1,28 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import { encryptSecret } from "@/lib/email/secret";
 import {
-  loadEmailTransportSettings,
+  loadEmailTransportStore,
   mergeEmailTransportSettings,
   sendAppEmail,
 } from "@/lib/email/transport";
 import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
+import { isAppAdmin } from "@/lib/role-permissions";
 import {
-  DEFAULT_HR_EMAIL_TRANSPORT_SETTINGS,
+  EMPTY_HR_EMAIL_TRANSPORT_SETTINGS,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
   type EmailTransportProvider,
+  type HrEmailConnection,
+  type HrEmailConnectionPublic,
   type HrEmailTransportPublicSettings,
   type HrEmailTransportSettings,
+  type HrEmailTransportStore,
 } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -58,6 +63,34 @@ function toPublic(
   };
 }
 
+function toConnectionPublic(
+  connection: HrEmailConnection,
+  defaultConnectionId: string | null,
+): HrEmailConnectionPublic {
+  const { passwordEncrypted: _secret, id, label, ...rest } = connection;
+  return {
+    id,
+    label,
+    isDefault: connection.id === defaultConnectionId,
+    ...rest,
+    hasPassword: Boolean(connection.passwordEncrypted),
+  };
+}
+
+function connectionLabelFromSettings(
+  settings: HrEmailTransportSettings,
+  label?: string,
+): string {
+  const trimmed = String(label ?? "").trim();
+  if (trimmed) return trimmed;
+  return (
+    settings.smtp.fromName.trim() ||
+    settings.smtp.fromEmail.trim() ||
+    settings.smtp.username.trim() ||
+    "Email connection"
+  );
+}
+
 async function getAuth() {
   const ctx = await getActionAuthContext();
   if ("error" in ctx) return { error: ctx.error } as const;
@@ -69,11 +102,13 @@ function requireConfigurePermission(
   venueId: string,
 ) {
   if (
-    !canAdminLookups(permissions, venueId) &&
-    !canEditPayroll(permissions, venueId)
+    isAppAdmin(permissions) ||
+    canAdminLookups(permissions, venueId) ||
+    canEditPayroll(permissions, venueId)
   ) {
-    throw new Error("No permission to change email transport settings.");
+    return;
   }
+  throw new Error("No permission to change email transport settings.");
 }
 
 function flagTrue(raw: FormDataEntryValue | null): boolean {
@@ -86,18 +121,59 @@ function parsePort(raw: FormDataEntryValue | null, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+async function persistStore(
+  venueId: string,
+  store: HrEmailTransportStore,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const service = createServiceClient();
+  const { error } = await service.from("hr_venue_settings").upsert(
+    {
+      venue_id: venueId,
+      key: HR_SETTINGS_KEYS.emailTransport,
+      value: store,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "venue_id,key" },
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+function revalidateEmailConfig() {
+  revalidatePath("/settings/email-config", "page");
+  revalidatePath("/hr/settings/emails", "layout");
+  revalidatePath("/hr/settings", "layout");
+}
+
+export async function getEmailTransportConnections(): Promise<
+  HrEmailConnectionPublic[]
+> {
+  const auth = await getAuth();
+  if ("error" in auth) return [];
+  const store = await loadEmailTransportStore(auth.supabase, auth.venue.id);
+  return store.connections.map((c) =>
+    toConnectionPublic(c, store.defaultConnectionId),
+  );
+}
+
+/** @deprecated Prefer getEmailTransportConnections; returns default connection. */
 export async function getEmailTransportSettings(): Promise<HrEmailTransportPublicSettings> {
   const auth = await getAuth();
   if ("error" in auth) {
-    return toPublic(DEFAULT_HR_EMAIL_TRANSPORT_SETTINGS);
+    return toPublic(EMPTY_HR_EMAIL_TRANSPORT_SETTINGS);
   }
-  const settings = await loadEmailTransportSettings(auth.supabase, auth.venue.id);
+  const store = await loadEmailTransportStore(auth.supabase, auth.venue.id);
+  const preferred =
+    store.connections.find((c) => c.id === store.defaultConnectionId) ??
+    store.connections[0];
+  if (!preferred) return toPublic(EMPTY_HR_EMAIL_TRANSPORT_SETTINGS);
+  const { id: _id, label: _label, ...settings } = preferred;
   return toPublic(settings);
 }
 
 export async function saveEmailTransportSettings(
   formData: FormData,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; connectionId: string } | { ok: false; error: string }> {
   try {
     const auth = await getAuth();
     if ("error" in auth) return { ok: false, error: auth.error };
@@ -159,9 +235,16 @@ export async function saveEmailTransportSettings(
       }
     }
 
-    const existing = await loadEmailTransportSettings(supabase, venue.id);
+    const store = await loadEmailTransportStore(supabase, venue.id);
+    const connectionIdRaw = String(formData.get("connection_id") ?? "").trim();
+    const existing =
+      connectionIdRaw
+        ? store.connections.find((c) => c.id === connectionIdRaw)
+        : undefined;
+    const connectionId = existing?.id ?? randomUUID();
+
     const passwordInput = String(formData.get("smtp_password") ?? "");
-    let passwordEncrypted = existing.passwordEncrypted ?? null;
+    let passwordEncrypted = existing?.passwordEncrypted ?? null;
 
     if (passwordInput.trim()) {
       passwordEncrypted = encryptSecret(passwordInput.trim());
@@ -174,32 +257,45 @@ export async function saveEmailTransportSettings(
       };
     }
 
-    const value = mergeEmailTransportSettings({
+    const merged = mergeEmailTransportSettings({
       ...parsed.data,
       passwordEncrypted,
-      lastVerifiedAt: existing.lastVerifiedAt,
-      lastError: existing.lastError,
+      lastVerifiedAt: existing?.lastVerifiedAt ?? null,
+      lastError: existing?.lastError ?? null,
     });
 
-    const service = createServiceClient();
-    const { error } = await service.from("hr_venue_settings").upsert(
-      {
-        venue_id: venue.id,
-        key: HR_SETTINGS_KEYS.emailTransport,
-        value,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "venue_id,key" },
-    );
-    if (error) return { ok: false, error: error.message };
+    const labelInput = String(formData.get("connection_label") ?? "").trim();
+    const nextConnection: HrEmailConnection = {
+      id: connectionId,
+      label: connectionLabelFromSettings(merged, labelInput || existing?.label),
+      ...merged,
+    };
 
-    const { passwordEncrypted: _omit, ...auditSafe } = value;
+    const connections = existing
+      ? store.connections.map((c) =>
+          c.id === connectionId ? nextConnection : c,
+        )
+      : [...store.connections, nextConnection];
+
+    const nextStore: HrEmailTransportStore = {
+      connections,
+      defaultConnectionId:
+        store.defaultConnectionId &&
+        connections.some((c) => c.id === store.defaultConnectionId)
+          ? store.defaultConnectionId
+          : connections[0]?.id ?? null,
+    };
+
+    const persisted = await persistStore(venue.id, nextStore);
+    if (!persisted.ok) return persisted;
+
+    const { passwordEncrypted: _omit, ...auditSafe } = nextConnection;
     await writeAuditLog({
       actor_id: user.id,
-      action: "update",
+      action: existing ? "update" : "create",
       module_key: HR_MODULE_KEY,
       entity: "hr_venue_settings",
-      entity_id: HR_SETTINGS_KEYS.emailTransport,
+      entity_id: `${HR_SETTINGS_KEYS.emailTransport}:${connectionId}`,
       venue_id: venue.id,
       after: {
         ...auditSafe,
@@ -208,10 +304,8 @@ export async function saveEmailTransportSettings(
       },
     });
 
-    revalidatePath("/hr/settings/emails", "layout");
-    revalidatePath("/hr/settings/emails/connection", "page");
-    revalidatePath("/hr/settings", "layout");
-    return { ok: true };
+    revalidateEmailConfig();
+    return { ok: true, connectionId };
   } catch (e) {
     return {
       ok: false,
@@ -236,7 +330,20 @@ export async function sendTestEmailTransport(
       return { ok: false, error: "Enter a valid test recipient email." };
     }
 
-    const settings = await loadEmailTransportSettings(supabase, venue.id);
+    const store = await loadEmailTransportStore(supabase, venue.id);
+    const connectionId = String(formData.get("connection_id") ?? "").trim();
+    const connection =
+      (connectionId
+        ? store.connections.find((c) => c.id === connectionId)
+        : null) ??
+      store.connections.find((c) => c.id === store.defaultConnectionId) ??
+      store.connections[0];
+
+    if (!connection) {
+      return { ok: false, error: "Save the connection before sending a test." };
+    }
+
+    const { id: _id, label: _label, ...settings } = connection;
 
     if (settings.provider !== "resend" && !settings.passwordEncrypted) {
       return {
@@ -267,29 +374,27 @@ export async function sendTestEmailTransport(
       ? `Sent via ${result.provider}; copy appended to Sent.`
       : `Sent via ${result.provider}.`;
 
-    const nextValue = mergeEmailTransportSettings({
-      ...settings,
+    const nextConnection: HrEmailConnection = {
+      ...connection,
       lastVerifiedAt: verifiedAt,
       lastError: null,
-    });
+    };
+    const nextStore: HrEmailTransportStore = {
+      ...store,
+      connections: store.connections.map((c) =>
+        c.id === connection.id ? nextConnection : c,
+      ),
+    };
 
-    const service = createServiceClient();
-    await service.from("hr_venue_settings").upsert(
-      {
-        venue_id: venue.id,
-        key: HR_SETTINGS_KEYS.emailTransport,
-        value: nextValue,
-        updated_at: verifiedAt,
-      },
-      { onConflict: "venue_id,key" },
-    );
+    const persisted = await persistStore(venue.id, nextStore);
+    if (!persisted.ok) return persisted;
 
     await writeAuditLog({
       actor_id: user.id,
       action: "update",
       module_key: HR_MODULE_KEY,
       entity: "hr_venue_settings",
-      entity_id: `${HR_SETTINGS_KEYS.emailTransport}:test`,
+      entity_id: `${HR_SETTINGS_KEYS.emailTransport}:${connection.id}:test`,
       venue_id: venue.id,
       after: {
         testTo: to,
@@ -299,8 +404,8 @@ export async function sendTestEmailTransport(
       },
     });
 
+    revalidatePath("/settings/email-config", "page");
     revalidatePath("/hr/settings/emails", "layout");
-    revalidatePath("/hr/settings/emails/connection", "page");
     return { ok: true, message };
   } catch (e) {
     const errorText =
@@ -309,26 +414,30 @@ export async function sendTestEmailTransport(
     try {
       const auth = await getAuth();
       if (!("error" in auth)) {
-        const settings = await loadEmailTransportSettings(
+        const store = await loadEmailTransportStore(
           auth.supabase,
           auth.venue.id,
         );
-        const nextValue = mergeEmailTransportSettings({
-          ...settings,
-          lastError: errorText,
-        });
-        const service = createServiceClient();
-        await service.from("hr_venue_settings").upsert(
-          {
-            venue_id: auth.venue.id,
-            key: HR_SETTINGS_KEYS.emailTransport,
-            value: nextValue,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "venue_id,key" },
-        );
-        revalidatePath("/hr/settings/emails", "layout");
-        revalidatePath("/hr/settings/emails/connection", "page");
+        const connectionId = String(formData.get("connection_id") ?? "").trim();
+        const connection =
+          (connectionId
+            ? store.connections.find((c) => c.id === connectionId)
+            : null) ??
+          store.connections.find((c) => c.id === store.defaultConnectionId) ??
+          store.connections[0];
+        if (connection) {
+          const nextStore: HrEmailTransportStore = {
+            ...store,
+            connections: store.connections.map((c) =>
+              c.id === connection.id
+                ? { ...c, lastError: errorText }
+                : c,
+            ),
+          };
+          await persistStore(auth.venue.id, nextStore);
+          revalidatePath("/settings/email-config", "page");
+          revalidatePath("/hr/settings/emails", "layout");
+        }
       }
     } catch {
       // ignore persistence failure on error path

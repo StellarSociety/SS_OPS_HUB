@@ -33,7 +33,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 
-const SETTINGS_PATHS = ["/settings", "/settings/users", "/settings/venue-modules"];
+const SETTINGS_PATHS = [
+  "/settings",
+  "/settings/users",
+  "/settings/venue-modules",
+  "/settings/email-config",
+  "/settings/drive-config",
+];
 
 function revalidateSettings() {
   for (const path of SETTINGS_PATHS) {

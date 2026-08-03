@@ -49,9 +49,13 @@ const nextConfig: NextConfig = {
     ],
   },
   experimental: {
+    // Middleware/proxy clones request bodies (default 10mb). Large WorkDrive
+    // uploads also bypass middleware via matcher exclude; keep this high for
+    // any other multipart routes that still go through the proxy.
+    proxyClientMaxBodySize: "512mb",
     serverActions: {
-      // InOutData.xls exports can be ~1 MB; parse on server from uploaded file.
-      bodySizeLimit: "10mb",
+      // Staff WorkDrive docs (passport/EID PDFs) + InOutData.xls imports.
+      bodySizeLimit: "512mb",
       allowedOrigins: [
         "ssopshub.vercel.app",
         "ss-ops-hub.vercel.app",

@@ -43,8 +43,17 @@ function formatVerified(iso: string | null | undefined): string | null {
 
 export function EmailTransportSettingsCard({
   settings,
+  connectionId = null,
+  mode = "edit",
+  onCancel,
+  onSaved,
 }: {
   settings: HrEmailTransportPublicSettings;
+  /** Existing connection id when editing; omit/null when adding. */
+  connectionId?: string | null;
+  mode?: "edit" | "add";
+  onCancel?: () => void;
+  onSaved?: (connectionId: string) => void;
 }) {
   const [provider, setProvider] = useState<EmailTransportProvider>(
     settings.provider,
@@ -129,6 +138,9 @@ export function EmailTransportSettingsCard({
   async function handleSave(formData: FormData) {
     setStatusMessage(null);
     setStatusError(null);
+    if (connectionId) {
+      formData.set("connection_id", connectionId);
+    }
     const result = await saveEmailTransportSettings(formData);
     if (!result.ok) {
       setStatusError(result.error);
@@ -139,6 +151,7 @@ export function EmailTransportSettingsCard({
       setPassword("");
     }
     setStatusMessage("Connection settings saved.");
+    onSaved?.(result.connectionId);
     return result;
   }
 
@@ -148,6 +161,7 @@ export function EmailTransportSettingsCard({
       setStatusError(null);
       const fd = new FormData();
       fd.set("test_to", testTo);
+      if (connectionId) fd.set("connection_id", connectionId);
       const result = await sendTestEmailTransport(fd);
       if (!result.ok) {
         setStatusError(result.error);
@@ -162,14 +176,21 @@ export function EmailTransportSettingsCard({
 
   return (
     <Card className="space-y-6 p-5">
-      <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">
-          Connection / Transport
-        </h2>
-        <p className="mt-1 text-sm text-black/55">
-          Send from your mailbox over SMTP and optionally append a copy to Sent
-          via IMAP. Change hosts here — no code changes needed.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-serif text-lg text-[#3D421F]">
+            {mode === "add" ? "Add email connection" : "Edit email connection"}
+          </h2>
+          <p className="mt-1 text-sm text-black/55">
+            Send from your mailbox over SMTP and optionally append a copy to Sent
+            via IMAP. Change hosts here — no code changes needed.
+          </p>
+        </div>
+        {onCancel ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : null}
       </div>
 
       <GuardedSettingsForm
@@ -177,6 +198,9 @@ export function EmailTransportSettingsCard({
         className="space-y-6"
         watch={watch}
       >
+        {connectionId ? (
+          <input type="hidden" name="connection_id" value={connectionId} />
+        ) : null}
         <div className="space-y-1.5">
           <Label htmlFor="provider">Provider preset</Label>
           <select

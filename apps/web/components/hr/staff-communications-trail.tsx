@@ -304,7 +304,7 @@ function CommunicationDetailDialog({
                   <dd className="mt-0.5 break-all text-[#3D421F]">
                     {detail.fromEmail?.trim() || (
                       <span className="text-black/40">
-                        Connection / Transport default
+                        Email config default
                       </span>
                     )}
                   </dd>
