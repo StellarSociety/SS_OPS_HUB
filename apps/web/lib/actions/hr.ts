@@ -71,9 +71,11 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getActionAuthContext, diagnosePersistenceAccess } from "@/lib/auth/action-context";
 import {
+  asUploadBlob,
   convertImageToWebp,
   isRasterImageMime,
   resolveRasterImageMime,
+  uploadBlobMeta,
 } from "@/lib/storage/convert-to-webp";
 
 async function getAuthContext() {
@@ -1071,15 +1073,30 @@ async function resolveStaffPhotoUpdate({
   previousUrl: string | null;
 }): Promise<{ photo_url?: string | null; error?: string }> {
   const clear = String(formData.get("photo_clear") ?? "") === "1";
-  const photo = formData.get("photo");
-  const photoSource = formData.get("photo_source");
+  const photo = asUploadBlob(formData.get("photo"));
+  const photoSource = asUploadBlob(formData.get("photo_source"));
   const paths = staffPhotoObjectPaths(venueId, staffId);
 
-  if (photo instanceof File && photo.size > 0) {
+  // Detect a photo field that arrived empty/corrupt (body truncation) so we
+  // surface an error instead of silently saving without the new picture.
+  const photoField = formData.get("photo");
+  if (
+    photoField != null &&
+    typeof photoField !== "string" &&
+    typeof (photoField as Blob).size === "number" &&
+    (photoField as Blob).size === 0
+  ) {
+    return {
+      error:
+        "Staff photo upload arrived empty. Try a smaller source image, then save again.",
+    };
+  }
+
+  if (photo) {
     if (photo.size > STAFF_PHOTO_MAX_BYTES) {
       return { error: "Staff photo must be 512 KB or smaller." };
     }
-    if (!resolveRasterImageMime(photo)) {
+    if (!resolveRasterImageMime(uploadBlobMeta(photo))) {
       return { error: "Staff photo must be a PNG, JPEG, or WebP image." };
     }
 
@@ -1087,6 +1104,12 @@ async function resolveStaffPhotoUpdate({
     // Client already exports WebP; convertImageToWebp re-encodes when sharp
     // works, or passes through a valid WebP if sharp/libvips is unavailable.
     const bytes = Buffer.from(await photo.arrayBuffer());
+    if (bytes.length === 0) {
+      return {
+        error:
+          "Staff photo upload arrived empty. Try a smaller source image, then save again.",
+      };
+    }
 
     let webp: Awaited<ReturnType<typeof convertImageToWebp>>;
     try {
@@ -1106,7 +1129,7 @@ async function resolveStaffPhotoUpdate({
 
     const { error: uploadError } = await service.storage
       .from(STAFF_PHOTOS_BUCKET)
-      .upload(paths.crop, webp.buffer, {
+      .upload(paths.crop, new Uint8Array(webp.buffer), {
         contentType: webp.contentType,
         upsert: true,
         cacheControl: "31536000",
@@ -1121,10 +1144,10 @@ async function resolveStaffPhotoUpdate({
 
     // Optional uncropped original — enables Adjust after the form is saved.
     // Failure here must not block the cropped photo save.
-    if (photoSource instanceof File && photoSource.size > 0) {
+    if (photoSource) {
       if (photoSource.size > STAFF_PHOTO_SOURCE_MAX_BYTES) {
         console.warn("[hr] staff photo source too large; skipping source store");
-      } else if (!resolveRasterImageMime(photoSource)) {
+      } else if (!resolveRasterImageMime(uploadBlobMeta(photoSource))) {
         console.warn("[hr] staff photo source mime not raster; skipping source store");
       } else {
         try {
@@ -1137,7 +1160,7 @@ async function resolveStaffPhotoUpdate({
           );
           await service.storage
             .from(STAFF_PHOTOS_BUCKET)
-            .upload(paths.source, sourceWebp.buffer, {
+            .upload(paths.source, new Uint8Array(sourceWebp.buffer), {
               contentType: sourceWebp.contentType,
               upsert: true,
               cacheControl: "31536000",

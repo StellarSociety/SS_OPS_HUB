@@ -213,13 +213,23 @@ export function StaffProfilePhotoEditor({
     ctx.fillRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
     ctx.drawImage(img, left, top, displayW, displayH);
 
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/webp", WEBP_QUALITY),
+    const blob =
+      (await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/webp", WEBP_QUALITY),
+      )) ??
+      (await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", WEBP_QUALITY),
+      ));
+    // Some browsers omit MIME on canvas exports even when bytes are valid.
+    if (!blob) return null;
+    const isWebp = !blob.type || blob.type === "image/webp";
+    const isJpeg = blob.type === "image/jpeg";
+    if (!isWebp && !isJpeg) return null;
+    return new File(
+      [blob],
+      isJpeg ? "staff-photo.jpg" : "staff-photo.webp",
+      { type: isJpeg ? "image/jpeg" : "image/webp" },
     );
-    if (!blob || blob.type !== "image/webp") return null;
-    return new File([blob], "staff-photo.webp", {
-      type: "image/webp",
-    });
   }
 
   useEffect(() => {
@@ -240,6 +250,9 @@ export function StaffProfilePhotoEditor({
           const preview = trackObjectUrl(URL.createObjectURL(file));
           onPhotoUrlChange(preview);
         } else {
+          // Export failed — leave photoFile null so Save is blocked upstream
+          // (source present without a cropped file).
+          hasExportedRef.current = false;
           onPhotoFileChange(null);
         }
       });

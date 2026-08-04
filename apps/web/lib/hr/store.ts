@@ -1423,67 +1423,69 @@ export async function listAssetsForStaff(
     return [];
   }
 
-  return (data ?? [])
-    .map((row) => {
-      const raw = row as {
-        id: string;
-        assigned_at: string;
-        returned_at: string | null;
-        notes: string;
-        asset:
-          | {
-              id: string;
-              asset_type_id: string;
-              name: string;
-              serial_no: string;
-              description: string;
-              asset_value: number | string;
-              status: import("./types").AssetStatus;
-              notes: string;
-              asset_type:
-                | import("./types").AssetType
-                | import("./types").AssetType[]
-                | null;
-            }
-          | {
-              id: string;
-              asset_type_id: string;
-              name: string;
-              serial_no: string;
-              description: string;
-              asset_value: number | string;
-              status: import("./types").AssetStatus;
-              notes: string;
-              asset_type:
-                | import("./types").AssetType
-                | import("./types").AssetType[]
-                | null;
-            }[]
-          | null;
-      };
+  const rows: import("./types").StaffAssignedAssetRow[] = [];
 
-      const asset = Array.isArray(row.asset) ? (row.asset[0] ?? null) : row.asset;
-      if (!asset) return null;
+  for (const row of data ?? []) {
+    const raw = row as {
+      id: string;
+      assigned_at: string;
+      returned_at: string | null;
+      notes: string;
+      asset:
+        | {
+            id: string;
+            asset_type_id: string;
+            name: string;
+            serial_no: string;
+            description: string;
+            asset_value: number | string;
+            status: import("./types").AssetStatus;
+            notes: string;
+            asset_type:
+              | import("./types").AssetType
+              | import("./types").AssetType[]
+              | null;
+          }
+        | {
+            id: string;
+            asset_type_id: string;
+            name: string;
+            serial_no: string;
+            description: string;
+            asset_value: number | string;
+            status: import("./types").AssetStatus;
+            notes: string;
+            asset_type:
+              | import("./types").AssetType
+              | import("./types").AssetType[]
+              | null;
+          }[]
+        | null;
+    };
 
-      const assetType = Array.isArray(asset.asset_type)
-        ? (asset.asset_type[0] ?? null)
-        : asset.asset_type;
+    const asset = Array.isArray(raw.asset) ? (raw.asset[0] ?? null) : raw.asset;
+    if (!asset) continue;
 
-      return {
-        assignment_id: raw.id,
-        assigned_at: raw.assigned_at,
-        returned_at: raw.returned_at,
-        assignment_notes: raw.notes,
-        id: asset.id,
-        asset_type_id: asset.asset_type_id,
-        name: asset.name,
-        serial_no: asset.serial_no,
-        description: asset.description,
-        asset_value: Number(asset.asset_value ?? 0),
-        status: asset.status,
-        notes: asset.notes,
-        asset_type: assetType,
-      } satisfies import("./types").StaffAssignedAssetRow;
-    })
-    .filter((row): row is import("./types").StaffAssignedAssetRow => row != null);
+    const assetType = Array.isArray(asset.asset_type)
+      ? (asset.asset_type[0] ?? null)
+      : asset.asset_type;
+
+    rows.push({
+      assignment_id: raw.id,
+      assigned_at: raw.assigned_at,
+      returned_at: raw.returned_at,
+      assignment_notes: raw.notes,
+      id: asset.id,
+      asset_type_id: asset.asset_type_id,
+      name: asset.name,
+      serial_no: asset.serial_no,
+      description: asset.description,
+      asset_value: Number(asset.asset_value ?? 0),
+      status: asset.status,
+      notes: asset.notes,
+      asset_type: assetType,
+    });
+  }
+
+  return rows;
 }

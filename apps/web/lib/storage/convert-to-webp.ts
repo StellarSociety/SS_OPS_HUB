@@ -75,6 +75,31 @@ export function isRasterImageMime(mimeType: string): boolean {
   return RASTER_MIME_TYPES.has(mimeType);
 }
 
+/**
+ * FormData file entries from Server Actions are usually `File`, but on some
+ * Node/undici builds `instanceof File` is false even when the value is a valid
+ * upload blob. Duck-type so staff photos are not silently skipped.
+ */
+export function asUploadBlob(
+  value: FormDataEntryValue | null,
+): Blob | null {
+  if (value == null || typeof value === "string") return null;
+  if (typeof (value as Blob).arrayBuffer !== "function") return null;
+  if (typeof (value as Blob).size !== "number") return null;
+  if ((value as Blob).size <= 0) return null;
+  return value as Blob;
+}
+
+export function uploadBlobMeta(
+  value: Blob,
+): { type: string; name: string } {
+  const file = value as File;
+  return {
+    type: typeof file.type === "string" ? file.type : "",
+    name: typeof file.name === "string" ? file.name : "upload.webp",
+  };
+}
+
 /** Some browsers omit File.type on canvas exports; infer from the filename. */
 export function resolveRasterImageMime(
   file: Pick<File, "type" | "name">,
