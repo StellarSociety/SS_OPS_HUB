@@ -15,6 +15,7 @@ import { StaffProfilePhotoEditor } from "@/components/hr/staff-profile-photo-edi
 import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-slot";
 import { StaffWorkDriveDocumentList } from "@/components/hr/staff-workdrive-document-list";
 import { StaffCommunicationsTrail } from "@/components/hr/staff-communications-trail";
+import { StaffAssetsPanel } from "@/components/hr/staff-assets-panel";
 import { StaffEmploymentPath } from "@/components/hr/staff-employment-path";
 import {
   listStaffWorkDriveDocs,
@@ -163,6 +164,7 @@ export const STAFF_ENTRY_TABS = [
   "documents",
   "employment_docs",
   "communications",
+  "assets",
 ] as const;
 
 export type StaffEntryTab = (typeof STAFF_ENTRY_TABS)[number];
@@ -1812,6 +1814,8 @@ export function StaffEntryForm({
     <StaffCommunicationsTrail staffId={staffId} />
   );
 
+  const assetsPanel = <StaffAssetsPanel staffId={staffId} />;
+
   const employmentPathPanel = (
     <StaffEmploymentPath
       staffId={staffId}
@@ -1834,6 +1838,7 @@ export function StaffEntryForm({
 
   const wideTab =
     activeTab === "communications" ||
+    activeTab === "assets" ||
     activeTab === "employment_path" ||
     activeTab === "documents" ||
     activeTab === "employment_docs";
@@ -1908,6 +1913,12 @@ export function StaffEntryForm({
           aria-hidden={activeTab !== "communications"}
         >
           {communicationsPlaceholder}
+        </div>
+        <div
+          className={cn(activeTab !== "assets" && "hidden")}
+          aria-hidden={activeTab !== "assets"}
+        >
+          {assetsPanel}
         </div>
       </form>
     </>

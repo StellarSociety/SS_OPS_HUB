@@ -16,6 +16,8 @@ import {
   trashFile,
   verifyWorkDriveAccess,
   WorkDriveApiError,
+  probeWorkDriveCredentials,
+  formatWorkDriveTestFailure,
 } from "@/lib/hr/workdrive/client";
 import {
   deleteStaffWorkDriveDocumentMeta,
@@ -276,7 +278,29 @@ function parseExtraFolders(formData: FormData): HrWorkDriveExtraFolder[] {
         const name = String(r.name ?? "").trim();
         const folderId = String(r.folderId ?? "").trim();
         if (!name && !folderId) return null;
-        return { id, name: name || "Folder", folderId };
+        const fileNameManagement = Boolean(r.fileNameManagement);
+        const fileSlots = Array.isArray(r.fileSlots)
+          ? r.fileSlots
+              .map((slot, index) => {
+                if (!slot || typeof slot !== "object") return null;
+                const s = slot as Record<string, unknown>;
+                const slotId =
+                  String(s.id ?? "").trim() || `part_${index + 1}`;
+                const label =
+                  String(s.label ?? "").trim() || `File ${index + 1}`;
+                const fileNameTemplate =
+                  String(s.fileNameTemplate ?? "").trim() ||
+                  `{doc_name}_{first_name}_{last_name}_{doc_expiry}`;
+                return { id: slotId, label, fileNameTemplate };
+              })
+              .filter((slot): slot is NonNullable<typeof slot> => slot !== null)
+          : undefined;
+        return {
+          id,
+          name: name || "Folder",
+          folderId,
+          ...(fileNameManagement ? { fileNameManagement: true, fileSlots } : {}),
+        };
       })
       .filter((row): row is HrWorkDriveExtraFolder => row !== null);
   } catch {
@@ -727,14 +751,6 @@ export async function saveWorkDriveFolder(
       existing?.hrFolderName ||
       "Drive folder";
     const hrFolderId = String(formData.get("hr_folder_id") ?? "").trim();
-    const employeeDocsFolderName =
-      String(formData.get("employee_docs_folder_name") ?? "").trim() ||
-      existing?.employeeDocsFolderName ||
-      DEFAULT_HR_WORK_DRIVE_SETTINGS.employeeDocsFolderName;
-    const employeeDocsFolderId = String(
-      formData.get("employee_docs_folder_id") ?? "",
-    ).trim();
-    const extraFolders = parseExtraFolders(formData);
 
     const moduleKeyRaw = String(formData.get("module_key") ?? "").trim();
     const moduleKey =
@@ -743,6 +759,19 @@ export async function saveWorkDriveFolder(
       (folderId === "hr" || /human\s*resources/i.test(hrFolderName)
         ? "hr"
         : "custom");
+
+    const employeeDocsFolderName =
+      moduleKey === "hr"
+        ? String(formData.get("employee_docs_folder_name") ?? "").trim() ||
+          existing?.employeeDocsFolderName ||
+          DEFAULT_HR_WORK_DRIVE_SETTINGS.employeeDocsFolderName
+        : String(formData.get("employee_docs_folder_name") ?? "").trim() ||
+          existing?.employeeDocsFolderName ||
+          "";
+    const employeeDocsFolderId = String(
+      formData.get("employee_docs_folder_id") ?? "",
+    ).trim();
+    const extraFolders = parseExtraFolders(formData);
 
     // Nav tab label follows the module folder name (under SS-OPS-HUB).
     const label = hrFolderName;
@@ -965,6 +994,9 @@ export async function exchangeWorkDriveGrantCode(
 export async function testWorkDriveConnection(
   formData?: FormData,
 ): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  let probeSettings: HrWorkDriveSettings | null = null;
+  let testedFolderId = "";
+
   try {
     const auth = await getAuth();
     if ("error" in auth) return { ok: false, error: auth.error };
@@ -992,6 +1024,13 @@ export async function testWorkDriveConnection(
       emptyWorkDriveFolder({ id: "hr", label: "Human Resources", moduleKey: "hr" });
 
     const settings = flattenWorkDrive(connection, folder);
+    probeSettings = settings;
+    testedFolderId =
+      settings.employeeDocsFolderId ||
+      settings.hrFolderId ||
+      settings.teamFolderId ||
+      "";
+
     const missing: string[] = [];
     if (!settings.clientId) missing.push("Client ID");
     if (!settings.clientSecretEncrypted) missing.push("Client secret");
@@ -1005,16 +1044,23 @@ export async function testWorkDriveConnection(
     }
 
     if (missing.length) {
+      const probe = probeWorkDriveCredentials(settings);
+      const error = [
+        `Complete connection fields first (${missing.join(", ")}).`,
+        "",
+        "Debug:",
+        `• Region: ${probe.region}`,
+        `• Client ID: ${probe.clientId} (source: ${probe.clientIdSource})`,
+        `• Client secret: ${probe.clientSecretFingerprint} (source: ${probe.clientSecretSource})`,
+        `• Refresh token: ${probe.refreshTokenFingerprint} (source: ${probe.refreshTokenSource})`,
+      ].join("\n");
       const nextStore = upsertConnection(store, {
         ...connection,
         connectionStatus: "error",
-        lastError: `Missing: ${missing.join(", ")}`,
+        lastError: error,
       });
       await persistStore(venue.id, user.id, nextStore);
-      return {
-        ok: false,
-        error: `Complete connection fields first (${missing.join(", ")}).`,
-      };
+      return { ok: false, error };
     }
 
     const result = await verifyWorkDriveAccess(venue.id, settings);
@@ -1028,9 +1074,30 @@ export async function testWorkDriveConnection(
 
     return {
       ok: true,
-      message: `Connected to WorkDrive (${result.apiDomain}). Listed ${result.childCount} item(s) in folder ${result.folderId}.`,
+      message: [
+        `Connected to WorkDrive (${result.apiDomain}).`,
+        `Listed ${result.childCount} item(s) in folder ${result.folderId}.`,
+        `Client ID ${probeWorkDriveCredentials(settings).clientId}.`,
+      ].join(" "),
     };
   } catch (error) {
+    const probe = probeSettings
+      ? probeWorkDriveCredentials(probeSettings)
+      : probeWorkDriveCredentials(DEFAULT_HR_WORK_DRIVE_SETTINGS);
+    const step =
+      error instanceof WorkDriveApiError &&
+      /invalid_client|invalid_grant|invalid_code|access_denied|token/i.test(
+        error.message + (error.code ?? ""),
+      )
+        ? "OAuth token refresh (accounts.zoho…/oauth/v2/token)"
+        : error instanceof WorkDriveApiError
+          ? "WorkDrive API (list folder)"
+          : "connection test";
+    const detailed = formatWorkDriveTestFailure(error, probe, {
+      step,
+      folderId: testedFolderId || undefined,
+    });
+
     try {
       const auth = await getAuth();
       if (!("error" in auth)) {
@@ -1048,10 +1115,7 @@ export async function testWorkDriveConnection(
             upsertConnection(store, {
               ...connection,
               connectionStatus: "error",
-              lastError:
-                error instanceof Error
-                  ? error.message
-                  : "Connection test failed.",
+              lastError: detailed,
             }),
           );
         }
@@ -1060,15 +1124,7 @@ export async function testWorkDriveConnection(
       /* ignore persist failure */
     }
 
-    return {
-      ok: false,
-      error:
-        error instanceof WorkDriveApiError
-          ? error.message
-          : error instanceof Error
-            ? error.message
-            : "Connection test failed.",
-    };
+    return { ok: false, error: detailed };
   }
 }
 

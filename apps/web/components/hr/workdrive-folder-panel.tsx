@@ -1,9 +1,18 @@
 "use client";
 
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
-import { ChevronDown, Check, Copy, Folder, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  Check,
+  Copy,
+  Folder,
+  Link2,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,6 +22,7 @@ import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import {
   saveWorkDriveFolder,
   syncWorkDriveFolderNamesFromZoho,
+  testWorkDriveConnection,
 } from "@/lib/actions/hr-workdrive";
 import type {
   HrWorkDriveDocFileSlot,
@@ -162,6 +172,22 @@ function PathSegment({
   );
 }
 
+function AddFolderButton({ onClick }: { onClick: () => void }) {
+  return (
+    <div className="flex justify-start">
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        onClick={onClick}
+      >
+        <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+        Add folder
+      </Button>
+    </div>
+  );
+}
+
 function FolderNode({
   depth,
   title,
@@ -169,6 +195,7 @@ function FolderNode({
   children,
   collapsible = false,
   defaultOpen = true,
+  onAddFolder,
 }: {
   depth: number;
   title: ReactNode;
@@ -177,6 +204,8 @@ function FolderNode({
   /** When true, header toggles visibility of children (kept mounted for form fields). */
   collapsible?: boolean;
   defaultOpen?: boolean;
+  /** Renders an Add folder button after this node's children. */
+  onAddFolder?: () => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const reactId = useId();
@@ -231,19 +260,47 @@ function FolderNode({
           aria-hidden={collapsible ? !open : undefined}
         >
           {children}
+          {onAddFolder ? <AddFolderButton onClick={onAddFolder} /> : null}
         </div>
+      ) : onAddFolder ? (
+        <AddFolderButton onClick={onAddFolder} />
       ) : null}
     </div>
   );
 }
 
-function newExtraFolder(): HrWorkDriveExtraFolder {
+function newExtraFolder(
+  partial?: Partial<Pick<HrWorkDriveExtraFolder, "name" | "folderId">>,
+  withFileNameManagement = false,
+): HrWorkDriveExtraFolder {
   return {
     id: crypto.randomUUID(),
-    name: "",
-    folderId: "",
+    name: partial?.name?.trim() ?? "",
+    folderId: partial?.folderId?.trim() ?? "",
+    ...(withFileNameManagement
+      ? {
+          fileNameManagement: true,
+          fileSlots: [newDocFileSlot()],
+        }
+      : {}),
   };
 }
+
+function isExtraFolderFilled(row: Pick<HrWorkDriveExtraFolder, "name" | "folderId">) {
+  return Boolean(row.name.trim() || row.folderId.trim());
+}
+
+function usesHrEmployeeDocsLayout(folder: HrWorkDriveFolderPublic): boolean {
+  return folder.moduleKey === "hr";
+}
+
+const INACTIVE_DOC_SUBFOLDERS = DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS.map(
+  (defaults) => ({
+    ...defaults,
+    active: false,
+    fileSlots: defaults.fileSlots.map((slot) => ({ ...slot })),
+  }),
+);
 
 export function WorkDriveFolderPanel({
   connectionId,
@@ -256,19 +313,23 @@ export function WorkDriveFolderPanel({
 }) {
   const router = useRouter();
   const { scope, slug } = useVenueScope();
+  const hrLayout = usesHrEmployeeDocsLayout(folder);
+  const [testPending, startTestTransition] = useTransition();
 
   const [teamFolderName, setTeamFolderName] = useState(folder.teamFolderName);
   const [teamFolderId, setTeamFolderId] = useState(folder.teamFolderId);
   const [hrFolderName, setHrFolderName] = useState(folder.hrFolderName);
   const [hrFolderId, setHrFolderId] = useState(folder.hrFolderId);
   const [employeeDocsFolderName, setEmployeeDocsFolderName] = useState(
-    folder.employeeDocsFolderName || "Employee Documents",
+    hrLayout
+      ? folder.employeeDocsFolderName || "Employee Documents"
+      : folder.employeeDocsFolderName || "",
   );
   const [employeeDocsFolderId, setEmployeeDocsFolderId] = useState(
     folder.employeeDocsFolderId,
   );
   const [extraFolders, setExtraFolders] = useState<HrWorkDriveExtraFolder[]>(
-    folder.extraFolders ?? [],
+    () => (folder.extraFolders ?? []).filter(isExtraFolderFilled),
   );
   const [employeeFolderTemplate, setEmployeeFolderTemplate] = useState(
     folder.employeeFolderTemplate,
@@ -292,6 +353,8 @@ export function WorkDriveFolderPanel({
     folder.fileNameTemplate ||
     "{doc_label}_{emp_no}_{yyyy-MM-dd}";
 
+  const extraFoldersForSave = extraFolders;
+
   const watch = useMemo(
     () =>
       [
@@ -301,7 +364,7 @@ export function WorkDriveFolderPanel({
         hrFolderId,
         employeeDocsFolderName,
         employeeDocsFolderId,
-        JSON.stringify(extraFolders),
+        JSON.stringify(extraFoldersForSave),
         employeeFolderTemplate,
         String(autoCreateFolders),
         JSON.stringify(docSubfolders),
@@ -313,7 +376,7 @@ export function WorkDriveFolderPanel({
       hrFolderId,
       employeeDocsFolderName,
       employeeDocsFolderId,
-      extraFolders,
+      extraFoldersForSave,
       employeeFolderTemplate,
       autoCreateFolders,
       docSubfolders,
@@ -381,9 +444,147 @@ export function WorkDriveFolderPanel({
     );
   }
 
+  function toggleExtraFileNameMgmt(id: string, enabled: boolean) {
+    setExtraFolders((rows) =>
+      rows.map((row) => {
+        if (row.id !== id) return row;
+        if (!enabled) {
+          return { ...row, fileNameManagement: false, fileSlots: undefined };
+        }
+        return {
+          ...row,
+          fileNameManagement: true,
+          fileSlots: row.fileSlots?.length
+            ? row.fileSlots
+            : [newDocFileSlot()],
+        };
+      }),
+    );
+  }
+
+  function updateExtraFileSlot(
+    extraId: string,
+    slotId: string,
+    patch: Partial<HrWorkDriveDocFileSlot>,
+  ) {
+    setExtraFolders((rows) =>
+      rows.map((row) => {
+        if (row.id !== extraId || !row.fileSlots) return row;
+        return {
+          ...row,
+          fileSlots: row.fileSlots.map((slot) =>
+            slot.id === slotId ? { ...slot, ...patch } : slot,
+          ),
+        };
+      }),
+    );
+  }
+
+  function addExtraFileSlot(extraId: string) {
+    setExtraFolders((rows) =>
+      rows.map((row) => {
+        if (row.id !== extraId) return row;
+        return {
+          ...row,
+          fileSlots: [...(row.fileSlots ?? [newDocFileSlot()]), newDocFileSlot()],
+        };
+      }),
+    );
+  }
+
+  function removeExtraFileSlot(extraId: string, slotId: string) {
+    setExtraFolders((rows) =>
+      rows.map((row) => {
+        if (row.id !== extraId || !row.fileSlots || row.fileSlots.length <= 1) {
+          return row;
+        }
+        return {
+          ...row,
+          fileSlots: row.fileSlots.filter((slot) => slot.id !== slotId),
+        };
+      }),
+    );
+  }
+
+  function addModuleFolder() {
+    setExtraFolders((rows) => [...rows, newExtraFolder()]);
+  }
+
+  function addAssetsSubfolder() {
+    setExtraFolders((rows) => [...rows, newExtraFolder(undefined, true)]);
+  }
+
+  function activateNextDocSubfolder() {
+    setDocSubfolders((rows) => {
+      const nextInactive = rows.find((row) => !row.active);
+      if (!nextInactive) return rows;
+      return rows.map((row) =>
+        row.kind === nextInactive.kind ? { ...row, active: true } : row,
+      );
+    });
+  }
+
+  function renderModuleExtraFolder(row: HrWorkDriveExtraFolder) {
+    return (
+      <FolderNode
+        key={row.id}
+        depth={2}
+        title={row.name.trim() || "New folder"}
+      >
+        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <div className="space-y-1.5">
+            <Label htmlFor={`extra_name_${row.id}`}>Folder name</Label>
+            <Input
+              id={`extra_name_${row.id}`}
+              value={row.name}
+              onChange={(e) => updateExtra(row.id, { name: e.target.value })}
+              placeholder="Folder name"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`extra_id_${row.id}`}>Folder ID</Label>
+            <Input
+              id={`extra_id_${row.id}`}
+              value={row.folderId}
+              onChange={(e) => updateExtra(row.id, { folderId: e.target.value })}
+              placeholder="…/folders/<id>"
+              className="font-mono text-[13px]"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-black/50"
+              onClick={() =>
+                setExtraFolders((rows) => rows.filter((r) => r.id !== row.id))
+              }
+              aria-label={`Remove ${row.name || "folder"}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </FolderNode>
+    );
+  }
+
   const pathPreview = useMemo(() => {
     const team = teamFolderName.trim() || "SS-OPS-HUB";
     const module = hrFolderName.trim() || "Module folder";
+    if (!hrLayout) {
+      const subfolders = extraFoldersForSave
+        .filter((row) => row.name.trim())
+        .map((row) => ({
+          name: row.name.trim(),
+          fileName:
+            row.fileNameManagement && row.fileSlots?.[0]?.fileNameTemplate
+              ? row.fileSlots[0].fileNameTemplate.trim()
+              : null,
+        }));
+      return { team, module, subfolders };
+    }
     const empDocs = employeeDocsFolderName.trim() || "Employee Documents";
     const emp = employeeFolderTemplate.trim() || "{emp_no} — {full_name}";
     const activeDoc = docSubfolders.find((row) => row.active);
@@ -393,12 +594,14 @@ export function WorkDriveFolderPanel({
       legacyFileNameTemplate;
     return { team, module, empDocs, emp, doc, fileName };
   }, [
+    hrLayout,
     teamFolderName,
     hrFolderName,
     employeeDocsFolderName,
     employeeFolderTemplate,
     docSubfolders,
     legacyFileNameTemplate,
+    extraFoldersForSave,
   ]);
 
   async function handleSyncNames() {
@@ -434,9 +637,9 @@ export function WorkDriveFolderPanel({
   return (
     <div className="space-y-4">
       {statusError ? (
-        <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <pre className="whitespace-pre-wrap rounded-md bg-amber-50 px-3 py-2 font-sans text-xs leading-relaxed text-amber-900">
           {statusError}
-        </p>
+        </pre>
       ) : null}
       {statusMessage ? (
         <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
@@ -451,7 +654,10 @@ export function WorkDriveFolderPanel({
           setStatusError(null);
           formData.set("connection_id", connectionId);
           formData.set("folder_label", hrFolderName);
-          formData.set("extra_folders_json", JSON.stringify(extraFolders));
+          formData.set(
+            "extra_folders_json",
+            JSON.stringify(extraFoldersForSave),
+          );
           if (mode === "edit" && folder.id) {
             formData.set("folder_id", folder.id);
           }
@@ -460,6 +666,7 @@ export function WorkDriveFolderPanel({
             setStatusError(result.error);
             return;
           }
+          setExtraFolders(extraFoldersForSave);
           const notes =
             result.notes?.filter(Boolean).join(" ") ??
             "Drive folder saved.";
@@ -491,20 +698,19 @@ export function WorkDriveFolderPanel({
         <input
           type="hidden"
           name="extra_folders_json"
-          value={JSON.stringify(extraFolders)}
+          value={JSON.stringify(extraFoldersForSave)}
         />
 
         <Card className="space-y-4 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-[#3D421F]">
                 {mode === "add" ? "Add folder" : "Storage path"}
               </h4>
               <p className="mt-1 text-xs text-black/45">
-                Tree: SS-OPS-HUB → module folder → Employee Documents → employee
-                → doc type. IDs come from the WorkDrive URL (
-                <span className="font-mono">/ws/…</span> for the team root,{" "}
-                <span className="font-mono">/folders/…</span> for children).
+                {hrLayout
+                  ? "Tree: SS-OPS-HUB → module folder → Employee Documents → employee → doc type. IDs come from the WorkDrive URL (/ws/… for the team root, /folders/… for children)."
+                  : `Tree: SS-OPS-HUB → ${hrFolderName.trim() || "folder"} → subfolders. IDs come from the WorkDrive URL (/ws/… for the team root, /folders/… for children).`}
               </p>
             </div>
             {mode === "edit" && folder.id ? (
@@ -514,6 +720,7 @@ export function WorkDriveFolderPanel({
                 size="sm"
                 disabled={syncingNames}
                 onClick={() => void handleSyncNames()}
+                className="shrink-0"
               >
                 <RefreshCw
                   className={cn(
@@ -534,16 +741,35 @@ export function WorkDriveFolderPanel({
             <PathSegment label={pathPreview.team} />
             <span className="text-black/25">/</span>
             <PathSegment label={pathPreview.module} />
-            <span className="text-black/25">/</span>
-            <PathSegment label={pathPreview.empDocs} />
-            <span className="text-black/25">/</span>
-            <PathSegment label={pathPreview.emp} muted />
-            <span className="text-black/25">/</span>
-            <PathSegment label={pathPreview.doc} muted />
-            <span className="text-black/25">/</span>
-            <span className="truncate italic text-black/40">
-              {pathPreview.fileName}…
-            </span>
+            {hrLayout ? (
+              <>
+                <span className="text-black/25">/</span>
+                <PathSegment label={pathPreview.empDocs!} />
+                <span className="text-black/25">/</span>
+                <PathSegment label={pathPreview.emp!} muted />
+                <span className="text-black/25">/</span>
+                <PathSegment label={pathPreview.doc!} muted />
+                <span className="text-black/25">/</span>
+                <span className="truncate italic text-black/40">
+                  {pathPreview.fileName}…
+                </span>
+              </>
+            ) : (
+              pathPreview.subfolders?.map((sub) => (
+                <span key={sub.name} className="contents">
+                  <span className="text-black/25">/</span>
+                  <PathSegment label={sub.name} muted />
+                  {sub.fileName ? (
+                    <>
+                      <span className="text-black/25">/</span>
+                      <span className="truncate italic text-black/40">
+                        {sub.fileName}…
+                      </span>
+                    </>
+                  ) : null}
+                </span>
+              ))
+            )}
           </div>
 
           <label className="flex items-center gap-2 text-sm text-[#3D421F]">
@@ -555,8 +781,42 @@ export function WorkDriveFolderPanel({
               onChange={(e) => setAutoCreateFolders(e.target.checked)}
               className="rounded border-black/20"
             />
-            Auto-create employee and document-type folders when missing
+            {hrLayout
+              ? "Auto-create employee and document-type folders when missing"
+              : "Auto-create missing subfolders in ZOHO WorkDrive"}
           </label>
+
+          {!hrLayout ? (
+            <input
+              type="hidden"
+              name="employee_docs_folder_name"
+              value={employeeDocsFolderName}
+            />
+          ) : null}
+          {!hrLayout ? (
+            <input
+              type="hidden"
+              name="employee_docs_folder_id"
+              value={employeeDocsFolderId}
+            />
+          ) : null}
+          {!hrLayout ? (
+            <input
+              type="hidden"
+              name="employee_folder_template"
+              value={employeeFolderTemplate}
+            />
+          ) : null}
+          {!hrLayout ? (
+            <input
+              type="hidden"
+              name="doc_subfolders_json"
+              value={JSON.stringify(INACTIVE_DOC_SUBFOLDERS)}
+            />
+          ) : null}
+          {!hrLayout ? (
+            <input type="hidden" name="file_name_template" value="" />
+          ) : null}
 
           <div className="space-y-1 rounded-xl border border-black/8 bg-white/70 p-3 sm:p-4">
             <FolderNode
@@ -590,18 +850,25 @@ export function WorkDriveFolderPanel({
 
               <FolderNode
                 depth={1}
-                title="Module folder"
-                hint="Nav tab under this connection (e.g. Human Resources). Parent is SS-OPS-HUB."
+                title={hrFolderName.trim() || "Module folder"}
+                hint={
+                  hrLayout
+                    ? `Connected folder under ${teamFolderName}. Shown as the “${hrFolderName.trim() || "module"}” tab in Drive config.`
+                    : `Folder connected under ${teamFolderName}.`
+                }
+                onAddFolder={hrLayout ? addModuleFolder : addAssetsSubfolder}
               >
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="hr_folder_name">Folder name (tab)</Label>
+                    <Label htmlFor="hr_folder_name">
+                      {hrLayout ? "Folder name (tab)" : "Folder name"}
+                    </Label>
                     <Input
                       id="hr_folder_name"
                       name="hr_folder_name"
                       value={hrFolderName}
                       onChange={(e) => setHrFolderName(e.target.value)}
-                      placeholder="Human Resources"
+                      placeholder={hrLayout ? "Human Resources" : "Assets"}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -617,10 +884,13 @@ export function WorkDriveFolderPanel({
                   </div>
                 </div>
 
+                {hrLayout ? (
+                  <>
                 <FolderNode
                   depth={2}
                   title="Employee Documents"
                   hint="Working parent for per-employee folders."
+                  onAddFolder={addModuleFolder}
                 >
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
@@ -656,6 +926,7 @@ export function WorkDriveFolderPanel({
                     depth={3}
                     title="Employee folder"
                     hint="Created under Employee Documents for each staff member."
+                    onAddFolder={activateNextDocSubfolder}
                   >
                     <div className="space-y-1.5">
                       <Label htmlFor="employee_folder_template">
@@ -681,6 +952,7 @@ export function WorkDriveFolderPanel({
                       hint="One subfolder per document kind. Set auto file naming per file part (e.g. Emirates ID Front + Back)."
                       collapsible
                       defaultOpen
+                      onAddFolder={activateNextDocSubfolder}
                     >
                       <input
                         type="hidden"
@@ -842,87 +1114,178 @@ export function WorkDriveFolderPanel({
                   </FolderNode>
                 </FolderNode>
 
-                <FolderNode
-                  depth={2}
-                  title="Extra folders under module"
-                  hint="Siblings of Employee Documents (e.g. Policies)."
-                >
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() =>
-                        setExtraFolders((rows) => [...rows, newExtraFolder()])
-                      }
-                    >
-                      <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                      Add folder
-                    </Button>
-                  </div>
-                  {extraFolders.length === 0 ? (
-                    <p className="text-xs text-black/40">No extra folders yet.</p>
-                  ) : (
-                    <div className="space-y-2">
+                {extraFolders.map((row) => renderModuleExtraFolder(row))}
+                  </>
+                ) : (
+                  <FolderNode
+                    depth={2}
+                    title="Subfolders"
+                    hint="Direct children of this folder. Configure File Name Management per subfolder."
+                    onAddFolder={addAssetsSubfolder}
+                  >
+                    <div className="space-y-3">
                       {extraFolders.map((row) => (
-                        <div
+                        <FolderNode
                           key={row.id}
-                          className="grid gap-2 rounded-lg border border-black/8 bg-white/80 p-3 sm:grid-cols-[1fr_1fr_auto]"
+                          depth={3}
+                          title={row.name.trim() || "Untitled subfolder"}
                         >
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`extra_name_${row.id}`}>Name</Label>
-                            <Input
-                              id={`extra_name_${row.id}`}
-                              value={row.name}
-                              onChange={(e) =>
-                                updateExtra(row.id, { name: e.target.value })
-                              }
-                              placeholder="Folder name"
-                            />
+                          <div className="space-y-3">
+                            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`extra_name_${row.id}`}>
+                                  Subfolder name
+                                </Label>
+                                <Input
+                                  id={`extra_name_${row.id}`}
+                                  value={row.name}
+                                  onChange={(e) =>
+                                    updateExtra(row.id, {
+                                      name: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Subfolder name"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`extra_id_${row.id}`}>
+                                  Folder ID
+                                </Label>
+                                <Input
+                                  id={`extra_id_${row.id}`}
+                                  value={row.folderId}
+                                  onChange={(e) =>
+                                    updateExtra(row.id, {
+                                      folderId: e.target.value,
+                                    })
+                                  }
+                                  placeholder="…/folders/<id>"
+                                  className="font-mono text-[13px]"
+                                />
+                              </div>
+                              <div className="flex items-end">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-black/50"
+                                  onClick={() =>
+                                    setExtraFolders((rows) =>
+                                      rows.filter((r) => r.id !== row.id),
+                                    )
+                                  }
+                                  aria-label={`Remove ${row.name || "subfolder"}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-[#3D421F]">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(row.fileNameManagement)}
+                                onChange={(e) =>
+                                  toggleExtraFileNameMgmt(
+                                    row.id,
+                                    e.target.checked,
+                                  )
+                                }
+                                className="rounded border-black/20"
+                              />
+                              File Name Management
+                            </label>
+                            {row.fileNameManagement ? (
+                              <div className="space-y-2 rounded-md border border-black/8 bg-white/80 p-2">
+                                {(row.fileSlots ?? []).map((slot) => (
+                                  <div
+                                    key={slot.id}
+                                    className="flex items-center gap-1.5"
+                                  >
+                                    <Input
+                                      value={slot.label}
+                                      onChange={(e) =>
+                                        updateExtraFileSlot(row.id, slot.id, {
+                                          label: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Part"
+                                      className="h-7 w-[4.75rem] shrink-0 text-xs"
+                                    />
+                                    <Input
+                                      value={slot.fileNameTemplate}
+                                      onChange={(e) =>
+                                        updateExtraFileSlot(row.id, slot.id, {
+                                          fileNameTemplate: e.target.value,
+                                        })
+                                      }
+                                      placeholder="{doc_name}_{first_name}_{last_name}_{doc_expiry}"
+                                      className="h-7 min-w-0 flex-1 font-mono text-[11px]"
+                                    />
+                                    {(row.fileSlots?.length ?? 0) > 1 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          removeExtraFileSlot(row.id, slot.id)
+                                        }
+                                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-black/40 hover:bg-black/5"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => addExtraFileSlot(row.id)}
+                                  className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[#3D421F]/80 hover:bg-black/5"
+                                >
+                                  <Plus className="h-3 w-3" aria-hidden />
+                                  Add file part
+                                </button>
+                                <FileNameTokenList />
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`extra_id_${row.id}`}>
-                              Folder ID
-                            </Label>
-                            <Input
-                              id={`extra_id_${row.id}`}
-                              value={row.folderId}
-                              onChange={(e) =>
-                                updateExtra(row.id, {
-                                  folderId: e.target.value,
-                                })
-                              }
-                              placeholder="…/folders/<id>"
-                              className="font-mono text-[13px]"
-                            />
-                          </div>
-                          <div className="flex items-end">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-black/50"
-                              onClick={() =>
-                                setExtraFolders((rows) =>
-                                  rows.filter((r) => r.id !== row.id),
-                                )
-                              }
-                              aria-label={`Remove ${row.name || "folder"}`}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </div>
+                        </FolderNode>
                       ))}
                     </div>
-                  )}
-                </FolderNode>
+                  </FolderNode>
+                )}
+
               </FolderNode>
             </FolderNode>
           </div>
         </Card>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {mode === "edit" && folder.id ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={testPending}
+              className="border border-[#3D421F]/15"
+              onClick={() => {
+                startTestTransition(async () => {
+                  setStatusMessage(null);
+                  setStatusError(null);
+                  const fd = new FormData();
+                  fd.set("connection_id", connectionId);
+                  fd.set("folder_id", folder.id);
+                  const result = await testWorkDriveConnection(fd);
+                  if (!result.ok) {
+                    setStatusError(result.error);
+                    return;
+                  }
+                  setStatusMessage(result.message);
+                  router.refresh();
+                });
+              }}
+            >
+              <Link2 className="h-3.5 w-3.5" aria-hidden />
+              {testPending ? "Testing…" : "Test connection"}
+            </Button>
+          ) : null}
           <SaveFolderButton
             label={mode === "add" ? "Create folder" : "Save folder"}
           />

@@ -147,9 +147,9 @@ export function WorkDriveConnectionPanel({
           </p>
         ) : null}
         {statusError ? (
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <pre className="whitespace-pre-wrap rounded-md bg-amber-50 px-3 py-2 font-sans text-xs leading-relaxed text-amber-900">
             {statusError}
-          </p>
+          </pre>
         ) : null}
         {statusMessage ? (
           <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-900">

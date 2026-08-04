@@ -111,7 +111,10 @@ function DateCalendar({
   const todayDisabled = maxDate ? todayIso > maxDate : false;
 
   return (
-    <div className="w-[17.5rem] overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_12px_40px_-12px_rgba(61,66,31,0.35)]">
+    <div
+      className="w-[17.5rem] overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_12px_40px_-12px_rgba(61,66,31,0.35)]"
+      onMouseDown={(event) => event.preventDefault()}
+    >
       <div className="border-b border-black/5 bg-[var(--venue-secondary,#F0F3DD)]/45 px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
           <button

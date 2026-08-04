@@ -73,6 +73,28 @@ export function canAccessStaff(
   return hasHrFeatureAccess(permissions, HR_FEATURES.staff, venueId);
 }
 
+/** Can view the assets catalog (falls back to staff access). */
+export function canAccessAssets(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.assets, venueId) ||
+    canAccessStaff(permissions, venueId)
+  );
+}
+
+/** Can create, assign, and return assets (falls back to staff edit). */
+export function canEditAssets(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrPermission(permissions, HR_FEATURES.assets, "edit", venueId) ||
+    canEditStaff(permissions, venueId)
+  );
+}
+
 /** Can enter the schedules feature (independent of Staff directory). */
 export function canAccessSchedules(
   permissions: UserPermission[],

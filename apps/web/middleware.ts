@@ -41,6 +41,41 @@ function defaultScopedUrl(request: NextRequest, canonicalPath: string): string |
   return null;
 }
 
+const AUTH_CHECK_TIMEOUT_MS = 3_000;
+
+/** Prevent middleware from hanging when Edge can't reach Supabase JWKS. */
+async function resolveMiddlewareUserId(
+  supabase: ReturnType<typeof createMiddlewareClient>["supabase"],
+): Promise<string | null> {
+  try {
+    const claimsResult = await Promise.race([
+      supabase.auth.getClaims(),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error("getClaims timeout")),
+          AUTH_CHECK_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    return claimsResult.data?.claims?.sub ?? null;
+  } catch (error) {
+    console.warn(
+      "[middleware] getClaims failed:",
+      error instanceof Error ? error.message : error,
+    );
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data.session?.user?.id ?? null;
+    } catch (sessionError) {
+      console.warn(
+        "[middleware] getSession fallback failed:",
+        sessionError instanceof Error ? sessionError.message : sessionError,
+      );
+      return null;
+    }
+  }
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
@@ -72,8 +107,11 @@ export async function middleware(request: NextRequest) {
   // a network round-trip to the Supabase auth server on every request. This is
   // the hot path for every navigation, prefetch and RSC fetch, so it must stay
   // cheap. `getClaims` still refreshes an expired token when needed.
-  const { data: claimsData } = await supabase.auth.getClaims();
-  const userId = claimsData?.claims?.sub ?? null;
+  //
+  // When Edge can't reach Supabase JWKS (transient network / Turbopack sandbox
+  // fetch failures), fall back to the cookie session so server actions don't
+  // get "unexpected response" / Failed to fetch cascades.
+  const userId = await resolveMiddlewareUserId(supabase);
 
   if (pathname.startsWith("/auth/") || pathname.startsWith("/api/")) {
     return supabaseResponse;
@@ -94,18 +132,25 @@ export async function middleware(request: NextRequest) {
     (request.headers.get("purpose") ?? "") === "prefetch";
 
   if (userId && !isPublicRoute(pathname) && !isPrefetch) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("status")
-      .eq("id", userId)
-      .maybeSingle();
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("status")
+        .eq("id", userId)
+        .maybeSingle();
 
-    if (profile?.status === "disabled") {
-      await supabase.auth.signOut();
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      url.searchParams.set("error", "deactivated");
-      return NextResponse.redirect(url);
+      if (profile?.status === "disabled") {
+        await supabase.auth.signOut();
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        url.searchParams.set("error", "deactivated");
+        return NextResponse.redirect(url);
+      }
+    } catch (error) {
+      console.warn(
+        "[middleware] profile status check failed:",
+        error instanceof Error ? error.message : error,
+      );
     }
   }
 

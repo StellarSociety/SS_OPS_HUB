@@ -7,7 +7,7 @@ import {
 } from "@/lib/hr/workdrive/client";
 import { getStaffWorkDriveDocumentByFileId } from "@/lib/hr/workdrive/documents";
 import { loadWorkDriveSettings } from "@/lib/hr/workdrive/settings";
-import { canEditStaff, canViewStaff } from "@/lib/hr/permissions";
+import { canEditStaff, canViewStaff, canAccessAssets } from "@/lib/hr/permissions";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +38,8 @@ export async function GET(_request: Request, context: RouteContext) {
   const { venue, permissions } = auth;
   if (
     !canViewStaff(permissions, venue.id) &&
-    !canEditStaff(permissions, venue.id)
+    !canEditStaff(permissions, venue.id) &&
+    !canAccessAssets(permissions, venue.id)
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

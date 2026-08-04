@@ -23,6 +23,8 @@ type StaffSearchDialogProps = {
   departments: Department[];
   positions: Position[];
   statuses: EmploymentStatus[];
+  /** Use a higher z-index when opened on top of another modal. */
+  overlayClassName?: string;
 };
 
 function toggle(set: Set<string>, id: string): Set<string> {
@@ -48,6 +50,7 @@ export function StaffSearchDialog({
   departments,
   positions,
   statuses,
+  overlayClassName,
 }: StaffSearchDialogProps) {
   const defaultStatusIds = useMemo(
     () =>
@@ -141,7 +144,10 @@ export function StaffSearchDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[8vh] backdrop-blur-sm"
+      className={cn(
+        "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[8vh] backdrop-blur-sm",
+        overlayClassName,
+      )}
       role="dialog"
       aria-modal="true"
       aria-label="Search employees"

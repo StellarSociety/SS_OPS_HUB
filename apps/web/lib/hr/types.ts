@@ -66,6 +66,135 @@ export type CertificationType = {
   sort_order: number;
 };
 
+export type AssetType = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
+export type AssetStatus = "available" | "assigned" | "lost" | "retired";
+
+export type AssetRow = {
+  id: string;
+  asset_type_id: string;
+  name: string;
+  serial_no: string;
+  description: string;
+  asset_value: number;
+  status: AssetStatus;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  asset_type?: AssetType | null;
+  assigned_staff_id?: string | null;
+  assigned_staff_name?: string | null;
+  assigned_staff_emp_no?: string | null;
+  assigned_at?: string | null;
+  assignment_id?: string | null;
+};
+
+export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
+  available: "Available",
+  assigned: "Assigned",
+  lost: "Lost",
+  retired: "Retired",
+};
+
+/** Asset linked to a staff member via an assignment row. */
+export type StaffAssignedAssetRow = {
+  assignment_id: string;
+  assigned_at: string;
+  returned_at: string | null;
+  assignment_notes: string;
+  id: string;
+  asset_type_id: string;
+  name: string;
+  serial_no: string;
+  description: string;
+  asset_value: number;
+  status: AssetStatus;
+  notes: string;
+  asset_type?: AssetType | null;
+};
+
+export type UniformProductStatus = "active" | "old";
+
+export const UNIFORM_PRODUCT_STATUS_LABELS: Record<UniformProductStatus, string> = {
+  active: "Active Uniform",
+  old: "Old Uniform",
+};
+
+export type UniformSupplierRow = {
+  id: string;
+  name: string;
+  orders_email: string;
+  contact_person: string;
+  contact_phone: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UniformPieceEntitlement = {
+  id: string;
+  piece_id: string;
+  department_id: string;
+  position_id: string | null;
+  department?: Department | null;
+  position?: Position | null;
+};
+
+export type UniformStockReceiptRow = {
+  id: string;
+  piece_id: string;
+  received_at: string;
+  quantity: number;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UniformPieceRow = {
+  id: string;
+  name: string;
+  details: string;
+  supplier_id: string | null;
+  supplier: string;
+  supplier_orders_email: string;
+  contact_person: string;
+  contact_phone: string;
+  image_url: string;
+  workdrive_file_id: string;
+  product_status: UniformProductStatus;
+  unit_value: number;
+  created_at: string;
+  updated_at: string;
+  entitlements: UniformPieceEntitlement[];
+  stock_receipts: UniformStockReceiptRow[];
+  stock_received: number;
+  stock_assigned: number;
+  stock_balance: number;
+  supplier_record?: UniformSupplierRow | null;
+};
+
+export type UniformStaffItemRow = {
+  id: string;
+  staff_id: string;
+  piece_id: string;
+  quantity: number;
+  provided_at: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  piece?: Pick<UniformPieceRow, "id" | "name" | "unit_value"> | null;
+};
+
+export type UniformStaffSummaryRow = {
+  staff: StaffWithLookups;
+  items: UniformStaffItemRow[];
+  total_value: number;
+};
+
 /** How employment ended — set on staff profile when termination_date is filled. */
 export type StaffTerminationType =
   | "resignation"
@@ -189,6 +318,7 @@ export type ExpiryItem = {
 export const HR_MODULE_KEY = "hr" as const;
 export const HR_FEATURES = {
   staff: "staff",
+  assets: "assets",
   schedules: "schedules",
   lookups: "lookups",
   salary: "salary",
@@ -989,6 +1119,9 @@ export type HrWorkDriveExtraFolder = {
   id: string;
   name: string;
   folderId: string;
+  /** When true, uploads use auto file naming via `fileSlots`. */
+  fileNameManagement?: boolean;
+  fileSlots?: HrWorkDriveDocFileSlot[];
 };
 
 /** Team-folder tree under a WorkDrive OAuth connection. */

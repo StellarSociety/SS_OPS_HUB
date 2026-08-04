@@ -1245,3 +1245,245 @@ export async function listScheduleDaysByDateRange(
 
   return rows;
 }
+
+export async function listAssetTypes(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("asset_types")
+    .select("id, name, sort_order")
+    .order("sort_order");
+
+  if (error) {
+    console.error("[hr] listAssetTypes:", error.message);
+    return [];
+  }
+
+  return (data ?? []) as import("./types").AssetType[];
+}
+
+export async function listAllStaff(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("staff")
+    .select(STAFF_SELECT)
+    .order("full_name");
+
+  if (error) {
+    console.error("[hr] listAllStaff:", error.message);
+    return [];
+  }
+
+  return (data ?? []) as StaffWithLookups[];
+}
+
+type AssetDbRow = {
+  id: string;
+  asset_type_id: string;
+  name: string;
+  serial_no: string;
+  description: string;
+  asset_value: number;
+  status: import("./types").AssetStatus;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  asset_type: import("./types").AssetType | null;
+};
+
+type OpenAssignmentRow = {
+  id: string;
+  asset_id: string;
+  assigned_at: string;
+  staff: { id: string; full_name: string; emp_no: string } | null;
+};
+
+export async function listAssets(supabase: SupabaseClient) {
+  const [assetsResult, assignmentsResult] = await Promise.all([
+    supabase
+      .from("hr_assets")
+      .select(
+        `
+        id,
+        asset_type_id,
+        name,
+        serial_no,
+        description,
+        asset_value,
+        status,
+        notes,
+        created_at,
+        updated_at,
+        asset_type:asset_types(id, name, sort_order)
+      `,
+      )
+      .order("name"),
+    supabase
+      .from("hr_asset_assignments")
+      .select(
+        `
+        id,
+        asset_id,
+        assigned_at,
+        staff:staff(id, full_name, emp_no)
+      `,
+      )
+      .is("returned_at", null),
+  ]);
+
+  if (assetsResult.error) {
+    console.error("[hr] listAssets:", assetsResult.error.message);
+    return [];
+  }
+
+  if (assignmentsResult.error) {
+    console.error("[hr] listAssets assignments:", assignmentsResult.error.message);
+  }
+
+  const assignmentByAsset = new Map<string, OpenAssignmentRow>();
+  for (const raw of assignmentsResult.data ?? []) {
+    const row = raw as {
+      id: string;
+      asset_id: string;
+      assigned_at: string;
+      staff:
+        | { id: string; full_name: string; emp_no: string }
+        | { id: string; full_name: string; emp_no: string }[]
+        | null;
+    };
+    const staff = Array.isArray(row.staff) ? (row.staff[0] ?? null) : row.staff;
+    assignmentByAsset.set(row.asset_id, {
+      id: row.id,
+      asset_id: row.asset_id,
+      assigned_at: row.assigned_at,
+      staff,
+    });
+  }
+
+  return ((assetsResult.data ?? []) as unknown as AssetDbRow[]).map((asset) => {
+    const assignment = assignmentByAsset.get(asset.id);
+    const assetType = Array.isArray(asset.asset_type)
+      ? (asset.asset_type[0] ?? null)
+      : asset.asset_type;
+    return {
+      id: asset.id,
+      asset_type_id: asset.asset_type_id,
+      name: asset.name,
+      serial_no: asset.serial_no,
+      description: asset.description,
+      asset_value: Number(asset.asset_value ?? 0),
+      status: asset.status,
+      notes: asset.notes,
+      created_at: asset.created_at,
+      updated_at: asset.updated_at,
+      asset_type: assetType,
+      assignment_id: assignment?.id ?? null,
+      assigned_at: assignment?.assigned_at ?? null,
+      assigned_staff_id: assignment?.staff?.id ?? null,
+      assigned_staff_name: assignment?.staff?.full_name ?? null,
+      assigned_staff_emp_no: assignment?.staff?.emp_no ?? null,
+    } satisfies import("./types").AssetRow;
+  });
+}
+
+export async function listAssetsForStaff(
+  supabase: SupabaseClient,
+  staffId: string,
+  options?: { includeReturned?: boolean },
+) {
+  let query = supabase
+    .from("hr_asset_assignments")
+    .select(
+      `
+        id,
+        assigned_at,
+        returned_at,
+        notes,
+        asset:hr_assets(
+          id,
+          asset_type_id,
+          name,
+          serial_no,
+          description,
+          asset_value,
+          status,
+          notes,
+          asset_type:asset_types(id, name, sort_order)
+        )
+      `,
+    )
+    .eq("staff_id", staffId)
+    .order("assigned_at", { ascending: false });
+
+  if (!options?.includeReturned) {
+    query = query.is("returned_at", null);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("[hr] listAssetsForStaff:", error.message);
+    return [];
+  }
+
+  return (data ?? [])
+    .map((row) => {
+      const raw = row as {
+        id: string;
+        assigned_at: string;
+        returned_at: string | null;
+        notes: string;
+        asset:
+          | {
+              id: string;
+              asset_type_id: string;
+              name: string;
+              serial_no: string;
+              description: string;
+              asset_value: number | string;
+              status: import("./types").AssetStatus;
+              notes: string;
+              asset_type:
+                | import("./types").AssetType
+                | import("./types").AssetType[]
+                | null;
+            }
+          | {
+              id: string;
+              asset_type_id: string;
+              name: string;
+              serial_no: string;
+              description: string;
+              asset_value: number | string;
+              status: import("./types").AssetStatus;
+              notes: string;
+              asset_type:
+                | import("./types").AssetType
+                | import("./types").AssetType[]
+                | null;
+            }[]
+          | null;
+      };
+
+      const asset = Array.isArray(row.asset) ? (row.asset[0] ?? null) : row.asset;
+      if (!asset) return null;
+
+      const assetType = Array.isArray(asset.asset_type)
+        ? (asset.asset_type[0] ?? null)
+        : asset.asset_type;
+
+      return {
+        assignment_id: raw.id,
+        assigned_at: raw.assigned_at,
+        returned_at: raw.returned_at,
+        assignment_notes: raw.notes,
+        id: asset.id,
+        asset_type_id: asset.asset_type_id,
+        name: asset.name,
+        serial_no: asset.serial_no,
+        description: asset.description,
+        asset_value: Number(asset.asset_value ?? 0),
+        status: asset.status,
+        notes: asset.notes,
+        asset_type: assetType,
+      } satisfies import("./types").StaffAssignedAssetRow;
+    })
+    .filter((row): row is import("./types").StaffAssignedAssetRow => row != null);
+}

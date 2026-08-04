@@ -22,12 +22,12 @@ export function SubpageTile({
 }: SubpageTileProps) {
   const iconClass =
     size === "sm"
-      ? "h-14 w-14 shrink-0 text-[var(--venue-primary,#818a40)]"
-      : "h-[72px] w-[72px] shrink-0 text-[var(--venue-primary,#818a40)]";
+      ? "h-12 w-12 shrink-0 text-[var(--venue-primary,#818a40)]"
+      : "h-[60px] w-[60px] shrink-0 text-[var(--venue-primary,#818a40)]";
   const labelClass =
     size === "sm"
-      ? "line-clamp-2 w-full max-w-[4.75rem] text-[10px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]"
-      : "line-clamp-2 w-full max-w-[5.75rem] text-[11px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]";
+      ? "line-clamp-2 w-full max-w-[4rem] text-[10px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]"
+      : "line-clamp-2 w-full max-w-[4.75rem] text-[11px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]";
 
   const inner = (
     <motion.div

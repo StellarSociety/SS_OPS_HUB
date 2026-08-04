@@ -33,6 +33,8 @@ export function readWorkDriveEnvCredentials(): {
   teamFolderId?: string;
   hrFolderId?: string;
   employeeDocsFolderId?: string;
+  assetsFolderId?: string;
+  assetsPicturesFolderId?: string;
 } {
   const regionRaw = env("ZOHO_WD_REGION");
   const region = REGIONS.has(regionRaw as ZohoWorkDriveRegion)
@@ -47,7 +49,50 @@ export function readWorkDriveEnvCredentials(): {
     teamFolderId: env("ZOHO_WD_TEAM_FOLDER_ID") || undefined,
     hrFolderId: env("ZOHO_WD_HR_FOLDER_ID") || undefined,
     employeeDocsFolderId: env("ZOHO_WD_EMPLOYEE_DOCS_FOLDER_ID") || undefined,
+    assetsFolderId: env("ZOHO_WD_ASSETS_FOLDER_ID") || undefined,
+    assetsPicturesFolderId: env("ZOHO_WD_ASSETS_PICTURES_FOLDER_ID") || undefined,
   };
+}
+
+/** Env defaults for Assets → Assets Pictures uploads. */
+export function applyAssetsWorkDriveEnvDefaults(
+  settings: HrWorkDriveSettings,
+): HrWorkDriveSettings {
+  const e = readWorkDriveEnvCredentials();
+  const next: HrWorkDriveSettings = { ...settings };
+  const assetsName = ZOHO_WD_VERIFIED.assetsFolderName;
+  const picturesName = ZOHO_WD_VERIFIED.assetsPicturesFolderName;
+
+  if (
+    next.hrFolderName.trim().toLowerCase() === assetsName.toLowerCase() &&
+    !next.hrFolderId.trim() &&
+    e.assetsFolderId
+  ) {
+    next.hrFolderId = e.assetsFolderId;
+  }
+
+  const picturesId =
+    e.assetsPicturesFolderId || ZOHO_WD_VERIFIED.assetsPicturesFolderId;
+  if (picturesId) {
+    const folders = [...(next.extraFolders ?? [])];
+    const idx = folders.findIndex(
+      (row) => row.name.trim().toLowerCase() === picturesName.toLowerCase(),
+    );
+    if (idx >= 0) {
+      if (!folders[idx]!.folderId.trim()) {
+        folders[idx] = { ...folders[idx]!, folderId: picturesId };
+      }
+    } else {
+      folders.push({
+        id: "assets-pictures",
+        name: picturesName,
+        folderId: picturesId,
+      });
+    }
+    next.extraFolders = folders;
+  }
+
+  return next;
 }
 
 /**

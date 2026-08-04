@@ -289,7 +289,10 @@ export function AttendanceMultiWeekPicker({
               className="fixed z-[250]"
               style={{ top: position.top, left: position.left }}
             >
-              <div className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg">
+              <div
+                className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg"
+                onMouseDown={(event) => event.preventDefault()}
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <button
                     type="button"
@@ -550,7 +553,10 @@ export function AttendanceDayRangePicker({
               className="fixed z-[250]"
               style={{ top: position.top, left: position.left }}
             >
-              <div className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg">
+              <div
+                className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg"
+                onMouseDown={(event) => event.preventDefault()}
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <button
                     type="button"
@@ -875,7 +881,10 @@ export function AttendancePayrollMonthPicker({
               className="fixed z-[250]"
               style={{ top: position.top, left: position.left }}
             >
-              <div className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg">
+              <div
+                className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg"
+                onMouseDown={(event) => event.preventDefault()}
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <button
                     type="button"
@@ -1075,7 +1084,10 @@ export function AttendanceMultiMonthPicker({
               className="fixed z-[250]"
               style={{ top: position.top, left: position.left }}
             >
-              <div className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg">
+              <div
+                className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg"
+                onMouseDown={(event) => event.preventDefault()}
+              >
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <button
                     type="button"

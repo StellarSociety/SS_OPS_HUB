@@ -14,7 +14,11 @@ export {
   ensureAccessToken,
   exchangeAuthorizationCode,
   clearAccessTokenCache,
+  probeWorkDriveCredentials,
+  formatWorkDriveTestFailure,
+  fingerprintCredential,
   type WorkDriveCredentials,
+  type WorkDriveCredentialProbe,
 } from "@/lib/hr/workdrive/token";
 
 const JSON_HEADERS_BASE = {

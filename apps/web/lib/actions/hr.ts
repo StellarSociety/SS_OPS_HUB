@@ -1113,9 +1113,9 @@ async function resolveStaffPhotoUpdate({
       });
 
     if (uploadError) {
+      console.error("[hr] staff photo upload failed:", uploadError.message);
       return {
-        error:
-          "Could not upload staff photo. Ensure the staff-photos storage bucket exists (run db migrations).",
+        error: `Could not upload staff photo (${uploadError.message}). Ensure the staff-photos storage bucket exists (run db migrations).`,
       };
     }
 

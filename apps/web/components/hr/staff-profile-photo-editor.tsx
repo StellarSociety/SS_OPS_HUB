@@ -79,6 +79,8 @@ export function StaffProfilePhotoEditor({
   const [offsetY, setOffsetY] = useState(0);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [adjustLoading, setAdjustLoading] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const dragDepthRef = useRef(0);
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -262,6 +264,43 @@ export function StaffProfilePhotoEditor({
     onSourceFileChange?.(file);
   }
 
+  function isFileDrag(e: React.DragEvent) {
+    return Array.from(e.dataTransfer.types).includes("Files");
+  }
+
+  function onFrameDragEnter(e: React.DragEvent) {
+    if (readOnly || !isFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current += 1;
+    setDropActive(true);
+  }
+
+  function onFrameDragOver(e: React.DragEvent) {
+    if (readOnly || !isFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function onFrameDragLeave(e: React.DragEvent) {
+    if (readOnly || !isFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDropActive(false);
+  }
+
+  function onFrameDrop(e: React.DragEvent) {
+    if (readOnly) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
+    setDropActive(false);
+    const file = e.dataTransfer.files?.[0] ?? null;
+    handleFile(file);
+  }
+
   function clearPhoto() {
     revokeTracked(sourceUrl);
     setSourceUrl(null);
@@ -360,13 +399,20 @@ export function StaffProfilePhotoEditor({
         <div
           ref={frameRef}
           className={cn(
-            "relative h-[15.5rem] w-[calc(15.5rem*7/9)] shrink-0 overflow-hidden rounded-md border border-black/10 bg-black/[0.04]",
+            "relative h-[15.5rem] w-[calc(15.5rem*7/9)] shrink-0 overflow-hidden rounded-md border border-black/10 bg-black/[0.04] transition-colors",
             hasSource && !readOnly && "cursor-grab active:cursor-grabbing",
+            dropActive &&
+              !readOnly &&
+              "border-[var(--venue-primary,#818a40)] bg-[var(--venue-primary,#818a40)]/10 ring-2 ring-[var(--venue-primary,#818a40)]/25",
           )}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onDragEnter={onFrameDragEnter}
+          onDragOver={onFrameDragOver}
+          onDragLeave={onFrameDragLeave}
+          onDrop={onFrameDrop}
         >
           {displayUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -404,10 +450,17 @@ export function StaffProfilePhotoEditor({
             <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
               <ImagePlus className="h-7 w-7 text-black/25" />
               <p className="text-[10px] leading-tight text-black/40">
-                Passport photo
+                Drop photo or upload
               </p>
             </div>
           )}
+          {dropActive && !readOnly ? (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[var(--venue-primary,#818a40)]/15">
+              <p className="rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-[#3D421F] shadow-sm">
+                Drop to upload
+              </p>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col items-end justify-between gap-2">
@@ -499,11 +552,11 @@ export function StaffProfilePhotoEditor({
             </div>
           ) : !displayUrl ? (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
-              Upload a clear headshot. Passport ratio (35×45).
+              Drag a photo onto the frame, or use Upload. Passport ratio (35×45).
             </p>
           ) : (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
-              Open Adjust to reposition, or Replace to pick a new photo.
+              Open Adjust to reposition, or drop / Replace for a new photo.
             </p>
           )}
         </div>

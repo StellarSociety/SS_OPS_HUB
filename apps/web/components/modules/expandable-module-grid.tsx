@@ -89,11 +89,11 @@ function PairedSubpageGroupsRow({
           {left.label}
         </p>
       ) : null}
-      <div className="flex flex-nowrap items-stretch justify-center gap-x-6 overflow-x-auto pb-1">
+      <div className="flex flex-nowrap items-stretch justify-center gap-x-5 overflow-x-auto pb-1">
         {left.items.map((item) => {
           const Icon = item.icon ?? left.icon;
           return (
-            <div key={item.href} className="w-[5.75rem] shrink-0">
+            <div key={item.href} className="w-[4.75rem] shrink-0">
               <SubpageTile
                 label={item.label}
                 href={item.href}
@@ -107,7 +107,7 @@ function PairedSubpageGroupsRow({
         {right.items.map((item) => {
           const Icon = item.icon ?? right.icon;
           return (
-            <div key={item.href} className="w-[5.75rem] shrink-0">
+            <div key={item.href} className="w-[4.75rem] shrink-0">
               <SubpageTile
                 label={item.label}
                 href={item.href}
@@ -130,7 +130,7 @@ function MultiGroupRow({
   forceComingSoon?: boolean;
 }) {
   return (
-    <div className="flex flex-nowrap items-stretch justify-center gap-x-5 overflow-x-auto pb-1">
+    <div className="flex flex-nowrap items-stretch justify-center gap-x-4 overflow-x-auto pb-1">
       {groups.map((group) => (
         <GroupBlock
           key={group.key}
@@ -263,16 +263,16 @@ function SubpageRow({
   return (
     <div
       className={cn(
-        "flex justify-center gap-x-6",
+        "flex justify-center gap-x-5",
         hasDividers && "items-stretch",
-        nowrap ? "flex-nowrap overflow-x-auto pb-1" : "flex-wrap gap-y-5",
+        nowrap ? "flex-nowrap overflow-x-auto pb-1" : "flex-wrap gap-y-4",
       )}
     >
       {items.map((item) => {
         const Icon = item.icon ?? fallbackIcon;
         return (
           <Fragment key={item.href}>
-            <div className="w-[5.75rem] shrink-0">
+            <div className="w-[4.75rem] shrink-0">
               <SubpageTile
                 label={item.label}
                 href={item.href}

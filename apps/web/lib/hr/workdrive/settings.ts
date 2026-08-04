@@ -1,7 +1,8 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { applyWorkDriveEnvDefaults } from "@/lib/hr/workdrive/env";
+import { applyAssetsWorkDriveEnvDefaults, applyWorkDriveEnvDefaults } from "@/lib/hr/workdrive/env";
+import { ZOHO_WD_VERIFIED } from "@/lib/hr/workdrive/constants";
 import {
   DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS,
   DEFAULT_HR_WORK_DRIVE_SETTINGS,
@@ -110,10 +111,25 @@ function mergeExtraFolders(
       const name = String(row.name ?? "").trim();
       const folderId = String(row.folderId ?? "").trim();
       if (!id && !name && !folderId) return null;
+      const fileNameManagement = Boolean(row.fileNameManagement);
+      const fileSlots = Array.isArray(row.fileSlots)
+        ? row.fileSlots
+            .map((slot, index) => {
+              if (!slot || typeof slot !== "object") return null;
+              const slotId = String(slot.id ?? "").trim() || `part_${index + 1}`;
+              const label = String(slot.label ?? "").trim() || `File ${index + 1}`;
+              const fileNameTemplate =
+                String(slot.fileNameTemplate ?? "").trim() ||
+                `{doc_name}_{first_name}_{last_name}_{doc_expiry}`;
+              return { id: slotId, label, fileNameTemplate };
+            })
+            .filter((slot): slot is NonNullable<typeof slot> => slot !== null)
+        : undefined;
       return {
         id: id || crypto.randomUUID(),
         name: name || "Folder",
         folderId,
+        ...(fileNameManagement ? { fileNameManagement: true, fileSlots } : {}),
       };
     })
     .filter((row): row is HrWorkDriveExtraFolder => row !== null);
@@ -334,6 +350,36 @@ function pickHrFolder(connection: HrWorkDriveConnection): HrWorkDriveFolder | nu
     connection.folders[0] ??
     null
   );
+}
+
+function isAssetsModuleFolder(folder: HrWorkDriveFolder): boolean {
+  const key = folder.moduleKey.trim().toLowerCase();
+  if (key === "assets") return true;
+  const label = folder.label.trim().toLowerCase();
+  const hrName = folder.hrFolderName.trim().toLowerCase();
+  if (label === "assets" || hrName === "assets") return true;
+  return (folder.extraFolders ?? []).some(
+    (row) => row.name.trim().toLowerCase() === "assets pictures",
+  );
+}
+
+function pickAssetsFolder(
+  connection: HrWorkDriveConnection,
+): HrWorkDriveFolder | null {
+  return connection.folders.find(isAssetsModuleFolder) ?? null;
+}
+
+export function pickAssetsFlatSettings(
+  store: HrWorkDriveStore,
+): HrWorkDriveSettings | null {
+  if (store.connections.length === 0) return null;
+  const connection =
+    store.connections.find((c) => c.id === store.defaultConnectionId) ??
+    store.connections[0];
+  if (!connection) return null;
+  const folder = pickAssetsFolder(connection);
+  if (!folder) return null;
+  return flattenWorkDrive(connection, folder);
 }
 
 export function pickDefaultFlatSettings(
@@ -568,6 +614,31 @@ export async function loadWorkDriveSettings(
   const flat =
     pickDefaultFlatSettings(store) ?? mergeWorkDriveSettings({});
   return applyWorkDriveEnvDefaults(flat);
+}
+
+/** WorkDrive settings for Assets / uniform piece photos (moduleKey `assets`). */
+export async function loadAssetsWorkDriveSettings(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<HrWorkDriveSettings> {
+  const store = await loadWorkDriveStore(supabase, venueId);
+  const assetsFlat = pickAssetsFlatSettings(store);
+  if (assetsFlat) {
+    return applyAssetsWorkDriveEnvDefaults(
+      applyWorkDriveEnvDefaults(assetsFlat),
+    );
+  }
+
+  const hrFlat = pickDefaultFlatSettings(store) ?? mergeWorkDriveSettings({});
+  const fallback = mergeWorkDriveSettings({
+    ...hrFlat,
+    hrFolderName: ZOHO_WD_VERIFIED.assetsFolderName,
+    hrFolderId: "",
+    employeeDocsFolderId: "",
+    employeeDocsFolderName: "",
+    extraFolders: [],
+  });
+  return applyAssetsWorkDriveEnvDefaults(applyWorkDriveEnvDefaults(fallback));
 }
 
 /** Accounts host for OAuth by Zoho DC. */

@@ -111,7 +111,10 @@ function WeekPickerCalendar({
   const isThisWeekSelected = isSameDay(selectedMonday, thisMonday);
 
   return (
-    <div className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg">
+    <div
+      className="w-[19rem] rounded-lg border border-black/10 bg-white p-3 shadow-lg"
+      onMouseDown={(event) => event.preventDefault()}
+    >
       <div className="mb-3 flex items-center justify-between gap-2">
         <button
           type="button"

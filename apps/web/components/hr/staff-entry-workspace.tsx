@@ -12,6 +12,7 @@ import {
   FolderOpen,
   IdCard,
   Mail,
+  Package,
   Pencil,
   Phone,
   Route,
@@ -81,6 +82,7 @@ const ENTRY_TABS: { id: StaffEntryTab; label: string; icon: LucideIcon }[] = [
   { id: "documents", label: "Personal Doc's", icon: FolderOpen },
   { id: "employment_docs", label: "Employment Doc's", icon: FileText },
   { id: "communications", label: "Communications", icon: Mail },
+  { id: "assets", label: "Assets", icon: Package },
 ];
 
 const modeButtonClass = (active: boolean) =>

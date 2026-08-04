@@ -23,6 +23,17 @@ export const ZOHO_WD_VERIFIED = {
    */
   employeeDocsFolderId: "vtvbm62a07bbd35f041bd996fea000998c43a",
   employeeDocsFolderName: "Employee Documents",
+  /** Module folder under SS-OPS-HUB for assets / uniforms (Orilla Drive config). */
+  assetsFolderName: "Assets",
+  assetsFolderId: "r8vlk66528a11ebcf4da4919294a634b95f06",
+  assetsPicturesFolderName: "Assets Pictures",
+  assetsPicturesFolderId: "r8vlkdabfecbcbe0240a1a75202ff86e34f2e",
+} as const;
+
+/** WorkDrive path: SS-OPS-HUB → Assets → Assets Pictures */
+export const ASSETS_WORKDRIVE = {
+  moduleFolderName: ZOHO_WD_VERIFIED.assetsFolderName,
+  picturesFolderName: ZOHO_WD_VERIFIED.assetsPicturesFolderName,
 } as const;
 
 export function zohoWorkDriveDownloadHost(region: ZohoWorkDriveRegion): string {

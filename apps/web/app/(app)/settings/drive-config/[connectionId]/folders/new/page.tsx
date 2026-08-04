@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
-import { WorkDriveFolderPanel } from "@/components/hr/workdrive-folder-panel";
+import { WorkDriveFolderWizard } from "@/components/hr/workdrive-folder-wizard";
 import { getWorkDriveStoreForUi } from "@/lib/actions/hr-workdrive";
 import { emptyWorkDriveFolder } from "@/lib/hr/workdrive/settings";
 import { scopedPath } from "@/lib/venue/active-venue";
 
 type Props = { params: Promise<{ connectionId: string }> };
 
-/** Add-folder form — only mounted on this route. */
+/** Add-folder wizard — only mounted on this route. */
 export default async function SettingsDriveFolderNewPage({ params }: Props) {
   const { connectionId } = await params;
   const { connections } = await getWorkDriveStoreForUi();
@@ -26,16 +26,14 @@ export default async function SettingsDriveFolderNewPage({ params }: Props) {
     teamFolderId: seed?.teamFolderId ?? "",
     hrFolderName: "",
     hrFolderId: "",
-    employeeDocsFolderId: "",
-    employeeDocsFolderName: "Employee Documents",
+    employeeDocsFolderId: seed?.employeeDocsFolderId ?? "",
+    employeeDocsFolderName:
+      seed?.employeeDocsFolderName ?? "Employee Documents",
+    employeeFolderTemplate: seed?.employeeFolderTemplate,
     extraFolders: [],
   });
 
   return (
-    <WorkDriveFolderPanel
-      connectionId={connection.id}
-      folder={blank}
-      mode="add"
-    />
+    <WorkDriveFolderWizard connectionId={connection.id} seed={blank} />
   );
 }

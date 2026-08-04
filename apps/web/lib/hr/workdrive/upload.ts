@@ -9,7 +9,7 @@ import {
   uploadFile,
   type WorkDriveFileRef,
 } from "@/lib/hr/workdrive/client";
-import { ZOHO_WD_VERIFIED } from "@/lib/hr/workdrive/constants";
+import { ZOHO_WD_VERIFIED, ASSETS_WORKDRIVE } from "@/lib/hr/workdrive/constants";
 import type {
   HrWorkDriveDocKind,
   HrWorkDriveDocFileSlot,
@@ -353,4 +353,150 @@ function guessExt(contentType: string): string {
   if (ct.includes("webp")) return ".webp";
   if (ct.includes("jpeg") || ct.includes("jpg")) return ".jpg";
   return "";
+}
+
+export function uniformPieceWorkDriveDownloadPath(fileId: string): string {
+  return `/api/hr/workdrive/download/${encodeURIComponent(fileId)}`;
+}
+
+async function resolveAssetsPicturesFolder(params: {
+  apiDomain: string;
+  accessToken: string;
+  settings: HrWorkDriveSettings;
+}): Promise<WorkDriveFileRef> {
+  const picturesName = ASSETS_WORKDRIVE.picturesFolderName;
+  const moduleName = ASSETS_WORKDRIVE.moduleFolderName;
+
+  const configured = (params.settings.extraFolders ?? []).find(
+    (row) =>
+      row.name.trim().toLowerCase() === picturesName.toLowerCase() &&
+      row.folderId.trim(),
+  );
+  if (configured?.folderId) {
+    return {
+      id: configured.folderId,
+      name: picturesName,
+      permalink: "",
+      isFolder: true,
+    };
+  }
+
+  let assetsFolderId = "";
+  if (
+    params.settings.hrFolderName.trim().toLowerCase() ===
+    moduleName.toLowerCase()
+  ) {
+    assetsFolderId = params.settings.hrFolderId.trim();
+  }
+  if (!assetsFolderId) {
+    assetsFolderId =
+      process.env.ZOHO_WD_ASSETS_FOLDER_ID?.trim() ||
+      ZOHO_WD_VERIFIED.assetsFolderId.trim();
+  }
+
+  let assetsFolder: WorkDriveFileRef;
+  if (assetsFolderId) {
+    assetsFolder = {
+      id: assetsFolderId,
+      name: moduleName,
+      permalink: "",
+      isFolder: true,
+    };
+  } else {
+    const teamId =
+      params.settings.teamFolderId.trim() || ZOHO_WD_VERIFIED.teamFolderId;
+    if (!teamId) {
+      throw new Error(
+        "WorkDrive Assets folder is not configured. Add an Assets module under Drive config or set ZOHO_WD_ASSETS_FOLDER_ID.",
+      );
+    }
+    assetsFolder = await resolveOrCreateFolder({
+      apiDomain: params.apiDomain,
+      accessToken: params.accessToken,
+      parentId: teamId,
+      name: moduleName,
+      autoCreate: params.settings.autoCreateFolders,
+    });
+  }
+
+  return resolveOrCreateFolder({
+    apiDomain: params.apiDomain,
+    accessToken: params.accessToken,
+    parentId: assetsFolder.id,
+    name: picturesName,
+    autoCreate: params.settings.autoCreateFolders,
+  });
+}
+
+export type UploadUniformPieceImageResult = {
+  workdriveFileId: string;
+  permalink: string;
+  path: string;
+  fileName: string;
+};
+
+/** Upload a uniform piece photo to SS-OPS-HUB → Assets → Assets Pictures. */
+export async function uploadUniformPieceImageToWorkDrive(input: {
+  venueId: string;
+  settings: HrWorkDriveSettings;
+  pieceId: string;
+  pieceName: string;
+  bytes: Buffer;
+  contentType: string;
+  overrideNameExist?: boolean;
+}): Promise<UploadUniformPieceImageResult> {
+  const credentials = credentialsFromSettings(input.settings);
+  const { accessToken, apiDomain } = await ensureAccessToken(
+    input.venueId,
+    credentials,
+  );
+
+  const picturesFolder = await resolveAssetsPicturesFolder({
+    apiDomain,
+    accessToken,
+    settings: input.settings,
+  });
+
+  const stem = sanitizeFileName(
+    `${input.pieceName.trim() || "uniform-piece"}_${input.pieceId.slice(0, 8)}`,
+  );
+  const ext = guessExt(input.contentType) || ".webp";
+  const fileName = sanitizeFileName(`${stem}${ext}`);
+
+  let uploaded = await uploadFile({
+    apiDomain,
+    accessToken,
+    parentId: picturesFolder.id,
+    fileName,
+    bytes: input.bytes,
+    contentType: input.contentType || "image/webp",
+    overrideNameExist: input.overrideNameExist === true,
+  });
+
+  const storedName = uploaded.name || "";
+  if (storedName && storedName !== fileName) {
+    await renameFile(apiDomain, accessToken, uploaded.id, fileName);
+    uploaded = { ...uploaded, name: fileName };
+  } else if (!storedName) {
+    try {
+      await renameFile(apiDomain, accessToken, uploaded.id, fileName);
+      uploaded = { ...uploaded, name: fileName };
+    } catch {
+      /* keep upload as-is */
+    }
+  }
+
+  const path = [
+    input.settings.teamFolderName || ZOHO_WD_VERIFIED.teamFolderName,
+    ASSETS_WORKDRIVE.moduleFolderName,
+    ASSETS_WORKDRIVE.picturesFolderName,
+    fileName,
+  ].join("/");
+
+  return {
+    workdriveFileId: uploaded.id,
+    permalink: uploaded.permalink,
+    path,
+    fileName,
+  };
 }

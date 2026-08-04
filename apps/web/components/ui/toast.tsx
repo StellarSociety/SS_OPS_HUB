@@ -6,6 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -24,8 +25,9 @@ import { cn } from "@/lib/utils";
  *   toast.alert("Check the highlighted rows.") // amber  — warnings / attention (sticky)
  *   toast.error("Couldn't save. Try again.")  // red    — failures (sticky)
  *
- * All toasts render top-left, below the header. Save/upload auto-dismiss after
- * ~4s; alerts and errors stay until dismissed. Every toast has a close button.
+ * All toasts render top-left via a document.body portal above modals/dialogs.
+ * Save/upload auto-dismiss after ~4s; alerts and errors stay until dismissed.
+ * Every toast has a close button.
  */
 
 export type ToastKind = "saved" | "uploaded" | "alert" | "error";
@@ -225,22 +227,28 @@ function ToastItem({ record }: { record: ToastRecord }) {
 }
 
 /**
- * Toast viewport. Mount once, near the top-left of the content area so toasts
- * appear below the header and never cover the sidebar logo/nav.
+ * Toast viewport. Portaled to document.body so notifications always sit above
+ * modals, dialogs, and other high stacking contexts.
  */
 export function Toaster() {
   const items = useSyncExternalStore(subscribe, getSnapshot, () => toasts);
+  const [mounted, setMounted] = useState(false);
 
-  if (items.length === 0) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
+  if (!mounted || items.length === 0) return null;
+
+  return createPortal(
     <div
       aria-label="Notifications"
-      className="pointer-events-none absolute left-4 top-3 z-[100] flex w-[min(360px,calc(100%-2rem))] flex-col gap-2"
+      className="pointer-events-none fixed right-4 top-3 z-[9999] flex w-[min(360px,calc(100%-2rem))] flex-col gap-2"
     >
       {items.map((record) => (
         <ToastItem key={record.id} record={record} />
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
