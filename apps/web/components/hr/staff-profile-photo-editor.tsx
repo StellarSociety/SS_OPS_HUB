@@ -85,6 +85,7 @@ export function StaffProfilePhotoEditor({
   const [offsetY, setOffsetY] = useState(0);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [adjustLoading, setAdjustLoading] = useState(false);
+  const [readingFile, setReadingFile] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const dragDepthRef = useRef(0);
@@ -98,6 +99,7 @@ export function StaffProfilePhotoEditor({
   const prevPhotoUrlRef = useRef(photoUrl);
   const hasExportedRef = useRef(false);
   const wasUploadingRef = useRef(false);
+  const completeTimerRef = useRef<number | null>(null);
   const [exportPending, setExportPending] = useState(false);
 
   const hasSource = Boolean(sourceUrl);
@@ -107,7 +109,8 @@ export function StaffProfilePhotoEditor({
     !readOnly &&
     Boolean(sourceUrl) &&
     (!naturalSize || exportPending);
-  const showProgress = uploading || exportPending || adjustLoading;
+  // Crop re-exports on every slider nudge — keep the bar for pick / load / save only.
+  const showProgress = uploading || adjustLoading || readingFile;
 
   useEffect(() => {
     onPhotoBusyChange?.(photoBusy);
@@ -115,39 +118,54 @@ export function StaffProfilePhotoEditor({
 
   // Server Actions don't report byte progress — animate a bar while work runs.
   useEffect(() => {
-    if (exportPending || adjustLoading) {
-      setUploadProgress((p) => (p == null || p > 35 ? 10 : Math.max(p, 10)));
+    if (completeTimerRef.current != null) {
+      window.clearTimeout(completeTimerRef.current);
+      completeTimerRef.current = null;
+    }
+
+    if (readingFile || adjustLoading) {
+      setUploadProgress((p) => (p == null || p > 35 ? 8 : Math.max(p, 8)));
       const id = window.setInterval(() => {
         setUploadProgress((p) => {
-          const cur = p ?? 10;
+          const cur = p ?? 8;
           if (cur >= 35) return cur;
-          return cur + 3 + Math.random() * 4;
+          return cur + 2 + Math.random() * 4;
         });
-      }, 160);
+      }, 140);
       return () => window.clearInterval(id);
     }
 
     if (uploading) {
       wasUploadingRef.current = true;
-      setUploadProgress((p) => Math.max(p ?? 20, 40));
+      setUploadProgress((p) => Math.max(p ?? 30, 40));
       const id = window.setInterval(() => {
         setUploadProgress((p) => {
           const cur = p ?? 40;
           if (cur >= 92) return cur;
-          return cur + 3 + Math.random() * 6;
+          return cur + 2 + Math.random() * 5;
         });
       }, 220);
       return () => window.clearInterval(id);
     }
 
+    // Only celebrate completion after a real storage upload, not after crop prep.
     if (wasUploadingRef.current) {
       wasUploadingRef.current = false;
-      setUploadProgress(null);
-      return;
+      setUploadProgress(100);
+      completeTimerRef.current = window.setTimeout(() => {
+        setUploadProgress(null);
+        completeTimerRef.current = null;
+      }, 650);
+      return () => {
+        if (completeTimerRef.current != null) {
+          window.clearTimeout(completeTimerRef.current);
+          completeTimerRef.current = null;
+        }
+      };
     }
 
     setUploadProgress(null);
-  }, [uploading, exportPending, adjustLoading]);
+  }, [uploading, adjustLoading, readingFile]);
 
   useEffect(() => {
     const el = frameRef.current;
@@ -195,6 +213,7 @@ export function StaffProfilePhotoEditor({
     resetCrop();
     setOptionsOpen(false);
     setAdjustLoading(false);
+    setReadingFile(false);
   }
 
   // Leave the framing session when the form becomes read-only (Done / cancel).
@@ -319,8 +338,13 @@ export function StaffProfilePhotoEditor({
   }, [sourceUrl, naturalSize, zoom, offsetX, offsetY, readOnly]);
 
   function handleFile(file: File | null) {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    const looksLikeImage =
+      file.type.startsWith("image/") ||
+      /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
+    if (!looksLikeImage) return;
     hasExportedRef.current = false;
+    setReadingFile(true);
     const url = trackObjectUrl(URL.createObjectURL(file));
     revokeTracked(sourceUrl);
     setSourceUrl(url);
@@ -338,6 +362,7 @@ export function StaffProfilePhotoEditor({
     ])
       .then((img) => {
         setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+        setReadingFile(false);
       })
       .catch((err) => {
         console.warn(
@@ -345,6 +370,7 @@ export function StaffProfilePhotoEditor({
           err instanceof Error ? err.message : err,
         );
         // Don't leave Save blocked forever on a bad/unreadable file.
+        setReadingFile(false);
         setSourceUrl(null);
         setNaturalSize(null);
         onPhotoFileChange(null);
@@ -353,39 +379,58 @@ export function StaffProfilePhotoEditor({
   }
 
   function isFileDrag(e: React.DragEvent) {
-    return Array.from(e.dataTransfer.types).includes("Files");
+    const types = Array.from(e.dataTransfer?.types ?? []);
+    // Chrome/Safari use "Files"; Firefox may use "application/x-moz-file".
+    if (types.includes("Files") || types.includes("application/x-moz-file")) {
+      return true;
+    }
+    const items = e.dataTransfer?.items;
+    if (!items) return false;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i]?.kind === "file") return true;
+    }
+    return false;
   }
 
-  function onFrameDragEnter(e: React.DragEvent) {
-    if (readOnly || !isFileDrag(e)) return;
+  function onEditorDragEnter(e: React.DragEvent) {
+    if (readOnly || uploading || readingFile) return;
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     dragDepthRef.current += 1;
     setDropActive(true);
   }
 
-  function onFrameDragOver(e: React.DragEvent) {
-    if (readOnly || !isFileDrag(e)) return;
+  function onEditorDragOver(e: React.DragEvent) {
+    if (readOnly || uploading || readingFile) return;
+    // Must preventDefault on dragover or the browser won't fire drop.
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
+    if (!dropActive && isFileDrag(e)) setDropActive(true);
   }
 
-  function onFrameDragLeave(e: React.DragEvent) {
-    if (readOnly || !isFileDrag(e)) return;
+  function onEditorDragLeave(e: React.DragEvent) {
+    if (readOnly) return;
     e.preventDefault();
     e.stopPropagation();
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-    if (dragDepthRef.current === 0) setDropActive(false);
+    const next = e.relatedTarget as Node | null;
+    if (next && e.currentTarget.contains(next)) return;
+    dragDepthRef.current = 0;
+    setDropActive(false);
   }
 
-  function onFrameDrop(e: React.DragEvent) {
-    if (readOnly) return;
+  function onEditorDrop(e: React.DragEvent) {
+    if (readOnly || uploading || readingFile) return;
     e.preventDefault();
     e.stopPropagation();
     dragDepthRef.current = 0;
     setDropActive(false);
-    const file = e.dataTransfer.files?.[0] ?? null;
+    const file =
+      e.dataTransfer.files?.[0] ??
+      (e.dataTransfer.items?.[0]?.kind === "file"
+        ? e.dataTransfer.items[0].getAsFile()
+        : null);
     handleFile(file);
   }
 
@@ -395,6 +440,7 @@ export function StaffProfilePhotoEditor({
     setNaturalSize(null);
     resetCrop();
     setOptionsOpen(false);
+    setReadingFile(false);
     onCleared();
     onSourceFileChange?.(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -441,7 +487,8 @@ export function StaffProfilePhotoEditor({
   }
 
   function onPointerDown(e: React.PointerEvent) {
-    if (readOnly || !hasSource) return;
+    if (readOnly || !hasSource || dropActive || uploading || readingFile) return;
+    if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = {
       startX: e.clientX,
@@ -482,7 +529,19 @@ export function StaffProfilePhotoEditor({
     "inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:opacity-40";
 
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div
+      className={cn(
+        "relative flex flex-col gap-3 rounded-md transition-colors",
+        dropActive &&
+          !readOnly &&
+          "bg-[var(--venue-primary,#818a40)]/5 ring-2 ring-[var(--venue-primary,#818a40)]/30 ring-offset-2 ring-offset-transparent",
+        className,
+      )}
+      onDragEnter={onEditorDragEnter}
+      onDragOver={onEditorDragOver}
+      onDragLeave={onEditorDragLeave}
+      onDrop={onEditorDrop}
+    >
       <div className="flex items-stretch gap-3">
         <div
           ref={frameRef}
@@ -505,20 +564,16 @@ export function StaffProfilePhotoEditor({
           }
           className={cn(
             "relative h-[15.5rem] w-[calc(15.5rem*7/9)] shrink-0 overflow-hidden rounded-md border border-black/10 bg-black/[0.04] transition-colors",
-            hasSource && !readOnly && "cursor-grab active:cursor-grabbing",
+            hasSource && !readOnly && !dropActive && "cursor-grab active:cursor-grabbing",
             !readOnly && !displayUrl && "cursor-pointer hover:bg-black/[0.06]",
             dropActive &&
               !readOnly &&
-              "border-[var(--venue-primary,#818a40)] bg-[var(--venue-primary,#818a40)]/10 ring-2 ring-[var(--venue-primary,#818a40)]/25",
+              "border-[var(--venue-primary,#818a40)] bg-[var(--venue-primary,#818a40)]/10",
           )}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onDragEnter={onFrameDragEnter}
-          onDragOver={onFrameDragOver}
-          onDragLeave={onFrameDragLeave}
-          onDrop={onFrameDrop}
         >
           {displayUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -576,26 +631,38 @@ export function StaffProfilePhotoEditor({
               </p>
             </div>
           ) : null}
+          {showProgress || uploadProgress != null ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/55 to-transparent px-2 pb-2 pt-6">
+              <div className="h-1 w-full overflow-hidden rounded-full bg-white/35">
+                <div
+                  className="h-full rounded-full bg-white transition-[width] duration-150 ease-out"
+                  style={{
+                    width: `${Math.min(100, Math.max(4, uploadProgress ?? 8))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col items-end justify-between gap-2">
           <div className="flex w-[6.75rem] flex-col gap-1.5">
             <button
               type="button"
-              disabled={readOnly || uploading}
+              disabled={readOnly || uploading || readingFile}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 btnClass,
-                "border-black/10 bg-white text-[#3D421F] hover:bg-[var(--venue-secondary)]/30",
+                "border-[var(--venue-primary,#818a40)]/35 bg-[var(--venue-primary,#818a40)] text-white hover:opacity-90",
               )}
             >
               <Upload className="h-3.5 w-3.5 shrink-0" />
-              {displayUrl ? "Replace" : "Upload"}
+              Upload
             </button>
             {displayUrl ? (
               <button
                 type="button"
-                disabled={readOnly || uploading}
+                disabled={readOnly || uploading || readingFile}
                 onClick={clearPhoto}
                 className={cn(
                   btnClass,
@@ -610,7 +677,7 @@ export function StaffProfilePhotoEditor({
               <button
                 type="button"
                 aria-expanded={optionsOpen}
-                disabled={adjustLoading || uploading}
+                disabled={adjustLoading || uploading || readingFile}
                 onClick={() => void beginAdjust()}
                 className={cn(
                   btnClass,
@@ -626,18 +693,21 @@ export function StaffProfilePhotoEditor({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.png,.jpg,.jpeg,.webp,.heic,.heif"
               form={DETACHED_FILE_FORM_ID}
               className="hidden"
-              disabled={readOnly || uploading}
-              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+              disabled={readOnly || uploading || readingFile}
+              onChange={(e) => {
+                handleFile(e.target.files?.[0] ?? null);
+                e.target.value = "";
+              }}
             />
           </div>
 
           {hasSource && !readOnly && optionsOpen ? (
-            <div className="w-full space-y-2.5 rounded-md border border-black/10 bg-black/[0.03] p-2.5">
+            <div className="w-full space-y-1.5 rounded-md border border-black/10 bg-black/[0.03] px-2 py-1.5">
               <SliderField
-                label="Horizontal"
+                label="H"
                 value={offsetX}
                 min={-1}
                 max={1}
@@ -645,7 +715,7 @@ export function StaffProfilePhotoEditor({
                 onChange={setOffsetX}
               />
               <SliderField
-                label="Vertical"
+                label="V"
                 value={offsetY}
                 min={-1}
                 max={1}
@@ -653,22 +723,21 @@ export function StaffProfilePhotoEditor({
                 onChange={setOffsetY}
               />
               <SliderField
-                label="Zoom"
+                label="Z"
                 value={zoom}
                 min={1}
                 max={3}
                 step={0.01}
                 onChange={setZoom}
               />
-              <p className="text-right text-[10px] leading-snug text-black/45">
-                Drag the preview or use the sliders to choose what stays visible
-                in the frame. Save to keep the new crop.
+              <p className="text-right text-[9px] leading-snug text-black/40">
+                Drag preview · Save to apply
               </p>
             </div>
           ) : readOnly ? (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
               {displayUrl
-                ? "Click Edit to replace or adjust this photo."
+                ? "Click Edit to upload or adjust this photo."
                 : "Click Edit, then Upload a passport-ratio photo."}
             </p>
           ) : !displayUrl ? (
@@ -677,7 +746,7 @@ export function StaffProfilePhotoEditor({
             </p>
           ) : (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
-              Open Adjust to reposition, or drop / Replace for a new photo.
+              Open Adjust to reposition, or Upload a new photo.
             </p>
           )}
         </div>
@@ -696,11 +765,13 @@ export function StaffProfilePhotoEditor({
         >
           <div className="flex items-center justify-between gap-2 text-[10px] font-medium text-[#3D421F]/80">
             <span>
-              {adjustLoading
-                ? "Loading photo…"
-                : exportPending
-                  ? "Preparing crop…"
-                  : "Uploading photo…"}
+              {uploadProgress != null && uploadProgress >= 100
+                ? "Done"
+                : adjustLoading
+                  ? "Loading photo…"
+                  : readingFile
+                    ? "Reading photo…"
+                    : "Uploading photo…"}
             </span>
             <span className="tabular-nums text-black/45">
               {uploadProgress != null ? `${Math.round(uploadProgress)}%` : "…"}
@@ -740,19 +811,22 @@ function SliderField({
   step: number;
   onChange: (v: number) => void;
 }) {
+  const fullLabel =
+    label === "H" ? "Horizontal" : label === "V" ? "Vertical" : label === "Z" ? "Zoom" : label;
   return (
-    <label className="block space-y-1">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+    <label className="flex items-center gap-2" title={fullLabel}>
+      <span className="w-3 shrink-0 text-[9px] font-semibold uppercase tracking-wide text-black/45">
         {label}
       </span>
       <input
         type="range"
+        aria-label={fullLabel}
         min={min}
         max={max}
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-[var(--venue-primary)]"
+        className="h-1 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-[var(--venue-primary)]"
       />
     </label>
   );
