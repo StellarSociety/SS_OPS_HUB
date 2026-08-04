@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { WorkDriveFolderPanel } from "@/components/hr/workdrive-folder-panel";
 import { getWorkDriveStoreForUi } from "@/lib/actions/hr-workdrive";
 import { scopedPath } from "@/lib/venue/active-venue";
@@ -18,14 +18,7 @@ export default async function SettingsDriveFolderPage({ params }: Props) {
 
   const folder = connection.folders.find((f) => f.id === folderId);
   if (!folder) {
-    if (connection.folders[0]) {
-      redirect(
-        await scopedPath(
-          `/settings/drive-config/${connection.id}/folders/${connection.folders[0].id}`,
-        ),
-      );
-    }
-    notFound();
+    redirect(await scopedPath(`/settings/drive-config/${connection.id}`));
   }
 
   return (

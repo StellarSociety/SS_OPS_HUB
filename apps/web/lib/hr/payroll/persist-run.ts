@@ -36,6 +36,7 @@ import {
   type HrPayrollAdjustmentCodesSettings,
   type PayrollAdjustmentCodeConfig,
 } from "./adjustment-codes";
+import { promotePendingPayrollDeductions } from "./pending-deductions";
 
 export async function loadPayrollSettings(
   supabase: SupabaseClient,
@@ -136,6 +137,14 @@ export async function persistCalculatedPayrollRun(opts: {
   const staffInputs = toStaffInput(staffRows);
   const staffIds = staffInputs.map((s) => s.id);
   const empNos = staffInputs.map((s) => s.emp_no);
+
+  // Attach any queued deductions (e.g. uniform replacements) before calc.
+  await promotePendingPayrollDeductions({
+    service,
+    venueId,
+    runId,
+    actorId: userId,
+  });
 
   const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
     await Promise.all([
@@ -654,6 +663,14 @@ export async function persistSingleEmployeePayroll(opts: {
   const runEmployeeId = runEmp.id as string;
   const ctx = await loadPayrollCalcContext(supabase, venueId);
   const staff = staffRowToInput(await getStaffById(supabase, staffId, venueId));
+
+  await promotePendingPayrollDeductions({
+    service,
+    venueId,
+    runId,
+    staffId,
+    actorId: userId,
+  });
 
   const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
     await Promise.all([

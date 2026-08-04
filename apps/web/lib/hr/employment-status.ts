@@ -45,6 +45,13 @@ export function isOffBoardEmploymentStatus(
   );
 }
 
+/** OUT employees are auto-hidden from the Uniform Employees active list. */
+export function isOutEmploymentStatus(
+  name: string | null | undefined,
+): boolean {
+  return normalizeEmploymentStatusName(name) === EMPLOYMENT_STATUS_NAMES.out;
+}
+
 /** Display / filter order: Hiring → ON Board → OFF Board → OUT. */
 export const EMPLOYMENT_STATUS_SORT_ORDER: readonly string[] = [
   EMPLOYMENT_STATUS_NAMES.hiring,

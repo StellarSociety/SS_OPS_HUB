@@ -21,6 +21,7 @@ import {
   Mails,
   PartyPopper,
   Percent,
+  Shirt,
   Stamp,
   Settings2,
   ShieldCheck,
@@ -41,6 +42,7 @@ import {
   HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
   HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF,
   HR_SETTINGS_EMAILS_OTHER_HREF,
+  HR_SETTINGS_EMAILS_OTHER_UNIFORM_TERMS_HREF,
   HR_SETTINGS_EMAILS_OTHER_UPDATED_DOCS_HREF,
   HR_SETTINGS_EMAILS_OTHER_WORK_ANNIVERSARY_HREF,
   HR_SETTINGS_EMAILS_PAY_HREF,
@@ -340,6 +342,11 @@ const EMAILS_OTHER_TABS: Tab[] = [
     href: HR_SETTINGS_EMAILS_OTHER_UPDATED_DOCS_HREF,
     label: "Updated Docs Request",
     icon: FileText,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_UNIFORM_TERMS_HREF,
+    label: "Uniform",
+    icon: Shirt,
   },
 ];
 

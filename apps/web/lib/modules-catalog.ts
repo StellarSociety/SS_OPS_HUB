@@ -140,7 +140,7 @@ export const moduleCatalog: ModuleDef[] = [
     description: "Staff, departments, documents, expiries.",
     features: [
       { key: "overview", label: "Overview", href: "/hr" },
-      { key: "staff", label: "Staff directory", href: "/hr/staff" },
+      { key: "staff", label: "Staff directory", href: "/hr/staff/entry" },
       { key: "insurance", label: "Insurance", href: "/hr/insurance" },
       { key: "certifications", label: "Certifications", href: "/hr/certifications" },
       { key: "assets", label: "Assets", href: "/hr/assets" },
@@ -156,7 +156,7 @@ export const moduleCatalog: ModuleDef[] = [
         href: "/hr/attendance/insights",
       },
       { key: "attendance", label: "Attendance records", href: "/hr/attendance/records" },
-      { key: "leave", label: "Leave", href: "/hr/attendance/leave" },
+      { key: "leave", label: "Leave", href: "/hr/attendance/leave/balances" },
       { key: "benefits", label: "Benefits", href: "/hr/benefits/gratuity" },
       { key: "payroll", label: "Payroll", href: "/hr/payroll" },
       { key: "payslips", label: "Payslips", href: "/hr/payslips" },
@@ -179,7 +179,12 @@ export const moduleCatalog: ModuleDef[] = [
           "Can be selected as a weekly schedule approver. Approvers revise the roster and confirm publish so Editors can download the schedule PDF.",
         sensitive: true,
       },
-      { key: "settings", label: "Settings", href: "/hr/settings", settings: true },
+      {
+        key: "settings",
+        label: "Settings",
+        href: "/hr/settings/staff-details/departments",
+        settings: true,
+      },
     ],
   },
   {

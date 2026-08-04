@@ -1,5 +1,12 @@
 import type { HrWorkDriveConnectionPublic } from "@/lib/hr/types";
 
+/** Connection shell with no inner subtab selected (no panel). */
+export function driveConnectionHomePath(
+  connection: Pick<HrWorkDriveConnectionPublic, "id">,
+): string {
+  return `/settings/drive-config/${connection.id}`;
+}
+
 /** Prefer HR folder, else the first folder under the connection. */
 export function defaultDriveFolderPath(
   connection: Pick<HrWorkDriveConnectionPublic, "id" | "folders">,

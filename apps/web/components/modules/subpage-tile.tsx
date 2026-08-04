@@ -35,7 +35,8 @@ export function SubpageTile({
       whileTap={comingSoon ? { scale: 0.98 } : { scale: 0.94 }}
       transition={{ type: "spring", stiffness: 460, damping: 22 }}
       className={cn(
-        "group flex flex-col items-center gap-1.5 px-0.5 py-1 text-center",
+        "group flex flex-col items-center px-0.5 text-center",
+        size === "sm" ? "gap-1 py-0.5" : "gap-1.5 py-1",
         comingSoon ? "cursor-default" : "cursor-pointer",
       )}
     >

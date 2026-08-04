@@ -83,21 +83,22 @@ function PairedSubpageGroupsRow({
   forceComingSoon?: boolean;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {left.label ? (
         <p className="text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-black/40">
           {left.label}
         </p>
       ) : null}
-      <div className="flex flex-nowrap items-stretch justify-center gap-x-5 overflow-x-auto pb-1">
+      <div className="flex flex-nowrap items-stretch justify-center gap-x-3 overflow-x-auto">
         {left.items.map((item) => {
           const Icon = item.icon ?? left.icon;
           return (
-            <div key={item.href} className="w-[4.75rem] shrink-0">
+            <div key={item.href} className="w-[4rem] shrink-0">
               <SubpageTile
                 label={item.label}
                 href={item.href}
                 icon={Icon}
+                size="sm"
                 comingSoon={item.comingSoon || forceComingSoon}
               />
             </div>
@@ -107,11 +108,12 @@ function PairedSubpageGroupsRow({
         {right.items.map((item) => {
           const Icon = item.icon ?? right.icon;
           return (
-            <div key={item.href} className="w-[4.75rem] shrink-0">
+            <div key={item.href} className="w-[4rem] shrink-0">
               <SubpageTile
                 label={item.label}
                 href={item.href}
                 icon={Icon}
+                size="sm"
                 comingSoon={item.comingSoon || forceComingSoon}
               />
             </div>
@@ -130,7 +132,7 @@ function MultiGroupRow({
   forceComingSoon?: boolean;
 }) {
   return (
-    <div className="flex flex-nowrap items-stretch justify-center gap-x-4 overflow-x-auto pb-1">
+    <div className="flex flex-nowrap items-stretch justify-center gap-x-3 overflow-x-auto">
       {groups.map((group) => (
         <GroupBlock
           key={group.key}
@@ -263,20 +265,21 @@ function SubpageRow({
   return (
     <div
       className={cn(
-        "flex justify-center gap-x-5",
+        "flex justify-center gap-x-3",
         hasDividers && "items-stretch",
-        nowrap ? "flex-nowrap overflow-x-auto pb-1" : "flex-wrap gap-y-4",
+        nowrap ? "flex-nowrap overflow-x-auto" : "flex-wrap gap-y-2",
       )}
     >
       {items.map((item) => {
         const Icon = item.icon ?? fallbackIcon;
         return (
           <Fragment key={item.href}>
-            <div className="w-[4.75rem] shrink-0">
+            <div className="w-[4rem] shrink-0">
               <SubpageTile
                 label={item.label}
                 href={item.href}
                 icon={Icon}
+                size="sm"
                 comingSoon={item.comingSoon || forceComingSoon}
               />
             </div>
@@ -300,7 +303,7 @@ function GroupBlock({
   nowrap?: boolean;
 }) {
   return (
-    <div className="shrink-0 space-y-2">
+    <div className="shrink-0 space-y-1">
       {group.label ? (
         <p className="text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-black/40">
           {group.label}
@@ -376,10 +379,10 @@ export function ExpandableModuleGrid({
       {selected && expanded && expanded.items.length > 0 ? (
         <div
           ref={panelRef}
-          className="space-y-4 rounded-2xl border border-[var(--venue-primary)]/20 bg-[var(--venue-primary)]/10 px-4 py-5 shadow-inner"
+          className="space-y-2.5 rounded-2xl border border-[var(--venue-primary)]/20 bg-[var(--venue-primary)]/10 px-3 py-3 shadow-inner"
         >
           {useGroups ? (
-            <div className="space-y-4">
+            <div className="space-y-2.5">
               {buildDisplayRows(expanded.groups!).map((row) =>
                 row.type === "multi" ? (
                   <MultiGroupRow

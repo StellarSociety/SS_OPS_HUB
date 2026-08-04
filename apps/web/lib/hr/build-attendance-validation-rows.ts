@@ -286,6 +286,7 @@ export type ValidationEmployeeOption = {
   empNo: string;
   fullName: string;
   departmentId: string | null;
+  positionName: string | null;
   joiningDate: string | null;
   terminationDate: string | null;
 };
@@ -305,6 +306,7 @@ export function validationEmployeeOptions(
       empNo: s.emp_no,
       fullName: s.full_name,
       departmentId: s.department_id,
+      positionName: s.position?.name?.trim() || null,
       joiningDate: isoDateOnly(s.joining_date),
       terminationDate: isoDateOnly(s.termination_date),
     }));
@@ -345,6 +347,7 @@ export function approvalsCheckScope(
       empNo: s.emp_no,
       fullName: s.full_name,
       departmentId: s.department_id,
+      positionName: s.position?.name?.trim() || null,
       joiningDate,
       terminationDate,
     });

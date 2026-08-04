@@ -11,7 +11,7 @@ import {
   assignUniformsToStaff,
   updateUniformStaffItem,
 } from "@/lib/actions/hr-uniforms";
-import { formatAed } from "@/lib/hr/derived";
+import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import type {
   StaffWithLookups,
   UniformPieceRow,
@@ -222,6 +222,9 @@ export function UniformStaffItemDialog({
             <p className="mt-1 text-sm text-black/55">
               {staff.full_name}
               {staff.emp_no ? ` · ${staff.emp_no}` : ""}
+              {staff.joining_date
+                ? ` · Joined ${formatDateOnly(staff.joining_date)}`
+                : ""}
             </p>
           </div>
           <button

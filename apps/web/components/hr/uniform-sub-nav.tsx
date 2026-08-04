@@ -7,14 +7,14 @@ import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
 
 const TABS = [
   {
-    href: "/hr/assets/uniform/details",
-    label: "Uniform details",
-    icon: ClipboardList,
-  },
-  {
     href: "/hr/assets/uniform/employees",
     label: "Employees",
     icon: Users,
+  },
+  {
+    href: "/hr/assets/uniform/details",
+    label: "Uniform details",
+    icon: ClipboardList,
   },
 ] as const;
 

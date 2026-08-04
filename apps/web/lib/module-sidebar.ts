@@ -31,7 +31,18 @@ import type { LucideIcon } from "lucide-react";
 
 export type ModuleSidebarItem = {
   label: string;
+  /**
+   * Navigation target. Prefer a real page (not a redirect hub) — soft-nav into
+   * `redirect()` routes can trip React's "Rendered more hooks…" error.
+   */
   href: string;
+  /**
+   * When set, active-state matching uses this prefix instead of `href`
+   * (so `/hr/staff/entry` stays active on `/hr/staff/insights`, etc.).
+   */
+  activePathPrefix?: string;
+  /** Paths under `activePathPrefix` that should not mark this item active. */
+  excludePathPrefixes?: string[];
   icon?: LucideIcon;
   exact?: boolean;
   /** Render a divider directly after this item to visually group the nav. */
@@ -78,7 +89,12 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: LayoutDashboard,
         dividerAfter: true,
       },
-      { label: "Staff directory", href: "/hr/staff", icon: Users },
+      {
+        label: "Staff directory",
+        href: "/hr/staff/entry",
+        activePathPrefix: "/hr/staff",
+        icon: Users,
+      },
       { label: "Insurance", href: "/hr/insurance", icon: ShieldCheck },
       { label: "Certifications", href: "/hr/certifications", icon: GraduationCap },
       {
@@ -88,10 +104,17 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         dividerAfter: true,
       },
       { label: "Schedules", href: "/hr/schedules", icon: CalendarDays },
-      { label: "Attendance", href: "/hr/attendance", icon: CalendarCheck },
+      {
+        label: "Attendance",
+        href: "/hr/attendance/validation",
+        activePathPrefix: "/hr/attendance",
+        excludePathPrefixes: ["/hr/attendance/leave"],
+        icon: CalendarCheck,
+      },
       {
         label: "Leave",
-        href: "/hr/attendance/leave",
+        href: "/hr/attendance/leave/balances",
+        activePathPrefix: "/hr/attendance/leave",
         icon: CalendarOff,
         dividerAfter: true,
       },
@@ -110,7 +133,12 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       { label: "OFF-Boarding", href: "/hr/offboarding", icon: UserMinus },
     ],
     bottomItems: [
-      { label: "Settings", href: "/hr/settings", icon: Settings },
+      {
+        label: "Settings",
+        href: "/hr/settings/staff-details/departments",
+        activePathPrefix: "/hr/settings",
+        icon: Settings,
+      },
     ],
     categories: [
       {
@@ -118,7 +146,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         label: "Staff Details",
         icon: UserRound,
         itemHrefs: [
-          "/hr/staff",
+          "/hr/staff/entry",
           "/hr/insurance",
           "/hr/certifications",
           "/hr/assets",
@@ -130,8 +158,8 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: CalendarCheck,
         itemHrefs: [
           "/hr/schedules",
-          "/hr/attendance",
-          "/hr/attendance/leave",
+          "/hr/attendance/validation",
+          "/hr/attendance/leave/balances",
         ],
       },
       {
@@ -201,13 +229,24 @@ export function isModuleSidebarItemActive(
   pathname: string,
   item: ModuleSidebarItem,
 ): boolean {
-  if (item.exact) {
-    return pathname === item.href;
+  const matchBase = item.activePathPrefix ?? item.href;
+  if (
+    item.excludePathPrefixes?.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    )
+  ) {
+    return false;
   }
-  if (pathname === item.href) {
+  if (item.exact) {
+    return pathname === matchBase;
+  }
+  if (pathname === matchBase || pathname === item.href) {
     return true;
   }
-  return pathname.startsWith(`${item.href}/`);
+  return (
+    pathname.startsWith(`${matchBase}/`) ||
+    pathname.startsWith(`${item.href}/`)
+  );
 }
 
 export function getModuleSidebarForPath(pathname: string): ModuleSidebarDef | null {

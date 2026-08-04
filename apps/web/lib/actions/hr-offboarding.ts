@@ -900,6 +900,16 @@ export async function syncStaffOffboardingDirectoryFields(input: {
 
   if (error) return { error: error.message };
 
+  const { archiveUniformStaffIfEmploymentOut } = await import(
+    "@/lib/hr/uniform-store"
+  );
+  const archived = await archiveUniformStaffIfEmploymentOut(service, {
+    venueId: venue.id,
+    staffId: input.staffId,
+    employmentStatusId: input.employmentStatusId,
+    archivedBy: user.id,
+  });
+
   await writeAuditLog({
     actor_id: user.id,
     action: "update",
@@ -915,6 +925,9 @@ export async function syncStaffOffboardingDirectoryFields(input: {
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
   revalidatePath("/hr/offboarding");
+  if (archived) {
+    revalidatePath("/hr/assets/uniform/employees");
+  }
 
   return { success: true };
 }

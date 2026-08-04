@@ -16,6 +16,7 @@ import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-s
 import { StaffWorkDriveDocumentList } from "@/components/hr/staff-workdrive-document-list";
 import { StaffCommunicationsTrail } from "@/components/hr/staff-communications-trail";
 import { StaffAssetsPanel } from "@/components/hr/staff-assets-panel";
+import { StaffUniformPanel } from "@/components/hr/staff-uniform-panel";
 import { StaffEmploymentPath } from "@/components/hr/staff-employment-path";
 import {
   listStaffWorkDriveDocs,
@@ -165,6 +166,7 @@ export const STAFF_ENTRY_TABS = [
   "employment_docs",
   "communications",
   "assets",
+  "uniform",
 ] as const;
 
 export type StaffEntryTab = (typeof STAFF_ENTRY_TABS)[number];
@@ -176,6 +178,8 @@ type StaffEntryFormProps = {
   onPhotoFileChange: (file: File | null) => void;
   onPhotoSourceFileChange?: (file: File | null) => void;
   onPhotoBusyChange?: (busy: boolean) => void;
+  /** True while a photo is being uploaded as part of Save. */
+  photoUploading?: boolean;
   photoCleared: boolean;
   onPhotoClearedChange: (cleared: boolean) => void;
   readOnly: boolean;
@@ -534,6 +538,7 @@ export function StaffEntryForm({
   onPhotoFileChange,
   onPhotoSourceFileChange,
   onPhotoBusyChange,
+  photoUploading = false,
   photoCleared,
   onPhotoClearedChange,
   readOnly,
@@ -1734,14 +1739,20 @@ export function StaffEntryForm({
           onPhotoFileChange={onPhotoFileChange}
           onSourceFileChange={onPhotoSourceFileChange}
           onPhotoBusyChange={onPhotoBusyChange}
+          uploading={photoUploading}
           onCleared={() => {
             onPhotoClearedChange(true);
             onChange({ photo_url: "" });
             onPhotoFileChange(null);
             onPhotoSourceFileChange?.(null);
           }}
-          readOnly={readOnly}
+          readOnly={readOnly || photoUploading}
         />
+        {readOnly ? (
+          <p className="mt-2 text-[11px] text-black/40">
+            Editing is locked. Use Edit, then change the photo here.
+          </p>
+        ) : null}
         {photoCleared ? (
           <input type="hidden" name="photo_clear" value="1" />
         ) : null}
@@ -1815,6 +1826,7 @@ export function StaffEntryForm({
   );
 
   const assetsPanel = <StaffAssetsPanel staffId={staffId} />;
+  const uniformPanel = <StaffUniformPanel staffId={staffId} />;
 
   const employmentPathPanel = (
     <StaffEmploymentPath
@@ -1839,6 +1851,7 @@ export function StaffEntryForm({
   const wideTab =
     activeTab === "communications" ||
     activeTab === "assets" ||
+    activeTab === "uniform" ||
     activeTab === "employment_path" ||
     activeTab === "documents" ||
     activeTab === "employment_docs";
@@ -1919,6 +1932,12 @@ export function StaffEntryForm({
           aria-hidden={activeTab !== "assets"}
         >
           {assetsPanel}
+        </div>
+        <div
+          className={cn(activeTab !== "uniform" && "hidden")}
+          aria-hidden={activeTab !== "uniform"}
+        >
+          {uniformPanel}
         </div>
       </form>
     </>

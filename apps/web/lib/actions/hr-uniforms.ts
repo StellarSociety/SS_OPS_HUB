@@ -5,8 +5,12 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import type { ActionAuthContext, ActionAuthFailure } from "@/lib/auth/action-context";
-import { canEditAssets } from "@/lib/hr/permissions";
+import { canAccessAssets, canEditAssets } from "@/lib/hr/permissions";
 import { HR_MODULE_KEY } from "@/lib/hr/types";
+import {
+  listUniformItemsForStaff,
+  upsertUniformStaffArchive,
+} from "@/lib/hr/uniform-store";
 import { convertImageToWebp } from "@/lib/storage/convert-to-webp";
 import { trashFile, credentialsFromSettings, ensureAccessToken } from "@/lib/hr/workdrive/client";
 import { loadAssetsWorkDriveSettings } from "@/lib/hr/workdrive/settings";
@@ -95,6 +99,17 @@ function assertEdit(ctx: ActionAuthContext | ActionAuthFailure): ActionAuthConte
     throw new Error("You do not have permission to manage uniforms.");
   }
   return ctx;
+}
+
+export async function listStaffUniforms(input: { staffId: string }) {
+  const ctx = await getActionAuthContext();
+  if ("error" in ctx) throw new Error(ctx.error);
+  if (!canAccessAssets(ctx.permissions, ctx.venue.id)) {
+    throw new Error("You do not have permission to view uniforms.");
+  }
+
+  const service = createServiceClient();
+  return listUniformItemsForStaff(service, input.staffId);
 }
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
@@ -453,6 +468,679 @@ export async function deleteUniformStaffItem(input: z.infer<typeof itemIdSchema>
   });
 
   revalidateUniformPaths();
+}
+
+const replaceUniformsSchema = z.object({
+  staffId: z.string().uuid(),
+  chargedToEmployee: z.boolean(),
+  notes: z.string().trim().max(1000).optional().default(""),
+  lines: z
+    .array(
+      z.object({
+        staffItemId: z.string().uuid(),
+        quantity: z.coerce.number().int().min(1).max(999),
+      }),
+    )
+    .min(1, "Select at least one piece to replace."),
+});
+
+export type InitiateUniformReplacementResult = {
+  replacementIds: string[];
+  pendingDeductionId: string | null;
+  deductionAmount: number;
+  chargedToEmployee: boolean;
+  lines: { name: string; quantity: number; lineValue: number }[];
+  attachedToPayrollRunId: string | null;
+};
+
+export async function initiateUniformReplacement(
+  input: z.infer<typeof replaceUniformsSchema>,
+): Promise<InitiateUniformReplacementResult> {
+  const ctx = assertEdit(await getActionAuthContext());
+  const parsed = replaceUniformsSchema.parse(input);
+  const service = createServiceClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const notes = parsed.notes?.trim() ?? "";
+
+  const { data: staffRow, error: staffError } = await service
+    .from("staff")
+    .select("id, emp_no, full_name, home_venue_id")
+    .eq("id", parsed.staffId)
+    .maybeSingle();
+  if (staffError) throw new Error(staffError.message);
+  if (!staffRow) throw new Error("Staff member not found.");
+
+  const itemIds = parsed.lines.map((line) => line.staffItemId);
+  const { data: itemRows, error: itemsError } = await service
+    .from("hr_uniform_staff_items")
+    .select(
+      `
+      id,
+      staff_id,
+      piece_id,
+      quantity,
+      piece:hr_uniform_pieces(id, name, unit_value)
+    `,
+    )
+    .in("id", itemIds)
+    .eq("staff_id", parsed.staffId);
+
+  if (itemsError) throw new Error(itemsError.message);
+  const items = itemRows ?? [];
+  if (items.length !== parsed.lines.length) {
+    throw new Error("One or more uniform assignments could not be found.");
+  }
+
+  const itemById = new Map(items.map((row) => [row.id as string, row]));
+  const resolvedLines: {
+    staffItemId: string;
+    pieceId: string;
+    pieceName: string;
+    unitValue: number;
+    quantity: number;
+    lineValue: number;
+    currentQty: number;
+  }[] = [];
+
+  for (const line of parsed.lines) {
+    const row = itemById.get(line.staffItemId);
+    if (!row) throw new Error("Uniform assignment not found.");
+    const currentQty = Number(row.quantity ?? 0);
+    if (line.quantity > currentQty) {
+      throw new Error(
+        `Cannot replace more than on-hand quantity for one of the selected pieces.`,
+      );
+    }
+    const pieceRaw = row.piece as
+      | { id: string; name: string; unit_value: number | string }
+      | { id: string; name: string; unit_value: number | string }[]
+      | null;
+    const piece = Array.isArray(pieceRaw) ? pieceRaw[0] : pieceRaw;
+    const unitValue = Number(piece?.unit_value ?? 0);
+    resolvedLines.push({
+      staffItemId: line.staffItemId,
+      pieceId: String(row.piece_id),
+      pieceName: String(piece?.name ?? "Uniform piece"),
+      unitValue,
+      quantity: line.quantity,
+      lineValue: unitValue * line.quantity,
+      currentQty,
+    });
+  }
+
+  const deductionAmount = parsed.chargedToEmployee
+    ? Math.round(
+        resolvedLines.reduce((sum, line) => sum + line.lineValue, 0) * 100,
+      ) / 100
+    : 0;
+
+  // Apply assignment changes: reduce/remove old, issue fresh replacements.
+  for (const line of resolvedLines) {
+    const remaining = line.currentQty - line.quantity;
+    if (remaining > 0) {
+      const { error } = await service
+        .from("hr_uniform_staff_items")
+        .update({ quantity: remaining })
+        .eq("id", line.staffItemId);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await service
+        .from("hr_uniform_staff_items")
+        .delete()
+        .eq("id", line.staffItemId);
+      if (error) throw new Error(error.message);
+    }
+
+    const { error: insertError } = await service
+      .from("hr_uniform_staff_items")
+      .insert({
+        staff_id: parsed.staffId,
+        piece_id: line.pieceId,
+        quantity: line.quantity,
+        provided_at: today,
+        notes:
+          notes ||
+          `Replacement issued${parsed.chargedToEmployee ? " (employee-charged)" : ""}`,
+        created_by: ctx.user.id,
+      });
+    if (insertError) throw new Error(insertError.message);
+  }
+
+  let pendingDeductionId: string | null = null;
+  if (parsed.chargedToEmployee && deductionAmount > 0) {
+    const pieceSummary = resolvedLines
+      .map((line) => `${line.pieceName} × ${line.quantity}`)
+      .join(", ");
+    const { data: pending, error: pendingError } = await service
+      .from("hr_pending_payroll_deductions")
+      .insert({
+        venue_id: ctx.venue.id,
+        staff_id: parsed.staffId,
+        category: "deduction",
+        code: "UNIFORM",
+        label: "Uniform / equipment",
+        amount: deductionAmount,
+        reason: `Uniform replacement: ${pieceSummary}`,
+        source: "uniform_replacement",
+        status: "pending",
+        created_by: ctx.user.id,
+      })
+      .select("id")
+      .single();
+    if (pendingError) throw new Error(pendingError.message);
+    pendingDeductionId = pending.id as string;
+  }
+
+  const { data: replacements, error: replacementError } = await service
+    .from("hr_uniform_replacements")
+    .insert(
+      resolvedLines.map((line) => ({
+        venue_id: ctx.venue.id,
+        staff_id: parsed.staffId,
+        piece_id: line.pieceId,
+        staff_item_id: remainingItemIdAfterReplace(line),
+        quantity: line.quantity,
+        unit_value: line.unitValue,
+        charged_to_employee: parsed.chargedToEmployee,
+        deduction_amount: parsed.chargedToEmployee ? line.lineValue : 0,
+        notes,
+        pending_deduction_id: pendingDeductionId,
+        created_by: ctx.user.id,
+      })),
+    )
+    .select("id");
+
+  if (replacementError) throw new Error(replacementError.message);
+  const replacementIds = (replacements ?? []).map((row) => row.id as string);
+
+  if (pendingDeductionId) {
+    await service
+      .from("hr_pending_payroll_deductions")
+      .update({ source_id: replacementIds[0] ?? null })
+      .eq("id", pendingDeductionId);
+  }
+
+  let attachedToPayrollRunId: string | null = null;
+  if (pendingDeductionId) {
+    attachedToPayrollRunId = await tryAttachPendingDeductionToOpenRun({
+      service,
+      venueId: ctx.venue.id,
+      staffId: parsed.staffId,
+      userId: ctx.user.id,
+    });
+  }
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "uniform_replacement.created",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_uniform_replacements",
+    entity_id: replacementIds[0] ?? parsed.staffId,
+    venue_id: ctx.venue.id,
+    after: {
+      staffId: parsed.staffId,
+      chargedToEmployee: parsed.chargedToEmployee,
+      deductionAmount,
+      pendingDeductionId,
+      replacementIds,
+      attachedToPayrollRunId,
+      lines: resolvedLines.map((line) => ({
+        pieceId: line.pieceId,
+        quantity: line.quantity,
+        lineValue: line.lineValue,
+      })),
+    },
+  });
+
+  revalidateUniformPaths();
+  revalidatePath("/hr/payroll");
+
+  return {
+    replacementIds,
+    pendingDeductionId,
+    deductionAmount,
+    chargedToEmployee: parsed.chargedToEmployee,
+    lines: resolvedLines.map((line) => ({
+      name: line.pieceName,
+      quantity: line.quantity,
+      lineValue: line.lineValue,
+    })),
+    attachedToPayrollRunId,
+  };
+}
+
+/** staff_item_id on replacement points at the original item when it still exists. */
+function remainingItemIdAfterReplace(line: {
+  staffItemId: string;
+  currentQty: number;
+  quantity: number;
+}): string | null {
+  return line.currentQty - line.quantity > 0 ? line.staffItemId : null;
+}
+
+async function tryAttachPendingDeductionToOpenRun(opts: {
+  service: ServiceClient;
+  venueId: string;
+  staffId: string;
+  userId: string;
+}): Promise<string | null> {
+  const { data: run } = await opts.service
+    .from("hr_payroll_runs")
+    .select("id, status, payroll_month")
+    .eq("venue_id", opts.venueId)
+    .order("payroll_month", { ascending: false })
+    .limit(8);
+
+  const open = (run ?? []).find(
+    (row) =>
+      row.status !== "paid" &&
+      row.status !== "locked" &&
+      row.status !== "payment_processing",
+  );
+  if (!open?.id) return null;
+
+  try {
+    const { persistSingleEmployeePayroll, loadPayrollSettings } = await import(
+      "@/lib/hr/payroll/persist-run"
+    );
+    const { resolvePayrollPeriod } = await import("@/lib/hr/payroll/period");
+
+    const settings = await loadPayrollSettings(
+      opts.service as never,
+      opts.venueId,
+    );
+    const period = resolvePayrollPeriod(
+      String(open.payroll_month),
+      settings,
+    );
+    await persistSingleEmployeePayroll({
+      service: opts.service,
+      venueId: opts.venueId,
+      runId: open.id as string,
+      staffId: opts.staffId,
+      period,
+      userId: opts.userId,
+    });
+    return open.id as string;
+  } catch (error) {
+    console.warn(
+      "[uniforms] could not attach pending deduction to open payroll run:",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+const updateReplacementSchema = z.object({
+  replacementId: z.string().uuid(),
+  quantity: z.coerce.number().int().min(1).max(999),
+  chargedToEmployee: z.boolean(),
+  notes: z.string().trim().max(1000).optional().default(""),
+});
+
+export async function updateUniformReplacement(
+  input: z.infer<typeof updateReplacementSchema>,
+) {
+  const ctx = assertEdit(await getActionAuthContext());
+  const parsed = updateReplacementSchema.parse(input);
+  const service = createServiceClient();
+
+  const { data: existing, error: loadError } = await service
+    .from("hr_uniform_replacements")
+    .select(
+      `
+      id,
+      venue_id,
+      staff_id,
+      piece_id,
+      quantity,
+      unit_value,
+      charged_to_employee,
+      deduction_amount,
+      notes,
+      pending_deduction_id,
+      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(id, status, amount)
+    `,
+    )
+    .eq("id", parsed.replacementId)
+    .eq("venue_id", ctx.venue.id)
+    .maybeSingle();
+
+  if (loadError) throw new Error(loadError.message);
+  if (!existing) throw new Error("Replacement query not found.");
+
+  const pendingRaw = existing.pending_deduction as
+    | { id: string; status: string; amount: number | string }
+    | { id: string; status: string; amount: number | string }[]
+    | null;
+  const pending = Array.isArray(pendingRaw) ? pendingRaw[0] : pendingRaw;
+  if (pending?.status === "applied") {
+    throw new Error(
+      "This replacement deduction is already on a payroll run and cannot be edited.",
+    );
+  }
+
+  const unitValue = Number(existing.unit_value ?? 0);
+  const deductionAmount = parsed.chargedToEmployee
+    ? Math.round(unitValue * parsed.quantity * 100) / 100
+    : 0;
+  const notes = parsed.notes?.trim() ?? "";
+
+  let pendingDeductionId =
+    (existing.pending_deduction_id as string | null) ?? null;
+
+  if (parsed.chargedToEmployee && deductionAmount > 0) {
+    if (pendingDeductionId && pending?.status === "pending") {
+      const { error } = await service
+        .from("hr_pending_payroll_deductions")
+        .update({
+          amount: deductionAmount,
+          reason: `Uniform replacement (updated): qty ${parsed.quantity}`,
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", pendingDeductionId)
+        .eq("status", "pending");
+      if (error) throw new Error(error.message);
+    } else {
+      const { data: piece } = await service
+        .from("hr_uniform_pieces")
+        .select("name")
+        .eq("id", existing.piece_id)
+        .maybeSingle();
+      const pieceName = String(piece?.name ?? "Uniform piece");
+      const { data: created, error } = await service
+        .from("hr_pending_payroll_deductions")
+        .insert({
+          venue_id: ctx.venue.id,
+          staff_id: existing.staff_id,
+          category: "deduction",
+          code: "UNIFORM",
+          label: "Uniform / equipment",
+          amount: deductionAmount,
+          reason: `Uniform replacement: ${pieceName} × ${parsed.quantity}`,
+          source: "uniform_replacement",
+          source_id: existing.id,
+          status: "pending",
+          created_by: ctx.user.id,
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(error.message);
+      pendingDeductionId = created.id as string;
+      await tryAttachPendingDeductionToOpenRun({
+        service,
+        venueId: ctx.venue.id,
+        staffId: String(existing.staff_id),
+        userId: ctx.user.id,
+      });
+    }
+  } else if (pendingDeductionId && pending?.status === "pending") {
+    const { error } = await service
+      .from("hr_pending_payroll_deductions")
+      .update({
+        status: "cancelled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", pendingDeductionId)
+      .eq("status", "pending");
+    if (error) throw new Error(error.message);
+    pendingDeductionId = null;
+  }
+
+  const { error: updateError } = await service
+    .from("hr_uniform_replacements")
+    .update({
+      quantity: parsed.quantity,
+      charged_to_employee: parsed.chargedToEmployee,
+      deduction_amount: deductionAmount,
+      notes,
+      pending_deduction_id: pendingDeductionId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", parsed.replacementId);
+
+  if (updateError) throw new Error(updateError.message);
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "uniform_replacement.updated",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_uniform_replacements",
+    entity_id: parsed.replacementId,
+    venue_id: ctx.venue.id,
+    after: {
+      quantity: parsed.quantity,
+      chargedToEmployee: parsed.chargedToEmployee,
+      deductionAmount,
+      notes,
+      pendingDeductionId,
+    },
+  });
+
+  revalidateUniformPaths();
+  revalidatePath("/hr/payroll");
+}
+
+const deleteReplacementSchema = z.object({
+  replacementId: z.string().uuid(),
+});
+
+export async function deleteUniformReplacement(
+  input: z.infer<typeof deleteReplacementSchema>,
+) {
+  const ctx = assertEdit(await getActionAuthContext());
+  const parsed = deleteReplacementSchema.parse(input);
+  const service = createServiceClient();
+
+  const { data: existing, error: loadError } = await service
+    .from("hr_uniform_replacements")
+    .select(
+      `
+      id,
+      venue_id,
+      staff_id,
+      pending_deduction_id,
+      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(id, status)
+    `,
+    )
+    .eq("id", parsed.replacementId)
+    .eq("venue_id", ctx.venue.id)
+    .maybeSingle();
+
+  if (loadError) throw new Error(loadError.message);
+  if (!existing) throw new Error("Replacement query not found.");
+
+  const pendingRaw = existing.pending_deduction as
+    | { id: string; status: string }
+    | { id: string; status: string }[]
+    | null;
+  const pending = Array.isArray(pendingRaw) ? pendingRaw[0] : pendingRaw;
+
+  if (pending?.status === "applied") {
+    throw new Error(
+      "This replacement deduction is already on a payroll run and cannot be deleted.",
+    );
+  }
+
+  if (existing.pending_deduction_id && pending?.status === "pending") {
+    const { error } = await service
+      .from("hr_pending_payroll_deductions")
+      .update({
+        status: "cancelled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.pending_deduction_id)
+      .eq("status", "pending");
+    if (error) throw new Error(error.message);
+  }
+
+  const { error: deleteError } = await service
+    .from("hr_uniform_replacements")
+    .delete()
+    .eq("id", parsed.replacementId);
+
+  if (deleteError) throw new Error(deleteError.message);
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "uniform_replacement.deleted",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_uniform_replacements",
+    entity_id: parsed.replacementId,
+    venue_id: ctx.venue.id,
+  });
+
+  revalidateUniformPaths();
+  revalidatePath("/hr/payroll");
+}
+
+const staffIdSchema = z.object({
+  staffId: z.string().uuid(),
+});
+
+export async function archiveUniformStaff(
+  input: z.infer<typeof staffIdSchema>,
+) {
+  const ctx = assertEdit(await getActionAuthContext());
+  const parsed = staffIdSchema.parse(input);
+  const service = createServiceClient();
+
+  await upsertUniformStaffArchive(service, {
+    venueId: ctx.venue.id,
+    staffId: parsed.staffId,
+    archivedBy: ctx.user.id,
+  });
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "uniform_staff.archived",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_uniform_staff_archives",
+    entity_id: parsed.staffId,
+    venue_id: ctx.venue.id,
+  });
+
+  revalidateUniformPaths();
+}
+
+export async function unarchiveUniformStaff(
+  input: z.infer<typeof staffIdSchema>,
+) {
+  const ctx = assertEdit(await getActionAuthContext());
+  const parsed = staffIdSchema.parse(input);
+  const service = createServiceClient();
+
+  const { error } = await service
+    .from("hr_uniform_staff_archives")
+    .delete()
+    .eq("venue_id", ctx.venue.id)
+    .eq("staff_id", parsed.staffId);
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "uniform_staff.unarchived",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_uniform_staff_archives",
+    entity_id: parsed.staffId,
+    venue_id: ctx.venue.id,
+  });
+
+  revalidateUniformPaths();
+}
+
+/** Permanently remove all uniform assignments for a staff member from this view. */
+export async function deleteUniformStaffAssignments(
+  input: z.infer<typeof staffIdSchema>,
+) {
+  const ctx = assertEdit(await getActionAuthContext());
+  const parsed = staffIdSchema.parse(input);
+  const service = createServiceClient();
+
+  const { data: items, error: itemsError } = await service
+    .from("hr_uniform_staff_items")
+    .select("id")
+    .eq("staff_id", parsed.staffId);
+  if (itemsError) throw new Error(itemsError.message);
+
+  if ((items ?? []).length > 0) {
+    const { error } = await service
+      .from("hr_uniform_staff_items")
+      .delete()
+      .eq("staff_id", parsed.staffId);
+    if (error) throw new Error(error.message);
+  }
+
+  // Cancel open replacement deductions that are still pending.
+  const { data: replacements } = await service
+    .from("hr_uniform_replacements")
+    .select("id, pending_deduction_id")
+    .eq("venue_id", ctx.venue.id)
+    .eq("staff_id", parsed.staffId);
+
+  for (const row of replacements ?? []) {
+    if (row.pending_deduction_id) {
+      await service
+        .from("hr_pending_payroll_deductions")
+        .update({
+          status: "cancelled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.pending_deduction_id)
+        .eq("status", "pending");
+    }
+  }
+
+  if ((replacements ?? []).length > 0) {
+    // Keep applied payroll history; only remove queries not yet applied.
+    const deletableIds = (replacements ?? [])
+      .map((row) => row.id as string)
+      .filter(Boolean);
+    if (deletableIds.length > 0) {
+      const { data: pendingLinked } = await service
+        .from("hr_uniform_replacements")
+        .select(
+          "id, pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(status)",
+        )
+        .in("id", deletableIds);
+
+      const idsToDelete = (pendingLinked ?? [])
+        .filter((row) => {
+          const pending = Array.isArray(row.pending_deduction)
+            ? row.pending_deduction[0]
+            : row.pending_deduction;
+          return (pending as { status?: string } | null)?.status !== "applied";
+        })
+        .map((row) => row.id as string);
+
+      if (idsToDelete.length > 0) {
+        await service
+          .from("hr_uniform_replacements")
+          .delete()
+          .in("id", idsToDelete);
+      }
+    }
+  }
+
+  await service
+    .from("hr_uniform_staff_archives")
+    .delete()
+    .eq("venue_id", ctx.venue.id)
+    .eq("staff_id", parsed.staffId);
+
+  await writeAuditLog({
+    actor_id: ctx.user.id,
+    action: "uniform_staff.assignments_deleted",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_uniform_staff_items",
+    entity_id: parsed.staffId,
+    venue_id: ctx.venue.id,
+    after: { deletedItemCount: items?.length ?? 0 },
+  });
+
+  revalidateUniformPaths();
+  revalidatePath("/hr/payroll");
 }
 
 function uniformPieceImagePath(pieceId: string) {

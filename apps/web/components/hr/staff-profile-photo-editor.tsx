@@ -19,6 +19,8 @@ type StaffProfilePhotoEditorProps = {
   onSourceFileChange?: (file: File | null) => void;
   /** True while the crop export is still running (disable Save upstream). */
   onPhotoBusyChange?: (busy: boolean) => void;
+  /** True while the parent is saving / uploading the photo to storage. */
+  uploading?: boolean;
   onCleared: () => void;
   readOnly?: boolean;
   className?: string;
@@ -33,7 +35,10 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = reject;
-    img.crossOrigin = "anonymous";
+    // crossOrigin on blob: URLs can prevent load/export in some browsers.
+    if (/^https?:\/\//i.test(src)) {
+      img.crossOrigin = "anonymous";
+    }
     img.src = src;
   });
 }
@@ -63,6 +68,7 @@ export function StaffProfilePhotoEditor({
   onPhotoFileChange,
   onSourceFileChange,
   onPhotoBusyChange,
+  uploading = false,
   onCleared,
   readOnly = false,
   className,
@@ -80,6 +86,7 @@ export function StaffProfilePhotoEditor({
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [dropActive, setDropActive] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const dragDepthRef = useRef(0);
   const dragRef = useRef<{
     startX: number;
@@ -90,6 +97,7 @@ export function StaffProfilePhotoEditor({
   const objectUrlsRef = useRef<Set<string>>(new Set());
   const prevPhotoUrlRef = useRef(photoUrl);
   const hasExportedRef = useRef(false);
+  const wasUploadingRef = useRef(false);
   const [exportPending, setExportPending] = useState(false);
 
   const hasSource = Boolean(sourceUrl);
@@ -99,10 +107,47 @@ export function StaffProfilePhotoEditor({
     !readOnly &&
     Boolean(sourceUrl) &&
     (!naturalSize || exportPending);
+  const showProgress = uploading || exportPending || adjustLoading;
 
   useEffect(() => {
     onPhotoBusyChange?.(photoBusy);
   }, [photoBusy, onPhotoBusyChange]);
+
+  // Server Actions don't report byte progress — animate a bar while work runs.
+  useEffect(() => {
+    if (exportPending || adjustLoading) {
+      setUploadProgress((p) => (p == null || p > 35 ? 10 : Math.max(p, 10)));
+      const id = window.setInterval(() => {
+        setUploadProgress((p) => {
+          const cur = p ?? 10;
+          if (cur >= 35) return cur;
+          return cur + 3 + Math.random() * 4;
+        });
+      }, 160);
+      return () => window.clearInterval(id);
+    }
+
+    if (uploading) {
+      wasUploadingRef.current = true;
+      setUploadProgress((p) => Math.max(p ?? 20, 40));
+      const id = window.setInterval(() => {
+        setUploadProgress((p) => {
+          const cur = p ?? 40;
+          if (cur >= 92) return cur;
+          return cur + 3 + Math.random() * 6;
+        });
+      }, 220);
+      return () => window.clearInterval(id);
+    }
+
+    if (wasUploadingRef.current) {
+      wasUploadingRef.current = false;
+      setUploadProgress(null);
+      return;
+    }
+
+    setUploadProgress(null);
+  }, [uploading, exportPending, adjustLoading]);
 
   useEffect(() => {
     const el = frameRef.current;
@@ -241,21 +286,30 @@ export function StaffProfilePhotoEditor({
     setExportPending(true);
     const delay = hasExportedRef.current ? 180 : 0;
     const timer = window.setTimeout(() => {
-      void exportCropped().then((file) => {
-        if (cancelled) return;
-        setExportPending(false);
-        if (file) {
-          hasExportedRef.current = true;
-          onPhotoFileChange(file);
-          const preview = trackObjectUrl(URL.createObjectURL(file));
-          onPhotoUrlChange(preview);
-        } else {
-          // Export failed — leave photoFile null so Save is blocked upstream
-          // (source present without a cropped file).
+      void exportCropped()
+        .then((file) => {
+          if (cancelled) return;
+          setExportPending(false);
+          if (file) {
+            hasExportedRef.current = true;
+            onPhotoFileChange(file);
+            const preview = trackObjectUrl(URL.createObjectURL(file));
+            onPhotoUrlChange(preview);
+          } else {
+            hasExportedRef.current = false;
+            onPhotoFileChange(null);
+          }
+        })
+        .catch((err) => {
+          console.warn(
+            "[staff-photo] crop export failed:",
+            err instanceof Error ? err.message : err,
+          );
+          if (cancelled) return;
+          setExportPending(false);
           hasExportedRef.current = false;
           onPhotoFileChange(null);
-        }
-      });
+        });
     }, delay);
     return () => {
       cancelled = true;
@@ -275,6 +329,27 @@ export function StaffProfilePhotoEditor({
     setOptionsOpen(true);
     onPhotoFileChange(null);
     onSourceFileChange?.(file);
+    // Measure immediately so crop works even if the preview is in a hidden tab.
+    void Promise.race([
+      loadImage(url),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("image load timeout")), 8000);
+      }),
+    ])
+      .then((img) => {
+        setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+      })
+      .catch((err) => {
+        console.warn(
+          "[staff-photo] could not read image:",
+          err instanceof Error ? err.message : err,
+        );
+        // Don't leave Save blocked forever on a bad/unreadable file.
+        setSourceUrl(null);
+        setNaturalSize(null);
+        onPhotoFileChange(null);
+        onSourceFileChange?.(null);
+      });
   }
 
   function isFileDrag(e: React.DragEvent) {
@@ -411,9 +486,27 @@ export function StaffProfilePhotoEditor({
       <div className="flex items-stretch gap-3">
         <div
           ref={frameRef}
+          role={readOnly || displayUrl ? undefined : "button"}
+          tabIndex={readOnly || displayUrl ? undefined : 0}
+          onKeyDown={
+            readOnly || displayUrl
+              ? undefined
+              : (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }
+          }
+          onClick={
+            readOnly || displayUrl
+              ? undefined
+              : () => fileInputRef.current?.click()
+          }
           className={cn(
             "relative h-[15.5rem] w-[calc(15.5rem*7/9)] shrink-0 overflow-hidden rounded-md border border-black/10 bg-black/[0.04] transition-colors",
             hasSource && !readOnly && "cursor-grab active:cursor-grabbing",
+            !readOnly && !displayUrl && "cursor-pointer hover:bg-black/[0.06]",
             dropActive &&
               !readOnly &&
               "border-[var(--venue-primary,#818a40)] bg-[var(--venue-primary,#818a40)]/10 ring-2 ring-[var(--venue-primary,#818a40)]/25",
@@ -433,11 +526,18 @@ export function StaffProfilePhotoEditor({
               src={hasSource ? sourceUrl! : displayUrl}
               alt="Staff profile"
               draggable={false}
-              crossOrigin="anonymous"
+              crossOrigin={
+                (hasSource ? sourceUrl : displayUrl) &&
+                /^https?:\/\//i.test((hasSource ? sourceUrl : displayUrl)!)
+                  ? "anonymous"
+                  : undefined
+              }
               className={cn(
-                "pointer-events-none absolute left-1/2 top-1/2 max-w-none select-none",
-                !hasSource &&
-                  "h-full w-full -translate-x-1/2 -translate-y-1/2 object-cover",
+                "pointer-events-none absolute select-none",
+                // Cover the frame until crop metrics are ready (avoids blank box).
+                live
+                  ? "left-1/2 top-1/2 max-w-none"
+                  : "inset-0 h-full w-full object-cover",
               )}
               style={
                 live
@@ -463,7 +563,9 @@ export function StaffProfilePhotoEditor({
             <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
               <ImagePlus className="h-7 w-7 text-black/25" />
               <p className="text-[10px] leading-tight text-black/40">
-                Drop photo or upload
+                {readOnly
+                  ? "No photo yet"
+                  : "Drop photo or click to upload"}
               </p>
             </div>
           )}
@@ -480,7 +582,7 @@ export function StaffProfilePhotoEditor({
           <div className="flex w-[6.75rem] flex-col gap-1.5">
             <button
               type="button"
-              disabled={readOnly}
+              disabled={readOnly || uploading}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 btnClass,
@@ -493,7 +595,7 @@ export function StaffProfilePhotoEditor({
             {displayUrl ? (
               <button
                 type="button"
-                disabled={readOnly}
+                disabled={readOnly || uploading}
                 onClick={clearPhoto}
                 className={cn(
                   btnClass,
@@ -508,7 +610,7 @@ export function StaffProfilePhotoEditor({
               <button
                 type="button"
                 aria-expanded={optionsOpen}
-                disabled={adjustLoading}
+                disabled={adjustLoading || uploading}
                 onClick={() => void beginAdjust()}
                 className={cn(
                   btnClass,
@@ -527,7 +629,7 @@ export function StaffProfilePhotoEditor({
               accept="image/png,image/jpeg,image/webp"
               form={DETACHED_FILE_FORM_ID}
               className="hidden"
-              disabled={readOnly}
+              disabled={readOnly || uploading}
               onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
             />
           </div>
@@ -563,6 +665,12 @@ export function StaffProfilePhotoEditor({
                 in the frame. Save to keep the new crop.
               </p>
             </div>
+          ) : readOnly ? (
+            <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
+              {displayUrl
+                ? "Click Edit to replace or adjust this photo."
+                : "Click Edit, then Upload a passport-ratio photo."}
+            </p>
           ) : !displayUrl ? (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
               Drag a photo onto the frame, or use Upload. Passport ratio (35×45).
@@ -574,6 +682,45 @@ export function StaffProfilePhotoEditor({
           )}
         </div>
       </div>
+
+      {showProgress || uploadProgress != null ? (
+        <div
+          className="space-y-1.5"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={
+            uploadProgress != null ? Math.round(uploadProgress) : undefined
+          }
+          aria-label="Profile photo upload progress"
+        >
+          <div className="flex items-center justify-between gap-2 text-[10px] font-medium text-[#3D421F]/80">
+            <span>
+              {adjustLoading
+                ? "Loading photo…"
+                : exportPending
+                  ? "Preparing crop…"
+                  : "Uploading photo…"}
+            </span>
+            <span className="tabular-nums text-black/45">
+              {uploadProgress != null ? `${Math.round(uploadProgress)}%` : "…"}
+            </span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10">
+            <div
+              className={cn(
+                "h-full rounded-full bg-[var(--venue-primary,#818a40)] transition-[width] duration-150 ease-out",
+                uploadProgress != null &&
+                  uploadProgress >= 100 &&
+                  "animate-pulse",
+              )}
+              style={{
+                width: `${Math.min(100, Math.max(4, uploadProgress ?? 8))}%`,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

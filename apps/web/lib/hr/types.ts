@@ -193,6 +193,32 @@ export type UniformStaffSummaryRow = {
   staff: StaffWithLookups;
   items: UniformStaffItemRow[];
   total_value: number;
+  /** Sum of pending payroll deductions for uniform replacements. */
+  pending_deduction_total?: number;
+  /** Replacement queries recorded for this employee. */
+  replacements?: UniformReplacementRow[];
+  /** Hidden from the default Uniform Employees list. */
+  archived?: boolean;
+  archived_at?: string | null;
+};
+
+export type UniformReplacementRow = {
+  id: string;
+  venue_id: string;
+  staff_id: string;
+  piece_id: string;
+  staff_item_id: string | null;
+  quantity: number;
+  unit_value: number;
+  charged_to_employee: boolean;
+  deduction_amount: number;
+  notes: string;
+  pending_deduction_id: string | null;
+  email_sent_at: string | null;
+  created_at: string;
+  piece_name?: string | null;
+  /** Linked pending payroll deduction status, when any. */
+  pending_deduction_status?: "pending" | "applied" | "cancelled" | null;
 };
 
 /** How employment ended — set on staff profile when termination_date is filled. */
@@ -370,6 +396,10 @@ export const HR_SETTINGS_KEYS = {
   /** Dedupe map of auto/manual anniversary emails already sent. */
   workAnniversaryEmailSent: "work_anniversary_email_sent",
   updatedDocsRequestEmail: "updated_docs_request_email",
+  /** Uniform on-hand confirmation + T&Cs email. */
+  uniformTermsEmail: "uniform_terms_email",
+  /** Uniform replacement salary-deduction notice email. */
+  uniformReplacementEmail: "uniform_replacement_email",
   /** Zoho WorkDrive connection + folder/naming rules for staff documents. */
   workDrive: "work_drive",
 } as const;
@@ -1431,6 +1461,123 @@ export const DEFAULT_HR_UPDATED_DOCS_REQUEST_EMAIL_SETTINGS: HrUpdatedDocsReques
     fromEmail: "",
     subject: DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_SUBJECT,
     message: DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_MESSAGE,
+  };
+
+// ---------------------------------------------------------------------------
+// Uniform on-hand confirmation + terms & conditions email
+// ---------------------------------------------------------------------------
+
+export type HrUniformTermsEmailSettings = {
+  enabled: boolean;
+  recipientField: PayslipEmailRecipientField;
+  fromEmail: string;
+  subject: string;
+  message: string;
+};
+
+export const UNIFORM_TERMS_EMAIL_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{UNIFORMS_ON_HAND}}",
+    description: "Bullet list of uniform pieces currently issued to the employee",
+  },
+  {
+    code: "{{UNIFORMS_TOTAL_VALUE}}",
+    description: "Total value of uniforms currently on hand",
+  },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_UNIFORM_TERMS_EMAIL_SUBJECT =
+  "Company uniform on hand & T&Cs — {{EMPLOYEE_NAME}}";
+
+export const DEFAULT_UNIFORM_TERMS_EMAIL_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+This email confirms the company uniform items currently issued to you by {{VENUE_NAME}}:
+
+{{UNIFORMS_ON_HAND}}
+
+Total value of uniforms on hand: {{UNIFORMS_TOTAL_VALUE}}
+
+Terms & Conditions of company uniform usage
+• Company uniforms remain the property of {{VENUE_NAME}} and are issued for work use only.
+• You are responsible for the care and safekeeping of all items issued to you.
+• If any uniform item is lost or damaged beyond normal wear and tear, the respective value will be deducted from your salary.
+• Uniforms must be returned upon request or when your employment ends.
+
+Please keep this record for your reference. Contact Human Resources if any listed item is incorrect.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_UNIFORM_TERMS_EMAIL_SETTINGS: HrUniformTermsEmailSettings =
+  {
+    enabled: true,
+    recipientField: "personal",
+    fromEmail: "",
+    subject: DEFAULT_UNIFORM_TERMS_EMAIL_SUBJECT,
+    message: DEFAULT_UNIFORM_TERMS_EMAIL_MESSAGE,
+  };
+
+// ---------------------------------------------------------------------------
+// Uniform replacement deduction notice email
+// ---------------------------------------------------------------------------
+
+export type HrUniformReplacementEmailSettings = {
+  enabled: boolean;
+  recipientField: PayslipEmailRecipientField;
+  fromEmail: string;
+  subject: string;
+  message: string;
+};
+
+export const UNIFORM_REPLACEMENT_EMAIL_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{UNIFORMS_REPLACED}}",
+    description: "Bullet list of replaced uniform pieces",
+  },
+  {
+    code: "{{DEDUCTION_AMOUNT}}",
+    description: "Amount to be deducted from the next payroll",
+  },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_UNIFORM_REPLACEMENT_EMAIL_SUBJECT =
+  "Uniform replacement deduction — {{EMPLOYEE_NAME}}";
+
+export const DEFAULT_UNIFORM_REPLACEMENT_EMAIL_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+This notice confirms that a company uniform replacement has been issued, and the cost will be recovered from your salary.
+
+Items replaced:
+{{UNIFORMS_REPLACED}}
+
+Amount to be deducted: {{DEDUCTION_AMOUNT}}
+
+This amount will be deducted from your next payroll.
+
+If you have questions about this deduction, please contact Human Resources.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_UNIFORM_REPLACEMENT_EMAIL_SETTINGS: HrUniformReplacementEmailSettings =
+  {
+    enabled: true,
+    recipientField: "personal",
+    fromEmail: "",
+    subject: DEFAULT_UNIFORM_REPLACEMENT_EMAIL_SUBJECT,
+    message: DEFAULT_UNIFORM_REPLACEMENT_EMAIL_MESSAGE,
   };
 
 /** Footer disclaimer printed at the bottom of every payslip PDF. */

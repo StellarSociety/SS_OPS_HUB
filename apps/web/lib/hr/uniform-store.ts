@@ -5,17 +5,22 @@ import type {
   UniformPieceEntitlement,
   UniformPieceRow,
   UniformProductStatus,
+  UniformReplacementRow,
   UniformStaffItemRow,
   UniformStaffSummaryRow,
   UniformStockReceiptRow,
   UniformSupplierRow,
 } from "./types";
 import {
+  isOutEmploymentStatus,
+} from "./employment-status";
+import {
   listAllStaff,
   listDepartments,
   listEmploymentStatuses,
   listPositions,
 } from "./store";
+import { listPendingPayrollDeductionsForVenue } from "./payroll/pending-deductions";
 
 type EntitlementDbRow = {
   id: string;
@@ -239,6 +244,40 @@ export async function listUniformPieces(
   );
 }
 
+function mapUniformStaffItemRow(raw: {
+  id: string;
+  staff_id: string;
+  piece_id: string;
+  quantity: number;
+  provided_at: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+  piece:
+    | { id: string; name: string; unit_value: number | string }
+    | { id: string; name: string; unit_value: number | string }[]
+    | null;
+}): UniformStaffItemRow {
+  const piece = unwrapOne(raw.piece);
+  return {
+    id: raw.id,
+    staff_id: raw.staff_id,
+    piece_id: raw.piece_id,
+    quantity: raw.quantity,
+    provided_at: raw.provided_at,
+    notes: raw.notes,
+    created_at: raw.created_at,
+    updated_at: raw.updated_at,
+    piece: piece
+      ? {
+          id: piece.id,
+          name: piece.name,
+          unit_value: Number(piece.unit_value ?? 0),
+        }
+      : null,
+  };
+}
+
 export async function listUniformStaffItems(
   supabase: SupabaseClient,
 ): Promise<UniformStaffItemRow[]> {
@@ -264,40 +303,45 @@ export async function listUniformStaffItems(
     return [];
   }
 
-  return (data ?? []).map((raw) => {
-    const row = raw as {
-      id: string;
-      staff_id: string;
-      piece_id: string;
-      quantity: number;
-      provided_at: string;
-      notes: string;
-      created_at: string;
-      updated_at: string;
-      piece:
-        | { id: string; name: string; unit_value: number | string }
-        | { id: string; name: string; unit_value: number | string }[]
-        | null;
-    };
-    const piece = unwrapOne(row.piece);
-    return {
-      id: row.id,
-      staff_id: row.staff_id,
-      piece_id: row.piece_id,
-      quantity: row.quantity,
-      provided_at: row.provided_at,
-      notes: row.notes,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      piece: piece
-        ? {
-            id: piece.id,
-            name: piece.name,
-            unit_value: Number(piece.unit_value ?? 0),
-          }
-        : null,
-    } satisfies UniformStaffItemRow;
-  });
+  return (data ?? []).map((raw) =>
+    mapUniformStaffItemRow(
+      raw as Parameters<typeof mapUniformStaffItemRow>[0],
+    ),
+  );
+}
+
+export async function listUniformItemsForStaff(
+  supabase: SupabaseClient,
+  staffId: string,
+): Promise<UniformStaffItemRow[]> {
+  const { data, error } = await supabase
+    .from("hr_uniform_staff_items")
+    .select(
+      `
+      id,
+      staff_id,
+      piece_id,
+      quantity,
+      provided_at,
+      notes,
+      created_at,
+      updated_at,
+      piece:hr_uniform_pieces(id, name, unit_value)
+    `,
+    )
+    .eq("staff_id", staffId)
+    .order("provided_at", { ascending: false });
+
+  if (error) {
+    console.error("[hr] listUniformItemsForStaff:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((raw) =>
+    mapUniformStaffItemRow(
+      raw as Parameters<typeof mapUniformStaffItemRow>[0],
+    ),
+  );
 }
 
 export async function listUniformStaffSummaries(
@@ -344,19 +388,212 @@ export async function loadUniformSuppliersPage(supabase: SupabaseClient) {
   return { suppliers };
 }
 
+export async function listUniformReplacements(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts?: { staffId?: string },
+): Promise<UniformReplacementRow[]> {
+  let query = supabase
+    .from("hr_uniform_replacements")
+    .select(
+      `
+      id,
+      venue_id,
+      staff_id,
+      piece_id,
+      staff_item_id,
+      quantity,
+      unit_value,
+      charged_to_employee,
+      deduction_amount,
+      notes,
+      pending_deduction_id,
+      email_sent_at,
+      created_at,
+      piece:hr_uniform_pieces(name),
+      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(status)
+    `,
+    )
+    .eq("venue_id", venueId)
+    .order("created_at", { ascending: false });
+
+  if (opts?.staffId) {
+    query = query.eq("staff_id", opts.staffId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    if (/does not exist|schema cache/i.test(error.message)) return [];
+    console.error("[hr] listUniformReplacements:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((raw) => {
+    const row = raw as {
+      id: string;
+      venue_id: string;
+      staff_id: string;
+      piece_id: string;
+      staff_item_id: string | null;
+      quantity: number;
+      unit_value: number | string;
+      charged_to_employee: boolean;
+      deduction_amount: number | string;
+      notes: string;
+      pending_deduction_id: string | null;
+      email_sent_at: string | null;
+      created_at: string;
+      piece: { name: string } | { name: string }[] | null;
+      pending_deduction:
+        | { status: string }
+        | { status: string }[]
+        | null;
+    };
+    const piece = Array.isArray(row.piece) ? row.piece[0] : row.piece;
+    const pending = Array.isArray(row.pending_deduction)
+      ? row.pending_deduction[0]
+      : row.pending_deduction;
+    const status = pending?.status;
+    return {
+      id: row.id,
+      venue_id: row.venue_id,
+      staff_id: row.staff_id,
+      piece_id: row.piece_id,
+      staff_item_id: row.staff_item_id,
+      quantity: Number(row.quantity ?? 0),
+      unit_value: Number(row.unit_value ?? 0),
+      charged_to_employee: Boolean(row.charged_to_employee),
+      deduction_amount: Number(row.deduction_amount ?? 0),
+      notes: String(row.notes ?? ""),
+      pending_deduction_id: row.pending_deduction_id,
+      email_sent_at: row.email_sent_at,
+      created_at: row.created_at,
+      piece_name: piece?.name ?? null,
+      pending_deduction_status:
+        status === "pending" || status === "applied" || status === "cancelled"
+          ? status
+          : null,
+    } satisfies UniformReplacementRow;
+  });
+}
+
+export async function listUniformStaffArchives(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<Map<string, string>> {
+  const { data, error } = await supabase
+    .from("hr_uniform_staff_archives")
+    .select("staff_id, archived_at")
+    .eq("venue_id", venueId);
+
+  if (error) {
+    if (/does not exist|schema cache/i.test(error.message)) return new Map();
+    console.error("[hr] listUniformStaffArchives:", error.message);
+    return new Map();
+  }
+
+  return new Map(
+    (data ?? []).map((row) => [
+      String(row.staff_id),
+      String(row.archived_at ?? ""),
+    ]),
+  );
+}
+
+/** Persist a uniform-list hide for a staff member (idempotent). */
+export async function upsertUniformStaffArchive(
+  supabase: SupabaseClient,
+  input: {
+    venueId: string;
+    staffId: string;
+    archivedBy?: string | null;
+  },
+): Promise<void> {
+  const { error } = await supabase.from("hr_uniform_staff_archives").upsert(
+    {
+      venue_id: input.venueId,
+      staff_id: input.staffId,
+      archived_at: new Date().toISOString(),
+      archived_by: input.archivedBy ?? null,
+    },
+    { onConflict: "venue_id,staff_id" },
+  );
+  if (error) {
+    if (/does not exist|schema cache/i.test(error.message)) return;
+    console.error("[hr] upsertUniformStaffArchive:", error.message);
+  }
+}
+
+/**
+ * When employment status becomes OUT, hide the employee from the default
+ * Uniform Employees list (same as the manual “Hide from list” action).
+ */
+export async function archiveUniformStaffIfEmploymentOut(
+  supabase: SupabaseClient,
+  input: {
+    venueId: string;
+    staffId: string;
+    employmentStatusId?: string | null;
+    employmentStatusName?: string | null;
+    archivedBy?: string | null;
+  },
+): Promise<boolean> {
+  let statusName = input.employmentStatusName?.trim() || "";
+  if (!statusName && input.employmentStatusId) {
+    const { data, error } = await supabase
+      .from("employment_statuses")
+      .select("name")
+      .eq("id", input.employmentStatusId)
+      .maybeSingle();
+    if (error) {
+      console.error(
+        "[hr] archiveUniformStaffIfEmploymentOut status lookup:",
+        error.message,
+      );
+      return false;
+    }
+    statusName = data?.name?.trim() ?? "";
+  }
+
+  if (!isOutEmploymentStatus(statusName)) {
+    return false;
+  }
+
+  await upsertUniformStaffArchive(supabase, {
+    venueId: input.venueId,
+    staffId: input.staffId,
+    archivedBy: input.archivedBy,
+  });
+  return true;
+}
+
 export async function loadUniformEmployeesPage(
   supabase: SupabaseClient,
   venueId: string,
 ) {
-  const [pieces, staff, items, departments, positions, statuses] =
-    await Promise.all([
-      listUniformPieces(supabase),
-      listAllStaff(supabase),
-      listUniformStaffItems(supabase),
-      listDepartments(supabase, venueId),
-      listPositions(supabase, venueId),
-      listEmploymentStatuses(supabase),
-    ]);
+  const [
+    pieces,
+    staff,
+    items,
+    departments,
+    positions,
+    statuses,
+    pending,
+    replacements,
+    archives,
+  ] = await Promise.all([
+    listUniformPieces(supabase),
+    listAllStaff(supabase),
+    listUniformStaffItems(supabase),
+    listDepartments(supabase, venueId),
+    listPositions(supabase, venueId),
+    listEmploymentStatuses(supabase),
+    listPendingPayrollDeductionsForVenue(supabase, venueId, {
+      status: "pending",
+    }),
+    listUniformReplacements(supabase, venueId),
+    listUniformStaffArchives(supabase, venueId),
+  ]);
 
   const itemsByStaff = new Map<string, UniformStaffItemRow[]>();
   for (const item of items) {
@@ -365,16 +602,40 @@ export async function loadUniformEmployeesPage(
     itemsByStaff.set(item.staff_id, list);
   }
 
+  const pendingByStaff = new Map<string, number>();
+  for (const row of pending) {
+    if (row.source !== "uniform_replacement") continue;
+    pendingByStaff.set(
+      row.staff_id,
+      (pendingByStaff.get(row.staff_id) ?? 0) + row.amount,
+    );
+  }
+
+  const replacementsByStaff = new Map<string, UniformReplacementRow[]>();
+  for (const row of replacements) {
+    const list = replacementsByStaff.get(row.staff_id) ?? [];
+    list.push(row);
+    replacementsByStaff.set(row.staff_id, list);
+  }
+
   const rows = staff.map((member) => {
     const memberItems = itemsByStaff.get(member.id) ?? [];
     const total_value = memberItems.reduce((sum, item) => {
       const unit = item.piece?.unit_value ?? 0;
       return sum + unit * item.quantity;
     }, 0);
+    const archivedAt = archives.get(member.id) ?? null;
+    const hiddenByOut = isOutEmploymentStatus(
+      member.employment_status?.name,
+    );
     return {
       staff: member,
       items: memberItems,
       total_value,
+      pending_deduction_total: pendingByStaff.get(member.id) ?? 0,
+      replacements: replacementsByStaff.get(member.id) ?? [],
+      archived: archivedAt != null || hiddenByOut,
+      archived_at: archivedAt,
     } satisfies UniformStaffSummaryRow;
   });
 

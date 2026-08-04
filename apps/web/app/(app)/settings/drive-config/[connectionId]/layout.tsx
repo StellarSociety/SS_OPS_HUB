@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { DriveConfigShell } from "@/components/settings/drive-config-shell";
 import { getWorkDriveStoreForUi } from "@/lib/actions/hr-workdrive";
-import { defaultDriveFolderPath } from "@/lib/settings/drive-config-paths";
+import { driveConnectionHomePath } from "@/lib/settings/drive-config-paths";
 import { scopedPath } from "@/lib/venue/active-venue";
 
 type Props = {
@@ -19,7 +19,7 @@ export default async function DriveConnectionLayout({
 
   if (!connection) {
     if (connections[0]) {
-      redirect(await scopedPath(defaultDriveFolderPath(connections[0])));
+      redirect(await scopedPath(driveConnectionHomePath(connections[0])));
     }
     notFound();
   }

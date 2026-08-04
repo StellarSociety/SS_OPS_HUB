@@ -5,11 +5,14 @@ import { Folder, FolderPlus, HardDrive, Link2, Plus } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { ScopedLink } from "@/components/layout/scoped-link";
-import { segmentedSubNavLinkClass } from "@/lib/sub-nav-ui";
+import {
+  pillSubNavLinkClass,
+  segmentedSubNavLinkClass,
+} from "@/lib/sub-nav-ui";
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 import type { HrWorkDriveConnectionPublic } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
-import { defaultDriveFolderPath } from "@/lib/settings/drive-config-paths";
+import { driveConnectionHomePath } from "@/lib/settings/drive-config-paths";
 
 function folderTabLabel(label: string): string {
   return label.trim() || "Drive folder";
@@ -46,7 +49,7 @@ export function DriveConfigProviderNav({
       className="flex flex-wrap items-center gap-1 rounded-lg border border-black/10 bg-white/50 p-1.5"
     >
       {connections.map((connection) => {
-        const href = defaultDriveFolderPath(connection);
+        const href = driveConnectionHomePath(connection);
         const active =
           pathname.startsWith(`/settings/drive-config/${connection.id}/`) ||
           pathname === `/settings/drive-config/${connection.id}`;
@@ -104,15 +107,21 @@ export function DriveConfigProviderNav({
   );
 }
 
+/**
+ * Inner section pills. Panels only show while a tab is selected; clicking the
+ * active tab again returns to the connection home (deselected).
+ */
 export function DriveConfigInnerNav({
   connection,
 }: {
   connection: HrWorkDriveConnectionPublic;
 }) {
   const pathname = useRelativePathname();
-  const base = `/settings/drive-config/${connection.id}`;
-  const connectionHref = `${base}/connection`;
-  const addFolderHref = `${base}/folders/new`;
+  const homeHref = driveConnectionHomePath(connection);
+  const connectionHref = `${homeHref}/connection`;
+  const addFolderHref = `${homeHref}/folders/new`;
+  const connectionActive = pathname === connectionHref;
+  const addFolderActive = pathname.startsWith(addFolderHref);
 
   return (
     <nav
@@ -120,32 +129,38 @@ export function DriveConfigInnerNav({
       className="flex flex-wrap items-center gap-2"
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-        <SubNavTab
-          href={connectionHref}
-          label="Connection"
-          icon={Link2}
-          active={pathname === connectionHref}
-          variant="pill"
-        />
+        <ScopedLink
+          href={connectionActive ? homeHref : connectionHref}
+          aria-pressed={connectionActive}
+          className={pillSubNavLinkClass(connectionActive)}
+        >
+          <Link2 className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+          <span>Connection</span>
+          <NavigationPendingIndicator />
+        </ScopedLink>
         {connection.folders.map((folder) => {
-          const href = `${base}/folders/${folder.id}`;
+          const href = `${homeHref}/folders/${folder.id}`;
+          const active = pathname.startsWith(href);
           return (
-            <SubNavTab
+            <ScopedLink
               key={folder.id}
-              href={href}
-              label={folderTabLabel(folder.label)}
-              icon={Folder}
-              active={pathname.startsWith(href)}
-              variant="pill"
-            />
+              href={active ? homeHref : href}
+              aria-pressed={active}
+              className={pillSubNavLinkClass(active)}
+            >
+              <Folder className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+              <span>{folderTabLabel(folder.label)}</span>
+              <NavigationPendingIndicator />
+            </ScopedLink>
           );
         })}
       </div>
       <ScopedLink
-        href={addFolderHref}
+        href={addFolderActive ? homeHref : addFolderHref}
+        aria-pressed={addFolderActive}
         className={cn(
           "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-emerald-700 px-2.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-800",
-          pathname.startsWith(addFolderHref) && "ring-2 ring-emerald-700/30 ring-offset-1",
+          addFolderActive && "ring-2 ring-emerald-700/30 ring-offset-1",
         )}
       >
         <FolderPlus className="size-3.5 shrink-0" aria-hidden />

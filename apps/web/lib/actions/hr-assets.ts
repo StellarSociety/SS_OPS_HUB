@@ -39,6 +39,7 @@ const assetIdSchema = z.object({
 
 function revalidateAssetsPath() {
   revalidatePath("/hr/assets");
+  revalidatePath("/hr/assets/catalog");
   revalidatePath("/hr/assets/uniform");
   revalidatePath("/hr/assets/uniform/details");
   revalidatePath("/hr/assets/uniform/employees");

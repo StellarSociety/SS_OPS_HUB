@@ -265,6 +265,17 @@ async function importStaffRows(rows: ImportStaffRow[]) {
         errors.push(`${empNo}: ${error.message}`);
       } else {
         updated += 1;
+        if (has("status") && statusId) {
+          const { archiveUniformStaffIfEmploymentOut } = await import(
+            "@/lib/hr/uniform-store"
+          );
+          await archiveUniformStaffIfEmploymentOut(service, {
+            venueId: venue.id,
+            staffId: existing.id,
+            employmentStatusId: statusId,
+            archivedBy: user.id,
+          });
+        }
         await writeAuditLog({
           actor_id: user.id,
           action: "update",
@@ -285,6 +296,17 @@ async function importStaffRows(rows: ImportStaffRow[]) {
         errors.push(`${empNo}: ${error.message}`);
       } else {
         inserted += 1;
+        if (has("status") && statusId && created?.id) {
+          const { archiveUniformStaffIfEmploymentOut } = await import(
+            "@/lib/hr/uniform-store"
+          );
+          await archiveUniformStaffIfEmploymentOut(service, {
+            venueId: venue.id,
+            staffId: created.id,
+            employmentStatusId: statusId,
+            archivedBy: user.id,
+          });
+        }
         await writeAuditLog({
           actor_id: user.id,
           action: "create",
@@ -381,6 +403,30 @@ async function updateStaffInner(
     .eq("id", staffId);
 
   if (error) return { error: error.message };
+
+  const nextStatusId =
+    (typeof updates.employment_status_id === "string"
+      ? updates.employment_status_id
+      : null) ??
+    (typeof payload.employment_status_id === "string"
+      ? payload.employment_status_id
+      : null) ??
+    (before.employment_status_id as string | null);
+
+  if (nextStatusId) {
+    const { archiveUniformStaffIfEmploymentOut } = await import(
+      "@/lib/hr/uniform-store"
+    );
+    const archived = await archiveUniformStaffIfEmploymentOut(service, {
+      venueId: venue.id,
+      staffId,
+      employmentStatusId: nextStatusId,
+      archivedBy: user.id,
+    });
+    if (archived) {
+      revalidatePath("/hr/assets/uniform/employees");
+    }
+  }
 
   await writeAuditLog({
     actor_id: user.id,

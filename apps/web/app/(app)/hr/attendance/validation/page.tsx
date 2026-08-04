@@ -1,5 +1,6 @@
 import { AttendanceApprovalsTable } from "@/components/hr/attendance-approvals-table";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { buildExportUserLabel } from "@/lib/exports/user-label";
 import { currentMonthKey } from "@/lib/hr/attendance-months";
 import {
   buildAttendanceValidationRows,
@@ -29,6 +30,7 @@ import {
   mergePayrollSettings,
   type HrPayrollSettings,
 } from "@/lib/hr/payroll";
+import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 type PageProps = {
   searchParams?: Promise<{
@@ -54,7 +56,7 @@ export default async function AttendanceValidationPage({
   const payrollTo = isIsoDate(params.to?.trim()) ? params.to!.trim() : null;
   const payrollRunId = params.payrollRunId?.trim() || null;
 
-  const { supabase, venue, permissions } = await getHrPageContext();
+  const { supabase, user, venue, permissions } = await getHrPageContext();
   const canEditRoster = canEditSchedules(permissions, venue.id);
 
   try {
@@ -82,6 +84,7 @@ export default async function AttendanceValidationPage({
       publicHolidays,
       importRules,
       payrollRaw,
+      profileResult,
     ] = await Promise.all([
       listStaffForVenue(supabase, venue.id).catch((err) => {
         console.error("[hr] validation listStaffForVenue:", err);
@@ -109,7 +112,17 @@ export default async function AttendanceValidationPage({
         HR_SETTINGS_KEYS.payroll,
         {},
       ),
+      supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", user.id)
+        .single(),
     ]);
+
+    const userDisplayName = buildExportUserLabel(
+      profileResult.data?.full_name,
+      profileResult.data?.email ?? user.email,
+    );
 
     const departmentOptions = departments.map((d) => ({
       id: d.id,
@@ -161,21 +174,9 @@ export default async function AttendanceValidationPage({
             </Link>
           </div>
         ) : null}
-        <div>
-          <h2 className="font-serif text-lg text-[#3D421F]">Validation</h2>
-          <p className="mt-1 text-sm text-black/55">
-            Select an employee and week(s) or a date range. Department is
-            optional and narrows the employee list. Stage actions in three
-            groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL /
-            BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as
-            calendar PH; working SH earns a PH-REPL credit automatically. Save
-            roster edits, then Approve Attendance. SHIFT days only need approval
-            when clock in/out differ from schedule by more than{" "}
-            {rules.scheduleVarianceMinutes} minutes (or punches are missing).
-            Leave and ABS need approval; OFF / calendar PH do not.
-          </p>
-        </div>
         <AttendanceApprovalsTable
+          heading="Validation"
+          description={`Select an employee and week(s) or a date range. Department is optional and narrows the employee list. Stage actions in three groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL / BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as calendar PH; working SH earns a PH-REPL credit automatically. Save roster edits, then Approve Attendance. SHIFT days only need approval when clock in/out differ from schedule by more than ${rules.scheduleVarianceMinutes} minutes (or punches are missing). Leave and ABS need approval; OFF / calendar PH do not.`}
           rows={rows}
           departments={departmentOptions}
           employees={employees}
@@ -187,6 +188,9 @@ export default async function AttendanceValidationPage({
           timezone={rules.timezone}
           payrollPeriodStartDay={payrollSettings.periodStartDay}
           payrollPeriodEndDay={payrollSettings.periodEndDay}
+          venueName={venue.name}
+          venueLogoUrl={getVenueLogoUrl(venue)}
+          userDisplayName={userDisplayName}
         />
       </div>
     );

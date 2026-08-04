@@ -14,6 +14,7 @@ import {
   Phone,
   Route,
   Save,
+  Shirt,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -69,6 +70,7 @@ const DETAIL_TABS: { id: StaffEntryTab; label: string; icon: LucideIcon }[] = [
   { id: "employment_docs", label: "Employment Doc's", icon: FileText },
   { id: "communications", label: "Communications", icon: Mail },
   { id: "assets", label: "Assets", icon: Package },
+  { id: "uniform", label: "Uniform", icon: Shirt },
 ];
 
 export function StaffDetailView({
@@ -95,6 +97,7 @@ export function StaffDetailView({
   const [photoSourceFile, setPhotoSourceFile] = useState<File | null>(null);
   const [photoCleared, setPhotoCleared] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   useEffect(() => {
     setValue(staffToForm(staff));
@@ -124,18 +127,20 @@ export function StaffDetailView({
       toast.error("Photo is still processing — wait a moment, then save again.");
       return;
     }
-    if (
-      (value.photo_url.startsWith("blob:") || photoSourceFile) &&
-      !photoFile &&
-      !photoCleared
-    ) {
-      toast.error("Photo is still processing — wait a moment, then save again.");
-      return;
-    }
+    // Incomplete photo change (source picked, crop never finished): save other
+    // fields and skip the photo instead of blocking the whole employee save.
     if (photoFile) formData.set("photo", photoFile);
-    // Skip oversized originals — they can truncate the whole Server Action body.
-    if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
+    if (
+      photoFile &&
+      photoSourceFile &&
+      photoSourceFile.size <= 8 * 1024 * 1024
+    ) {
       formData.set("photo_source", photoSourceFile);
+    }
+    const uploadingPhoto = Boolean(photoFile || photoCleared);
+    if (uploadingPhoto) {
+      setActiveTab("documents");
+      setPhotoUploading(true);
     }
     setSaving(true);
     try {
@@ -153,6 +158,11 @@ export function StaffDetailView({
           ...current,
           photo_url: result.photo_url ?? "",
         }));
+      } else if (value.photo_url.startsWith("blob:")) {
+        setValue((current) => ({
+          ...current,
+          photo_url: staff.photo_url ?? "",
+        }));
       }
       setEditing(false);
       router.refresh();
@@ -160,6 +170,7 @@ export function StaffDetailView({
       toast.error("Could not save — check your connection and try again.");
     } finally {
       setSaving(false);
+      setPhotoUploading(false);
     }
   }
 
@@ -261,55 +272,56 @@ export function StaffDetailView({
         <div className="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0">
           {canEdit ? (
             <div className="flex flex-col gap-2">
-              {readOnly ? (
+              {/* One primary button — label/handler switch. Avoids Edit↔Save twin nodes. */}
+              <button
+                type="button"
+                disabled={readOnly ? false : saving || photoBusy}
+                onClick={() => {
+                  if (readOnly) {
+                    setEditing(true);
+                    setActiveTab("documents");
+                    return;
+                  }
+                  const form = document.getElementById(
+                    STAFF_ENTRY_FORM_ID,
+                  ) as HTMLFormElement | null;
+                  form?.requestSubmit();
+                }}
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {readOnly ? (
+                  <>
+                    <Pencil className="h-4 w-4 shrink-0" aria-hidden />
+                    Edit
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 shrink-0" aria-hidden />
+                    {photoUploading
+                      ? "Uploading…"
+                      : saving
+                        ? "Saving…"
+                        : "Save"}
+                  </>
+                )}
+              </button>
+              {!readOnly ? (
                 <button
-                  key="staff-action-edit"
                   type="button"
                   onClick={() => {
-                    // Defer so this click cannot land on the Save submit
-                    // button that replaces Edit in the same slot.
-                    queueMicrotask(() => setEditing(true));
+                    setValue(staffToForm(staff));
+                    setPhotoFile(null);
+                    setPhotoSourceFile(null);
+                    setPhotoCleared(false);
+                    setEditing(false);
                   }}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90"
+                  disabled={saving}
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
                 >
-                  <Pencil className="h-4 w-4" />
-                  Edit
+                  <X className="h-4 w-4 shrink-0" aria-hidden />
+                  Cancel
                 </button>
-              ) : (
-                <div key="staff-action-edit-mode" className="flex flex-col gap-2">
-                  <button
-                    key="staff-action-save"
-                    type="button"
-                    disabled={saving || photoBusy}
-                    onClick={() => {
-                      const form = document.getElementById(
-                        STAFF_ENTRY_FORM_ID,
-                      ) as HTMLFormElement | null;
-                      form?.requestSubmit();
-                    }}
-                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-                  >
-                    <Save className="h-4 w-4" />
-                    {saving ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    key="staff-action-cancel"
-                    type="button"
-                    onClick={() => {
-                      setValue(staffToForm(staff));
-                      setPhotoFile(null);
-                      setPhotoSourceFile(null);
-                      setPhotoCleared(false);
-                      setEditing(false);
-                    }}
-                    disabled={saving}
-                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
-                  >
-                    <X className="h-4 w-4" />
-                    Cancel
-                  </button>
-                </div>
-              )}
+              ) : null}
             </div>
           ) : null}
 
@@ -346,6 +358,7 @@ export function StaffDetailView({
         onPhotoFileChange={setPhotoFile}
         onPhotoSourceFileChange={setPhotoSourceFile}
         onPhotoBusyChange={setPhotoBusy}
+        photoUploading={photoUploading}
         photoCleared={photoCleared}
         onPhotoClearedChange={setPhotoCleared}
         readOnly={readOnly}
