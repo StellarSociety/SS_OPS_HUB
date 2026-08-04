@@ -287,7 +287,7 @@ export function StaffEntryWorkspace({
       return;
     }
     if (
-      value.photo_url.startsWith("blob:") &&
+      (value.photo_url.startsWith("blob:") || photoSourceFile) &&
       !photoFile &&
       !photoCleared
     ) {
@@ -295,7 +295,10 @@ export function StaffEntryWorkspace({
       return;
     }
     if (photoFile) formData.set("photo", photoFile);
-    if (photoSourceFile) formData.set("photo_source", photoSourceFile);
+    // Skip oversized originals — they can truncate the whole Server Action body.
+    if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
+      formData.set("photo_source", photoSourceFile);
+    }
     setSaving(true);
     try {
       if (loadedStaffId) {
