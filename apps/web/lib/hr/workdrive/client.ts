@@ -17,6 +17,7 @@ export {
   probeWorkDriveCredentials,
   formatWorkDriveTestFailure,
   fingerprintCredential,
+  redactTokenEndpointResponse,
   type WorkDriveCredentials,
   type WorkDriveCredentialProbe,
 } from "@/lib/hr/workdrive/token";

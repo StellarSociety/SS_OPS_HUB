@@ -115,8 +115,9 @@ export function WorkDriveConnectionPanel({
         clientId,
         clientSecret,
         refreshToken,
+        grantCode,
       ].join("|"),
-    [enabled, label, region, clientId, clientSecret, refreshToken],
+    [enabled, label, region, clientId, clientSecret, refreshToken, grantCode],
   );
 
   return (
@@ -164,16 +165,20 @@ export function WorkDriveConnectionPanel({
           setStatusMessage(null);
           setStatusError(null);
           if (connectionId) formData.set("connection_id", connectionId);
+          if (grantCode.trim()) {
+            formData.set("grant_code", grantCode.trim());
+          }
           const result = await saveWorkDriveConnection(formData);
           if (!result.ok) {
             setStatusError(result.error);
             return;
           }
           if (clientSecret.trim()) setHasClientSecret(true);
-          if (refreshToken.trim()) setHasRefreshToken(true);
+          if (refreshToken.trim() || grantCode.trim()) setHasRefreshToken(true);
           setClientSecret("");
           setRefreshToken("");
-          setStatusMessage("Connection saved.");
+          setGrantCode("");
+          setStatusMessage(result.message ?? "Connection saved.");
           if (mode === "add") {
             router.push(
               toScopedHref(
@@ -294,23 +299,25 @@ export function WorkDriveConnectionPanel({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={
-                    exchangePending || !grantCode.trim() || !connectionId
-                  }
+                  disabled={exchangePending || !grantCode.trim()}
                   onClick={() => {
-                    if (!connectionId) return;
                     startExchangeTransition(async () => {
                       setStatusMessage(null);
                       setStatusError(null);
                       const fd = new FormData();
-                      fd.set("connection_id", connectionId);
+                      if (connectionId) fd.set("connection_id", connectionId);
+                      fd.set("connection_label", label);
+                      fd.set("enabled", enabled ? "true" : "false");
                       fd.set("region", region);
                       fd.set("client_id", clientId);
                       if (clientSecret.trim()) {
                         fd.set("client_secret", clientSecret);
                       }
                       fd.set("grant_code", grantCode.trim());
-                      const result = await exchangeWorkDriveGrantCode(fd);
+                      // Same path as Save: authorization_code exchange, then persist.
+                      const result = connectionId
+                        ? await exchangeWorkDriveGrantCode(fd)
+                        : await saveWorkDriveConnection(fd);
                       if (!result.ok) {
                         setStatusError(result.error);
                         return;
@@ -319,7 +326,20 @@ export function WorkDriveConnectionPanel({
                       setHasRefreshToken(true);
                       if (clientSecret.trim()) setHasClientSecret(true);
                       setClientSecret("");
-                      setStatusMessage(result.message);
+                      setStatusMessage(
+                        "message" in result && result.message
+                          ? result.message
+                          : "Refresh token saved.",
+                      );
+                      if (!connectionId && result.ok && "connectionId" in result) {
+                        router.push(
+                          toScopedHref(
+                            `/settings/drive-config/${result.connectionId}/connection`,
+                            scope,
+                            slug,
+                          ),
+                        );
+                      }
                       router.refresh();
                     });
                   }}
@@ -329,8 +349,8 @@ export function WorkDriveConnectionPanel({
               </div>
               <p className="text-[11px] text-black/40">
                 {connectionId
-                  ? "Scopes: WorkDrive.files.ALL, WorkDrive.teamfolders.READ (files.ALL is required for preview/download). Code expires in ~3 minutes."
-                  : "Save the connection first, then exchange a grant code."}
+                  ? "Scopes: WorkDrive.files.ALL, WorkDrive.teamfolders.READ. Paste a fresh code and Save (or Exchange) — we run a one-time authorization_code exchange and store the refresh token. Codes expire in ~3 minutes; never paste a grant code into Refresh token."
+                  : "Save the connection (with Client ID + secret) first, or include a grant code on create to exchange immediately."}
               </p>
             </div>
           </div>

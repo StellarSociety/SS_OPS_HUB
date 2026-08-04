@@ -9,8 +9,10 @@ import { decryptSecret, encryptSecret } from "@/lib/email/secret";
 import {
   createFolder,
   credentialsFromSettings,
+  clearAccessTokenCache,
   ensureAccessToken,
   exchangeAuthorizationCode,
+  fingerprintCredential,
   getMetadata,
   renameFile,
   trashFile,
@@ -646,7 +648,8 @@ export async function getWorkDriveSettings(): Promise<HrWorkDrivePublicSettings>
 export async function saveWorkDriveConnection(
   formData: FormData,
 ): Promise<
-  { ok: true; connectionId: string } | { ok: false; error: string }
+  | { ok: true; connectionId: string; message?: string }
+  | { ok: false; error: string }
 > {
   try {
     const auth = await getAuth();
@@ -667,28 +670,95 @@ export async function saveWorkDriveConnection(
       String(formData.get("region") ?? existing?.region ?? "com"),
     ) as ZohoWorkDriveRegion;
 
+    const clientId = String(formData.get("client_id") ?? "").trim();
     const clientSecretRaw = String(formData.get("client_secret") ?? "").trim();
     const refreshTokenRaw = String(formData.get("refresh_token") ?? "").trim();
+    // Self Client grant code — one-time authorization_code exchange only.
+    // Never treat this as a refresh_token.
+    const grantCodeRaw = String(formData.get("grant_code") ?? "").trim();
     const label =
       String(formData.get("connection_label") ?? "").trim() ||
       existing?.label ||
       "ZOHO WorkDrive";
+
+    const clientSecretEncrypted = clientSecretRaw
+      ? encryptSecret(clientSecretRaw)
+      : existing?.clientSecretEncrypted ?? null;
+
+    let refreshTokenEncrypted =
+      existing?.refreshTokenEncrypted ?? null;
+    let connectionStatus = existing?.connectionStatus ?? "disconnected";
+    let lastVerifiedAt = existing?.lastVerifiedAt ?? null;
+    let lastError = existing?.lastError ?? null;
+    let exchangedGrantCode = false;
+
+    if (grantCodeRaw) {
+      if (!clientId) {
+        return { ok: false, error: "Client ID is required to exchange a grant code." };
+      }
+      let clientSecret = clientSecretRaw;
+      if (!clientSecret) {
+        if (!existing?.clientSecretEncrypted) {
+          return {
+            ok: false,
+            error: "Client secret is required to exchange a grant code.",
+          };
+        }
+        clientSecret = decryptSecret(existing.clientSecretEncrypted);
+      }
+
+      try {
+        const tokens = await exchangeAuthorizationCode({
+          region,
+          clientId,
+          clientSecret,
+          code: grantCodeRaw,
+        });
+        refreshTokenEncrypted = encryptSecret(tokens.refreshToken);
+        lastVerifiedAt = new Date().toISOString();
+        lastError = null;
+        connectionStatus = "disconnected";
+        exchangedGrantCode = true;
+        clearAccessTokenCache(venue.id);
+        console.log(
+          `[workdrive] saved new refresh token after authorization_code exchange ` +
+            `(connection=${connectionId}, fingerprint=${fingerprintCredential(tokens.refreshToken)})`,
+        );
+      } catch (error) {
+        // Do not overwrite existing refresh token / good state on failed exchange.
+        const rawBody =
+          error instanceof WorkDriveApiError && error.body
+            ? error.body.trim().slice(0, 800)
+            : "";
+        const message =
+          error instanceof WorkDriveApiError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "Grant code exchange failed.";
+        return {
+          ok: false,
+          error: rawBody && rawBody !== message
+            ? `${message}\n\nRaw response: ${rawBody}`
+            : message,
+        };
+      }
+    } else if (refreshTokenRaw) {
+      // Explicit refresh token paste only — never a grant code path.
+      refreshTokenEncrypted = encryptSecret(refreshTokenRaw);
+    }
 
     const nextConnection: HrWorkDriveConnection = {
       id: connectionId,
       label,
       enabled: flagTrue(formData.get("enabled")),
       region,
-      clientId: String(formData.get("client_id") ?? "").trim(),
-      clientSecretEncrypted: clientSecretRaw
-        ? encryptSecret(clientSecretRaw)
-        : existing?.clientSecretEncrypted ?? null,
-      refreshTokenEncrypted: refreshTokenRaw
-        ? encryptSecret(refreshTokenRaw)
-        : existing?.refreshTokenEncrypted ?? null,
-      connectionStatus: existing?.connectionStatus ?? "disconnected",
-      lastVerifiedAt: existing?.lastVerifiedAt ?? null,
-      lastError: existing?.lastError ?? null,
+      clientId,
+      clientSecretEncrypted,
+      refreshTokenEncrypted,
+      connectionStatus,
+      lastVerifiedAt,
+      lastError,
       folders:
         existing?.folders?.length
           ? existing.folders
@@ -702,7 +772,13 @@ export async function saveWorkDriveConnection(
       nextStore,
       `${HR_SETTINGS_KEYS.workDrive}:${connectionId}`,
     );
-    return { ok: true, connectionId };
+    return {
+      ok: true,
+      connectionId,
+      message: exchangedGrantCode
+        ? "Grant code exchanged — refresh token saved. Click Test connection to verify."
+        : "Connection saved.",
+    };
   } catch (error) {
     return {
       ok: false,
@@ -947,12 +1023,34 @@ export async function exchangeWorkDriveGrantCode(
       clientSecret = decryptSecret(current.clientSecretEncrypted);
     }
 
-    const tokens = await exchangeAuthorizationCode({
-      region,
-      clientId,
-      clientSecret,
-      code,
-    });
+    let tokens;
+    try {
+      tokens = await exchangeAuthorizationCode({
+        region,
+        clientId,
+        clientSecret,
+        code,
+      });
+    } catch (error) {
+      // Do not overwrite existing refresh token on failed exchange.
+      const rawBody =
+        error instanceof WorkDriveApiError && error.body
+          ? error.body.trim().slice(0, 800)
+          : "";
+      const message =
+        error instanceof WorkDriveApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Could not exchange grant code.";
+      return {
+        ok: false,
+        error:
+          rawBody && rawBody !== message
+            ? `${message}\n\nRaw response: ${rawBody}`
+            : message,
+      };
+    }
 
     const nextConnection: HrWorkDriveConnection = {
       ...current,
@@ -962,6 +1060,7 @@ export async function exchangeWorkDriveGrantCode(
       clientSecretEncrypted: encryptSecret(clientSecret),
       refreshTokenEncrypted: encryptSecret(tokens.refreshToken),
       connectionStatus: "disconnected",
+      lastVerifiedAt: new Date().toISOString(),
       lastError: null,
       folders: current.folders.length
         ? current.folders
@@ -973,6 +1072,12 @@ export async function exchangeWorkDriveGrantCode(
       user.id,
       upsertConnection(store, nextConnection),
       `${HR_SETTINGS_KEYS.workDrive}:${nextConnection.id}:exchange`,
+    );
+
+    clearAccessTokenCache(venue.id);
+    console.log(
+      `[workdrive] exchanged grant code → refresh token saved ` +
+        `(connection=${nextConnection.id}, fingerprint=${fingerprintCredential(tokens.refreshToken)})`,
     );
 
     return {
