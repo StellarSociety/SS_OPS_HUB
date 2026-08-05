@@ -178,8 +178,12 @@ type StaffEntryFormProps = {
   onPhotoFileChange: (file: File | null) => void;
   onPhotoSourceFileChange?: (file: File | null) => void;
   onPhotoBusyChange?: (busy: boolean) => void;
-  /** True while a photo is being uploaded as part of Save. */
+  /** True while the dedicated photo save is uploading. */
   photoUploading?: boolean;
+  /** Cropped file or clear pending — enables Save photo. */
+  photoPending?: boolean;
+  /** Persist photo via saveStaffPhoto (not the employee form). */
+  onSavePhoto?: () => void;
   photoCleared: boolean;
   onPhotoClearedChange: (cleared: boolean) => void;
   readOnly: boolean;
@@ -539,6 +543,8 @@ export function StaffEntryForm({
   onPhotoSourceFileChange,
   onPhotoBusyChange,
   photoUploading = false,
+  photoPending = false,
+  onSavePhoto,
   photoCleared,
   onPhotoClearedChange,
   readOnly,
@@ -1732,6 +1738,9 @@ export function StaffEntryForm({
       <SectionCard title="Profile photo">
         <StaffProfilePhotoEditor
           photoUrl={value.photo_url}
+          staffId={staffId}
+          hasPendingChange={photoPending}
+          onSavePhoto={onSavePhoto}
           onPhotoUrlChange={(url) => {
             onChange({ photo_url: url });
             if (url) onPhotoClearedChange(false);
@@ -1746,16 +1755,17 @@ export function StaffEntryForm({
             onPhotoFileChange(null);
             onPhotoSourceFileChange?.(null);
           }}
-          readOnly={readOnly || photoUploading}
+          readOnly={readOnly}
         />
         {readOnly ? (
           <p className="mt-2 text-[11px] text-black/40">
             Editing is locked. Use Edit, then change the photo here.
           </p>
-        ) : null}
-        {photoCleared ? (
-          <input type="hidden" name="photo_clear" value="1" />
-        ) : null}
+        ) : (
+          <p className="mt-2 text-[11px] text-black/40">
+            Photos save with Save photo — separate from the employee form Save.
+          </p>
+        )}
       </SectionCard>
     </div>
   );

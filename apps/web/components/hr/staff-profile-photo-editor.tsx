@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronsUpDown, ImagePlus, Trash2, Upload } from "lucide-react";
+import { ChevronsUpDown, ImagePlus, Save, Trash2, Upload } from "lucide-react";
 import { DETACHED_FILE_FORM_ID } from "@/lib/hr/detached-file-form";
 import { cn } from "@/lib/utils";
 
@@ -19,8 +19,14 @@ type StaffProfilePhotoEditorProps = {
   onSourceFileChange?: (file: File | null) => void;
   /** True while the crop export is still running (disable Save upstream). */
   onPhotoBusyChange?: (busy: boolean) => void;
-  /** True while the parent is saving / uploading the photo to storage. */
+  /** True while the dedicated photo save is uploading to storage. */
   uploading?: boolean;
+  /** Pending crop/clear that has not been persisted yet. */
+  hasPendingChange?: boolean;
+  /** Existing staff row — required to persist the photo immediately. */
+  staffId?: string | null;
+  /** Dedicated save (not the employee form Save). */
+  onSavePhoto?: () => void;
   onCleared: () => void;
   readOnly?: boolean;
   className?: string;
@@ -69,6 +75,9 @@ export function StaffProfilePhotoEditor({
   onSourceFileChange,
   onPhotoBusyChange,
   uploading = false,
+  hasPendingChange = false,
+  staffId = null,
+  onSavePhoto,
   onCleared,
   readOnly = false,
   className,
@@ -111,6 +120,15 @@ export function StaffProfilePhotoEditor({
     (!naturalSize || exportPending);
   // Crop re-exports on every slider nudge — keep the bar for pick / load / save only.
   const showProgress = uploading || adjustLoading || readingFile;
+  const progressLabel = uploading
+    ? "Saving photo…"
+    : adjustLoading
+      ? "Loading…"
+      : readingFile
+        ? "Reading…"
+        : uploadProgress != null && uploadProgress >= 100
+          ? "Done"
+          : null;
 
   useEffect(() => {
     onPhotoBusyChange?.(photoBusy);
@@ -564,7 +582,11 @@ export function StaffProfilePhotoEditor({
           }
           className={cn(
             "relative h-[15.5rem] w-[calc(15.5rem*7/9)] shrink-0 overflow-hidden rounded-md border border-black/10 bg-black/[0.04] transition-colors",
-            hasSource && !readOnly && !dropActive && "cursor-grab active:cursor-grabbing",
+            hasSource &&
+              !readOnly &&
+              !dropActive &&
+              !uploading &&
+              "cursor-grab active:cursor-grabbing",
             !readOnly && !displayUrl && "cursor-pointer hover:bg-black/[0.06]",
             dropActive &&
               !readOnly &&
@@ -632,14 +654,22 @@ export function StaffProfilePhotoEditor({
             </div>
           ) : null}
           {showProgress || uploadProgress != null ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/55 to-transparent px-2 pb-2 pt-6">
-              <div className="h-1 w-full overflow-hidden rounded-full bg-white/35">
-                <div
-                  className="h-full rounded-full bg-white transition-[width] duration-150 ease-out"
-                  style={{
-                    width: `${Math.min(100, Math.max(4, uploadProgress ?? 8))}%`,
-                  }}
-                />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-2 pb-2 pt-8">
+              {/* Solid scrim so the bar stays visible on light photos / empty frame */}
+              <div className="rounded-md bg-[#3D421F]/92 px-2 py-1.5 shadow-md ring-1 ring-black/10">
+                {progressLabel ? (
+                  <p className="mb-1 text-[10px] font-medium leading-none text-white/90">
+                    {progressLabel}
+                  </p>
+                ) : null}
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/25">
+                  <div
+                    className="h-full rounded-full bg-[var(--venue-secondary,#F0F3DD)] transition-[width] duration-150 ease-out"
+                    style={{
+                      width: `${Math.min(100, Math.max(6, uploadProgress ?? 8))}%`,
+                    }}
+                  />
+                </div>
               </div>
             </div>
           ) : null}
@@ -690,6 +720,21 @@ export function StaffProfilePhotoEditor({
                 {adjustLoading ? "Loading…" : "Adjust"}
               </button>
             ) : null}
+            {hasPendingChange && onSavePhoto && staffId && !readOnly ? (
+              <button
+                type="button"
+                disabled={uploading || readingFile || photoBusy}
+                onClick={onSavePhoto}
+                title="Upload this photo now (separate from the employee Save)"
+                className={cn(
+                  btnClass,
+                  "border-[#3D421F]/40 bg-[#3D421F] text-white hover:opacity-90",
+                )}
+              >
+                <Save className="h-3.5 w-3.5 shrink-0" />
+                {uploading ? "Saving…" : "Save photo"}
+              </button>
+            ) : null}
             <input
               ref={fileInputRef}
               type="file"
@@ -731,7 +776,7 @@ export function StaffProfilePhotoEditor({
                 onChange={setZoom}
               />
               <p className="text-right text-[9px] leading-snug text-black/40">
-                Drag preview · Save to apply
+                Drag preview · Save photo to upload
               </p>
             </div>
           ) : readOnly ? (
@@ -739,6 +784,14 @@ export function StaffProfilePhotoEditor({
               {displayUrl
                 ? "Click Edit to upload or adjust this photo."
                 : "Click Edit, then Upload a passport-ratio photo."}
+            </p>
+          ) : hasPendingChange && !staffId ? (
+            <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
+              Save the employee first, then use Save photo.
+            </p>
+          ) : hasPendingChange ? (
+            <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
+              Use Save photo here — not the form Save.
             </p>
           ) : !displayUrl ? (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">

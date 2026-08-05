@@ -449,6 +449,90 @@ async function updateStaffInner(
   return { success: true, photo_url: savedPhotoUrl };
 }
 
+/**
+ * Dedicated staff photo upload/clear — small FormData, not mixed with the
+ * full employee form (avoids body truncation + "saved then disappears").
+ */
+export async function saveStaffPhoto(staffId: string, formData: FormData) {
+  try {
+    return await saveStaffPhotoInner(staffId, formData);
+  } catch (err) {
+    const digest =
+      err && typeof err === "object" && "digest" in err
+        ? String((err as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw err;
+    const message =
+      err instanceof Error ? err.message : "Could not save staff photo.";
+    console.error("[hr] saveStaffPhoto:", message);
+    return { error: message };
+  }
+}
+
+async function saveStaffPhotoInner(staffId: string, formData: FormData) {
+  const { supabase, user, venue, permissions } = await getAuthContext();
+
+  const { data: before } = await supabase
+    .from("staff")
+    .select("id, photo_url, created_by, home_venue_id")
+    .eq("id", staffId)
+    .eq("home_venue_id", venue.id)
+    .single();
+
+  if (!before) return { error: "Staff member not found." };
+
+  if (!canEditOwnStaff(permissions, venue.id, before.created_by, user.id)) {
+    return { error: "You do not have permission to edit staff." };
+  }
+
+  const hasPhoto = asUploadBlob(formData.get("photo"));
+  const clear = String(formData.get("photo_clear") ?? "") === "1";
+  if (!hasPhoto && !clear) {
+    return { error: "No photo change to save." };
+  }
+
+  const service = createServiceClient();
+  const photoResult = await resolveStaffPhotoUpdate({
+    service,
+    venueId: venue.id,
+    staffId,
+    formData,
+    previousUrl: (before as { photo_url?: string | null }).photo_url ?? null,
+  });
+  if (photoResult.error) return { error: photoResult.error };
+  if (photoResult.photo_url === undefined) {
+    return { error: "No photo change to save." };
+  }
+
+  const { error } = await service
+    .from("staff")
+    .update({ photo_url: photoResult.photo_url })
+    .eq("id", staffId);
+
+  if (error) return { error: error.message };
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "update",
+    module_key: HR_MODULE_KEY,
+    entity: "staff",
+    entity_id: staffId,
+    venue_id: venue.id,
+    before: { photo_url: before.photo_url ?? null },
+    after: { photo_url: photoResult.photo_url },
+  });
+
+  revalidatePath(`/hr/${staffId}`);
+  revalidatePath("/hr");
+  revalidatePath("/hr/staff");
+  revalidatePath("/hr/staff/data");
+
+  return {
+    success: true as const,
+    photo_url: photoResult.photo_url,
+  };
+}
+
 export async function createStaff(formData: FormData) {
   try {
     return await createStaffInner(formData);

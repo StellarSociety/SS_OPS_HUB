@@ -32,7 +32,7 @@ import {
 } from "@/components/hr/staff-entry-form";
 import { StaffPdfDocument } from "@/components/hr/staff-pdf-document";
 import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
-import { createStaff, updateStaff } from "@/lib/actions/hr";
+import { createStaff, saveStaffPhoto, updateStaff } from "@/lib/actions/hr";
 import { computeAge, computeWorkedTime, type SalaryPercentages } from "@/lib/hr/derived";
 import {
   emptyStaffForm,
@@ -284,27 +284,81 @@ export function StaffEntryWorkspace({
     setEditing(false);
   }
 
-  async function handleSubmit(formData: FormData) {
+  const photoPending = Boolean(photoFile || photoCleared);
+
+  async function handleSavePhoto() {
+    if (!loadedStaffId) {
+      toast.error("Save the employee record first, then save the photo.");
+      return;
+    }
     if (photoBusy) {
       toast.error("Photo is still processing — wait a moment, then save again.");
       return;
     }
-    // Incomplete photo change (source picked, crop never finished): save other
-    // fields and skip the photo instead of blocking the whole employee save.
-    if (photoFile) formData.set("photo", photoFile);
-    if (
-      photoFile &&
-      photoSourceFile &&
-      photoSourceFile.size <= 8 * 1024 * 1024
-    ) {
-      formData.set("photo_source", photoSourceFile);
+    if (!photoFile && !photoCleared) {
+      toast.error("No photo change to save.");
+      return;
     }
-    const uploadingPhoto = Boolean(photoFile || photoCleared);
-    if (uploadingPhoto) {
+    if (photoFile && photoFile.size === 0) {
+      toast.error("Photo export was empty — try uploading again.");
+      return;
+    }
+
+    const formData = new FormData();
+    if (photoCleared && !photoFile) {
+      formData.set("photo_clear", "1");
+    } else if (photoFile) {
+      formData.set("photo", photoFile);
+      if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
+        formData.set("photo_source", photoSourceFile);
+      }
+    }
+
+    setPhotoUploading(true);
+    try {
+      const result = await saveStaffPhoto(loadedStaffId, formData);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved("Profile photo saved.");
+      setPhotoFile(null);
+      setPhotoSourceFile(null);
+      setPhotoCleared(false);
+      const nextUrl = result.photo_url ?? "";
+      setValue((current) => ({ ...current, photo_url: nextUrl }));
+      setSavedSnapshot((current) =>
+        current ? { ...current, photo_url: nextUrl } : current,
+      );
+      router.refresh();
+    } catch {
+      toast.error("Could not save photo — check your connection and try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  async function handleSubmit(formData: FormData) {
+    if (loadedStaffId && photoPending) {
+      toast.error("Save or discard the profile photo first (use Save photo).");
       setActiveTab("documents");
-      setPhotoUploading(true);
+      return;
     }
+    if (photoBusy) {
+      toast.error("Photo is still processing — wait a moment, then save again.");
+      return;
+    }
+
+    // New employee: photo still rides with create (no staff id yet for Save photo).
+    if (!loadedStaffId && photoFile) {
+      formData.set("photo", photoFile);
+      if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
+        formData.set("photo_source", photoSourceFile);
+      }
+    }
+
     setSaving(true);
+    if (!loadedStaffId && photoFile) setPhotoUploading(true);
     try {
       if (loadedStaffId) {
         const result = await updateStaff(loadedStaffId, formData);
@@ -313,17 +367,7 @@ export function StaffEntryWorkspace({
           return;
         }
         toast.saved("Employee updated.");
-        setPhotoFile(null);
-        setPhotoSourceFile(null);
-        setPhotoCleared(false);
-        const nextValue =
-          result.photo_url !== undefined
-            ? { ...value, photo_url: result.photo_url ?? "" }
-            : value.photo_url.startsWith("blob:") && savedSnapshot
-              ? { ...value, photo_url: savedSnapshot.photo_url }
-              : value;
-        setValue(nextValue);
-        setSavedSnapshot(nextValue);
+        setSavedSnapshot(value);
         setEditing(false);
         router.refresh();
         return;
@@ -429,7 +473,7 @@ export function StaffEntryWorkspace({
                   type="button"
                   disabled={
                     editing || loadedStaffId == null
-                      ? saving || photoBusy
+                      ? saving || photoBusy || photoUploading
                       : false
                   }
                   onClick={() => {
@@ -457,11 +501,11 @@ export function StaffEntryWorkspace({
                   ) : (
                     <>
                       <Save className="h-4 w-4 shrink-0" aria-hidden />
-                      {photoUploading
-                        ? "Uploading…"
-                        : saving
-                          ? "Saving…"
-                          : "Save"}
+                      {saving
+                        ? photoUploading
+                          ? "Uploading…"
+                          : "Saving…"
+                        : "Save"}
                     </>
                   )}
                 </button>
@@ -469,7 +513,7 @@ export function StaffEntryWorkspace({
                   <button
                     type="button"
                     onClick={cancelEdits}
-                    disabled={saving}
+                    disabled={saving || photoUploading}
                     className="inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-black/10 bg-white px-2 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
                   >
                     <X className="h-4 w-4 shrink-0" aria-hidden />
@@ -515,6 +559,8 @@ export function StaffEntryWorkspace({
             onPhotoSourceFileChange={setPhotoSourceFile}
             onPhotoBusyChange={setPhotoBusy}
             photoUploading={photoUploading}
+            photoPending={photoPending}
+            onSavePhoto={() => void handleSavePhoto()}
             photoCleared={photoCleared}
             onPhotoClearedChange={setPhotoCleared}
             readOnly={readOnly}

@@ -26,7 +26,7 @@ import {
 } from "@/components/hr/staff-entry-form";
 import { StaffPdfDocument } from "@/components/hr/staff-pdf-document";
 import { toast } from "@/components/ui/toast";
-import { updateStaff } from "@/lib/actions/hr";
+import { saveStaffPhoto, updateStaff } from "@/lib/actions/hr";
 import { computeAge, computeWorkedTime, type SalaryPercentages } from "@/lib/hr/derived";
 import { staffToForm, type StaffFormState } from "@/lib/hr/staff-form";
 import { nationalityDisplay } from "@/lib/hr/nationality-flag";
@@ -100,11 +100,14 @@ export function StaffDetailView({
   const [photoUploading, setPhotoUploading] = useState(false);
 
   useEffect(() => {
+    // Don't wipe in-progress edits (or a just-saved photo) when RSC refresh
+    // re-delivers the staff prop.
+    if (editing) return;
     setValue(staffToForm(staff));
     setPhotoFile(null);
     setPhotoSourceFile(null);
     setPhotoCleared(false);
-  }, [staff]);
+  }, [staff, editing]);
 
   const readOnly = !editing || !canEdit;
   const displayName = value.full_name.trim() || staff.full_name;
@@ -121,26 +124,62 @@ export function StaffDetailView({
     value.joining_date || null,
     value.termination_date || null,
   );
+  const photoPending = Boolean(photoFile || photoCleared);
 
-  async function handleSubmit(formData: FormData) {
+  async function handleSavePhoto() {
     if (photoBusy) {
       toast.error("Photo is still processing — wait a moment, then save again.");
       return;
     }
-    // Incomplete photo change (source picked, crop never finished): save other
-    // fields and skip the photo instead of blocking the whole employee save.
-    if (photoFile) formData.set("photo", photoFile);
-    if (
-      photoFile &&
-      photoSourceFile &&
-      photoSourceFile.size <= 8 * 1024 * 1024
-    ) {
-      formData.set("photo_source", photoSourceFile);
+    if (!photoFile && !photoCleared) {
+      toast.error("No photo change to save.");
+      return;
     }
-    const uploadingPhoto = Boolean(photoFile || photoCleared);
-    if (uploadingPhoto) {
+    if (photoFile && photoFile.size === 0) {
+      toast.error("Photo export was empty — try uploading again.");
+      return;
+    }
+
+    const formData = new FormData();
+    if (photoCleared && !photoFile) {
+      formData.set("photo_clear", "1");
+    } else if (photoFile) {
+      formData.set("photo", photoFile);
+      if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
+        formData.set("photo_source", photoSourceFile);
+      }
+    }
+
+    setPhotoUploading(true);
+    try {
+      const result = await saveStaffPhoto(staff.id, formData);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved("Profile photo saved.");
+      setPhotoFile(null);
+      setPhotoSourceFile(null);
+      setPhotoCleared(false);
+      setValue((current) => ({
+        ...current,
+        photo_url: result.photo_url ?? "",
+      }));
+      router.refresh();
+    } catch {
+      toast.error("Could not save photo — check your connection and try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  async function handleSubmit(formData: FormData) {
+    // Photos persist via Save photo — never piggy-back on the employee form
+    // (large FormData was dropping the file → toast success, then photo vanished).
+    if (photoPending) {
+      toast.error("Save or discard the profile photo first (use Save photo).");
       setActiveTab("documents");
-      setPhotoUploading(true);
+      return;
     }
     setSaving(true);
     try {
@@ -150,27 +189,12 @@ export function StaffDetailView({
         return;
       }
       toast.saved("Staff details saved.");
-      setPhotoFile(null);
-      setPhotoSourceFile(null);
-      setPhotoCleared(false);
-      if (result.photo_url !== undefined) {
-        setValue((current) => ({
-          ...current,
-          photo_url: result.photo_url ?? "",
-        }));
-      } else if (value.photo_url.startsWith("blob:")) {
-        setValue((current) => ({
-          ...current,
-          photo_url: staff.photo_url ?? "",
-        }));
-      }
       setEditing(false);
       router.refresh();
     } catch {
       toast.error("Could not save — check your connection and try again.");
     } finally {
       setSaving(false);
-      setPhotoUploading(false);
     }
   }
 
@@ -275,7 +299,9 @@ export function StaffDetailView({
               {/* One primary button — label/handler switch. Avoids Edit↔Save twin nodes. */}
               <button
                 type="button"
-                disabled={readOnly ? false : saving || photoBusy}
+                disabled={
+                  readOnly ? false : saving || photoBusy || photoUploading
+                }
                 onClick={() => {
                   if (readOnly) {
                     setEditing(true);
@@ -297,11 +323,7 @@ export function StaffDetailView({
                 ) : (
                   <>
                     <Save className="h-4 w-4 shrink-0" aria-hidden />
-                    {photoUploading
-                      ? "Uploading…"
-                      : saving
-                        ? "Saving…"
-                        : "Save"}
+                    {saving ? "Saving…" : "Save"}
                   </>
                 )}
               </button>
@@ -315,7 +337,7 @@ export function StaffDetailView({
                     setPhotoCleared(false);
                     setEditing(false);
                   }}
-                  disabled={saving}
+                  disabled={saving || photoUploading}
                   className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
                 >
                   <X className="h-4 w-4 shrink-0" aria-hidden />
@@ -359,6 +381,8 @@ export function StaffDetailView({
         onPhotoSourceFileChange={setPhotoSourceFile}
         onPhotoBusyChange={setPhotoBusy}
         photoUploading={photoUploading}
+        photoPending={photoPending}
+        onSavePhoto={() => void handleSavePhoto()}
         photoCleared={photoCleared}
         onPhotoClearedChange={setPhotoCleared}
         readOnly={readOnly}
