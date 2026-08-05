@@ -49,7 +49,7 @@ export default async function ProfilePage() {
 
   const STAFF_JOIN = `
       staff:staff_id (
-        emp_no, first_name, full_name, work_email, personal_email, photo_url,
+        emp_no, first_name, full_name, work_email, personal_email,
         department:department_id ( name ),
         position:position_id ( name ),
         home_venue:home_venue_id ( name )
@@ -91,7 +91,6 @@ export default async function ProfilePage() {
     emp_no: string;
     work_email: string | null;
     personal_email: string | null;
-    photo_url?: string | null;
     department: Named;
     position: Named;
     home_venue: Named;
@@ -110,7 +109,6 @@ export default async function ProfilePage() {
         emp_no: staffRaw.emp_no,
         work_email: staffRaw.work_email,
         personal_email: staffRaw.personal_email,
-        photo_url: staffRaw.photo_url ?? null,
         department: unwrap(staffRaw.department),
         position: unwrap(staffRaw.position),
         home_venue: unwrap(staffRaw.home_venue),
@@ -121,7 +119,6 @@ export default async function ProfilePage() {
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: p?.avatar_url,
-    staffPhotoUrl: staff?.photo_url ?? null,
     userMetadata: metadata,
   });
 

@@ -17,7 +17,6 @@ type MissingDetailCheck = {
   field: string;
   label: string;
   isPresent: (member: {
-    photo_url: string | null;
     department_id: string | null;
     position_id: string | null;
     nationality_id: string | null;
@@ -43,11 +42,6 @@ function hasText(value: string | null | undefined): boolean {
 }
 
 export const MISSING_DETAIL_CHECKS: MissingDetailCheck[] = [
-  {
-    field: "photo_url",
-    label: "Photo",
-    isPresent: (m) => hasText(m.photo_url),
-  },
   {
     field: "department_id",
     label: "Department",
@@ -134,7 +128,6 @@ export type MissingDetailStaffInput = {
   id: string;
   emp_no: string;
   full_name: string;
-  photo_url: string | null;
   department_id: string | null;
   position_id: string | null;
   nationality_id: string | null;

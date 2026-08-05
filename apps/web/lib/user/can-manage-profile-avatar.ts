@@ -1,4 +1,4 @@
-/** Who may upload a custom profile photo (vs. HR staff photo only). */
+/** Who may upload a custom profile photo (user-avatars). */
 export function canManageProfileAvatar(user: {
   is_external?: boolean | null;
   email: string;

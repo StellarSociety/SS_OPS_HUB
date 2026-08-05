@@ -53,8 +53,6 @@ export type StaffFormState = {
   fire_safety_date: string;
   first_aid_date: string;
   medical_insurance_expiry_date: string;
-  /** Public URL of the cropped passport-ratio staff photo. */
-  photo_url: string;
 };
 
 const str = (v: unknown): string => (v == null ? "" : String(v));
@@ -103,7 +101,6 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     fire_safety_date: "",
     first_aid_date: "",
     medical_insurance_expiry_date: "",
-    photo_url: "",
   };
 }
 
@@ -154,6 +151,5 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     fire_safety_date: str(s.fire_safety_date),
     first_aid_date: str(s.first_aid_date),
     medical_insurance_expiry_date: str(s.medical_insurance_expiry_date),
-    photo_url: str(s.photo_url),
   };
 }

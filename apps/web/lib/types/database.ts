@@ -288,7 +288,6 @@ export type Staff = {
   medical_insurance_value: number | null;
   medical_insurance_issue_date: string | null;
   medical_insurance_expiry_date: string | null;
-  photo_url: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

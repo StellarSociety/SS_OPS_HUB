@@ -67,7 +67,6 @@ const STAFF_JOIN = `
         work_email,
         personal_email,
         home_venue_id,
-        photo_url,
         department:department_id ( name ),
         position:position_id ( name ),
         employment_status:employment_status_id ( name ),
@@ -103,7 +102,6 @@ type RawStaff = {
   work_email: string | null;
   personal_email: string | null;
   home_venue_id: string;
-  photo_url?: string | null;
   department: RawNamed;
   position: RawNamed;
   employment_status: RawNamed;
@@ -176,7 +174,6 @@ export async function listUsers(
     const staff = staffRaw
       ? {
           ...staffRaw,
-          photo_url: staffRaw.photo_url ?? null,
           department: unwrapOne(staffRaw.department),
           position: unwrapOne(staffRaw.position),
           employment_status: unwrapOne(staffRaw.employment_status),

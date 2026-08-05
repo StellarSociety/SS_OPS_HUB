@@ -26,7 +26,6 @@ export default async function SelectVenuePage() {
           full_name,
           avatar_url,
           staff:staff_id (
-            photo_url,
             emp_no,
             position:position_id ( name )
           )
@@ -37,7 +36,6 @@ export default async function SelectVenuePage() {
     ]);
 
   type StaffShape = {
-    photo_url?: string | null;
     emp_no?: string | null;
     position?: { name: string } | { name: string }[] | null;
   };
@@ -66,7 +64,7 @@ export default async function SelectVenuePage() {
     const { data: profileFallback } = await supabase
       .from("profiles")
       .select(
-        `email, full_name, staff:staff_id ( photo_url, emp_no, position:position_id ( name ) )`,
+        `email, full_name, avatar_url, staff:staff_id ( emp_no, position:position_id ( name ) )`,
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -74,7 +72,6 @@ export default async function SelectVenuePage() {
   }
 
   const staff = unwrapStaff(profile?.staff ?? null);
-  const staffPhoto = staff?.photo_url ?? null;
   const positionRaw = staff?.position;
   const positionName =
     positionRaw == null
@@ -87,7 +84,6 @@ export default async function SelectVenuePage() {
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: profile?.avatar_url,
-    staffPhotoUrl: staffPhoto,
     userMetadata: metadata,
   });
 

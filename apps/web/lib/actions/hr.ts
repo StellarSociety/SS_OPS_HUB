@@ -70,13 +70,6 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getActionAuthContext, diagnosePersistenceAccess } from "@/lib/auth/action-context";
-import {
-  asUploadBlob,
-  convertImageToWebp,
-  isRasterImageMime,
-  resolveRasterImageMime,
-  uploadBlobMeta,
-} from "@/lib/storage/convert-to-webp";
 
 async function getAuthContext() {
   const ctx = await getActionAuthContext();
@@ -385,18 +378,6 @@ async function updateStaffInner(
   );
   const service = createServiceClient();
 
-  const photoResult = await resolveStaffPhotoUpdate({
-    service,
-    venueId: venue.id,
-    staffId,
-    formData,
-    previousUrl: (before as { photo_url?: string | null }).photo_url ?? null,
-  });
-  if (photoResult.error) return { error: photoResult.error };
-  if (photoResult.photo_url !== undefined) {
-    updates.photo_url = photoResult.photo_url;
-  }
-
   const { error } = await service
     .from("staff")
     .update(updates)
@@ -442,95 +423,7 @@ async function updateStaffInner(
   revalidatePath(`/hr/${staffId}`);
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
-  const savedPhotoUrl =
-    photoResult.photo_url !== undefined
-      ? photoResult.photo_url
-      : ((before as { photo_url?: string | null }).photo_url ?? null);
-  return { success: true, photo_url: savedPhotoUrl };
-}
-
-/**
- * Dedicated staff photo upload/clear — small FormData, not mixed with the
- * full employee form (avoids body truncation + "saved then disappears").
- */
-export async function saveStaffPhoto(staffId: string, formData: FormData) {
-  try {
-    return await saveStaffPhotoInner(staffId, formData);
-  } catch (err) {
-    const digest =
-      err && typeof err === "object" && "digest" in err
-        ? String((err as { digest?: unknown }).digest ?? "")
-        : "";
-    if (digest.startsWith("NEXT_")) throw err;
-    const message =
-      err instanceof Error ? err.message : "Could not save staff photo.";
-    console.error("[hr] saveStaffPhoto:", message);
-    return { error: message };
-  }
-}
-
-async function saveStaffPhotoInner(staffId: string, formData: FormData) {
-  const { supabase, user, venue, permissions } = await getAuthContext();
-
-  const { data: before } = await supabase
-    .from("staff")
-    .select("id, photo_url, created_by, home_venue_id")
-    .eq("id", staffId)
-    .eq("home_venue_id", venue.id)
-    .single();
-
-  if (!before) return { error: "Staff member not found." };
-
-  if (!canEditOwnStaff(permissions, venue.id, before.created_by, user.id)) {
-    return { error: "You do not have permission to edit staff." };
-  }
-
-  const hasPhoto = asUploadBlob(formData.get("photo"));
-  const clear = String(formData.get("photo_clear") ?? "") === "1";
-  if (!hasPhoto && !clear) {
-    return { error: "No photo change to save." };
-  }
-
-  const service = createServiceClient();
-  const photoResult = await resolveStaffPhotoUpdate({
-    service,
-    venueId: venue.id,
-    staffId,
-    formData,
-    previousUrl: (before as { photo_url?: string | null }).photo_url ?? null,
-  });
-  if (photoResult.error) return { error: photoResult.error };
-  if (photoResult.photo_url === undefined) {
-    return { error: "No photo change to save." };
-  }
-
-  const { error } = await service
-    .from("staff")
-    .update({ photo_url: photoResult.photo_url })
-    .eq("id", staffId);
-
-  if (error) return { error: error.message };
-
-  await writeAuditLog({
-    actor_id: user.id,
-    action: "update",
-    module_key: HR_MODULE_KEY,
-    entity: "staff",
-    entity_id: staffId,
-    venue_id: venue.id,
-    before: { photo_url: before.photo_url ?? null },
-    after: { photo_url: photoResult.photo_url },
-  });
-
-  revalidatePath(`/hr/${staffId}`);
-  revalidatePath("/hr");
-  revalidatePath("/hr/staff");
-  revalidatePath("/hr/staff/data");
-
-  return {
-    success: true as const,
-    photo_url: photoResult.photo_url,
-  };
+  return { success: true };
 }
 
 export async function createStaff(formData: FormData) {
@@ -599,23 +492,6 @@ async function createStaffInner(formData: FormData) {
 
   if (error) return { error: error.message };
 
-  const photoResult = await resolveStaffPhotoUpdate({
-    service,
-    venueId: venue.id,
-    staffId: created.id,
-    formData,
-    previousUrl: null,
-  });
-  if (photoResult.error) {
-    return { error: photoResult.error, id: created.id as string };
-  }
-  if (photoResult.photo_url) {
-    await service
-      .from("staff")
-      .update({ photo_url: photoResult.photo_url })
-      .eq("id", created.id);
-  }
-
   await writeAuditLog({
     actor_id: user.id,
     action: "create",
@@ -634,7 +510,6 @@ async function createStaffInner(formData: FormData) {
   return {
     success: true,
     id: created.id as string,
-    photo_url: photoResult.photo_url ?? null,
   };
 }
 
@@ -1167,171 +1042,6 @@ function formDataToStaffPayload(formData: FormData) {
   };
 }
 
-const STAFF_PHOTOS_BUCKET = "staff-photos";
-/** Cropped passport photos are small; keep a hard ceiling for safety. */
-const STAFF_PHOTO_MAX_BYTES = 512 * 1024;
-/** Uncropped source kept for re-framing after save (resized server-side). */
-const STAFF_PHOTO_SOURCE_MAX_BYTES = 8 * 1024 * 1024;
-const STAFF_PHOTO_SOURCE_MAX_EDGE = 1600;
-
-function staffPhotoObjectPaths(venueId: string, staffId: string) {
-  return {
-    crop: `${venueId}/${staffId}.webp`,
-    source: `${venueId}/${staffId}-source.webp`,
-    legacy: [
-      `${venueId}/${staffId}.jpg`,
-      `${venueId}/${staffId}.jpeg`,
-      `${venueId}/${staffId}.png`,
-      `${venueId}/${staffId}-source.jpg`,
-      `${venueId}/${staffId}-source.jpeg`,
-      `${venueId}/${staffId}-source.png`,
-    ],
-  };
-}
-
-async function resolveStaffPhotoUpdate({
-  service,
-  venueId,
-  staffId,
-  formData,
-  previousUrl,
-}: {
-  service: ReturnType<typeof createServiceClient>;
-  venueId: string;
-  staffId: string;
-  formData: FormData;
-  previousUrl: string | null;
-}): Promise<{ photo_url?: string | null; error?: string }> {
-  const clear = String(formData.get("photo_clear") ?? "") === "1";
-  const photo = asUploadBlob(formData.get("photo"));
-  const photoSource = asUploadBlob(formData.get("photo_source"));
-  const paths = staffPhotoObjectPaths(venueId, staffId);
-
-  // Detect a photo field that arrived empty/corrupt (body truncation) so we
-  // surface an error instead of silently saving without the new picture.
-  const photoField = formData.get("photo");
-  if (
-    photoField != null &&
-    typeof photoField !== "string" &&
-    typeof (photoField as Blob).size === "number" &&
-    (photoField as Blob).size === 0
-  ) {
-    return {
-      error:
-        "Staff photo upload arrived empty. Try a smaller source image, then save again.",
-    };
-  }
-
-  if (photo) {
-    if (photo.size > STAFF_PHOTO_MAX_BYTES) {
-      return { error: "Staff photo must be 512 KB or smaller." };
-    }
-    if (!resolveRasterImageMime(uploadBlobMeta(photo))) {
-      return { error: "Staff photo must be a PNG, JPEG, or WebP image." };
-    }
-
-    // Canonical cropped WebP per staff member — public URL only in the DB.
-    // Client already exports WebP; convertImageToWebp re-encodes when sharp
-    // works, or passes through a valid WebP if sharp/libvips is unavailable.
-    const bytes = Buffer.from(await photo.arrayBuffer());
-    if (bytes.length === 0) {
-      return {
-        error:
-          "Staff photo upload arrived empty. Try a smaller source image, then save again.",
-      };
-    }
-
-    let webp: Awaited<ReturnType<typeof convertImageToWebp>>;
-    try {
-      webp = await convertImageToWebp(bytes);
-    } catch (err) {
-      console.error(
-        "[hr] staff photo WebP convert failed:",
-        err instanceof Error ? err.message : err,
-      );
-      return { error: "Could not convert staff photo to WebP." };
-    }
-
-    // Remove any older format variants so storage stays lean.
-    await service.storage
-      .from(STAFF_PHOTOS_BUCKET)
-      .remove([paths.crop, ...paths.legacy]);
-
-    const { error: uploadError } = await service.storage
-      .from(STAFF_PHOTOS_BUCKET)
-      .upload(paths.crop, new Uint8Array(webp.buffer), {
-        contentType: webp.contentType,
-        upsert: true,
-        cacheControl: "31536000",
-      });
-
-    if (uploadError) {
-      console.error("[hr] staff photo upload failed:", uploadError.message);
-      return {
-        error: `Could not upload staff photo (${uploadError.message}). Ensure the staff-photos storage bucket exists (run db migrations).`,
-      };
-    }
-
-    // Optional uncropped original — enables Adjust after the form is saved.
-    // Failure here must not block the cropped photo save.
-    if (photoSource) {
-      if (photoSource.size > STAFF_PHOTO_SOURCE_MAX_BYTES) {
-        console.warn("[hr] staff photo source too large; skipping source store");
-      } else if (!resolveRasterImageMime(uploadBlobMeta(photoSource))) {
-        console.warn("[hr] staff photo source mime not raster; skipping source store");
-      } else {
-        try {
-          const sourceWebp = await convertImageToWebp(
-            Buffer.from(await photoSource.arrayBuffer()),
-            {
-              maxWidth: STAFF_PHOTO_SOURCE_MAX_EDGE,
-              maxHeight: STAFF_PHOTO_SOURCE_MAX_EDGE,
-            },
-          );
-          await service.storage
-            .from(STAFF_PHOTOS_BUCKET)
-            .upload(paths.source, new Uint8Array(sourceWebp.buffer), {
-              contentType: sourceWebp.contentType,
-              upsert: true,
-              cacheControl: "31536000",
-            });
-        } catch (err) {
-          console.warn(
-            "[hr] staff photo source store skipped:",
-            err instanceof Error ? err.message : err,
-          );
-        }
-      }
-    }
-
-    const { data: publicData } = service.storage
-      .from(STAFF_PHOTOS_BUCKET)
-      .getPublicUrl(paths.crop);
-
-    // Persist only the public HTTPS URL on staff.photo_url (not binary).
-    return { photo_url: `${publicData.publicUrl}?v=${Date.now()}` };
-  }
-
-  if (clear) {
-    const toRemove = new Set<string>([
-      paths.crop,
-      paths.source,
-      ...paths.legacy,
-    ]);
-    if (previousUrl) {
-      const match = previousUrl.match(/\/staff-photos\/([^?]+)/);
-      if (match?.[1]) {
-        const objectPath = decodeURIComponent(match[1]);
-        toRemove.add(objectPath);
-        toRemove.add(objectPath.replace(/(\.[a-z0-9]+)$/i, "-source$1"));
-      }
-    }
-    await service.storage.from(STAFF_PHOTOS_BUCKET).remove([...toRemove]);
-    return { photo_url: null };
-  }
-
-  return {};
-}
 
 export async function getHrAccess() {
   const { venue, permissions } = await getAuthContext();

@@ -21,7 +21,7 @@ export default async function ProfileSettingsPage() {
       full_name,
       avatar_url,
       is_external,
-      staff:staff_id ( emp_no, photo_url )
+      staff:staff_id ( emp_no )
     `,
     )
     .eq("id", user.id)
@@ -33,8 +33,8 @@ export default async function ProfileSettingsPage() {
     avatar_url?: string | null;
     is_external?: boolean | null;
     staff?:
-      | { emp_no?: string | null; photo_url?: string | null }
-      | { emp_no?: string | null; photo_url?: string | null }[]
+      | { emp_no?: string | null }
+      | { emp_no?: string | null }[]
       | null;
   };
 
@@ -45,7 +45,6 @@ export default async function ProfileSettingsPage() {
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: p?.avatar_url,
-    staffPhotoUrl: staffRaw?.photo_url ?? null,
     userMetadata: metadata,
   });
 
@@ -83,8 +82,8 @@ export default async function ProfileSettingsPage() {
         </Card>
       ) : (
         <Card className="p-4 text-sm text-black/60 sm:p-6">
-          Your profile photo is managed from your staff record. Contact your
-          venue administrator or HR if it needs to be updated.
+          Profile photo upload is not enabled for this account. Contact your
+          venue administrator if it needs to be updated.
         </Card>
       )}
 

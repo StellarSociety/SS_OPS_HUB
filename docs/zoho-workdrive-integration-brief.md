@@ -1,7 +1,7 @@
 # SS Ops Hub — Zoho WorkDrive integration brief
 
 > Research date: 2026-08-02. Default data center assumed **US (`.com`)** for Orilla / Stellar Society; region tables are multi-DC.
-> Staff document **archives** go to **Zoho WorkDrive**. Do not use Supabase Storage for those archives. Profile photos keep a fast display URL (`staff.photo_url` WebP) and may also sync an archive copy under **Profile Photo/**.
+> Staff document **archives** go to **Zoho WorkDrive**. Do not use Supabase Storage for those archives.
 > Supabase may later persist metadata only (`workdriveFileId`, `permalink`, etc.).
 >
 > **Source caveat:** Zoho does not publish a fully browsable static WorkDrive REST reference — the official API explorer at `https://workdrive.zoho.com/apidocs/v1/` is a JS-rendered console. Endpoint shapes below are corroborated from Zoho Deluge integration-task docs, OAuth docs, and production Deluge samples. Fields marked **(verify)** should be confirmed via live smoke test.

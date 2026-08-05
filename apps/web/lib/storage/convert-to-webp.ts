@@ -78,7 +78,7 @@ export function isRasterImageMime(mimeType: string): boolean {
 /**
  * FormData file entries from Server Actions are usually `File`, but on some
  * Node/undici builds `instanceof File` is false even when the value is a valid
- * upload blob. Duck-type so staff photos are not silently skipped.
+ * upload blob. Duck-type so image uploads are not silently skipped.
  */
 export function asUploadBlob(
   value: FormDataEntryValue | null,
@@ -147,7 +147,7 @@ function asNodeBuffer(input: Buffer | Uint8Array | ArrayBuffer): Buffer {
  *
  * If sharp cannot load (known Next 16.2 + Turbopack + Vercel gap) and the
  * input is already a WebP with no resize requested, the buffer is returned
- * as-is so client-exported staff photos still persist.
+ * as-is so already-WebP uploads still persist.
  */
 export async function convertImageToWebp(
   input: Buffer | Uint8Array | ArrayBuffer,
@@ -164,8 +164,8 @@ export async function convertImageToWebp(
 
   const needsResize = Boolean(options?.maxWidth || options?.maxHeight);
 
-  // Client-cropped staff photos are already WebP — skip sharp entirely when no
-  // resize is needed so uploads still work if libvips fails to load on Vercel.
+  // Already-WebP inputs — skip sharp entirely when no resize is needed so
+  // uploads still work if libvips fails to load on Vercel.
   if (!needsResize && isWebpBuffer(bytes)) {
     return {
       buffer: bytes,

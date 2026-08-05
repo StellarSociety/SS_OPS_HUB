@@ -409,18 +409,23 @@ export function StaffDatabase({
         key: "photo",
         label: "Photo",
         kind: "text",
-        sortValue: (s) => (s.photo_url ? 1 : 0),
-        text: (s) => (s.photo_url ? "Yes" : ""),
-        render: (s) =>
-          s.photo_url ? (
-            <img
-              src={s.photo_url}
-              alt=""
-              className="h-8 w-6 rounded object-cover"
-            />
-          ) : (
-            "—"
-          ),
+        sortValue: () => 0,
+        text: () => "",
+        render: (s) => {
+          const initials = (s.full_name ?? "?")
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((p) => p[0]?.toUpperCase() ?? "")
+            .join("");
+          return (
+            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-black/10 bg-[#3D421F] text-[10px] font-medium text-white">
+              <span className="flex h-full w-full items-center justify-center">
+                {initials || "?"}
+              </span>
+            </div>
+          );
+        },
       },
       {
         key: "company_accommodation",

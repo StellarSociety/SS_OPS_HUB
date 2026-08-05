@@ -14,7 +14,7 @@ Do **not** invent endpoints. If a detail is unclear, say so and link the doc pag
 
 - App already uses Zoho for **email** (SMTP + IMAP). That is **separate** from WorkDrive. Do not mix Mail OAuth scopes with WorkDrive scopes unless a single Self Client can hold both (document if possible).
 - Staff documents (profile photo archive, passport scan, Emirates ID, contracts, etc.) must be stored in **Zoho WorkDrive**.
-- Files must **never** be written to Supabase Storage **for HR document archives**. Exception for display: staff profile avatars continue to use the existing fast `photo_url` WebP; WorkDrive holds a synced archive copy under **Profile Photo/**.
+- Files must **never** be written to Supabase Storage **for HR document archives**.
 - Supabase may later store only **metadata** (WorkDrive file id, permalink, staff id, doc kind) — out of scope for your research except noting which response fields we should persist.
 
 ### Intended folder tree
@@ -43,7 +43,7 @@ Uploads rename files using a template, e.g. `Passport_ORL0056_2026-08-02.pdf`.
 
 Profile photos appear on staff heroes, directories, and emails. Loading every avatar from WorkDrive (auth + download) would be too slow.
 
-**Policy:** include **Profile Photo** as a WorkDrive document type for HR archive/completeness, but keep the **display path** on the existing fast `staff.photo_url` (cropped WebP already used in the app). On photo save: write/update WorkDrive copy **and** keep serving UI from `photo_url`. Do **not** recommend proxying every avatar through WorkDrive.
+**Policy:** include **Profile Photo** as a WorkDrive document type for HR archive/completeness when needed. Do **not** proxy avatars through WorkDrive for UI display.
 
 ### Where config will live in the app
 

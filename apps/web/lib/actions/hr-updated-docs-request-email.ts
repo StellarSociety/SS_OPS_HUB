@@ -24,7 +24,7 @@ import {
 import { createServiceClient } from "@/lib/supabase/service";
 
 const STAFF_SELECT =
-  "id, emp_no, full_name, photo_url, department_id, position_id, nationality_id, gender, dob, contact_phone, personal_email, work_email, joining_date, contract_kind, passport_no, passport_expiry, eid_no, eid_expiry, visa_expiry, iban, wage_package, home_venue_id";
+  "id, emp_no, full_name, department_id, position_id, nationality_id, gender, dob, contact_phone, personal_email, work_email, joining_date, contract_kind, passport_no, passport_expiry, eid_no, eid_expiry, visa_expiry, iban, wage_package, home_venue_id";
 
 function flagTrue(raw: FormDataEntryValue | null): boolean {
   const v = String(raw ?? "").toLowerCase();
@@ -50,7 +50,6 @@ function toStaffInput(row: Record<string, unknown>): MissingDetailStaffInput & {
     id: String(row.id),
     emp_no: String(row.emp_no ?? ""),
     full_name: String(row.full_name ?? ""),
-    photo_url: (row.photo_url as string | null) ?? null,
     department_id: (row.department_id as string | null) ?? null,
     position_id: (row.position_id as string | null) ?? null,
     nationality_id: (row.nationality_id as string | null) ?? null,

@@ -39,8 +39,7 @@ export default async function AppLayout({
           `
           email,
           full_name,
-          avatar_url,
-          staff:staff_id ( photo_url )
+          avatar_url
         `,
         )
         .eq("id", user.id)
@@ -52,7 +51,6 @@ export default async function AppLayout({
     email?: string | null;
     full_name?: string | null;
     avatar_url?: string | null;
-    staff?: { photo_url?: string | null } | { photo_url?: string | null }[] | null;
   } | null;
 
   let profile = profileResult.data as ProfileShape;
@@ -60,19 +58,11 @@ export default async function AppLayout({
   if (profileResult.error) {
     const { data: profileFallback } = await supabase
       .from("profiles")
-      .select("email, full_name, staff:staff_id ( photo_url )")
+      .select("email, full_name, avatar_url")
       .eq("id", user.id)
       .maybeSingle();
     profile = profileFallback as ProfileShape;
   }
-
-  const staffJoin = profile?.staff;
-  const staffPhoto =
-    staffJoin == null
-      ? null
-      : Array.isArray(staffJoin)
-        ? (staffJoin[0]?.photo_url ?? null)
-        : (staffJoin.photo_url ?? null);
 
   const perms = permissions ?? [];
   const showSettings = isAppAdmin(perms);
@@ -81,7 +71,6 @@ export default async function AppLayout({
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: profile?.avatar_url,
-    staffPhotoUrl: staffPhoto,
     userMetadata: metadata,
   });
 

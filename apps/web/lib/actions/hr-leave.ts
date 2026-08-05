@@ -923,7 +923,6 @@ export async function getEmployeeLeaveBalances(input: {
     joining_date: string | null;
     termination_date: string | null;
     probation_status: string | null;
-    photo_url: string | null;
     department: { name: string } | null;
   } | null;
   balances: HrLeaveBalance[];
@@ -955,7 +954,7 @@ export async function getEmployeeLeaveBalances(input: {
   const { data: staffRow, error: staffError } = await supabase
     .from("staff")
     .select(
-      "id, emp_no, full_name, joining_date, termination_date, probation_status, photo_url, department:departments(name)",
+      "id, emp_no, full_name, joining_date, termination_date, probation_status, department:departments(name)",
     )
     .eq("id", input.staffId)
     .eq("home_venue_id", venue.id)
@@ -1191,7 +1190,6 @@ export async function getEmployeeLeaveBalances(input: {
       probation_status: staffRow.probation_status
         ? String(staffRow.probation_status)
         : null,
-      photo_url: staffRow.photo_url ? String(staffRow.photo_url) : null,
       department,
     },
     balances: balancesWithRoster,

@@ -1,7 +1,6 @@
 /** Resolve the best avatar URL for shell UI (header, profile hero). */
 export function resolveAvatarUrl(params: {
   profileAvatarUrl?: string | null;
-  staffPhotoUrl?: string | null;
   userMetadata?: Record<string, unknown> | undefined;
 }): string | null {
   const fromProfile =
@@ -9,12 +8,6 @@ export function resolveAvatarUrl(params: {
       ? params.profileAvatarUrl.trim()
       : null;
   if (fromProfile) return fromProfile;
-
-  const fromStaff =
-    typeof params.staffPhotoUrl === "string" && params.staffPhotoUrl.trim()
-      ? params.staffPhotoUrl.trim()
-      : null;
-  if (fromStaff) return fromStaff;
 
   const meta = params.userMetadata;
   const fromMetaAvatar =

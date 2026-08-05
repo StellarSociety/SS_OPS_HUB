@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { toScopedHref } from "@/lib/venue/scope-routing";
@@ -32,7 +31,7 @@ import {
 } from "@/components/hr/staff-entry-form";
 import { StaffPdfDocument } from "@/components/hr/staff-pdf-document";
 import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
-import { createStaff, saveStaffPhoto, updateStaff } from "@/lib/actions/hr";
+import { createStaff, updateStaff } from "@/lib/actions/hr";
 import { computeAge, computeWorkedTime, type SalaryPercentages } from "@/lib/hr/derived";
 import {
   emptyStaffForm,
@@ -124,19 +123,9 @@ function StaffProfileHero({
       <Card className="px-6 py-8 sm:px-8">
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10 sm:h-32 sm:w-32">
-            {value.photo_url ? (
-              <Image
-                src={value.photo_url}
-                alt=""
-                fill
-                className="object-cover"
-                unoptimized
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-3xl font-medium text-white sm:text-4xl">
-                {initials}
-              </div>
-            )}
+            <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-3xl font-medium text-white sm:text-4xl">
+              {initials}
+            </div>
           </div>
 
           <div className="min-w-0 w-full space-y-0.5">
@@ -235,11 +224,6 @@ export function StaffEntryWorkspace({
   const [savedSnapshot, setSavedSnapshot] = useState<StaffFormState | null>(
     null,
   );
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoSourceFile, setPhotoSourceFile] = useState<File | null>(null);
-  const [photoCleared, setPhotoCleared] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [photoUploading, setPhotoUploading] = useState(false);
 
   const readOnly = loadedStaffId != null && !editing;
 
@@ -256,9 +240,6 @@ export function StaffEntryWorkspace({
     setLoadedStaffId(null);
     setEditing(true);
     setActiveTab("identity");
-    setPhotoFile(null);
-    setPhotoSourceFile(null);
-    setPhotoCleared(false);
     setView("form");
   }
 
@@ -269,132 +250,18 @@ export function StaffEntryWorkspace({
     setLoadedStaffId(selected.id);
     setEditing(false);
     setActiveTab("identity");
-    setPhotoFile(null);
-    setPhotoSourceFile(null);
-    setPhotoCleared(false);
     setView("form");
     setSearchOpen(false);
   }
 
   function cancelEdits() {
     if (savedSnapshot) setValue(savedSnapshot);
-    setPhotoFile(null);
-    setPhotoSourceFile(null);
-    setPhotoCleared(false);
     setEditing(false);
   }
 
-  const photoPending = Boolean(photoFile || photoCleared);
-
-  function buildPhotoFormData(): FormData | null {
-    if (!photoFile && !photoCleared) return null;
-    if (photoFile && photoFile.size === 0) return null;
-    const formData = new FormData();
-    if (photoCleared && !photoFile) {
-      formData.set("photo_clear", "1");
-    } else if (photoFile) {
-      formData.set("photo", photoFile);
-      if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
-        formData.set("photo_source", photoSourceFile);
-      }
-    }
-    return formData;
-  }
-
-  async function persistPendingPhoto(staffId: string): Promise<string | null | undefined> {
-    const formData = buildPhotoFormData();
-    if (!formData) {
-      if (photoFile && photoFile.size === 0) {
-        return undefined; // signal empty export error
-      }
-      return null; // nothing to do
-    }
-    setPhotoUploading(true);
-    try {
-      const result = await saveStaffPhoto(staffId, formData);
-      if (result.error) {
-        toast.error(result.error);
-        return undefined;
-      }
-      const nextUrl = result.photo_url ?? "";
-      setPhotoFile(null);
-      setPhotoSourceFile(null);
-      setPhotoCleared(false);
-      setValue((current) => ({ ...current, photo_url: nextUrl }));
-      setSavedSnapshot((current) =>
-        current ? { ...current, photo_url: nextUrl } : current,
-      );
-      return nextUrl;
-    } catch {
-      toast.error("Could not save photo — check your connection and try again.");
-      return undefined;
-    } finally {
-      setPhotoUploading(false);
-    }
-  }
-
-  async function handleSavePhoto() {
-    if (!loadedStaffId) {
-      toast.error("Save the employee record first, then save the photo.");
-      return;
-    }
-    if (photoBusy) {
-      toast.error("Photo is still processing — wait a moment, then save again.");
-      return;
-    }
-    if (!photoPending) {
-      toast.error("No photo change to save.");
-      return;
-    }
-    if (photoFile && photoFile.size === 0) {
-      toast.error("Photo export was empty — try uploading again.");
-      return;
-    }
-    const nextUrl = await persistPendingPhoto(loadedStaffId);
-    if (nextUrl === undefined) return;
-    toast.saved("Profile photo saved.");
-    router.refresh();
-  }
-
   async function handleSubmit(formData: FormData) {
-    if (photoBusy) {
-      toast.error("Photo is still processing — wait a moment, then save again.");
-      return;
-    }
-
     setSaving(true);
     try {
-      let savedPhotoUrl = value.photo_url;
-
-      // Existing employee: upload photo in its own small request first, then
-      // save the rest of the form (avoids photo being dropped from large FormData).
-      if (loadedStaffId && photoPending) {
-        if (photoFile && photoFile.size === 0) {
-          toast.error("Photo export was empty — try uploading again.");
-          setActiveTab("documents");
-          return;
-        }
-        const photoUrl = await persistPendingPhoto(loadedStaffId);
-        if (photoUrl === undefined) {
-          setActiveTab("documents");
-          return;
-        }
-        if (photoUrl !== null) savedPhotoUrl = photoUrl;
-      }
-
-      // New employee: photo still rides with create (no staff id yet).
-      if (!loadedStaffId && photoFile) {
-        if (photoFile.size === 0) {
-          toast.error("Photo export was empty — try uploading again.");
-          return;
-        }
-        formData.set("photo", photoFile);
-        if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
-          formData.set("photo_source", photoSourceFile);
-        }
-        setPhotoUploading(true);
-      }
-
       if (loadedStaffId) {
         const result = await updateStaff(loadedStaffId, formData);
         if (result?.error) {
@@ -402,9 +269,7 @@ export function StaffEntryWorkspace({
           return;
         }
         toast.saved("Employee updated.");
-        const nextValue = { ...value, photo_url: savedPhotoUrl };
-        setValue(nextValue);
-        setSavedSnapshot(nextValue);
+        setSavedSnapshot(value);
         setEditing(false);
         router.refresh();
         return;
@@ -421,7 +286,6 @@ export function StaffEntryWorkspace({
       toast.error("Could not save — check your connection and try again.");
     } finally {
       setSaving(false);
-      setPhotoUploading(false);
     }
   }
 
@@ -502,9 +366,7 @@ export function StaffEntryWorkspace({
                 <button
                   type="button"
                   disabled={
-                    editing || loadedStaffId == null
-                      ? saving || photoBusy || photoUploading
-                      : false
+                    editing || loadedStaffId == null ? saving : false
                   }
                   onClick={() => {
                     if (loadedStaffId != null && !editing) {
@@ -526,7 +388,7 @@ export function StaffEntryWorkspace({
                   ) : (
                     <>
                       <Save className="h-4 w-4 shrink-0" aria-hidden />
-                      {saving || photoUploading ? "Saving…" : "Save"}
+                      {saving ? "Saving…" : "Save"}
                     </>
                   )}
                 </button>
@@ -534,7 +396,7 @@ export function StaffEntryWorkspace({
                   <button
                     type="button"
                     onClick={cancelEdits}
-                    disabled={saving || photoUploading}
+                    disabled={saving}
                     className="inline-flex h-10 w-full items-center justify-center gap-2 whitespace-nowrap rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
                   >
                     <X className="h-4 w-4 shrink-0" aria-hidden />
@@ -576,14 +438,6 @@ export function StaffEntryWorkspace({
             value={value}
             onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
             onSubmit={handleSubmit}
-            onPhotoFileChange={setPhotoFile}
-            onPhotoSourceFileChange={setPhotoSourceFile}
-            onPhotoBusyChange={setPhotoBusy}
-            photoUploading={photoUploading}
-            photoPending={photoPending}
-            onSavePhoto={() => void handleSavePhoto()}
-            photoCleared={photoCleared}
-            onPhotoClearedChange={setPhotoCleared}
             readOnly={readOnly}
             lockEmpNo={loadedStaffId != null}
             activeTab={activeTab}

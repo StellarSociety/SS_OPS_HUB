@@ -11,7 +11,6 @@ import {
   PhoneWithCountryInput,
 } from "@/components/hr/phone-with-country-input";
 import { ScopedLink } from "@/components/layout/scoped-link";
-import { StaffProfilePhotoEditor } from "@/components/hr/staff-profile-photo-editor";
 import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-slot";
 import { StaffWorkDriveDocumentList } from "@/components/hr/staff-workdrive-document-list";
 import { StaffCommunicationsTrail } from "@/components/hr/staff-communications-trail";
@@ -175,17 +174,6 @@ type StaffEntryFormProps = {
   value: StaffFormState;
   onChange: (patch: Partial<StaffFormState>) => void;
   onSubmit: (formData: FormData) => void;
-  onPhotoFileChange: (file: File | null) => void;
-  onPhotoSourceFileChange?: (file: File | null) => void;
-  onPhotoBusyChange?: (busy: boolean) => void;
-  /** True while the dedicated photo save is uploading. */
-  photoUploading?: boolean;
-  /** Cropped file or clear pending — enables Save photo. */
-  photoPending?: boolean;
-  /** Persist photo via saveStaffPhoto (not the employee form). */
-  onSavePhoto?: () => void;
-  photoCleared: boolean;
-  onPhotoClearedChange: (cleared: boolean) => void;
   readOnly: boolean;
   lockEmpNo: boolean;
   activeTab: StaffEntryTab | null;
@@ -539,14 +527,6 @@ export function StaffEntryForm({
   value,
   onChange,
   onSubmit,
-  onPhotoFileChange,
-  onPhotoSourceFileChange,
-  onPhotoBusyChange,
-  photoUploading = false,
-  photoPending = false,
-  onSavePhoto,
-  photoCleared,
-  onPhotoClearedChange,
   readOnly,
   lockEmpNo,
   activeTab,
@@ -1733,44 +1713,6 @@ export function StaffEntryForm({
     </div>
   );
 
-  const photoCard = (
-    <div className="w-full max-w-lg">
-      <SectionCard title="Profile photo">
-        <StaffProfilePhotoEditor
-          photoUrl={value.photo_url}
-          staffId={staffId}
-          hasPendingChange={photoPending}
-          onSavePhoto={onSavePhoto}
-          onPhotoUrlChange={(url) => {
-            onChange({ photo_url: url });
-            if (url) onPhotoClearedChange(false);
-          }}
-          onPhotoFileChange={onPhotoFileChange}
-          onSourceFileChange={onPhotoSourceFileChange}
-          onPhotoBusyChange={onPhotoBusyChange}
-          uploading={photoUploading}
-          onCleared={() => {
-            onPhotoClearedChange(true);
-            onChange({ photo_url: "" });
-            onPhotoFileChange(null);
-            onPhotoSourceFileChange?.(null);
-          }}
-          readOnly={readOnly}
-        />
-        {readOnly ? (
-          <p className="mt-2 text-[11px] text-black/40">
-            Editing is locked. Use Edit, then change the photo here.
-          </p>
-        ) : (
-          <p className="mt-2 text-[11px] text-black/40">
-            Crop the photo, then click Save (or Save photo). Passport ratio
-            35×45.
-          </p>
-        )}
-      </SectionCard>
-    </div>
-  );
-
   const employmentDocsCards = (
     <>
       {EMPLOYMENT_DOC_SLOTS.map(
@@ -1921,7 +1863,6 @@ export function StaffEntryForm({
           className={cn("space-y-4", activeTab !== "documents" && "hidden")}
           aria-hidden={activeTab !== "documents"}
         >
-          {photoCard}
           {passportRow}
           {emiratesIdRow}
           {bankRow}
