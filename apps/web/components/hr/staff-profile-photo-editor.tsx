@@ -791,7 +791,7 @@ export function StaffProfilePhotoEditor({
             </p>
           ) : hasPendingChange ? (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">
-              Use Save photo here — not the form Save.
+              Save photo here, or use the main Save.
             </p>
           ) : !displayUrl ? (
             <p className="max-w-[6.75rem] text-right text-[11px] leading-snug text-black/40">

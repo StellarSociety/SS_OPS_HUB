@@ -1763,7 +1763,8 @@ export function StaffEntryForm({
           </p>
         ) : (
           <p className="mt-2 text-[11px] text-black/40">
-            Photos save with Save photo — separate from the employee form Save.
+            Crop the photo, then click Save (or Save photo). Passport ratio
+            35×45.
           </p>
         )}
       </SectionCard>

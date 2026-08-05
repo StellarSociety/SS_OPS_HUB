@@ -286,24 +286,9 @@ export function StaffEntryWorkspace({
 
   const photoPending = Boolean(photoFile || photoCleared);
 
-  async function handleSavePhoto() {
-    if (!loadedStaffId) {
-      toast.error("Save the employee record first, then save the photo.");
-      return;
-    }
-    if (photoBusy) {
-      toast.error("Photo is still processing — wait a moment, then save again.");
-      return;
-    }
-    if (!photoFile && !photoCleared) {
-      toast.error("No photo change to save.");
-      return;
-    }
-    if (photoFile && photoFile.size === 0) {
-      toast.error("Photo export was empty — try uploading again.");
-      return;
-    }
-
+  function buildPhotoFormData(): FormData | null {
+    if (!photoFile && !photoCleared) return null;
+    if (photoFile && photoFile.size === 0) return null;
     const formData = new FormData();
     if (photoCleared && !photoFile) {
       formData.set("photo_clear", "1");
@@ -313,53 +298,103 @@ export function StaffEntryWorkspace({
         formData.set("photo_source", photoSourceFile);
       }
     }
+    return formData;
+  }
 
+  async function persistPendingPhoto(staffId: string): Promise<string | null | undefined> {
+    const formData = buildPhotoFormData();
+    if (!formData) {
+      if (photoFile && photoFile.size === 0) {
+        return undefined; // signal empty export error
+      }
+      return null; // nothing to do
+    }
     setPhotoUploading(true);
     try {
-      const result = await saveStaffPhoto(loadedStaffId, formData);
+      const result = await saveStaffPhoto(staffId, formData);
       if (result.error) {
         toast.error(result.error);
-        return;
+        return undefined;
       }
-      toast.saved("Profile photo saved.");
+      const nextUrl = result.photo_url ?? "";
       setPhotoFile(null);
       setPhotoSourceFile(null);
       setPhotoCleared(false);
-      const nextUrl = result.photo_url ?? "";
       setValue((current) => ({ ...current, photo_url: nextUrl }));
       setSavedSnapshot((current) =>
         current ? { ...current, photo_url: nextUrl } : current,
       );
-      router.refresh();
+      return nextUrl;
     } catch {
       toast.error("Could not save photo — check your connection and try again.");
+      return undefined;
     } finally {
       setPhotoUploading(false);
     }
   }
 
-  async function handleSubmit(formData: FormData) {
-    if (loadedStaffId && photoPending) {
-      toast.error("Save or discard the profile photo first (use Save photo).");
-      setActiveTab("documents");
+  async function handleSavePhoto() {
+    if (!loadedStaffId) {
+      toast.error("Save the employee record first, then save the photo.");
       return;
     }
     if (photoBusy) {
       toast.error("Photo is still processing — wait a moment, then save again.");
       return;
     }
+    if (!photoPending) {
+      toast.error("No photo change to save.");
+      return;
+    }
+    if (photoFile && photoFile.size === 0) {
+      toast.error("Photo export was empty — try uploading again.");
+      return;
+    }
+    const nextUrl = await persistPendingPhoto(loadedStaffId);
+    if (nextUrl === undefined) return;
+    toast.saved("Profile photo saved.");
+    router.refresh();
+  }
 
-    // New employee: photo still rides with create (no staff id yet for Save photo).
-    if (!loadedStaffId && photoFile) {
-      formData.set("photo", photoFile);
-      if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
-        formData.set("photo_source", photoSourceFile);
-      }
+  async function handleSubmit(formData: FormData) {
+    if (photoBusy) {
+      toast.error("Photo is still processing — wait a moment, then save again.");
+      return;
     }
 
     setSaving(true);
-    if (!loadedStaffId && photoFile) setPhotoUploading(true);
     try {
+      let savedPhotoUrl = value.photo_url;
+
+      // Existing employee: upload photo in its own small request first, then
+      // save the rest of the form (avoids photo being dropped from large FormData).
+      if (loadedStaffId && photoPending) {
+        if (photoFile && photoFile.size === 0) {
+          toast.error("Photo export was empty — try uploading again.");
+          setActiveTab("documents");
+          return;
+        }
+        const photoUrl = await persistPendingPhoto(loadedStaffId);
+        if (photoUrl === undefined) {
+          setActiveTab("documents");
+          return;
+        }
+        if (photoUrl !== null) savedPhotoUrl = photoUrl;
+      }
+
+      // New employee: photo still rides with create (no staff id yet).
+      if (!loadedStaffId && photoFile) {
+        if (photoFile.size === 0) {
+          toast.error("Photo export was empty — try uploading again.");
+          return;
+        }
+        formData.set("photo", photoFile);
+        if (photoSourceFile && photoSourceFile.size <= 8 * 1024 * 1024) {
+          formData.set("photo_source", photoSourceFile);
+        }
+        setPhotoUploading(true);
+      }
+
       if (loadedStaffId) {
         const result = await updateStaff(loadedStaffId, formData);
         if (result?.error) {
@@ -367,7 +402,9 @@ export function StaffEntryWorkspace({
           return;
         }
         toast.saved("Employee updated.");
-        setSavedSnapshot(value);
+        const nextValue = { ...value, photo_url: savedPhotoUrl };
+        setValue(nextValue);
+        setSavedSnapshot(nextValue);
         setEditing(false);
         router.refresh();
         return;
@@ -460,14 +497,7 @@ export function StaffEntryWorkspace({
             />
 
             <div className="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0">
-              <div
-                className={cn(
-                  "flex gap-2",
-                  loadedStaffId != null && editing
-                    ? "flex-row items-stretch"
-                    : "flex-col",
-                )}
-              >
+              <div className="flex flex-col gap-2">
                 {/* One primary button — label/handler switch. Avoids Edit↔Save twin nodes. */}
                 <button
                   type="button"
@@ -486,12 +516,7 @@ export function StaffEntryWorkspace({
                     ) as HTMLFormElement | null;
                     form?.requestSubmit();
                   }}
-                  className={cn(
-                    "inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-[var(--venue-primary)] text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40",
-                    loadedStaffId != null && editing
-                      ? "min-w-0 flex-1 px-2"
-                      : "w-full gap-2 px-4",
-                  )}
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
                 >
                   {loadedStaffId != null && !editing ? (
                     <>
@@ -501,11 +526,7 @@ export function StaffEntryWorkspace({
                   ) : (
                     <>
                       <Save className="h-4 w-4 shrink-0" aria-hidden />
-                      {saving
-                        ? photoUploading
-                          ? "Uploading…"
-                          : "Saving…"
-                        : "Save"}
+                      {saving || photoUploading ? "Saving…" : "Save"}
                     </>
                   )}
                 </button>
@@ -514,7 +535,7 @@ export function StaffEntryWorkspace({
                     type="button"
                     onClick={cancelEdits}
                     disabled={saving || photoUploading}
-                    className="inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-black/10 bg-white px-2 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 whitespace-nowrap rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
                   >
                     <X className="h-4 w-4 shrink-0" aria-hidden />
                     Cancel

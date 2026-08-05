@@ -100,14 +100,16 @@ export function StaffDetailView({
   const [photoUploading, setPhotoUploading] = useState(false);
 
   useEffect(() => {
-    // Don't wipe in-progress edits (or a just-saved photo) when RSC refresh
-    // re-delivers the staff prop.
+    // Only re-sync when the server `staff` prop changes. Do not depend on
+    // `editing` — flipping to read-only after Save would re-run this with a
+    // stale prop and wipe a photo_url we just wrote locally.
     if (editing) return;
     setValue(staffToForm(staff));
     setPhotoFile(null);
     setPhotoSourceFile(null);
     setPhotoCleared(false);
-  }, [staff, editing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  }, [staff]);
 
   const readOnly = !editing || !canEdit;
   const displayName = value.full_name.trim() || staff.full_name;
@@ -126,20 +128,9 @@ export function StaffDetailView({
   );
   const photoPending = Boolean(photoFile || photoCleared);
 
-  async function handleSavePhoto() {
-    if (photoBusy) {
-      toast.error("Photo is still processing — wait a moment, then save again.");
-      return;
-    }
-    if (!photoFile && !photoCleared) {
-      toast.error("No photo change to save.");
-      return;
-    }
-    if (photoFile && photoFile.size === 0) {
-      toast.error("Photo export was empty — try uploading again.");
-      return;
-    }
-
+  function buildPhotoFormData(): FormData | null {
+    if (!photoFile && !photoCleared) return null;
+    if (photoFile && photoFile.size === 0) return null;
     const formData = new FormData();
     if (photoCleared && !photoFile) {
       formData.set("photo_clear", "1");
@@ -149,52 +140,95 @@ export function StaffDetailView({
         formData.set("photo_source", photoSourceFile);
       }
     }
+    return formData;
+  }
 
+  async function persistPendingPhoto(): Promise<string | null | undefined> {
+    const formData = buildPhotoFormData();
+    if (!formData) {
+      if (photoFile && photoFile.size === 0) return undefined;
+      return null;
+    }
     setPhotoUploading(true);
     try {
       const result = await saveStaffPhoto(staff.id, formData);
       if (result.error) {
         toast.error(result.error);
-        return;
+        return undefined;
       }
-      toast.saved("Profile photo saved.");
+      const nextUrl = result.photo_url ?? "";
       setPhotoFile(null);
       setPhotoSourceFile(null);
       setPhotoCleared(false);
-      setValue((current) => ({
-        ...current,
-        photo_url: result.photo_url ?? "",
-      }));
-      router.refresh();
+      setValue((current) => ({ ...current, photo_url: nextUrl }));
+      return nextUrl;
     } catch {
       toast.error("Could not save photo — check your connection and try again.");
+      return undefined;
     } finally {
       setPhotoUploading(false);
     }
   }
 
-  async function handleSubmit(formData: FormData) {
-    // Photos persist via Save photo — never piggy-back on the employee form
-    // (large FormData was dropping the file → toast success, then photo vanished).
-    if (photoPending) {
-      toast.error("Save or discard the profile photo first (use Save photo).");
-      setActiveTab("documents");
+  async function handleSavePhoto() {
+    if (photoBusy) {
+      toast.error("Photo is still processing — wait a moment, then save again.");
       return;
     }
+    if (!photoPending) {
+      toast.error("No photo change to save.");
+      return;
+    }
+    if (photoFile && photoFile.size === 0) {
+      toast.error("Photo export was empty — try uploading again.");
+      return;
+    }
+    const nextUrl = await persistPendingPhoto();
+    if (nextUrl === undefined) return;
+    toast.saved("Profile photo saved.");
+    router.refresh();
+  }
+
+  async function handleSubmit(formData: FormData) {
+    if (photoBusy) {
+      toast.error("Photo is still processing — wait a moment, then save again.");
+      return;
+    }
+
     setSaving(true);
     try {
+      let savedPhotoUrl = value.photo_url;
+
+      // Upload photo in its own small request first (large form FormData was
+      // dropping the file → toast success, then photo vanished on refresh).
+      if (photoPending) {
+        if (photoFile && photoFile.size === 0) {
+          toast.error("Photo export was empty — try uploading again.");
+          setActiveTab("documents");
+          return;
+        }
+        const photoUrl = await persistPendingPhoto();
+        if (photoUrl === undefined) {
+          setActiveTab("documents");
+          return;
+        }
+        if (photoUrl !== null) savedPhotoUrl = photoUrl;
+      }
+
       const result = await updateStaff(staff.id, formData);
       if (result?.error) {
         toast.error(result.error);
         return;
       }
       toast.saved("Staff details saved.");
+      setValue((current) => ({ ...current, photo_url: savedPhotoUrl }));
       setEditing(false);
       router.refresh();
     } catch {
       toast.error("Could not save — check your connection and try again.");
     } finally {
       setSaving(false);
+      setPhotoUploading(false);
     }
   }
 
@@ -313,7 +347,7 @@ export function StaffDetailView({
                   ) as HTMLFormElement | null;
                   form?.requestSubmit();
                 }}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 whitespace-nowrap rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
               >
                 {readOnly ? (
                   <>
@@ -323,7 +357,7 @@ export function StaffDetailView({
                 ) : (
                   <>
                     <Save className="h-4 w-4 shrink-0" aria-hidden />
-                    {saving ? "Saving…" : "Save"}
+                    {saving || photoUploading ? "Saving…" : "Save"}
                   </>
                 )}
               </button>
@@ -338,7 +372,7 @@ export function StaffDetailView({
                     setEditing(false);
                   }}
                   disabled={saving || photoUploading}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 whitespace-nowrap rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
                 >
                   <X className="h-4 w-4 shrink-0" aria-hidden />
                   Cancel
