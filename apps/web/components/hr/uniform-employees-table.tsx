@@ -614,21 +614,6 @@ export function UniformEmployeesTable({
                               );
                             })}
                           </tbody>
-                          <tfoot className="border-t border-black/10 bg-black/[0.02]">
-                            <tr className="font-medium text-[#3D421F]">
-                              <td className="px-4 py-2.5" colSpan={3}>
-                                Total value
-                              </td>
-                              <td className="px-4 py-2.5 text-right tabular-nums">
-                                {row.total_value > 0
-                                  ? formatAed(row.total_value)
-                                  : "—"}
-                              </td>
-                              {canManage ? (
-                                <td className="px-4 py-2.5" />
-                              ) : null}
-                            </tr>
-                          </tfoot>
                         </>
                       )
                     ) : null}

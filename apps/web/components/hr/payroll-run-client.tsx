@@ -17,6 +17,7 @@ import { PayslipEmailButton } from "@/components/hr/payslip-email-button";
 import { PayrollPaidDaysCalendarDialog } from "@/components/hr/payroll-paid-days-calendar-dialog";
 import { PayrollMonthPicker } from "@/components/hr/payroll-month-picker";
 import { PayrollWorkflowStepper } from "@/components/hr/payroll-workflow-stepper";
+import { ImportDeductionsDialog } from "@/components/hr/import-deductions-dialog";
 import { SalesImportProgressBar } from "@/components/sales/sales-import-progress-bar";
 import {
   DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS,
@@ -39,6 +40,8 @@ import {
   importBenefitsToPayrollRun,
   refreshImportedBenefitsOnPayrollRun,
   clearImportedBenefitsFromPayrollRun,
+  importDeductionsToPayrollRun,
+  clearImportedDeductionsFromPayrollRun,
   recalculatePayrollRun,
   setEmployeeIncluded,
   updatePayrollBudgetRevenue,
@@ -77,6 +80,7 @@ import {
 } from "@/lib/hr/working-status";
 import { downloadBase64File, downloadTextFile } from "@/lib/sales/vouchers-export";
 import { cn } from "@/lib/utils";
+import { registerPayrollRunSave } from "@/components/hr/payroll-run-save-registry";
 
 const lightSelectClass =
   "flex h-8 w-full rounded-md border border-black/10 bg-white px-2 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20";
@@ -662,6 +666,39 @@ export function PayrollRunClient({
   const [budgetSectionOpen, setBudgetSectionOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [importBenefitsOpen, setImportBenefitsOpen] = useState(false);
+  const [importDeductionsOpen, setImportDeductionsOpen] = useState(false);
+  const [inclusionOverrides, setInclusionOverrides] = useState<
+    Map<string, { included: boolean; exclude_reason: string | null }>
+  >(() => new Map());
+
+  useEffect(() => {
+    setInclusionOverrides((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const [id, override] of prev) {
+        const row = employees.find((e) => e.id === id);
+        if (!row || row.included === override.included) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [employees]);
+
+  const displayEmployees = useMemo(() => {
+    if (inclusionOverrides.size === 0) return employees;
+    return employees.map((e) => {
+      const override = inclusionOverrides.get(e.id);
+      if (!override) return e;
+      return {
+        ...e,
+        included: override.included,
+        exclude_reason: override.included ? null : override.exclude_reason,
+      };
+    });
+  }, [employees, inclusionOverrides]);
 
   const venueNetRevenue =
     periodNetRevenue?.netRevenue ?? run.revenue_amount ?? null;
@@ -673,10 +710,10 @@ export function PayrollRunClient({
   const totals = (run.totals ?? {}) as Record<string, number>;
   // Prefer live employee flags so include/exclude updates counts immediately
   // even if persisted run.totals were stale before sync.
-  const includedCount = employees.filter((e) => e.included).length;
-  const excludedCount = employees.length - includedCount;
-  const joinerCount = employees.filter((e) => e.is_new_joiner).length;
-  const leaverCount = employees.filter((e) => e.is_leaver).length;
+  const includedCount = displayEmployees.filter((e) => e.included).length;
+  const excludedCount = displayEmployees.length - includedCount;
+  const joinerCount = displayEmployees.filter((e) => e.is_new_joiner).length;
+  const leaverCount = displayEmployees.filter((e) => e.is_leaver).length;
 
   const editable = canEdit && canEditPayrollRun(run.status);
 
@@ -688,17 +725,21 @@ export function PayrollRunClient({
   }
 
   const employeeById: Map<string, PayrollEmployeeRow> = new Map(
-    employees.map((e) => [e.id, e]),
+    displayEmployees.map((e) => [e.id, e]),
   );
   const employeeByStaff: Map<string, PayrollEmployeeRow> = new Map(
-    employees.map((e) => [e.staff_id, e]),
+    displayEmployees.map((e) => [e.staff_id, e]),
   );
 
   function refresh() {
     router.refresh();
   }
 
-  function runAction(label: string, action: PayrollActionFn) {
+  function runAction(
+    label: string,
+    action: PayrollActionFn,
+    opts?: { onSuccess?: () => void },
+  ) {
     setMessage(null);
     startTransition(async () => {
       try {
@@ -708,6 +749,7 @@ export function PayrollRunClient({
           return;
         }
         setMessage(`${label} complete`);
+        opts?.onSuccess?.();
         refresh();
       } catch (err) {
         setMessage(err instanceof Error ? err.message : `${label} failed`);
@@ -762,12 +804,54 @@ export function PayrollRunClient({
     );
   }
 
+  const budgetRef = useRef(budget);
+  const revenueRef = useRef(venueNetRevenue);
+  budgetRef.current = budget;
+  revenueRef.current = venueNetRevenue;
+
+  useEffect(() => {
+    if (!editable) return;
+    return registerPayrollRunSave(async () => {
+      const b =
+        budgetRef.current.trim() === "" ? null : Number(budgetRef.current);
+      if (b != null && Number.isNaN(b)) {
+        throw new Error("Budget must be a number");
+      }
+      const budgetResult = await updatePayrollBudgetRevenue(
+        run.id,
+        b,
+        revenueRef.current,
+      );
+      if (!budgetResult.ok) {
+        throw new Error(budgetResult.error ?? "Could not save budget");
+      }
+      const recalc = await recalculatePayrollRun(run.id);
+      if (!recalc.ok) {
+        throw new Error(recalc.error ?? "Could not save payroll run");
+      }
+    });
+  }, [editable, run.id]);
+
   function handleToggleIncluded(id: string, included: boolean) {
-    const reason = !included
-      ? (window.prompt("Reason for excluding (optional):") ?? undefined)
-      : undefined;
+    let reason: string | undefined;
+    if (!included) {
+      const prompted = window.prompt(
+        "Reason for excluding from this payroll (optional):",
+      );
+      // Cancel keeps the employee included.
+      if (prompted === null) return;
+      reason = prompted.trim() || undefined;
+    }
+    setInclusionOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(id, {
+        included,
+        exclude_reason: included ? null : reason || "Manually excluded",
+      });
+      return next;
+    });
     runAction(included ? "Include employee" : "Exclude employee", () =>
-      setEmployeeIncluded(id, included, reason?.trim() || undefined),
+      setEmployeeIncluded(id, included, reason),
     );
   }
 
@@ -788,7 +872,7 @@ export function PayrollRunClient({
         net: number;
       }
     >();
-    for (const row of employees) {
+    for (const row of displayEmployees) {
       if (!row.included) continue;
       const name = row.department_name?.trim() || "No department";
       const key = name.toLowerCase();
@@ -819,7 +903,7 @@ export function PayrollRunClient({
         sensitivity: "base",
       }),
     );
-  }, [employees]);
+  }, [displayEmployees]);
 
   const departmentTotals = useMemo(() => {
     let people = 0;
@@ -847,6 +931,14 @@ export function PayrollRunClient({
         e.exception_type === "attendance_incomplete"),
   );
   const benefitsImported = lines.some((l) => l.source === "benefits");
+  const deductionsImported =
+    events.some((e) => /deductions imported/i.test(e.comment ?? "")) ||
+    adjustments.some(
+      (a) =>
+        a.code === "UNIFORM" ||
+        /uniform replacement/i.test(a.reason ?? "") ||
+        /uniform \/ equipment/i.test(a.label ?? ""),
+    );
   const hasRecalculated =
     employees.length > 0 ||
     events.some((e) =>
@@ -888,9 +980,11 @@ export function PayrollRunClient({
           userNames={userNames}
           attendanceComplete={attendanceComplete}
           benefitsImported={benefitsImported}
+          deductionsImported={deductionsImported}
           hasRecalculated={hasRecalculated}
           events={events}
           onOpenImportBenefits={() => setImportBenefitsOpen(true)}
+          onOpenImportDeductions={() => setImportDeductionsOpen(true)}
           onMessage={setMessage}
           onRefresh={refresh}
         />
@@ -1143,7 +1237,7 @@ export function PayrollRunClient({
 
       {tab === "run" ? (
         <RunEmployeesTab
-          employees={employees}
+          employees={displayEmployees}
           linesByEmployee={linesByEmployee}
           adjustments={adjustments}
           adjustmentCodes={adjustmentCodes}
@@ -1235,6 +1329,34 @@ export function PayrollRunClient({
             }),
           );
           setImportBenefitsOpen(false);
+        }}
+      />
+
+      <ImportDeductionsDialog
+        open={importDeductionsOpen}
+        runId={run.id}
+        canViewSalary={canViewSalary}
+        pending={pending}
+        onClose={() => {
+          if (!pending) setImportDeductionsOpen(false);
+        }}
+        onImport={(input) => {
+          runAction(
+            "Import deductions",
+            () => importDeductionsToPayrollRun({ runId: run.id, ...input }),
+            { onSuccess: () => setImportDeductionsOpen(false) },
+          );
+        }}
+        onClearImported={(input) => {
+          runAction(
+            "Remove imported deductions",
+            () =>
+              clearImportedDeductionsFromPayrollRun({
+                runId: run.id,
+                ...input,
+              }),
+            { onSuccess: () => setImportDeductionsOpen(false) },
+          );
         }}
       />
 

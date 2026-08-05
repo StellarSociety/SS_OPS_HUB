@@ -36,6 +36,32 @@ import type {
 } from "./types";
 import { emptyPayrollTotals } from "./types";
 
+/**
+ * Prior include/exclude choice to keep across recalculate/save.
+ * When present for a staff member already on the run, this wins over
+ * automatic employment-status / unpaid-leave rules.
+ */
+export type PayrollInclusionOverride = {
+  included: boolean;
+  excludeReason: string | null;
+};
+
+/**
+ * True when the prior row was excluded by HR (checkbox / prompt), not by
+ * automatic employment-status or unpaid-leave rules.
+ */
+export function isManualPayrollExclusion(
+  included: boolean,
+  excludeReason: string | null | undefined,
+): boolean {
+  if (included) return false;
+  const reason = (excludeReason ?? "").trim();
+  if (!reason || reason === "Manually excluded") return true;
+  if (reason.startsWith("Employment status:")) return false;
+  if (reason === "Fully unpaid leave in period") return false;
+  return true;
+}
+
 export type PayrollStaffInput = {
   id: string;
   emp_no: string;
@@ -220,6 +246,8 @@ export function calculateVenuePayroll(input: {
   benefits?: BenefitAllocationInput[];
   adjustments?: ManualAdjustmentInput[];
   adjustmentCodes?: PayrollAdjustmentCodeConfig[];
+  /** Preserve manual include/exclude from a prior run row across rebuilds. */
+  inclusionOverrides?: Map<string, PayrollInclusionOverride>;
 }): {
   employees: CalculatedEmployeePayroll[];
   exceptions: PayrollExceptionDraft[];
@@ -236,6 +264,7 @@ export function calculateVenuePayroll(input: {
     benefits = [],
     adjustments = [],
     adjustmentCodes,
+    inclusionOverrides,
   } = input;
 
   const timezone =
@@ -427,6 +456,14 @@ export function calculateVenuePayroll(input: {
     ) {
       included = false;
       excludeReason = "Fully unpaid leave in period";
+    }
+
+    const inclusionOverride = inclusionOverrides?.get(s.id);
+    // Force-include early so organic pay still calculates when HR re-ticks someone
+    // the system would otherwise skip.
+    if (inclusionOverride?.included && !included) {
+      included = true;
+      excludeReason = null;
     }
 
     const staffAdjustments = adjustmentsByStaff.get(s.id) ?? [];
@@ -688,10 +725,7 @@ export function calculateVenuePayroll(input: {
     // Rate-discount deductions reduce fixed pay in place; still report their
     // AED impact under total deductions (without changing net math below).
     const rateDiscountAmount =
-      included &&
-      dailyRate != null &&
-      dailyRate > 0 &&
-      rateDiscountPercent > 0
+      dailyRate != null && dailyRate > 0 && rateDiscountPercent > 0
         ? round2(
             dailyRate * (rateDiscountPercent / 100) * effectivePaidDays,
           )
@@ -706,7 +740,7 @@ export function calculateVenuePayroll(input: {
         .filter((l) => l.category === "deduction" && l.code !== "UNPAID_LEAVE")
         .reduce((sum, l) => sum + l.amount, 0),
     );
-    const netSalary = included ? round2(grossEarnings - deductionForNet) : 0;
+    const netSalary = round2(grossEarnings - deductionForNet);
 
     // Keep unpaid leave line for display only (informational) — amount shown, not netted twice
     const displayDeductions = round2(
@@ -715,6 +749,13 @@ export function calculateVenuePayroll(input: {
         .reduce((sum, l) => sum + (l.code === "UNPAID_LEAVE" ? 0 : l.amount), 0) +
         rateDiscountAmount,
     );
+
+    // Manual exclude: keep organic calculated pay, only drop from payroll totals/payments.
+    if (inclusionOverride && !inclusionOverride.included) {
+      included = false;
+      excludeReason =
+        inclusionOverride.excludeReason?.trim() || "Manually excluded";
+    }
 
     employees.push({
       staffId: s.id,
@@ -745,14 +786,12 @@ export function calculateVenuePayroll(input: {
       effectivePaidDays,
       unpaidDays: round2(unpaidDays),
       halfPayDays: round2(halfPayDays),
-      fixedEarnings: included ? fixedEarnings : 0,
-      variableEarnings: included ? variableEarnings : 0,
-      totalDeductions: included ? displayDeductions : 0,
-      grossEarnings: included ? grossEarnings : 0,
+      fixedEarnings,
+      variableEarnings,
+      totalDeductions: displayDeductions,
+      grossEarnings,
       netSalary,
-      lines: included
-        ? lines.filter((l) => l.code !== "UNPAID_LEAVE")
-        : [],
+      lines: lines.filter((l) => l.code !== "UNPAID_LEAVE"),
       dayFractions,
     });
 

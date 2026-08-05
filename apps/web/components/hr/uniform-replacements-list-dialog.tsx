@@ -18,6 +18,79 @@ import type {
 } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
+function isReplacementLocked(row: UniformReplacementRow): boolean {
+  if (
+    row.pending_deduction_status === "cleared" ||
+    row.pending_deduction_status === "applied"
+  ) {
+    return row.payroll_editable === false;
+  }
+  return false;
+}
+
+function lockReason(row: UniformReplacementRow): string {
+  const month = row.payroll_month?.slice(0, 7);
+  if (month) {
+    return `Already on locked/paid payroll (${month}). Reopen that month first.`;
+  }
+  return "This deduction is on a locked or paid payroll run and cannot be changed.";
+}
+
+function formatPayrollMonthShort(value: string | null | undefined): string {
+  if (!value) return "Unknown month";
+  const key = value.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(key)) return key;
+  try {
+    return new Date(`${key}-01T12:00:00`).toLocaleDateString("en-GB", {
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return key;
+  }
+}
+
+function deductionSummary(row: UniformReplacementRow): {
+  lines: string[];
+  remainingLabel: string | null;
+} {
+  if (!row.charged_to_employee) {
+    return { lines: ["Company pays"], remainingLabel: null };
+  }
+
+  const original = Number(row.original_amount ?? row.deduction_amount ?? 0);
+  const remaining = Number(
+    row.remaining_amount ??
+      (row.pending_deduction_status === "cleared" ||
+      row.pending_deduction_status === "applied"
+        ? 0
+        : original),
+  );
+  const apps = row.deduction_applications ?? [];
+  const lines: string[] = [];
+
+  if (apps.length > 0) {
+    for (const app of apps) {
+      lines.push(
+        `Deducted ${formatAed(app.amount)} · ${formatPayrollMonthShort(app.payrollMonth)}`,
+      );
+    }
+  } else if (Number(row.deducted_amount ?? 0) > 0) {
+    lines.push(
+      `Deducted ${formatAed(Number(row.deducted_amount))} · ${formatPayrollMonthShort(row.payroll_month)}`,
+    );
+  }
+
+  const remainingLabel =
+    remaining > 0
+      ? `Pending ${formatAed(remaining)}`
+      : apps.length > 0 || Number(row.deducted_amount ?? 0) > 0
+        ? "Fully recovered"
+        : `Pending ${formatAed(original)}`;
+
+  return { lines, remainingLabel };
+}
+
 export function UniformReplacementsListDialog({
   open,
   staff,
@@ -65,10 +138,8 @@ export function UniformReplacementsListDialog({
   }, [open, onClose, pending, editingId]);
 
   function startEdit(row: UniformReplacementRow) {
-    if (row.pending_deduction_status === "applied") {
-      toast.error(
-        "This deduction is already on payroll and cannot be edited.",
-      );
+    if (isReplacementLocked(row)) {
+      toast.error(lockReason(row));
       return;
     }
     setEditingId(row.id);
@@ -93,7 +164,11 @@ export function UniformReplacementsListDialog({
         chargedToEmployee,
         notes,
       });
-      toast.saved("Replacement query updated.");
+      toast.saved(
+        row.pending_deduction_status === "applied"
+          ? "Replacement updated and payroll deduction synced."
+          : "Replacement query updated.",
+      );
       setEditingId(null);
       onChanged?.();
     } catch (err) {
@@ -106,15 +181,17 @@ export function UniformReplacementsListDialog({
   }
 
   async function handleDelete(row: UniformReplacementRow) {
-    if (row.pending_deduction_status === "applied") {
-      toast.error(
-        "This deduction is already on payroll and cannot be deleted.",
-      );
+    if (isReplacementLocked(row)) {
+      toast.error(lockReason(row));
       return;
     }
+    const payrollNote =
+      row.pending_deduction_status === "applied"
+        ? " This will also remove or adjust the deduction on that month's payroll."
+        : "";
     if (
       !window.confirm(
-        `Delete replacement query for ${row.piece_name ?? "piece"} × ${row.quantity}?`,
+        `Delete replacement for ${row.piece_name ?? "piece"} × ${row.quantity}?${payrollNote}`,
       )
     ) {
       return;
@@ -123,7 +200,11 @@ export function UniformReplacementsListDialog({
     setError(null);
     try {
       await deleteUniformReplacement({ replacementId: row.id });
-      toast.saved("Replacement query deleted.");
+      toast.saved(
+        row.pending_deduction_status === "applied"
+          ? "Replacement deleted and payroll deduction synced."
+          : "Replacement query deleted.",
+      );
       if (editingId === row.id) setEditingId(null);
       onChanged?.();
     } catch (err) {
@@ -151,7 +232,7 @@ export function UniformReplacementsListDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="uniform-replacements-list-title"
-        className="flex max-h-[min(92dvh,40rem)] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
+        className="flex max-h-[min(92dvh,40rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-black/8 px-6 py-4">
@@ -188,8 +269,9 @@ export function UniformReplacementsListDialog({
           ) : (
             <ul className="space-y-2">
               {replacements.map((row) => {
-                const locked = row.pending_deduction_status === "applied";
+                const locked = isReplacementLocked(row);
                 const isEditing = editingId === row.id;
+                const summary = deductionSummary(row);
                 return (
                   <li
                     key={row.id}
@@ -202,18 +284,44 @@ export function UniformReplacementsListDialog({
                             {row.piece_name ?? "Uniform piece"} × {row.quantity}
                           </p>
                           <p className="mt-0.5 text-xs text-black/50">
-                            {formatDateOnly(row.created_at.slice(0, 10))}
-                            {" · "}
+                            Issued {formatDateOnly(row.created_at.slice(0, 10))}
                             {row.charged_to_employee
-                              ? `Employee pays ${formatAed(row.deduction_amount)}`
-                              : "Company pays"}
-                            {row.pending_deduction_status
-                              ? ` · ${row.pending_deduction_status}`
-                              : ""}
+                              ? ` · Charge ${formatAed(
+                                  Number(
+                                    row.original_amount ?? row.deduction_amount,
+                                  ),
+                                )}`
+                              : " · Company pays"}
                           </p>
+                          {row.charged_to_employee ? (
+                            <div className="mt-1.5 space-y-0.5 text-xs">
+                              {summary.lines.map((line) => (
+                                <p key={line} className="text-black/55">
+                                  {line}
+                                </p>
+                              ))}
+                              {summary.remainingLabel ? (
+                                <p
+                                  className={cn(
+                                    "font-medium",
+                                    Number(row.remaining_amount ?? 0) > 0
+                                      ? "text-amber-800"
+                                      : "text-[var(--venue-primary,#818a40)]",
+                                  )}
+                                >
+                                  {summary.remainingLabel}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {row.notes ? (
                             <p className="mt-1 text-xs text-black/55">
                               {row.notes}
+                            </p>
+                          ) : null}
+                          {locked ? (
+                            <p className="mt-1 text-xs text-amber-800/80">
+                              Locked — linked payroll is finalized.
                             </p>
                           ) : null}
                         </div>
@@ -225,11 +333,7 @@ export function UniformReplacementsListDialog({
                               onClick={() => startEdit(row)}
                               className="rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-40"
                               aria-label="Edit replacement query"
-                              title={
-                                locked
-                                  ? "Already applied to payroll"
-                                  : "Edit"
-                              }
+                              title={locked ? lockReason(row) : "Edit"}
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
@@ -239,11 +343,7 @@ export function UniformReplacementsListDialog({
                               onClick={() => void handleDelete(row)}
                               className="rounded-md p-1.5 text-black/45 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40"
                               aria-label="Delete replacement query"
-                              title={
-                                locked
-                                  ? "Already applied to payroll"
-                                  : "Delete"
-                              }
+                              title={locked ? lockReason(row) : "Delete"}
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
@@ -255,6 +355,11 @@ export function UniformReplacementsListDialog({
                         <p className="text-sm font-medium text-[#3D421F]">
                           Edit {row.piece_name ?? "uniform piece"}
                         </p>
+                        {row.pending_deduction_status === "applied" ? (
+                          <p className="text-xs text-black/50">
+                            Changes sync to this month's payroll deduction.
+                          </p>
+                        ) : null}
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="space-y-1.5">
                             <Label htmlFor={`repl-qty-${row.id}`}>

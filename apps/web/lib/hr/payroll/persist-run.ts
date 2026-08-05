@@ -20,6 +20,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import {
   calculateVenuePayroll,
   summarizeEmployees,
+  type PayrollInclusionOverride,
   type PayrollStaffInput,
 } from "./calculate";
 import { mergePayrollSettings, resolvePayrollPeriod } from "./period";
@@ -36,8 +37,6 @@ import {
   type HrPayrollAdjustmentCodesSettings,
   type PayrollAdjustmentCodeConfig,
 } from "./adjustment-codes";
-import { promotePendingPayrollDeductions } from "./pending-deductions";
-
 export async function loadPayrollSettings(
   supabase: SupabaseClient,
   venueId: string,
@@ -138,13 +137,7 @@ export async function persistCalculatedPayrollRun(opts: {
   const staffIds = staffInputs.map((s) => s.id);
   const empNos = staffInputs.map((s) => s.emp_no);
 
-  // Attach any queued deductions (e.g. uniform replacements) before calc.
-  await promotePendingPayrollDeductions({
-    service,
-    venueId,
-    runId,
-    actorId: userId,
-  });
+  // Pending deductions are applied via payroll → Import Deductions (selective).
 
   const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
     await Promise.all([
@@ -214,6 +207,23 @@ export async function persistCalculatedPayrollRun(opts: {
     };
   });
 
+  // Keep every prior include/exclude choice across full rebuild (recalculate / save).
+  // New staff who appear for the first time still use calculated defaults.
+  const { data: priorEmpRows } = await service
+    .from("hr_payroll_run_employees")
+    .select("staff_id, included, exclude_reason")
+    .eq("run_id", runId);
+  const inclusionOverrides = new Map<string, PayrollInclusionOverride>();
+  for (const row of priorEmpRows ?? []) {
+    const staffId = row.staff_id as string;
+    if (!staffId) continue;
+    inclusionOverrides.set(staffId, {
+      included: Boolean(row.included),
+      excludeReason:
+        (row.exclude_reason as string | null | undefined) ?? null,
+    });
+  }
+
   const { employees, exceptions, totals } = calculateVenuePayroll({
     period,
     settings,
@@ -234,6 +244,7 @@ export async function persistCalculatedPayrollRun(opts: {
     benefits,
     adjustments,
     adjustmentCodes,
+    inclusionOverrides,
   });
 
   await service.from("hr_payroll_lines").delete().eq("run_id", runId);
@@ -643,7 +654,7 @@ export async function persistSingleEmployeePayroll(opts: {
 
   const { data: runEmp, error: runEmpErr } = await service
     .from("hr_payroll_run_employees")
-    .select("id")
+    .select("id, included, exclude_reason")
     .eq("run_id", runId)
     .eq("staff_id", staffId)
     .maybeSingle();
@@ -661,16 +672,13 @@ export async function persistSingleEmployeePayroll(opts: {
   }
 
   const runEmployeeId = runEmp.id as string;
+  const inclusionOverrides = new Map<string, PayrollInclusionOverride>();
+  inclusionOverrides.set(staffId, {
+    included: Boolean(runEmp.included),
+    excludeReason: (runEmp.exclude_reason as string | null) ?? null,
+  });
   const ctx = await loadPayrollCalcContext(supabase, venueId);
   const staff = staffRowToInput(await getStaffById(supabase, staffId, venueId));
-
-  await promotePendingPayrollDeductions({
-    service,
-    venueId,
-    runId,
-    staffId,
-    actorId: userId,
-  });
 
   const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
     await Promise.all([
@@ -765,6 +773,7 @@ export async function persistSingleEmployeePayroll(opts: {
     benefits,
     adjustments,
     adjustmentCodes: ctx.adjustmentCodes,
+    inclusionOverrides,
   });
 
   const e = employees[0];

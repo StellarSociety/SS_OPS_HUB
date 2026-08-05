@@ -416,7 +416,14 @@ export function StaffEntryWorkspace({
             />
 
             <div className="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0">
-              <div className="flex flex-col gap-2">
+              <div
+                className={cn(
+                  "flex gap-2",
+                  loadedStaffId != null && editing
+                    ? "flex-row items-stretch"
+                    : "flex-col",
+                )}
+              >
                 {/* One primary button — label/handler switch. Avoids Edit↔Save twin nodes. */}
                 <button
                   type="button"
@@ -428,8 +435,6 @@ export function StaffEntryWorkspace({
                   onClick={() => {
                     if (loadedStaffId != null && !editing) {
                       setEditing(true);
-                      // Surface the photo editor so Upload is immediately usable.
-                      setActiveTab("documents");
                       return;
                     }
                     const form = document.getElementById(
@@ -437,7 +442,12 @@ export function StaffEntryWorkspace({
                     ) as HTMLFormElement | null;
                     form?.requestSubmit();
                   }}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--venue-primary)] px-4 text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                  className={cn(
+                    "inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-[var(--venue-primary)] text-sm font-semibold tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-40",
+                    loadedStaffId != null && editing
+                      ? "min-w-0 flex-1 px-2"
+                      : "w-full gap-2 px-4",
+                  )}
                 >
                   {loadedStaffId != null && !editing ? (
                     <>
@@ -460,7 +470,7 @@ export function StaffEntryWorkspace({
                     type="button"
                     onClick={cancelEdits}
                     disabled={saving}
-                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-black/10 bg-white px-4 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
+                    className="inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-black/10 bg-white px-2 text-sm font-medium text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary)]/30 disabled:opacity-40"
                   >
                     <X className="h-4 w-4 shrink-0" aria-hidden />
                     Cancel

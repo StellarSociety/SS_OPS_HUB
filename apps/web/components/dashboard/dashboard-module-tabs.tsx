@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ExpandableModuleGrid } from "@/components/modules/expandable-module-grid";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import type { ModuleCategory, ModuleCategoryKey } from "@/lib/modules-registry";
 import { subNavLabelClass } from "@/lib/sub-nav-ui";
 import { cn } from "@/lib/utils";
@@ -79,10 +80,12 @@ export function DashboardModuleTabs({
             onClick={() => toggleKey(DASHBOARDS_KEY)}
             className={tabClass(dashboardsActive)}
           >
-            <LayoutDashboard
-              className="h-3.5 w-3.5 shrink-0 opacity-80"
-              aria-hidden
-            />
+            <AnimatedSymbol>
+              <LayoutDashboard
+                className="h-3.5 w-3.5 shrink-0 opacity-80"
+                aria-hidden
+              />
+            </AnimatedSymbol>
             <span className="whitespace-nowrap">Dashboards</span>
           </button>
         ) : null}
@@ -98,7 +101,9 @@ export function DashboardModuleTabs({
               onClick={() => toggleKey(section.category.key)}
               className={tabClass(active)}
             >
-              <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+              <AnimatedSymbol>
+                <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+              </AnimatedSymbol>
               <span className="whitespace-nowrap">
                 {section.category.label}
               </span>

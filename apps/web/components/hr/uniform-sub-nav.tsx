@@ -4,6 +4,7 @@ import { ClipboardList, Users } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
+import { cn } from "@/lib/utils";
 
 const TABS = [
   {
@@ -22,7 +23,10 @@ export function UniformSubNav() {
   const pathname = useRelativePathname();
 
   return (
-    <nav aria-label="Uniform sections" className={pillSubNavShellClass}>
+    <nav
+      aria-label="Uniform sections"
+      className={cn(pillSubNavShellClass, "w-full justify-center")}
+    >
       {TABS.map((tab) => {
         const active =
           pathname === tab.href || pathname.startsWith(`${tab.href}/`);

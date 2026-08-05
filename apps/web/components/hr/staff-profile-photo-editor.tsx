@@ -751,47 +751,6 @@ export function StaffProfilePhotoEditor({
           )}
         </div>
       </div>
-
-      {showProgress || uploadProgress != null ? (
-        <div
-          className="space-y-1.5"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={
-            uploadProgress != null ? Math.round(uploadProgress) : undefined
-          }
-          aria-label="Profile photo upload progress"
-        >
-          <div className="flex items-center justify-between gap-2 text-[10px] font-medium text-[#3D421F]/80">
-            <span>
-              {uploadProgress != null && uploadProgress >= 100
-                ? "Done"
-                : adjustLoading
-                  ? "Loading photo…"
-                  : readingFile
-                    ? "Reading photo…"
-                    : "Uploading photo…"}
-            </span>
-            <span className="tabular-nums text-black/45">
-              {uploadProgress != null ? `${Math.round(uploadProgress)}%` : "…"}
-            </span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-black/10">
-            <div
-              className={cn(
-                "h-full rounded-full bg-[var(--venue-primary,#818a40)] transition-[width] duration-150 ease-out",
-                uploadProgress != null &&
-                  uploadProgress >= 100 &&
-                  "animate-pulse",
-              )}
-              style={{
-                width: `${Math.min(100, Math.max(4, uploadProgress ?? 8))}%`,
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

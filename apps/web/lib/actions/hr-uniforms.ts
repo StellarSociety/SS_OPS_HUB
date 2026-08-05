@@ -620,6 +620,8 @@ export async function initiateUniformReplacement(
         code: "UNIFORM",
         label: "Uniform / equipment",
         amount: deductionAmount,
+        original_amount: deductionAmount,
+        remaining_amount: deductionAmount,
         reason: `Uniform replacement: ${pieceSummary}`,
         source: "uniform_replacement",
         status: "pending",
@@ -718,57 +720,322 @@ function remainingItemIdAfterReplace(line: {
   return line.currentQty - line.quantity > 0 ? line.staffItemId : null;
 }
 
+type PendingDeductionJoin = {
+  id: string;
+  status: string;
+  amount: number | string;
+  applied_run_id: string | null;
+  applied_adjustment_id: string | null;
+  reason?: string | null;
+};
+
+function unwrapPending(
+  raw:
+    | PendingDeductionJoin
+    | PendingDeductionJoin[]
+    | null
+    | undefined,
+): PendingDeductionJoin | null {
+  if (!raw) return null;
+  return Array.isArray(raw) ? (raw[0] ?? null) : raw;
+}
+
+function isPayrollRunMutable(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return (
+    status !== "paid" &&
+    status !== "locked" &&
+    status !== "payment_processing"
+  );
+}
+
+async function recalculateStaffOnPayrollRun(opts: {
+  service: ServiceClient;
+  venueId: string;
+  runId: string;
+  payrollMonth: string;
+  staffId: string;
+  userId: string;
+}): Promise<void> {
+  const { persistSingleEmployeePayroll, loadPayrollSettings } = await import(
+    "@/lib/hr/payroll/persist-run"
+  );
+  const { resolvePayrollPeriod } = await import("@/lib/hr/payroll/period");
+  const settings = await loadPayrollSettings(
+    opts.service as never,
+    opts.venueId,
+  );
+  const period = resolvePayrollPeriod(String(opts.payrollMonth), settings);
+  await persistSingleEmployeePayroll({
+    service: opts.service,
+    venueId: opts.venueId,
+    runId: opts.runId,
+    staffId: opts.staffId,
+    period,
+    userId: opts.userId,
+  });
+}
+
 async function tryAttachPendingDeductionToOpenRun(opts: {
   service: ServiceClient;
   venueId: string;
   staffId: string;
   userId: string;
 }): Promise<string | null> {
-  const { data: run } = await opts.service
-    .from("hr_payroll_runs")
-    .select("id, status, payroll_month")
-    .eq("venue_id", opts.venueId)
-    .order("payroll_month", { ascending: false })
-    .limit(8);
+  // Pending charges stay queued until payroll → Import Deductions.
+  // Selective apply/unapply happens there so HR can choose what hits the month.
+  void opts;
+  return null;
+}
 
-  const open = (run ?? []).find(
-    (row) =>
-      row.status !== "paid" &&
-      row.status !== "locked" &&
-      row.status !== "payment_processing",
-  );
-  if (!open?.id) return null;
-
-  try {
-    const { persistSingleEmployeePayroll, loadPayrollSettings } = await import(
-      "@/lib/hr/payroll/persist-run"
-    );
-    const { resolvePayrollPeriod } = await import("@/lib/hr/payroll/period");
-
-    const settings = await loadPayrollSettings(
-      opts.service as never,
-      opts.venueId,
-    );
-    const period = resolvePayrollPeriod(
-      String(open.payroll_month),
-      settings,
-    );
-    await persistSingleEmployeePayroll({
-      service: opts.service,
-      venueId: opts.venueId,
-      runId: open.id as string,
-      staffId: opts.staffId,
-      period,
-      userId: opts.userId,
-    });
-    return open.id as string;
-  } catch (error) {
-    console.warn(
-      "[uniforms] could not attach pending deduction to open payroll run:",
-      error instanceof Error ? error.message : error,
-    );
-    return null;
+/** Sum charged line amounts for replacements sharing a pending deduction. */
+async function sumSiblingDeductionAmount(
+  service: ServiceClient,
+  pendingDeductionId: string,
+  excludeReplacementId?: string,
+): Promise<number> {
+  let query = service
+    .from("hr_uniform_replacements")
+    .select("id, charged_to_employee, deduction_amount")
+    .eq("pending_deduction_id", pendingDeductionId);
+  if (excludeReplacementId) {
+    query = query.neq("id", excludeReplacementId);
   }
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  const total = (data ?? []).reduce((sum, row) => {
+    if (!row.charged_to_employee) return sum;
+    return sum + Number(row.deduction_amount ?? 0);
+  }, 0);
+  return Math.round(total * 100) / 100;
+}
+
+/**
+ * Keep pending deduction + payroll adjustment in sync after a replacement change.
+ * Allows edits while the applied run is still open; blocks locked/paid runs.
+ */
+async function syncUniformPendingDeduction(opts: {
+  service: ServiceClient;
+  venueId: string;
+  staffId: string;
+  userId: string;
+  pendingDeductionId: string | null;
+  pending: PendingDeductionJoin | null;
+  /** Total amount that should remain on the shared pending deduction. */
+  nextAmount: number;
+  reason: string;
+  /** When creating a brand-new pending row (no prior link). */
+  createIfMissing?: {
+    sourceId: string;
+    pieceLabel: string;
+  };
+}): Promise<{
+  pendingDeductionId: string | null;
+  syncedRunId: string | null;
+}> {
+  const {
+    service,
+    venueId,
+    staffId,
+    userId,
+    pending,
+    nextAmount,
+    reason,
+  } = opts;
+  let pendingDeductionId = opts.pendingDeductionId;
+  let syncedRunId: string | null = null;
+
+  if (pending?.status === "applied" || pending?.status === "cleared") {
+    const runId = pending.applied_run_id;
+    if (!runId) {
+      throw new Error(
+        "This deduction is marked applied but has no payroll run. Contact support.",
+      );
+    }
+    const { data: run, error: runError } = await service
+      .from("hr_payroll_runs")
+      .select("id, status, payroll_month")
+      .eq("id", runId)
+      .maybeSingle();
+    if (runError) throw new Error(runError.message);
+    if (!run) throw new Error("Linked payroll run was not found.");
+    if (!isPayrollRunMutable(String(run.status))) {
+      throw new Error(
+        "This deduction is on a locked or paid payroll run and cannot be changed. Reopen that month's payroll first, or add a correction on the next run.",
+      );
+    }
+
+    if (nextAmount > 0) {
+      const { error: pendingError } = await service
+        .from("hr_pending_payroll_deductions")
+        .update({
+          amount: nextAmount,
+          original_amount: nextAmount,
+          remaining_amount: 0,
+          reason,
+          status: "cleared",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", pending.id);
+      if (pendingError) throw new Error(pendingError.message);
+
+      if (pending.applied_adjustment_id) {
+        const { error: adjError } = await service
+          .from("hr_payroll_adjustments")
+          .update({
+            amount: nextAmount,
+            reason,
+          })
+          .eq("id", pending.applied_adjustment_id)
+          .eq("run_id", runId);
+        if (adjError) throw new Error(adjError.message);
+      } else {
+        // Orphan applied row — recreate the adjustment via promote path.
+        const { data: runEmp } = await service
+          .from("hr_payroll_run_employees")
+          .select("id")
+          .eq("run_id", runId)
+          .eq("staff_id", staffId)
+          .maybeSingle();
+        const { data: inserted, error: insertError } = await service
+          .from("hr_payroll_adjustments")
+          .insert({
+            venue_id: venueId,
+            run_id: runId,
+            run_employee_id: runEmp?.id ?? null,
+            staff_id: staffId,
+            category: "deduction",
+            code: "UNIFORM",
+            label: "Uniform / equipment",
+            amount: nextAmount,
+            percent_of_daily_rate: null,
+            days_applied: null,
+            reason,
+            source: "manual",
+            created_by: userId,
+          })
+          .select("id")
+          .single();
+        if (insertError) throw new Error(insertError.message);
+        await service
+          .from("hr_pending_payroll_deductions")
+          .update({
+            applied_adjustment_id: inserted.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", pending.id);
+      }
+
+      await recalculateStaffOnPayrollRun({
+        service,
+        venueId,
+        runId,
+        payrollMonth: String(run.payroll_month),
+        staffId,
+        userId,
+      });
+      syncedRunId = runId;
+      return { pendingDeductionId: pending.id, syncedRunId };
+    }
+
+    // nextAmount === 0 → remove from this month's payroll
+    if (pending.applied_adjustment_id) {
+      const { error: adjError } = await service
+        .from("hr_payroll_adjustments")
+        .delete()
+        .eq("id", pending.applied_adjustment_id)
+        .eq("run_id", runId);
+      if (adjError) throw new Error(adjError.message);
+    }
+    const { error: cancelError } = await service
+      .from("hr_pending_payroll_deductions")
+      .update({
+        status: "cancelled",
+        amount: 0,
+        remaining_amount: 0,
+        applied_adjustment_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", pending.id);
+    if (cancelError) throw new Error(cancelError.message);
+
+    await recalculateStaffOnPayrollRun({
+      service,
+      venueId,
+      runId,
+      payrollMonth: String(run.payroll_month),
+      staffId,
+      userId,
+    });
+    syncedRunId = runId;
+    return { pendingDeductionId: null, syncedRunId };
+  }
+
+  // Not yet applied (or no pending row)
+  if (nextAmount > 0) {
+    if (pendingDeductionId && pending?.status === "pending") {
+      const { error } = await service
+        .from("hr_pending_payroll_deductions")
+        .update({
+          amount: nextAmount,
+          original_amount: nextAmount,
+          remaining_amount: nextAmount,
+          reason,
+          status: "pending",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", pendingDeductionId)
+        .eq("status", "pending");
+      if (error) throw new Error(error.message);
+    } else {
+      const create = opts.createIfMissing;
+      if (!create) {
+        throw new Error("Cannot create payroll deduction without source context.");
+      }
+      const { data: created, error } = await service
+        .from("hr_pending_payroll_deductions")
+        .insert({
+          venue_id: venueId,
+          staff_id: staffId,
+          category: "deduction",
+          code: "UNIFORM",
+          label: "Uniform / equipment",
+          amount: nextAmount,
+          original_amount: nextAmount,
+          remaining_amount: nextAmount,
+          reason,
+          source: "uniform_replacement",
+          source_id: create.sourceId,
+          status: "pending",
+          created_by: userId,
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(error.message);
+      pendingDeductionId = created.id as string;
+    }
+    syncedRunId = await tryAttachPendingDeductionToOpenRun({
+      service,
+      venueId,
+      staffId,
+      userId,
+    });
+    return { pendingDeductionId, syncedRunId };
+  }
+
+  if (pendingDeductionId && pending?.status === "pending") {
+    const { error } = await service
+      .from("hr_pending_payroll_deductions")
+      .update({
+        status: "cancelled",
+        remaining_amount: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", pendingDeductionId)
+      .eq("status", "pending");
+    if (error) throw new Error(error.message);
+  }
+  return { pendingDeductionId: null, syncedRunId };
 }
 
 const updateReplacementSchema = z.object({
@@ -799,7 +1066,9 @@ export async function updateUniformReplacement(
       deduction_amount,
       notes,
       pending_deduction_id,
-      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(id, status, amount)
+      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(
+        id, status, amount, applied_run_id, applied_adjustment_id, reason
+      )
     `,
     )
     .eq("id", parsed.replacementId)
@@ -809,15 +1078,25 @@ export async function updateUniformReplacement(
   if (loadError) throw new Error(loadError.message);
   if (!existing) throw new Error("Replacement query not found.");
 
-  const pendingRaw = existing.pending_deduction as
-    | { id: string; status: string; amount: number | string }
-    | { id: string; status: string; amount: number | string }[]
-    | null;
-  const pending = Array.isArray(pendingRaw) ? pendingRaw[0] : pendingRaw;
-  if (pending?.status === "applied") {
-    throw new Error(
-      "This replacement deduction is already on a payroll run and cannot be edited.",
-    );
+  const pending = unwrapPending(
+    existing.pending_deduction as
+      | PendingDeductionJoin
+      | PendingDeductionJoin[]
+      | null,
+  );
+
+  if (pending?.status === "applied" && pending.applied_run_id) {
+    const { data: run, error: runError } = await service
+      .from("hr_payroll_runs")
+      .select("id, status")
+      .eq("id", pending.applied_run_id)
+      .maybeSingle();
+    if (runError) throw new Error(runError.message);
+    if (run && !isPayrollRunMutable(String(run.status))) {
+      throw new Error(
+        "This deduction is on a locked or paid payroll run and cannot be changed. Reopen that month's payroll first, or add a correction on the next run.",
+      );
+    }
   }
 
   const unitValue = Number(existing.unit_value ?? 0);
@@ -826,68 +1105,14 @@ export async function updateUniformReplacement(
     : 0;
   const notes = parsed.notes?.trim() ?? "";
 
-  let pendingDeductionId =
-    (existing.pending_deduction_id as string | null) ?? null;
+  const { data: piece } = await service
+    .from("hr_uniform_pieces")
+    .select("name")
+    .eq("id", existing.piece_id)
+    .maybeSingle();
+  const pieceName = String(piece?.name ?? "Uniform piece");
 
-  if (parsed.chargedToEmployee && deductionAmount > 0) {
-    if (pendingDeductionId && pending?.status === "pending") {
-      const { error } = await service
-        .from("hr_pending_payroll_deductions")
-        .update({
-          amount: deductionAmount,
-          reason: `Uniform replacement (updated): qty ${parsed.quantity}`,
-          status: "pending",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", pendingDeductionId)
-        .eq("status", "pending");
-      if (error) throw new Error(error.message);
-    } else {
-      const { data: piece } = await service
-        .from("hr_uniform_pieces")
-        .select("name")
-        .eq("id", existing.piece_id)
-        .maybeSingle();
-      const pieceName = String(piece?.name ?? "Uniform piece");
-      const { data: created, error } = await service
-        .from("hr_pending_payroll_deductions")
-        .insert({
-          venue_id: ctx.venue.id,
-          staff_id: existing.staff_id,
-          category: "deduction",
-          code: "UNIFORM",
-          label: "Uniform / equipment",
-          amount: deductionAmount,
-          reason: `Uniform replacement: ${pieceName} × ${parsed.quantity}`,
-          source: "uniform_replacement",
-          source_id: existing.id,
-          status: "pending",
-          created_by: ctx.user.id,
-        })
-        .select("id")
-        .single();
-      if (error) throw new Error(error.message);
-      pendingDeductionId = created.id as string;
-      await tryAttachPendingDeductionToOpenRun({
-        service,
-        venueId: ctx.venue.id,
-        staffId: String(existing.staff_id),
-        userId: ctx.user.id,
-      });
-    }
-  } else if (pendingDeductionId && pending?.status === "pending") {
-    const { error } = await service
-      .from("hr_pending_payroll_deductions")
-      .update({
-        status: "cancelled",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", pendingDeductionId)
-      .eq("status", "pending");
-    if (error) throw new Error(error.message);
-    pendingDeductionId = null;
-  }
-
+  // Persist the line first so sibling totals include this update.
   const { error: updateError } = await service
     .from("hr_uniform_replacements")
     .update({
@@ -895,12 +1120,69 @@ export async function updateUniformReplacement(
       charged_to_employee: parsed.chargedToEmployee,
       deduction_amount: deductionAmount,
       notes,
-      pending_deduction_id: pendingDeductionId,
       updated_at: new Date().toISOString(),
     })
     .eq("id", parsed.replacementId);
 
   if (updateError) throw new Error(updateError.message);
+
+  let pendingDeductionId =
+    (existing.pending_deduction_id as string | null) ?? null;
+
+  // Shared pending deduction: total = this line + other siblings.
+  let nextPendingAmount = deductionAmount;
+  if (pendingDeductionId) {
+    const siblings = await sumSiblingDeductionAmount(
+      service,
+      pendingDeductionId,
+      parsed.replacementId,
+    );
+    nextPendingAmount =
+      Math.round((siblings + deductionAmount) * 100) / 100;
+  }
+
+  const synced = await syncUniformPendingDeduction({
+    service,
+    venueId: ctx.venue.id,
+    staffId: String(existing.staff_id),
+    userId: ctx.user.id,
+    pendingDeductionId,
+    pending,
+    nextAmount: nextPendingAmount,
+    reason: `Uniform replacement (updated): ${pieceName} × ${parsed.quantity}`,
+    createIfMissing: {
+      sourceId: parsed.replacementId,
+      pieceLabel: pieceName,
+    },
+  });
+  pendingDeductionId = synced.pendingDeductionId;
+
+  // Point this (and only this) row at the pending deduction when newly created.
+  if (pendingDeductionId !== existing.pending_deduction_id) {
+    const { error: linkError } = await service
+      .from("hr_uniform_replacements")
+      .update({
+        pending_deduction_id: pendingDeductionId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", parsed.replacementId);
+    if (linkError) throw new Error(linkError.message);
+  }
+
+  // If we cancelled a shared pending, clear sibling links too.
+  if (
+    !pendingDeductionId &&
+    existing.pending_deduction_id &&
+    pending?.status === "applied"
+  ) {
+    await service
+      .from("hr_uniform_replacements")
+      .update({
+        pending_deduction_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("pending_deduction_id", existing.pending_deduction_id);
+  }
 
   await writeAuditLog({
     actor_id: ctx.user.id,
@@ -915,11 +1197,15 @@ export async function updateUniformReplacement(
       deductionAmount,
       notes,
       pendingDeductionId,
+      syncedRunId: synced.syncedRunId,
     },
   });
 
   revalidateUniformPaths();
   revalidatePath("/hr/payroll");
+  if (synced.syncedRunId) {
+    revalidatePath(`/hr/payroll/${synced.syncedRunId}`);
+  }
 }
 
 const deleteReplacementSchema = z.object({
@@ -940,8 +1226,12 @@ export async function deleteUniformReplacement(
       id,
       venue_id,
       staff_id,
+      piece_id,
+      quantity,
       pending_deduction_id,
-      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(id, status)
+      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(
+        id, status, amount, applied_run_id, applied_adjustment_id, reason
+      )
     `,
     )
     .eq("id", parsed.replacementId)
@@ -951,29 +1241,62 @@ export async function deleteUniformReplacement(
   if (loadError) throw new Error(loadError.message);
   if (!existing) throw new Error("Replacement query not found.");
 
-  const pendingRaw = existing.pending_deduction as
-    | { id: string; status: string }
-    | { id: string; status: string }[]
-    | null;
-  const pending = Array.isArray(pendingRaw) ? pendingRaw[0] : pendingRaw;
+  const pending = unwrapPending(
+    existing.pending_deduction as
+      | PendingDeductionJoin
+      | PendingDeductionJoin[]
+      | null,
+  );
 
-  if (pending?.status === "applied") {
-    throw new Error(
-      "This replacement deduction is already on a payroll run and cannot be deleted.",
+  if (pending?.status === "applied" && pending.applied_run_id) {
+    const { data: run, error: runError } = await service
+      .from("hr_payroll_runs")
+      .select("id, status")
+      .eq("id", pending.applied_run_id)
+      .maybeSingle();
+    if (runError) throw new Error(runError.message);
+    if (run && !isPayrollRunMutable(String(run.status))) {
+      throw new Error(
+        "This deduction is on a locked or paid payroll run and cannot be deleted. Reopen that month's payroll first, or add a correction on the next run.",
+      );
+    }
+  }
+
+  const pendingDeductionId =
+    (existing.pending_deduction_id as string | null) ?? null;
+
+  // Remaining siblings after this delete (shared pending deduction).
+  let remainingAmount = 0;
+  if (pendingDeductionId) {
+    remainingAmount = await sumSiblingDeductionAmount(
+      service,
+      pendingDeductionId,
+      parsed.replacementId,
     );
   }
 
-  if (existing.pending_deduction_id && pending?.status === "pending") {
-    const { error } = await service
-      .from("hr_pending_payroll_deductions")
-      .update({
-        status: "cancelled",
-        updated_at: new Date().toISOString(),
+  const { data: piece } = await service
+    .from("hr_uniform_pieces")
+    .select("name")
+    .eq("id", existing.piece_id)
+    .maybeSingle();
+  const pieceName = String(piece?.name ?? "Uniform piece");
+
+  const synced = pendingDeductionId
+    ? await syncUniformPendingDeduction({
+        service,
+        venueId: ctx.venue.id,
+        staffId: String(existing.staff_id),
+        userId: ctx.user.id,
+        pendingDeductionId,
+        pending,
+        nextAmount: remainingAmount,
+        reason:
+          remainingAmount > 0
+            ? `Uniform replacement (updated after delete)`
+            : `Uniform replacement deleted: ${pieceName} × ${existing.quantity}`,
       })
-      .eq("id", existing.pending_deduction_id)
-      .eq("status", "pending");
-    if (error) throw new Error(error.message);
-  }
+    : { pendingDeductionId: null, syncedRunId: null };
 
   const { error: deleteError } = await service
     .from("hr_uniform_replacements")
@@ -982,6 +1305,21 @@ export async function deleteUniformReplacement(
 
   if (deleteError) throw new Error(deleteError.message);
 
+  // Clear sibling links if the shared pending was cancelled.
+  if (
+    !synced.pendingDeductionId &&
+    pendingDeductionId &&
+    pending?.status === "applied"
+  ) {
+    await service
+      .from("hr_uniform_replacements")
+      .update({
+        pending_deduction_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("pending_deduction_id", pendingDeductionId);
+  }
+
   await writeAuditLog({
     actor_id: ctx.user.id,
     action: "uniform_replacement.deleted",
@@ -989,10 +1327,17 @@ export async function deleteUniformReplacement(
     entity: "hr_uniform_replacements",
     entity_id: parsed.replacementId,
     venue_id: ctx.venue.id,
+    after: {
+      remainingPendingAmount: remainingAmount,
+      syncedRunId: synced.syncedRunId,
+    },
   });
 
   revalidateUniformPaths();
   revalidatePath("/hr/payroll");
+  if (synced.syncedRunId) {
+    revalidatePath(`/hr/payroll/${synced.syncedRunId}`);
+  }
 }
 
 const staffIdSchema = z.object({

@@ -202,6 +202,13 @@ export type UniformStaffSummaryRow = {
   archived_at?: string | null;
 };
 
+export type UniformReplacementDeductionApplication = {
+  runId: string;
+  payrollMonth: string | null;
+  amount: number;
+  runStatus: string | null;
+};
+
 export type UniformReplacementRow = {
   id: string;
   venue_id: string;
@@ -218,7 +225,25 @@ export type UniformReplacementRow = {
   created_at: string;
   piece_name?: string | null;
   /** Linked pending payroll deduction status, when any. */
-  pending_deduction_status?: "pending" | "applied" | "cancelled" | null;
+  pending_deduction_status?: "pending" | "applied" | "cleared" | "cancelled" | null;
+  /** Payroll run this deduction was applied to (when status=applied). */
+  applied_run_id?: string | null;
+  applied_run_status?: string | null;
+  /** YYYY-MM-DD payroll_month of the applied run. */
+  payroll_month?: string | null;
+  /**
+   * False when the linked payroll run is locked/paid/processing —
+   * edit/delete would not be able to sync that month's payroll.
+   */
+  payroll_editable?: boolean;
+  /** Original charged amount on the linked pending deduction. */
+  original_amount?: number | null;
+  /** Still outstanding across payroll months. */
+  remaining_amount?: number | null;
+  /** Sum already recovered on payroll runs. */
+  deducted_amount?: number | null;
+  /** Per-month applications already imported to payroll. */
+  deduction_applications?: UniformReplacementDeductionApplication[];
 };
 
 /** How employment ended — set on staff profile when termination_date is filled. */

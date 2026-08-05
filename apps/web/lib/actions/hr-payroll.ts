@@ -46,6 +46,13 @@ import {
   loadPayrollAdjustmentCodes,
   syncPayrollRunTotals,
 } from "@/lib/hr/payroll/persist-run";
+import {
+  PAYROLL_DEDUCTION_IMPORT_SOURCES,
+  payrollDeductionSourceLabel,
+  applyPendingDeductionAmounts,
+  unapplyPendingPayrollDeductions,
+  type PayrollDeductionImportSourceId,
+} from "@/lib/hr/payroll/pending-deductions";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 
@@ -1796,40 +1803,63 @@ export async function setEmployeeIncluded(
 
   const { data: emp } = await supabase
     .from("hr_payroll_run_employees")
-    .select("id, run_id, run:hr_payroll_runs(status)")
+    .select(
+      "id, run_id, staff_id, run:hr_payroll_runs(status, payroll_month)",
+    )
     .eq("id", runEmployeeId)
     .eq("venue_id", venue.id)
     .maybeSingle();
 
   if (!emp) return { ok: false, error: "Employee row not found." };
-  const status = (emp.run as { status?: string } | null)?.status;
+  const runMeta = emp.run as {
+    status?: string;
+    payroll_month?: string;
+  } | null;
+  const status = runMeta?.status;
   if (status && isPayrollLocked(status)) {
     return { ok: false, error: "Payroll is locked." };
   }
 
   const service = createServiceClient();
+  const excludeReason = included
+    ? null
+    : reason?.trim() || "Manually excluded";
+
   const { error } = await service
     .from("hr_payroll_run_employees")
     .update({
       included,
-      exclude_reason: included ? null : reason?.trim() || "Manually excluded",
+      exclude_reason: excludeReason,
       updated_at: new Date().toISOString(),
     })
     .eq("id", runEmployeeId);
-
   if (error) return { ok: false, error: error.message };
 
+  // Recalculate organic pay values; inclusion flag is preserved via overrides.
+  // Excluded staff keep amounts/lines but drop out of run totals and payments.
   try {
-    await syncPayrollRunTotals({
+    const settings = await loadPayrollSettings(supabase, venue.id);
+    const period = resolvePayrollPeriod(
+      runMeta?.payroll_month ?? new Date().toISOString(),
+      settings,
+    );
+    await persistSingleEmployeePayroll({
       service,
       venueId: venue.id,
       runId: emp.run_id as string,
+      staffId: emp.staff_id as string,
+      period,
       userId: user.id,
     });
   } catch (e) {
     return {
       ok: false,
-      error: e instanceof Error ? e.message : "Failed to update run totals",
+      error:
+        e instanceof Error
+          ? e.message
+          : included
+            ? "Included, but could not recalculate pay"
+            : "Excluded, but could not refresh pay values",
     };
   }
 
@@ -2932,6 +2962,488 @@ export async function clearImportedBenefitsFromPayrollRun(input: {
   if (!recalc.ok) return recalc;
 
   revalidatePath("/hr/benefits");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Import Deductions (uniform / assets / insurance / certifications / visa)
+// ---------------------------------------------------------------------------
+
+export type PayrollDeductionImportType =
+  | PayrollDeductionImportSourceId
+  | "all";
+
+export type PayrollDeductionImportStatus =
+  | "pending"
+  | "partial"
+  | "on_this_run"
+  | "cleared";
+
+export type PayrollDeductionImportRow = {
+  deductionId: string;
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  departmentName: string | null;
+  source: string;
+  sourceLabel: string;
+  code: string;
+  label: string;
+  /** Original charge amount. */
+  originalAmount: number;
+  /** Still outstanding (not yet recovered on any payroll). */
+  remainingAmount: number;
+  /** Amount already applied on this payroll run (0 if none). */
+  appliedOnThisRun: number;
+  /** Max that can be set for this run = remaining + appliedOnThisRun. */
+  maxApplyAmount: number;
+  reason: string;
+  createdAt: string;
+  status: PayrollDeductionImportStatus;
+  statusLabel: string;
+  alreadyApplied: boolean;
+  sourceAvailable: boolean;
+};
+
+function availableDeductionSourceIds(): Set<string> {
+  return new Set(
+    PAYROLL_DEDUCTION_IMPORT_SOURCES.filter((s) => s.available).map((s) => s.id),
+  );
+}
+
+function matchesDeductionSourceFilter(
+  source: string,
+  filter: PayrollDeductionImportType,
+): boolean {
+  if (filter === "all") return availableDeductionSourceIds().has(source);
+  return source === filter;
+}
+
+function deductionImportStatus(opts: {
+  remaining: number;
+  original: number;
+  appliedOnThisRun: number;
+}): { status: PayrollDeductionImportStatus; statusLabel: string } {
+  if (opts.appliedOnThisRun > 0 && opts.remaining > 0) {
+    return {
+      status: "on_this_run",
+      statusLabel: "On this run · balance left",
+    };
+  }
+  if (opts.appliedOnThisRun > 0 && opts.remaining <= 0) {
+    return { status: "on_this_run", statusLabel: "On this run · cleared" };
+  }
+  if (opts.remaining <= 0) {
+    return { status: "cleared", statusLabel: "Cleared" };
+  }
+  if (opts.remaining < opts.original - 0.001) {
+    return { status: "partial", statusLabel: "Partial · balance left" };
+  }
+  return { status: "pending", statusLabel: "Pending" };
+}
+
+export async function listDeductionsForPayrollImport(input: {
+  runId: string;
+  source: PayrollDeductionImportType;
+}): Promise<
+  | { ok: true; rows: PayrollDeductionImportRow[] }
+  | { ok: false; error: string }
+> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { venue, permissions, supabase } = auth;
+
+  if (!canAccessPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+
+  const { data: run } = await supabase
+    .from("hr_payroll_runs")
+    .select("id")
+    .eq("id", input.runId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+  if (!run) return { ok: false, error: "Payroll run not found." };
+
+  if (
+    input.source !== "all" &&
+    !PAYROLL_DEDUCTION_IMPORT_SOURCES.some((s) => s.id === input.source)
+  ) {
+    return { ok: false, error: "Unknown deduction source." };
+  }
+
+  const sourceMeta = PAYROLL_DEDUCTION_IMPORT_SOURCES.find(
+    (s) => s.id === input.source,
+  );
+  if (sourceMeta && !sourceMeta.available) {
+    return { ok: true, rows: [] };
+  }
+
+  const service = createServiceClient();
+  let data:
+    | {
+        id: string;
+        staff_id: string;
+        category?: string;
+        code?: string;
+        label?: string;
+        amount?: number | string;
+        original_amount?: number | string | null;
+        remaining_amount?: number | string | null;
+        reason?: string;
+        source?: string;
+        status?: string;
+        applied_run_id?: string | null;
+        created_at?: string;
+      }[]
+    | null = null;
+
+  {
+    const primary = await service
+      .from("hr_pending_payroll_deductions")
+      .select(
+        "id, staff_id, category, code, label, amount, original_amount, remaining_amount, reason, source, status, applied_run_id, created_at",
+      )
+      .eq("venue_id", venue.id)
+      .neq("status", "cancelled")
+      .order("created_at", { ascending: false });
+
+    if (primary.error) {
+      if (/does not exist|schema cache/i.test(primary.error.message)) {
+        return { ok: true, rows: [] };
+      }
+      // Pre-migration fallback without original/remaining columns.
+      if (/original_amount|remaining_amount/i.test(primary.error.message)) {
+        const legacy = await service
+          .from("hr_pending_payroll_deductions")
+          .select(
+            "id, staff_id, category, code, label, amount, reason, source, status, applied_run_id, created_at",
+          )
+          .eq("venue_id", venue.id)
+          .neq("status", "cancelled")
+          .order("created_at", { ascending: false });
+        if (legacy.error) return { ok: false, error: legacy.error.message };
+        data = (legacy.data ?? []).map((row) => ({
+          ...row,
+          original_amount: row.amount,
+          remaining_amount:
+            row.status === "pending" ? row.amount : 0,
+        }));
+      } else {
+        return { ok: false, error: primary.error.message };
+      }
+    } else {
+      data = primary.data;
+    }
+  }
+
+  const { data: apps, error: appsError } = await service
+    .from("hr_payroll_deduction_applications")
+    .select("pending_deduction_id, amount")
+    .eq("venue_id", venue.id)
+    .eq("run_id", input.runId);
+
+  const appliedOnRun = new Map<string, number>();
+  if (!appsError) {
+    for (const app of apps ?? []) {
+      appliedOnRun.set(
+        String(app.pending_deduction_id),
+        Math.round(Number(app.amount ?? 0) * 100) / 100,
+      );
+    }
+  }
+
+  // Legacy fully-applied rows (pre-applications table).
+  for (const row of data ?? []) {
+    const id = String(row.id);
+    if (appliedOnRun.has(id)) continue;
+    if (
+      String(row.applied_run_id) === input.runId &&
+      (row.status === "applied" || row.status === "cleared")
+    ) {
+      const amount = Math.round(Number(row.original_amount ?? row.amount ?? 0) * 100) / 100;
+      if (amount > 0) appliedOnRun.set(id, amount);
+    }
+  }
+
+  // Visible while outstanding, or if this run already has an application.
+  const scoped = (data ?? []).filter((row) => {
+    const remaining = Number(
+      row.remaining_amount ??
+        (row.status === "pending" ? row.amount : 0),
+    );
+    const onThisRun = appliedOnRun.get(String(row.id)) ?? 0;
+    if (onThisRun > 0) return true;
+    return remaining > 0;
+  });
+
+  const filtered = scoped.filter((row) =>
+    matchesDeductionSourceFilter(String(row.source ?? ""), input.source),
+  );
+
+  const staffIds = [...new Set(filtered.map((r) => r.staff_id as string))];
+  const staffById = new Map<
+    string,
+    { emp_no: string; full_name: string; department_name: string | null }
+  >();
+
+  if (staffIds.length > 0) {
+    const { data: staffRows } = await service
+      .from("staff")
+      .select("id, emp_no, full_name, department:departments(name)")
+      .in("id", staffIds);
+    for (const s of staffRows ?? []) {
+      const deptRaw = s.department as
+        | { name?: string }
+        | { name?: string }[]
+        | null;
+      const dept = Array.isArray(deptRaw) ? deptRaw[0] : deptRaw;
+      staffById.set(String(s.id), {
+        emp_no: String(s.emp_no ?? "—"),
+        full_name: String(s.full_name ?? "Unknown"),
+        department_name: dept?.name ?? null,
+      });
+    }
+  }
+
+  const available = availableDeductionSourceIds();
+  const rows: PayrollDeductionImportRow[] = filtered
+    .map((row) => {
+      const staff = staffById.get(String(row.staff_id));
+      const source = String(row.source ?? "");
+      const original = Math.round(
+        Number(row.original_amount ?? row.amount ?? 0) * 100,
+      ) / 100;
+      const remaining = Math.round(
+        Number(
+          row.remaining_amount ??
+            (row.status === "pending" ? row.amount : 0),
+        ) * 100,
+      ) / 100;
+      const appliedThis = appliedOnRun.get(String(row.id)) ?? 0;
+      const maxApply = Math.round((remaining + appliedThis) * 100) / 100;
+      const { status, statusLabel } = deductionImportStatus({
+        remaining,
+        original,
+        appliedOnThisRun: appliedThis,
+      });
+      return {
+        deductionId: String(row.id),
+        staffId: String(row.staff_id),
+        empNo: staff?.emp_no ?? "—",
+        fullName: staff?.full_name ?? "Unknown",
+        departmentName: staff?.department_name ?? null,
+        source,
+        sourceLabel: payrollDeductionSourceLabel(source),
+        code: String(row.code ?? ""),
+        label: String(row.label ?? ""),
+        originalAmount: original,
+        remainingAmount: remaining,
+        appliedOnThisRun: appliedThis,
+        maxApplyAmount: maxApply,
+        reason: String(row.reason ?? ""),
+        createdAt: String(row.created_at ?? ""),
+        status,
+        statusLabel,
+        alreadyApplied: appliedThis > 0,
+        sourceAvailable: available.has(source),
+      };
+    })
+    .sort((a, b) => a.empNo.localeCompare(b.empNo));
+
+  return { ok: true, rows };
+}
+
+/**
+ * Apply selected pending deductions (optionally partial amounts) to this run.
+ * Deselected rows that were on this run are returned to outstanding balance.
+ */
+export async function importDeductionsToPayrollRun(input: {
+  runId: string;
+  source: PayrollDeductionImportType;
+  /** Selected deductions with the amount to apply on this run. */
+  items: { deductionId: string; amount: number }[];
+}): Promise<PayrollActionResult> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions, supabase } = auth;
+
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+
+  const { data: run } = await supabase
+    .from("hr_payroll_runs")
+    .select("id, status")
+    .eq("id", input.runId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (!run) return { ok: false, error: "Payroll run not found." };
+  if (isPayrollLocked(run.status)) {
+    return { ok: false, error: "Payroll is locked." };
+  }
+
+  const preview = await listDeductionsForPayrollImport({
+    runId: input.runId,
+    source: input.source,
+  });
+  if (!preview.ok) return preview;
+
+  const selected = new Map(
+    input.items
+      .filter((i) => i.amount > 0)
+      .map((i) => [i.deductionId, Math.round(i.amount * 100) / 100]),
+  );
+  const selectedRows = preview.rows.filter((r) => selected.has(r.deductionId));
+  const unselectedPreviouslyApplied = preview.rows.filter(
+    (r) => !selected.has(r.deductionId) && r.alreadyApplied,
+  );
+
+  if (selectedRows.length === 0 && unselectedPreviouslyApplied.length === 0) {
+    return {
+      ok: false,
+      error: "Select at least one deduction with an amount, or clear imported ones.",
+    };
+  }
+
+  const service = createServiceClient();
+
+  if (unselectedPreviouslyApplied.length > 0) {
+    await unapplyPendingPayrollDeductions({
+      service,
+      venueId: venue.id,
+      runId: input.runId,
+      ids: unselectedPreviouslyApplied.map((r) => r.deductionId),
+    });
+  }
+
+  const applyItems = selectedRows.map((r) => ({
+    deductionId: r.deductionId,
+    amount: selected.get(r.deductionId) ?? 0,
+  }));
+
+  const { applied } = await applyPendingDeductionAmounts({
+    service,
+    venueId: venue.id,
+    runId: input.runId,
+    actorId: user.id,
+    items: applyItems,
+  });
+
+  await writeAuditLog({
+    actor_id: user.id,
+    venue_id: venue.id,
+    action: "payroll.deductions_imported",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_payroll_runs",
+    entity_id: input.runId,
+    after: {
+      source: input.source,
+      imported: applied,
+      reverted: unselectedPreviouslyApplied.length,
+      selected: selectedRows.length,
+      items: applyItems,
+    },
+  });
+
+  await service.from("hr_payroll_run_events").insert({
+    venue_id: venue.id,
+    run_id: input.runId,
+    actor_id: user.id,
+    from_status: run.status,
+    to_status: run.status,
+    comment: `Deductions imported (${
+      input.source === "all"
+        ? "all sources"
+        : payrollDeductionSourceLabel(input.source)
+    })`,
+  });
+
+  const recalc = await recalculatePayrollRun(input.runId);
+  if (!recalc.ok) return recalc;
+
+  revalidatePath("/hr/payroll");
+  revalidatePath(`/hr/payroll/${input.runId}`);
+  revalidatePath("/hr/assets/uniform/employees");
+  return { ok: true };
+}
+
+export async function clearImportedDeductionsFromPayrollRun(input: {
+  runId: string;
+  source: PayrollDeductionImportType;
+}): Promise<PayrollActionResult> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions, supabase } = auth;
+
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+
+  const { data: run } = await supabase
+    .from("hr_payroll_runs")
+    .select("id, status")
+    .eq("id", input.runId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (!run) return { ok: false, error: "Payroll run not found." };
+  if (isPayrollLocked(run.status)) {
+    return { ok: false, error: "Payroll is locked." };
+  }
+
+  const preview = await listDeductionsForPayrollImport({
+    runId: input.runId,
+    source: input.source,
+  });
+  if (!preview.ok) return preview;
+
+  const applied = preview.rows.filter((r) => r.alreadyApplied);
+  if (applied.length === 0) {
+    return { ok: false, error: "No imported deductions to remove." };
+  }
+
+  const service = createServiceClient();
+  await unapplyPendingPayrollDeductions({
+    service,
+    venueId: venue.id,
+    runId: input.runId,
+    ids: applied.map((r) => r.deductionId),
+  });
+
+  await writeAuditLog({
+    actor_id: user.id,
+    venue_id: venue.id,
+    action: "payroll.deductions_cleared",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_payroll_runs",
+    entity_id: input.runId,
+    after: {
+      source: input.source,
+      cleared: applied.length,
+    },
+  });
+
+  await service.from("hr_payroll_run_events").insert({
+    venue_id: venue.id,
+    run_id: input.runId,
+    actor_id: user.id,
+    from_status: run.status,
+    to_status: run.status,
+    comment: `Imported deductions cleared (${
+      input.source === "all"
+        ? "all sources"
+        : payrollDeductionSourceLabel(input.source)
+    })`,
+  });
+
+  const recalc = await recalculatePayrollRun(input.runId);
+  if (!recalc.ok) return recalc;
+
+  revalidatePath("/hr/payroll");
+  revalidatePath(`/hr/payroll/${input.runId}`);
+  revalidatePath("/hr/assets/uniform/employees");
   return { ok: true };
 }
 

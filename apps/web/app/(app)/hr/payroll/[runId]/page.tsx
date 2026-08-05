@@ -394,7 +394,12 @@ export default async function HrPayrollRunPage({
         <div className="text-sm text-black/50">Loading payroll run…</div>
       }
     >
-      <PayrollShell venueSubtitle={venueSubtitle} runId={runId}>
+      <PayrollShell
+        venueSubtitle={venueSubtitle}
+        runId={runId}
+        runStatus={String(run.status)}
+        canEdit={canEdit}
+      >
         <PayrollRunClient
           tab={tab}
           run={run as PayrollRunRow}

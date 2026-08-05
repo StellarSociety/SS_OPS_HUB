@@ -141,9 +141,23 @@ export const moduleCatalog: ModuleDef[] = [
     features: [
       { key: "overview", label: "Overview", href: "/hr" },
       { key: "staff", label: "Staff directory", href: "/hr/staff/entry" },
-      { key: "insurance", label: "Insurance", href: "/hr/insurance" },
-      { key: "certifications", label: "Certifications", href: "/hr/certifications" },
-      { key: "assets", label: "Assets", href: "/hr/assets" },
+      {
+        key: "staff_compliance",
+        label: "Staff Compliance",
+        href: "/hr/assets",
+      },
+      {
+        key: "insurance",
+        label: "Insurance",
+        href: "/hr/assets/insurance",
+      },
+      {
+        key: "certifications",
+        label: "Certifications",
+        href: "/hr/assets/certifications",
+      },
+      { key: "visa", label: "Visa", href: "/hr/assets/visa" },
+      { key: "assets", label: "Assets", href: "/hr/assets/catalog" },
       { key: "schedules", label: "Schedules", href: "/hr/schedules" },
       {
         key: "attendance_validation",

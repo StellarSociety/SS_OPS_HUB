@@ -310,11 +310,8 @@ export function UniformReplacementDialog({
                 <p className="mt-1 text-emerald-900/80">
                   Fresh pieces issued
                   {result.chargedToEmployee
-                    ? ` · ${formatAed(result.deductionAmount)} queued for next payroll`
+                    ? ` · ${formatAed(result.deductionAmount)} queued for payroll (Import Deductions)`
                     : " · company-paid"}
-                  {result.attachedToPayrollRunId
-                    ? " and attached to the open payroll run"
-                    : ""}
                   .
                 </p>
               </div>

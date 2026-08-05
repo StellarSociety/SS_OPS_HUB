@@ -411,7 +411,13 @@ export async function listUniformReplacements(
       email_sent_at,
       created_at,
       piece:hr_uniform_pieces(name),
-      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(status)
+      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(
+        status,
+        applied_run_id,
+        amount,
+        original_amount,
+        remaining_amount
+      )
     `,
     )
     .eq("venue_id", venueId)
@@ -424,7 +430,291 @@ export async function listUniformReplacements(
   const { data, error } = await query;
   if (error) {
     if (/does not exist|schema cache/i.test(error.message)) return [];
+    // Pre-migration fallback without original/remaining columns.
+    if (/original_amount|remaining_amount/i.test(error.message)) {
+      return listUniformReplacementsLegacy(supabase, venueId, opts);
+    }
     console.error("[hr] listUniformReplacements:", error.message);
+    return [];
+  }
+
+  type PendingJoin = {
+    status: string;
+    applied_run_id: string | null;
+    amount?: number | string | null;
+    original_amount?: number | string | null;
+    remaining_amount?: number | string | null;
+  };
+
+  const rows = (data ?? []).map((raw) => {
+    const row = raw as {
+      id: string;
+      venue_id: string;
+      staff_id: string;
+      piece_id: string;
+      staff_item_id: string | null;
+      quantity: number;
+      unit_value: number | string;
+      charged_to_employee: boolean;
+      deduction_amount: number | string;
+      notes: string;
+      pending_deduction_id: string | null;
+      email_sent_at: string | null;
+      created_at: string;
+      piece: { name: string } | { name: string }[] | null;
+      pending_deduction: PendingJoin | PendingJoin[] | null;
+    };
+    const piece = Array.isArray(row.piece) ? row.piece[0] : row.piece;
+    const pending = Array.isArray(row.pending_deduction)
+      ? row.pending_deduction[0]
+      : row.pending_deduction;
+    const status = pending?.status;
+    const applied: UniformReplacementRow["pending_deduction_status"] =
+      status === "applied" ||
+      status === "pending" ||
+      status === "cancelled" ||
+      status === "cleared"
+        ? status
+        : null;
+    const lineAmount = Number(row.deduction_amount ?? 0);
+    const original = Number(
+      pending?.original_amount ?? pending?.amount ?? lineAmount,
+    );
+    const remaining = Number(
+      pending?.remaining_amount ??
+        (applied === "pending" ? original : applied === "cleared" || applied === "applied" ? 0 : lineAmount),
+    );
+    const deducted = Math.max(0, Math.round((original - remaining) * 100) / 100);
+    return {
+      id: row.id,
+      venue_id: row.venue_id,
+      staff_id: row.staff_id,
+      piece_id: row.piece_id,
+      staff_item_id: row.staff_item_id,
+      quantity: Number(row.quantity ?? 0),
+      unit_value: Number(row.unit_value ?? 0),
+      charged_to_employee: Boolean(row.charged_to_employee),
+      deduction_amount: lineAmount,
+      notes: String(row.notes ?? ""),
+      pending_deduction_id: row.pending_deduction_id,
+      email_sent_at: row.email_sent_at,
+      created_at: row.created_at,
+      piece_name: piece?.name ?? null,
+      pending_deduction_status: applied,
+      applied_run_id: (pending?.applied_run_id as string | null) ?? null,
+      applied_run_status: null as string | null,
+      payroll_month: null as string | null,
+      payroll_editable: applied !== "applied" && applied !== "cleared",
+      original_amount: row.charged_to_employee ? original : 0,
+      remaining_amount: row.charged_to_employee ? remaining : 0,
+      deducted_amount: row.charged_to_employee ? deducted : 0,
+      deduction_applications: [] as UniformReplacementRow["deduction_applications"],
+    } satisfies UniformReplacementRow;
+  });
+
+  const pendingIds = [
+    ...new Set(
+      rows
+        .map((row) => row.pending_deduction_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  const applicationsByPending = new Map<
+    string,
+    NonNullable<UniformReplacementRow["deduction_applications"]>
+  >();
+
+  if (pendingIds.length > 0) {
+    const { data: apps, error: appsError } = await supabase
+      .from("hr_payroll_deduction_applications")
+      .select("pending_deduction_id, run_id, amount")
+      .eq("venue_id", venueId)
+      .in("pending_deduction_id", pendingIds)
+      .order("created_at", { ascending: true });
+
+    if (!appsError && (apps?.length ?? 0) > 0) {
+      const appRunIds = [
+        ...new Set((apps ?? []).map((a) => String(a.run_id))),
+      ];
+      const { data: appRuns } = await supabase
+        .from("hr_payroll_runs")
+        .select("id, status, payroll_month")
+        .in("id", appRunIds);
+      const runById = new Map(
+        (appRuns ?? []).map((run) => [
+          String(run.id),
+          {
+            status: String(run.status ?? ""),
+            payroll_month: run.payroll_month
+              ? String(run.payroll_month).slice(0, 10)
+              : null,
+          },
+        ]),
+      );
+      for (const app of apps ?? []) {
+        const pendingId = String(app.pending_deduction_id);
+        const runId = String(app.run_id);
+        const run = runById.get(runId);
+        const list = applicationsByPending.get(pendingId) ?? [];
+        list.push({
+          runId,
+          payrollMonth: run?.payroll_month ?? null,
+          amount: Math.round(Number(app.amount ?? 0) * 100) / 100,
+          runStatus: run?.status ?? null,
+        });
+        applicationsByPending.set(pendingId, list);
+      }
+    }
+  }
+
+  // Legacy single-run applied_run_id when applications table is empty/missing.
+  const legacyRunIds = [
+    ...new Set(
+      rows
+        .filter(
+          (row) =>
+            row.pending_deduction_id &&
+            row.applied_run_id &&
+            !(applicationsByPending.get(row.pending_deduction_id)?.length),
+        )
+        .map((row) => row.applied_run_id as string),
+    ),
+  ];
+
+  const legacyRunById = new Map<
+    string,
+    { status: string; payroll_month: string | null }
+  >();
+  if (legacyRunIds.length > 0) {
+    const { data: runs } = await supabase
+      .from("hr_payroll_runs")
+      .select("id, status, payroll_month")
+      .in("id", legacyRunIds);
+    for (const run of runs ?? []) {
+      legacyRunById.set(String(run.id), {
+        status: String(run.status ?? ""),
+        payroll_month: run.payroll_month
+          ? String(run.payroll_month).slice(0, 10)
+          : null,
+      });
+    }
+  }
+
+  return rows.map((row) => {
+    const apps =
+      (row.pending_deduction_id
+        ? applicationsByPending.get(row.pending_deduction_id)
+        : null) ?? [];
+
+    let deductionApplications = apps;
+    if (
+      deductionApplications.length === 0 &&
+      row.applied_run_id &&
+      (row.pending_deduction_status === "applied" ||
+        row.pending_deduction_status === "cleared")
+    ) {
+      const run = legacyRunById.get(row.applied_run_id);
+      deductionApplications = [
+        {
+          runId: row.applied_run_id,
+          payrollMonth: run?.payroll_month ?? null,
+          amount: Number(row.deducted_amount ?? row.original_amount ?? 0),
+          runStatus: run?.status ?? null,
+        },
+      ];
+    }
+
+    const primaryRunId =
+      deductionApplications[deductionApplications.length - 1]?.runId ??
+      row.applied_run_id;
+    const primaryRun =
+      (primaryRunId
+        ? applicationsByPending
+            .get(row.pending_deduction_id ?? "")
+            ?.find((a) => a.runId === primaryRunId)
+        : null) ??
+      (primaryRunId ? legacyRunById.get(primaryRunId) : null);
+
+    const runStatus =
+      deductionApplications[deductionApplications.length - 1]?.runStatus ??
+      (primaryRun && "status" in primaryRun ? primaryRun.status : null) ??
+      null;
+    const payrollMonth =
+      deductionApplications[deductionApplications.length - 1]?.payrollMonth ??
+      (primaryRun && "payroll_month" in primaryRun
+        ? primaryRun.payroll_month
+        : null) ??
+      null;
+
+    const anyLockedApp = deductionApplications.some(
+      (a) =>
+        a.runStatus === "paid" ||
+        a.runStatus === "locked" ||
+        a.runStatus === "payment_processing",
+    );
+    const payrollEditable =
+      row.pending_deduction_status !== "applied" &&
+      row.pending_deduction_status !== "cleared"
+        ? true
+        : !anyLockedApp &&
+          (!runStatus ||
+            (runStatus !== "paid" &&
+              runStatus !== "locked" &&
+              runStatus !== "payment_processing"));
+
+    return {
+      ...row,
+      applied_run_id: primaryRunId ?? row.applied_run_id,
+      applied_run_status: runStatus,
+      payroll_month: payrollMonth,
+      payroll_editable: payrollEditable,
+      deduction_applications: deductionApplications,
+    } satisfies UniformReplacementRow;
+  });
+}
+
+async function listUniformReplacementsLegacy(
+  supabase: SupabaseClient,
+  venueId: string,
+  opts?: { staffId?: string },
+): Promise<UniformReplacementRow[]> {
+  let query = supabase
+    .from("hr_uniform_replacements")
+    .select(
+      `
+      id,
+      venue_id,
+      staff_id,
+      piece_id,
+      staff_item_id,
+      quantity,
+      unit_value,
+      charged_to_employee,
+      deduction_amount,
+      notes,
+      pending_deduction_id,
+      email_sent_at,
+      created_at,
+      piece:hr_uniform_pieces(name),
+      pending_deduction:hr_pending_payroll_deductions!pending_deduction_id(
+        status,
+        applied_run_id,
+        amount
+      )
+    `,
+    )
+    .eq("venue_id", venueId)
+    .order("created_at", { ascending: false });
+
+  if (opts?.staffId) {
+    query = query.eq("staff_id", opts.staffId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    if (/does not exist|schema cache/i.test(error.message)) return [];
+    console.error("[hr] listUniformReplacements legacy:", error.message);
     return [];
   }
 
@@ -445,8 +735,8 @@ export async function listUniformReplacements(
       created_at: string;
       piece: { name: string } | { name: string }[] | null;
       pending_deduction:
-        | { status: string }
-        | { status: string }[]
+        | { status: string; applied_run_id: string | null; amount?: number | string }
+        | { status: string; applied_run_id: string | null; amount?: number | string }[]
         | null;
     };
     const piece = Array.isArray(row.piece) ? row.piece[0] : row.piece;
@@ -454,6 +744,16 @@ export async function listUniformReplacements(
       ? row.pending_deduction[0]
       : row.pending_deduction;
     const status = pending?.status;
+    const applied: UniformReplacementRow["pending_deduction_status"] =
+      status === "applied" ||
+      status === "pending" ||
+      status === "cancelled" ||
+      status === "cleared"
+        ? status
+        : null;
+    const amount = Number(row.deduction_amount ?? pending?.amount ?? 0);
+    const remaining =
+      applied === "pending" ? amount : applied === "cleared" || applied === "applied" ? 0 : amount;
     return {
       id: row.id,
       venue_id: row.venue_id,
@@ -463,16 +763,19 @@ export async function listUniformReplacements(
       quantity: Number(row.quantity ?? 0),
       unit_value: Number(row.unit_value ?? 0),
       charged_to_employee: Boolean(row.charged_to_employee),
-      deduction_amount: Number(row.deduction_amount ?? 0),
+      deduction_amount: amount,
       notes: String(row.notes ?? ""),
       pending_deduction_id: row.pending_deduction_id,
       email_sent_at: row.email_sent_at,
       created_at: row.created_at,
       piece_name: piece?.name ?? null,
-      pending_deduction_status:
-        status === "pending" || status === "applied" || status === "cancelled"
-          ? status
-          : null,
+      pending_deduction_status: applied,
+      applied_run_id: (pending?.applied_run_id as string | null) ?? null,
+      payroll_editable: applied !== "applied" && applied !== "cleared",
+      original_amount: row.charged_to_employee ? amount : 0,
+      remaining_amount: row.charged_to_employee ? remaining : 0,
+      deducted_amount: row.charged_to_employee ? amount - remaining : 0,
+      deduction_applications: [],
     } satisfies UniformReplacementRow;
   });
 }
@@ -605,9 +908,11 @@ export async function loadUniformEmployeesPage(
   const pendingByStaff = new Map<string, number>();
   for (const row of pending) {
     if (row.source !== "uniform_replacement") continue;
+    const outstanding = Number(row.remaining_amount ?? row.amount ?? 0);
+    if (!(outstanding > 0)) continue;
     pendingByStaff.set(
       row.staff_id,
-      (pendingByStaff.get(row.staff_id) ?? 0) + row.amount,
+      (pendingByStaff.get(row.staff_id) ?? 0) + outstanding,
     );
   }
 

@@ -4,6 +4,7 @@ import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { motion } from "framer-motion";
 import { Lock } from "lucide-react";
 import { ModuleIcon } from "@/components/modules/module-icon";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import type { ModuleIconKey } from "@/lib/module-icons";
 import {
   ACCESS_DENIED_MESSAGE,
@@ -44,8 +45,14 @@ export function ModuleTile({
 
   const inner = (
     <motion.div
-      whileHover={{ scale: 1.07, y: -4 }}
-      whileTap={isLive || isSelectable ? { scale: 0.94 } : { scale: 0.98 }}
+      initial="rest"
+      whileHover="hover"
+      whileTap={isLive || isSelectable ? "tap" : undefined}
+      variants={{
+        rest: { scale: 1, y: 0 },
+        hover: { scale: 1.07, y: -4 },
+        tap: { scale: 0.94 },
+      }}
       transition={{ type: "spring", stiffness: 460, damping: 22 }}
       className={cn(
         "group flex flex-col items-center gap-1.5 px-0.5 py-1 text-center",
@@ -54,23 +61,23 @@ export function ModuleTile({
           : "cursor-default",
       )}
     >
-      <motion.div
+      <div
         className={cn(
           "relative flex items-center justify-center rounded-2xl transition-[box-shadow,background-color,padding]",
           selected &&
             "bg-[var(--venue-primary)]/15 p-1.5 ring-2 ring-[var(--venue-primary)]/35",
         )}
-        whileHover={{ scale: 1.05 }}
-        transition={{ type: "spring", stiffness: 500, damping: 18 }}
       >
-        <ModuleIcon
-          iconKey={iconKey}
-          className={cn(
-            isComingSoon && "opacity-60",
-            isLocked && "opacity-40 grayscale",
-            isAccessBlocked && "opacity-45 grayscale",
-          )}
-        />
+        <AnimatedSymbol selfHover={false}>
+          <ModuleIcon
+            iconKey={iconKey}
+            className={cn(
+              isComingSoon && "opacity-60",
+              isLocked && "opacity-40 grayscale",
+              isAccessBlocked && "opacity-45 grayscale",
+            )}
+          />
+        </AnimatedSymbol>
         {isAccessBlocked ? (
           <span
             aria-hidden
@@ -87,7 +94,7 @@ export function ModuleTile({
             Coming Soon
           </span>
         ) : null}
-      </motion.div>
+      </div>
       <p
         className={cn(
           "line-clamp-2 w-full max-w-[5.75rem] text-[11px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]",

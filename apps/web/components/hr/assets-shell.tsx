@@ -15,9 +15,26 @@ function hasSelectedSection(pathname: string): boolean {
   ) {
     return true;
   }
-  return (
+  if (
     pathname === "/hr/assets/uniform" ||
     pathname.startsWith("/hr/assets/uniform/")
+  ) {
+    return true;
+  }
+  if (
+    pathname === "/hr/assets/insurance" ||
+    pathname.startsWith("/hr/assets/insurance/")
+  ) {
+    return true;
+  }
+  if (
+    pathname === "/hr/assets/certifications" ||
+    pathname.startsWith("/hr/assets/certifications/")
+  ) {
+    return true;
+  }
+  return (
+    pathname === "/hr/assets/visa" || pathname.startsWith("/hr/assets/visa/")
   );
 }
 
@@ -28,18 +45,19 @@ export function AssetsShell({ children }: AssetsShellProps) {
   return (
     <div className="space-y-6">
       <div>
-        <ModulePageTitle>Assets</ModulePageTitle>
+        <ModulePageTitle>Staff Compliance</ModulePageTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          Company property catalog
+          Uniforms, assets, certifications, insurance & visa
         </p>
         <hr className="mt-4 border-black/10" />
       </div>
       <AssetsSubNav />
+      <hr className="border-black/10" />
       {showContent ? (
         <div className="space-y-4">{children}</div>
       ) : (
         <p className="py-10 text-center text-sm text-black/45">
-          Select Assets or Uniform to continue.
+          Select a section to continue.
         </p>
       )}
     </div>

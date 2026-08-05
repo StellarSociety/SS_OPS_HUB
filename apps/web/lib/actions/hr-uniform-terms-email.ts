@@ -52,6 +52,113 @@ export type UniformTermsEmailPreview = {
   body: string;
 };
 
+export type UniformTermsEmailSendRecord = {
+  id: string;
+  sentAt: string;
+  to: string | null;
+  itemCount: number | null;
+  totalValue: number | null;
+  sentBy: string | null;
+};
+
+export async function listUniformTermsEmailSends(input: {
+  staffId: string;
+}): Promise<
+  | { ok: true; sends: UniformTermsEmailSendRecord[] }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const denied = requireSendPermission(auth.permissions, auth.venue.id);
+  if (denied) return { ok: false, error: denied };
+
+  const staffId = String(input.staffId ?? "").trim();
+  if (!staffId) return { ok: false, error: "Staff member not found." };
+
+  try {
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("audit_log")
+      .select("id, actor_id, after, created_at")
+      .eq("venue_id", auth.venue.id)
+      .eq("entity", "staff")
+      .eq("entity_id", staffId)
+      .eq("action", "uniform_terms_email.sent")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) return { ok: false, error: error.message };
+
+    const rows = data ?? [];
+    const actorIds = [
+      ...new Set(
+        rows
+          .map((row) =>
+            row.actor_id ? String(row.actor_id).trim() : "",
+          )
+          .filter(Boolean),
+      ),
+    ];
+
+    const actorNames = new Map<string, string>();
+    if (actorIds.length > 0) {
+      const { data: profiles } = await service
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", actorIds);
+      for (const profile of profiles ?? []) {
+        const name =
+          String(profile.full_name ?? "").trim() ||
+          String(profile.email ?? "").trim();
+        if (name) actorNames.set(String(profile.id), name);
+      }
+    }
+
+    const sends: UniformTermsEmailSendRecord[] = rows.map((row) => {
+      const after =
+        row.after && typeof row.after === "object" && !Array.isArray(row.after)
+          ? (row.after as Record<string, unknown>)
+          : {};
+      const itemCountRaw = after.itemCount;
+      const totalValueRaw = after.totalValue;
+      const itemCount =
+        typeof itemCountRaw === "number"
+          ? itemCountRaw
+          : itemCountRaw != null && String(itemCountRaw).trim() !== ""
+            ? Number(itemCountRaw)
+            : null;
+      const totalValue =
+        typeof totalValueRaw === "number"
+          ? totalValueRaw
+          : totalValueRaw != null && String(totalValueRaw).trim() !== ""
+            ? Number(totalValueRaw)
+            : null;
+      const actorId = row.actor_id ? String(row.actor_id) : "";
+      return {
+        id: String(row.id),
+        sentAt: String(row.created_at),
+        to: String(after.to ?? "").trim() || null,
+        itemCount:
+          itemCount != null && Number.isFinite(itemCount) ? itemCount : null,
+        totalValue:
+          totalValue != null && Number.isFinite(totalValue) ? totalValue : null,
+        sentBy: actorId ? (actorNames.get(actorId) ?? null) : null,
+      };
+    });
+
+    return { ok: true, sends };
+  } catch (e) {
+    return {
+      ok: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Failed to load previous uniform T&Cs sends.",
+    };
+  }
+}
+
 export async function getUniformTermsEmailSettings(): Promise<HrUniformTermsEmailSettings> {
   const auth = await getActionAuthContext();
   if ("error" in auth) return DEFAULT_HR_UNIFORM_TERMS_EMAIL_SETTINGS;

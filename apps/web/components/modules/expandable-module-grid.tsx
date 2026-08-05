@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import { LayoutGrid } from "lucide-react";
@@ -38,10 +45,30 @@ type SubpageDisplayRow =
   | { type: "multi"; groups: SubpageGroup[] }
   | { type: "paired"; left: SubpageGroup; right: SubpageGroup };
 
+function isOverviewItem(item: ModuleSidebarItem): boolean {
+  return item.exact === true && item.label === "Overview";
+}
+
 function buildDisplayRows(groups: SubpageGroup[]): SubpageDisplayRow[] {
+  const hubGroup = groups.find((group) => group.key === "hub");
+  const overviewItems =
+    hubGroup?.items.filter((item) => isOverviewItem(item)) ?? [];
+  const hubWithoutOverview = hubGroup
+    ? {
+        ...hubGroup,
+        items: hubGroup.items.filter((item) => !isOverviewItem(item)),
+      }
+    : null;
+
   const rows: SubpageDisplayRow[] = [];
   for (let i = 0; i < groups.length; i++) {
     const group = groups[i];
+    if (group.key === "hub") {
+      if (hubWithoutOverview && hubWithoutOverview.items.length > 0) {
+        rows.push({ type: "single", group: hubWithoutOverview });
+      }
+      continue;
+    }
     const attendance = groups[i + 1];
     const pay = groups[i + 2];
     if (
@@ -49,13 +76,34 @@ function buildDisplayRows(groups: SubpageGroup[]): SubpageDisplayRow[] {
       attendance?.key === "attendance" &&
       pay?.key === "pay"
     ) {
-      rows.push({ type: "multi", groups: [group, attendance, pay] });
+      const staffDetails =
+        overviewItems.length > 0
+          ? {
+              ...group,
+              items: [
+                ...overviewItems.map((item) => ({
+                  ...item,
+                  dividerAfter: true,
+                })),
+                ...group.items,
+              ],
+            }
+          : group;
+      rows.push({ type: "multi", groups: [staffDetails, attendance, pay] });
       i += 2;
       continue;
     }
-    const hub = groups[i + 1];
-    if (group.key === "boarding" && hub?.key === "hub") {
-      rows.push({ type: "paired", left: group, right: hub });
+    const next = groups[i + 1];
+    if (group.key === "boarding" && next?.key === "hub") {
+      const right =
+        hubWithoutOverview && hubWithoutOverview.items.length > 0
+          ? hubWithoutOverview
+          : null;
+      if (right) {
+        rows.push({ type: "paired", left: group, right });
+      } else {
+        rows.push({ type: "single", group });
+      }
       i += 1;
       continue;
     }
@@ -70,6 +118,73 @@ function SubpageTileDivider() {
       aria-hidden
       className="mx-0.5 w-px shrink-0 self-stretch bg-black/25"
     />
+  );
+}
+
+/**
+ * Scales children down uniformly when they would overflow the container width.
+ * Avoids scrollbars — the panel shrinks to fit the available space.
+ */
+function FitToWidth({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(1);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+
+  useLayoutEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+
+    const measure = () => {
+      const available = outer.clientWidth;
+      if (available <= 0) return;
+
+      // Measure natural (unscaled) size.
+      const prev = inner.style.transform;
+      inner.style.transform = "translateX(-50%) scale(1)";
+      const needed = inner.offsetWidth;
+      const naturalHeight = inner.offsetHeight;
+      inner.style.transform = prev;
+
+      if (needed <= 0) return;
+
+      const next = Math.min(1, available / needed);
+      const nextHeight = Math.ceil(naturalHeight * next);
+      setScale((prev) => (Math.abs(prev - next) < 0.002 ? prev : next));
+      setHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(outer);
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, [children]);
+
+  return (
+    <div
+      ref={outerRef}
+      className={cn("relative w-full overflow-hidden", className)}
+      style={height != null ? { height } : undefined}
+    >
+      <div
+        ref={innerRef}
+        className="absolute left-1/2 top-0 w-max"
+        style={{
+          transform: `translateX(-50%) scale(${scale})`,
+          transformOrigin: "top center",
+        }}
+      >
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -89,7 +204,7 @@ function PairedSubpageGroupsRow({
           {left.label}
         </p>
       ) : null}
-      <div className="flex flex-nowrap items-stretch justify-center gap-x-3 overflow-x-auto">
+      <div className="flex flex-nowrap items-stretch justify-center gap-x-3">
         {left.items.map((item) => {
           const Icon = item.icon ?? left.icon;
           return (
@@ -132,7 +247,7 @@ function MultiGroupRow({
   forceComingSoon?: boolean;
 }) {
   return (
-    <div className="flex flex-nowrap items-stretch justify-center gap-x-3 overflow-x-auto">
+    <div className="flex flex-nowrap items-stretch justify-center gap-x-3">
       {groups.map((group) => (
         <GroupBlock
           key={group.key}
@@ -257,7 +372,7 @@ function SubpageRow({
   items: ModuleSidebarItem[];
   fallbackIcon: LucideIcon;
   forceComingSoon?: boolean;
-  /** Keep tiles on one scrollable line (does not change tile size). */
+  /** Keep tiles on one line (parent FitToWidth scales if needed). */
   nowrap?: boolean;
 }) {
   const hasDividers = items.some((item) => item.dividerAfter);
@@ -267,7 +382,7 @@ function SubpageRow({
       className={cn(
         "flex justify-center gap-x-3",
         hasDividers && "items-stretch",
-        nowrap ? "flex-nowrap overflow-x-auto" : "flex-wrap gap-y-2",
+        nowrap ? "flex-nowrap" : "flex-wrap gap-y-2",
       )}
     >
       {items.map((item) => {
@@ -283,9 +398,7 @@ function SubpageRow({
                 comingSoon={item.comingSoon || forceComingSoon}
               />
             </div>
-            {item.dividerAfter ? (
-              <SubpageTileDivider />
-            ) : null}
+            {item.dividerAfter ? <SubpageTileDivider /> : null}
           </Fragment>
         );
       })}
@@ -379,40 +492,44 @@ export function ExpandableModuleGrid({
       {selected && expanded && expanded.items.length > 0 ? (
         <div
           ref={panelRef}
-          className="space-y-2.5 rounded-2xl border border-[var(--venue-primary)]/20 bg-[var(--venue-primary)]/10 px-3 py-3 shadow-inner"
+          className="overflow-hidden rounded-2xl border border-[var(--venue-primary)]/20 bg-[var(--venue-primary)]/10 px-3 py-3 shadow-inner"
         >
-          {useGroups ? (
-            <div className="space-y-2.5">
-              {buildDisplayRows(expanded.groups!).map((row) =>
-                row.type === "multi" ? (
-                  <MultiGroupRow
-                    key={row.groups.map((g) => g.key).join("-")}
-                    groups={row.groups}
-                    forceComingSoon={selected.status === "coming_soon"}
-                  />
-                ) : row.type === "paired" ? (
-                  <PairedSubpageGroupsRow
-                    key={`${row.left.key}-${row.right.key}`}
-                    left={row.left}
-                    right={row.right}
-                    forceComingSoon={selected.status === "coming_soon"}
-                  />
-                ) : (
-                  <GroupBlock
-                    key={row.group.key}
-                    group={row.group}
-                    forceComingSoon={selected.status === "coming_soon"}
-                  />
-                ),
-              )}
-            </div>
-          ) : (
-            <SubpageRow
-              items={expanded.items}
-              fallbackIcon={expanded.icon}
-              forceComingSoon={selected.status === "coming_soon"}
-            />
-          )}
+          <FitToWidth>
+            {useGroups ? (
+              <div className="w-max max-w-none space-y-2.5">
+                {buildDisplayRows(expanded.groups!).map((row) =>
+                  row.type === "multi" ? (
+                    <MultiGroupRow
+                      key={row.groups.map((g) => g.key).join("-")}
+                      groups={row.groups}
+                      forceComingSoon={selected.status === "coming_soon"}
+                    />
+                  ) : row.type === "paired" ? (
+                    <PairedSubpageGroupsRow
+                      key={`${row.left.key}-${row.right.key}`}
+                      left={row.left}
+                      right={row.right}
+                      forceComingSoon={selected.status === "coming_soon"}
+                    />
+                  ) : (
+                    <GroupBlock
+                      key={row.group.key}
+                      group={row.group}
+                      forceComingSoon={selected.status === "coming_soon"}
+                      nowrap
+                    />
+                  ),
+                )}
+              </div>
+            ) : (
+              <SubpageRow
+                items={expanded.items}
+                fallbackIcon={expanded.icon}
+                forceComingSoon={selected.status === "coming_soon"}
+                nowrap
+              />
+            )}
+          </FitToWidth>
         </div>
       ) : null}
     </div>

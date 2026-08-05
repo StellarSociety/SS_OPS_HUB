@@ -7,6 +7,7 @@ import {
 } from "@/lib/sub-nav-ui";
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 
 type SubNavTabProps = {
   href: string;
@@ -32,7 +33,9 @@ export function SubNavTab({
           : pillSubNavLinkClass(active)
       }
     >
-      <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+      <AnimatedSymbol>
+        <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+      </AnimatedSymbol>
       <span
         className={
           variant === "segmented" ? "min-w-0 truncate text-center" : undefined

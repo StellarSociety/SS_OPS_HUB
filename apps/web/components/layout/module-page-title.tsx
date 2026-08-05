@@ -1,6 +1,7 @@
 "use client";
 
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { getModuleSidebarIconForPath } from "@/lib/module-sidebar";
 import { cn } from "@/lib/utils";
 
@@ -27,14 +28,16 @@ export function ModulePageTitle({
       )}
     >
       {Icon ? (
-        <Icon
-          className={cn(
-            "h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]",
-            iconClassName,
-          )}
-          strokeWidth={1.5}
-          aria-hidden
-        />
+        <AnimatedSymbol>
+          <Icon
+            className={cn(
+              "h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]",
+              iconClassName,
+            )}
+            strokeWidth={1.5}
+            aria-hidden
+          />
+        </AnimatedSymbol>
       ) : null}
       {children}
     </h1>

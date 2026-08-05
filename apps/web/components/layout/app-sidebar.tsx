@@ -24,6 +24,7 @@ import {
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 import { useNavTooltip } from "@/components/layout/use-nav-tooltip";
 import { VenueBrandIcon, hasVenueBrandAssets } from "@/components/brand/venue-brand-icon";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { moduleCategoryMeta } from "@/lib/module-categories";
 import {
   getModuleSidebarForPath,
@@ -125,12 +126,14 @@ function SidebarLink({
           collapsed ? "justify-center px-2" : "gap-2.5 px-3",
         )}
       >
-        <Icon
-          className={cn(
-            "shrink-0 opacity-60",
-            collapsed ? "h-5 w-5" : "h-4 w-4",
-          )}
-        />
+        <AnimatedSymbol>
+          <Icon
+            className={cn(
+              "shrink-0 opacity-60",
+              collapsed ? "h-5 w-5" : "h-4 w-4",
+            )}
+          />
+        </AnimatedSymbol>
         {!collapsed ? (
           <span className="min-w-0 flex-1 truncate">{label}</span>
         ) : null}
@@ -156,7 +159,9 @@ function SidebarLink({
           collapsed && "justify-center px-2",
         )}
       >
-        <Icon className={cn(moduleBrandedNavIconClass(active), collapsed && "h-5 w-5")} />
+        <AnimatedSymbol>
+          <Icon className={cn(moduleBrandedNavIconClass(active), collapsed && "h-5 w-5")} />
+        </AnimatedSymbol>
         {tooltip}
         {!collapsed ? (
           sublabel ? (
@@ -189,7 +194,9 @@ function SidebarLink({
           : "text-black/60 hover:bg-black/5 hover:text-[#3D421F]",
       )}
     >
-      <Icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-4 w-4")} />
+      <AnimatedSymbol>
+        <Icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-4 w-4")} />
+      </AnimatedSymbol>
       {tooltip}
       {!collapsed ? (
         sublabel ? (
@@ -234,7 +241,9 @@ function SidebarTopLink({
         className,
       )}
     >
-      <Icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-3.5 w-3.5")} />
+      <AnimatedSymbol>
+        <Icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-3.5 w-3.5")} />
+      </AnimatedSymbol>
       {!collapsed ? label : null}
       <NavigationPendingIndicator className={collapsed ? "absolute right-1 top-1" : "ml-auto"} />
       {tooltip}
@@ -522,11 +531,15 @@ export function AppSidebar({
                   aria-label={moduleSidebar.label}
                   className="mx-1 mb-1 mt-2 flex items-center justify-center rounded-lg border border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/12 p-2 shadow-sm"
                 >
-                  <ModuleIcon className="h-5 w-5 shrink-0 text-[#3D421F]" />
+                  <AnimatedSymbol>
+                    <ModuleIcon className="h-5 w-5 shrink-0 text-[#3D421F]" />
+                  </AnimatedSymbol>
                 </div>
               ) : (
                 <div className="mx-1 mb-1 mt-2 flex items-center gap-2.5 rounded-lg border border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/12 px-3 py-2.5 shadow-sm">
-                  <ModuleIcon className="h-4 w-4 shrink-0 text-[#3D421F]" />
+                  <AnimatedSymbol>
+                    <ModuleIcon className="h-4 w-4 shrink-0 text-[#3D421F]" />
+                  </AnimatedSymbol>
                   <p className="truncate font-serif text-sm font-semibold tracking-wide text-[#3D421F]">
                     {moduleSidebar.label}
                   </p>

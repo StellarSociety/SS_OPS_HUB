@@ -3,6 +3,7 @@
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { motion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { cn } from "@/lib/utils";
 
 type SubpageTileProps = {
@@ -31,8 +32,14 @@ export function SubpageTile({
 
   const inner = (
     <motion.div
-      whileHover={{ scale: 1.07, y: -4 }}
-      whileTap={comingSoon ? { scale: 0.98 } : { scale: 0.94 }}
+      initial="rest"
+      whileHover="hover"
+      whileTap={comingSoon ? undefined : "tap"}
+      variants={{
+        rest: { scale: 1, y: 0 },
+        hover: { scale: 1.07, y: -4 },
+        tap: { scale: 0.94 },
+      }}
       transition={{ type: "spring", stiffness: 460, damping: 22 }}
       className={cn(
         "group flex flex-col items-center px-0.5 text-center",
@@ -40,16 +47,14 @@ export function SubpageTile({
         comingSoon ? "cursor-default" : "cursor-pointer",
       )}
     >
-      <motion.div
-        className="relative flex items-center justify-center"
-        whileHover={{ scale: 1.05 }}
-        transition={{ type: "spring", stiffness: 500, damping: 18 }}
-      >
-        <Icon
-          className={cn(iconClass, comingSoon && "opacity-60")}
-          strokeWidth={1.5}
-          aria-hidden
-        />
+      <div className="relative flex items-center justify-center">
+        <AnimatedSymbol selfHover={false}>
+          <Icon
+            className={cn(iconClass, comingSoon && "opacity-60")}
+            strokeWidth={1.5}
+            aria-hidden
+          />
+        </AnimatedSymbol>
         {comingSoon ? (
           <span
             aria-hidden
@@ -58,7 +63,7 @@ export function SubpageTile({
             Coming Soon
           </span>
         ) : null}
-      </motion.div>
+      </div>
       <p
         className={cn(
           labelClass,

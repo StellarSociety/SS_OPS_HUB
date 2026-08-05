@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { SalesImportProgressBar } from "@/components/sales/sales-import-progress-bar";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +40,7 @@ import { cn } from "@/lib/utils";
 export type WorkflowStepId =
   | "attendance"
   | "import_benefits"
+  | "import_deductions"
   | "recalculate"
   | "hr_review"
   | "final_approval"
@@ -74,9 +76,11 @@ type PayrollWorkflowStepperProps = {
   userNames?: Record<string, string>;
   attendanceComplete: boolean;
   benefitsImported: boolean;
+  deductionsImported: boolean;
   hasRecalculated: boolean;
   events: AuditEvent[];
   onOpenImportBenefits: () => void;
+  onOpenImportDeductions: () => void;
   onMessage: (message: string | null) => void;
   onRefresh: () => void;
 };
@@ -84,6 +88,7 @@ type PayrollWorkflowStepperProps = {
 const STEP_DEFS: { id: WorkflowStepId; label: string }[] = [
   { id: "attendance", label: "Attendance" },
   { id: "import_benefits", label: "Import Benefits" },
+  { id: "import_deductions", label: "Import Deductions" },
   { id: "recalculate", label: "Recalculate" },
   { id: "hr_review", label: "HR Review" },
   { id: "final_approval", label: "Final Approval" },
@@ -216,13 +221,16 @@ export function PayrollWorkflowStepper({
   userNames = {},
   attendanceComplete,
   benefitsImported,
+  deductionsImported,
   hasRecalculated,
   events,
   onOpenImportBenefits,
+  onOpenImportDeductions,
   onMessage,
   onRefresh,
 }: PayrollWorkflowStepperProps) {
   const [pending, startTransition] = useTransition();
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [dialog, setDialog] = useState<
     null | "hr_review" | "final_approval" | "payment" | "audit"
   >(null);
@@ -245,6 +253,10 @@ export function PayrollWorkflowStepper({
   useEffect(() => {
     if (dialog !== "audit") setConfirmReopen(false);
   }, [dialog]);
+
+  useEffect(() => {
+    if (!pending) setBusyLabel(null);
+  }, [pending]);
 
   useEffect(() => {
     if (emailSend.phase !== "sending") return;
@@ -298,6 +310,11 @@ export function PayrollWorkflowStepper({
       : benefitsImported
         ? "complete"
         : "current";
+    const deductionsState: StepState = !attendanceComplete
+      ? "future"
+      : deductionsImported
+        ? "complete"
+        : "current";
     const recalcState: StepState =
       !attendanceComplete
         ? "future"
@@ -337,6 +354,9 @@ export function PayrollWorkflowStepper({
     );
     const benefitsEvent = findLatestEvent(events, (e) =>
       /benefits imported/i.test(e.comment ?? ""),
+    );
+    const deductionsEvent = findLatestEvent(events, (e) =>
+      /deductions imported/i.test(e.comment ?? ""),
     );
     const recalcEvent = findLatestEvent(events, (e) =>
       /recalculat/i.test(e.comment ?? ""),
@@ -408,8 +428,11 @@ export function PayrollWorkflowStepper({
       import_benefits: benefitsImported
         ? "Benefits imported"
         : "Optional — import when ready",
+      import_deductions: deductionsImported
+        ? "Deductions imported"
+        : "Optional — uniform & other charges",
       recalculate: hasRecalculated
-        ? "Synced from attendance & benefits"
+        ? "Synced from attendance, benefits & deductions"
         : "Resync values before review",
       hr_review: hrDone
         ? "Approved"
@@ -436,6 +459,7 @@ export function PayrollWorkflowStepper({
     const attribution: Record<WorkflowStepId, StepAttribution> = {
       attendance: fromEvent(attendanceEvent, resolveName),
       import_benefits: fromEvent(benefitsEvent, resolveName),
+      import_deductions: fromEvent(deductionsEvent, resolveName),
       recalculate: fromEvent(recalcEvent, resolveName),
       hr_review: attributionFromApproval(
         approvedHr,
@@ -467,6 +491,11 @@ export function PayrollWorkflowStepper({
         comment: comments.import_benefits,
         ...attribution.import_benefits,
       },
+      import_deductions: {
+        state: deductionsState,
+        comment: comments.import_deductions,
+        ...attribution.import_deductions,
+      },
       recalculate: {
         state: recalcState,
         comment: comments.recalculate,
@@ -496,6 +525,7 @@ export function PayrollWorkflowStepper({
   }, [
     attendanceComplete,
     benefitsImported,
+    deductionsImported,
     hasRecalculated,
     hrDone,
     finalDone,
@@ -514,6 +544,13 @@ export function PayrollWorkflowStepper({
     action: () => Promise<PayrollActionResult>,
   ) {
     onMessage(null);
+    setBusyLabel(
+      label === "Recalculate"
+        ? "Recalculating payroll…"
+        : label.endsWith("…")
+          ? label
+          : `${label}…`,
+    );
     startTransition(async () => {
       try {
         const result = await action();
@@ -662,6 +699,11 @@ export function PayrollWorkflowStepper({
       onOpenImportBenefits();
       return;
     }
+    if (id === "import_deductions") {
+      if (!canEdit || locked) return;
+      onOpenImportDeductions();
+      return;
+    }
     if (id === "recalculate") {
       if (!canEdit || locked) return;
       runAction("Recalculate", () => recalculatePayrollRun(runId));
@@ -731,6 +773,10 @@ export function PayrollWorkflowStepper({
               pendingFinal &&
               currentUserId &&
               pendingFinal.approver_user_ids.includes(currentUserId));
+          const isRecalculating =
+            pending &&
+            busyLabel?.startsWith("Recalculating") &&
+            step.id === "recalculate";
 
           return (
             <div key={step.id} className="flex items-center gap-1.5">
@@ -771,15 +817,22 @@ export function PayrollWorkflowStepper({
                     meta.state === "future" &&
                       "border border-black/10 bg-black/[0.03] text-black/45",
                     isApproverPending && "ring-2 ring-amber-400/60",
+                    isRecalculating && "opacity-90",
                   )}
                 >
-                  {isApproverPending ? `Approve ${step.label}` : step.label}
+                  {isRecalculating
+                    ? "Recalculating…"
+                    : isApproverPending
+                      ? `Approve ${step.label}`
+                      : step.label}
                 </button>
               )}
             </div>
           );
         })}
       </div>
+
+      {busyLabel ? <SalesImportProgressBar label={busyLabel} /> : null}
 
       <div>
         <button

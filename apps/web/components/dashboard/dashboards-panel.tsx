@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { pillSubNavLinkClass } from "@/lib/sub-nav-ui";
 
 type DashboardTab = {
@@ -87,7 +88,9 @@ export function DashboardsPanel({ slots }: DashboardsPanelProps) {
                 }
                 className={pillSubNavLinkClass(tab.key === activeKey)}
               >
-                <Icon aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                <AnimatedSymbol>
+                  <Icon aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                </AnimatedSymbol>
                 {tab.label}
               </button>
             </Fragment>

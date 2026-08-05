@@ -9,10 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  listUniformTermsEmailSends,
   previewUniformTermsEmail,
   sendUniformTermsEmail,
   type UniformTermsEmailPreview,
+  type UniformTermsEmailSendRecord,
 } from "@/lib/actions/hr-uniform-terms-email";
+import { formatAed } from "@/lib/hr/derived";
 import { cn } from "@/lib/utils";
 
 const SEND_STEPS = [
@@ -30,6 +33,18 @@ type DraftFields = {
   subject: string;
   body: string;
 };
+
+function formatSendWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-AE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export function UniformTermsEmailSendButton({
   staffId,
@@ -52,8 +67,13 @@ export function UniformTermsEmailSendButton({
     useState<UniformTermsEmailPreview | null>(null);
   const [draft, setDraft] = useState<DraftFields | null>(null);
   const [pending, startTransition] = useTransition();
+  const [historyPending, startHistoryTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const [sendHistory, setSendHistory] = useState<
+    UniformTermsEmailSendRecord[] | null
+  >(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const busy = pending || sendPhase === "sending";
 
@@ -67,6 +87,19 @@ export function UniformTermsEmailSendButton({
     return () => window.clearInterval(timer);
   }, [sendPhase]);
 
+  function loadSendHistory() {
+    setHistoryError(null);
+    startHistoryTransition(async () => {
+      const result = await listUniformTermsEmailSends({ staffId });
+      if (!result.ok) {
+        setSendHistory([]);
+        setHistoryError(result.error);
+        return;
+      }
+      setSendHistory(result.sends);
+    });
+  }
+
   function close() {
     if (busy) return;
     setDialogStep(null);
@@ -75,6 +108,8 @@ export function UniformTermsEmailSendButton({
     setPreviewMeta(null);
     setDraft(null);
     setError(null);
+    setSendHistory(null);
+    setHistoryError(null);
   }
 
   function openConfirm(e: MouseEvent) {
@@ -86,7 +121,10 @@ export function UniformTermsEmailSendButton({
     setDraft(null);
     setSendPhase("idle");
     setSendStepIndex(0);
+    setSendHistory(null);
+    setHistoryError(null);
     setDialogStep("confirm");
+    loadSendHistory();
   }
 
   function openPreview() {
@@ -228,6 +266,60 @@ export function UniformTermsEmailSendButton({
 
                   <div className="mt-4 rounded-lg border border-black/10 bg-black/[0.02] px-3 py-3 text-sm text-[#3D421F]">
                     <p className="font-medium">{employeeLabel}</p>
+                    <div className="mt-3 border-t border-black/8 pt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-black/45">
+                        Previous sends
+                      </p>
+                      {historyPending && sendHistory === null ? (
+                        <p className="mt-1.5 text-xs text-black/45">
+                          Loading send history…
+                        </p>
+                      ) : historyError ? (
+                        <p className="mt-1.5 text-xs text-red-700">
+                          {historyError}
+                        </p>
+                      ) : sendHistory && sendHistory.length > 0 ? (
+                        <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto">
+                          {sendHistory.map((send) => {
+                            const metaParts: string[] = [];
+                            if (send.to) metaParts.push(send.to);
+                            if (send.itemCount != null) {
+                              metaParts.push(
+                                `${send.itemCount} piece${send.itemCount === 1 ? "" : "s"}`,
+                              );
+                            }
+                            if (send.totalValue != null) {
+                              metaParts.push(formatAed(send.totalValue));
+                            }
+                            return (
+                              <li
+                                key={send.id}
+                                className="rounded-md border border-black/8 bg-white/70 px-2.5 py-2"
+                              >
+                                <p className="text-xs font-medium text-[#3D421F]">
+                                  {formatSendWhen(send.sentAt)}
+                                </p>
+                                {metaParts.length > 0 ? (
+                                  <p className="mt-0.5 truncate text-[11px] text-black/50">
+                                    {metaParts.join(" · ")}
+                                  </p>
+                                ) : null}
+                                {send.sentBy ? (
+                                  <p className="mt-0.5 truncate text-[11px] text-black/40">
+                                    Sent by {send.sentBy}
+                                  </p>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <p className="mt-1.5 text-xs text-black/45">
+                          No uniform T&amp;Cs email has been sent to this
+                          employee yet.
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {error ? (

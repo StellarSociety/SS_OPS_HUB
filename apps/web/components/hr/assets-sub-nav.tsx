@@ -1,11 +1,24 @@
 "use client";
 
-import { Package, Shirt } from "lucide-react";
+import {
+  GraduationCap,
+  IdCard,
+  Package,
+  ShieldCheck,
+  Shirt,
+} from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { cn } from "@/lib/utils";
 
 const TABS = [
+  {
+    id: "uniform" as const,
+    href: "/hr/assets/uniform/employees",
+    label: "Uniform",
+    icon: Shirt,
+  },
   {
     id: "assets" as const,
     href: "/hr/assets/catalog",
@@ -13,10 +26,22 @@ const TABS = [
     icon: Package,
   },
   {
-    id: "uniform" as const,
-    href: "/hr/assets/uniform/employees",
-    label: "Uniform",
-    icon: Shirt,
+    id: "certifications" as const,
+    href: "/hr/assets/certifications",
+    label: "Certifications",
+    icon: GraduationCap,
+  },
+  {
+    id: "insurance" as const,
+    href: "/hr/assets/insurance",
+    label: "Insurance",
+    icon: ShieldCheck,
+  },
+  {
+    id: "visa" as const,
+    href: "/hr/assets/visa",
+    label: "Visa",
+    icon: IdCard,
   },
 ] as const;
 
@@ -24,16 +49,33 @@ function isTabActive(
   pathname: string,
   id: (typeof TABS)[number]["id"],
 ): boolean {
-  if (id === "assets") {
-    return (
-      pathname === "/hr/assets/catalog" ||
-      pathname.startsWith("/hr/assets/catalog/")
-    );
+  switch (id) {
+    case "assets":
+      return (
+        pathname === "/hr/assets/catalog" ||
+        pathname.startsWith("/hr/assets/catalog/")
+      );
+    case "uniform":
+      return (
+        pathname === "/hr/assets/uniform" ||
+        pathname.startsWith("/hr/assets/uniform/")
+      );
+    case "insurance":
+      return (
+        pathname === "/hr/assets/insurance" ||
+        pathname.startsWith("/hr/assets/insurance/")
+      );
+    case "certifications":
+      return (
+        pathname === "/hr/assets/certifications" ||
+        pathname.startsWith("/hr/assets/certifications/")
+      );
+    case "visa":
+      return (
+        pathname === "/hr/assets/visa" ||
+        pathname.startsWith("/hr/assets/visa/")
+      );
   }
-  return (
-    pathname === "/hr/assets/uniform" ||
-    pathname.startsWith("/hr/assets/uniform/")
-  );
 }
 
 export function AssetsSubNav() {
@@ -41,8 +83,8 @@ export function AssetsSubNav() {
 
   return (
     <nav
-      aria-label="Assets sections"
-      className="flex items-center justify-center gap-6"
+      aria-label="Staff compliance sections"
+      className="flex flex-wrap items-center justify-center gap-6"
     >
       {TABS.map((tab) => {
         const active = isTabActive(pathname, tab.id);
@@ -55,34 +97,38 @@ export function AssetsSubNav() {
             aria-current={active ? "page" : undefined}
             title={tab.label}
             className={cn(
-              "group flex flex-col items-center gap-2 rounded-2xl px-4 py-3 transition-colors",
-              active
-                ? "text-[#3D421F]"
-                : "text-black/45 hover:text-[#3D421F]",
+              "group flex w-32 shrink-0 flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors",
+              active ? "text-[#3D421F]" : "text-[#8a8f7a] hover:text-[#3D421F]",
             )}
           >
             <span
               className={cn(
-                "flex h-16 w-16 items-center justify-center rounded-2xl border transition-all",
+                "flex h-[4.25rem] w-[4.25rem] items-center justify-center rounded-2xl border transition-colors",
                 active
                   ? "border-[var(--venue-primary)]/40 bg-[var(--venue-primary)]/15 shadow-sm ring-1 ring-[var(--venue-primary)]/15"
-                  : "border-black/10 bg-white/60 group-hover:border-black/15 group-hover:bg-white/80",
+                  : "border-[#e4e5da] bg-white group-hover:border-[#d5d7c8] group-hover:bg-[#fafaf6]",
               )}
             >
-              <Icon
-                className={cn(
-                  "h-7 w-7 transition-colors",
-                  active
-                    ? "text-[var(--venue-primary,#818a40)]"
-                    : "text-black/45 group-hover:text-[var(--venue-primary,#818a40)]",
-                )}
-                aria-hidden
-              />
+              <AnimatedSymbol>
+                <Icon
+                  className={cn(
+                    "h-9 w-9 transition-colors",
+                    active
+                      ? "text-[var(--venue-primary,#818a40)]"
+                      : "text-[#7a806c] group-hover:text-[var(--venue-primary,#818a40)]",
+                  )}
+                  strokeWidth={1.5}
+                  absoluteStrokeWidth
+                  aria-hidden
+                />
+              </AnimatedSymbol>
             </span>
             <span
               className={cn(
-                "font-nav text-[11px] font-semibold uppercase tracking-[0.08em]",
-                active ? "text-[#3D421F]" : "text-black/45 group-hover:text-[#3D421F]",
+                "text-center font-nav text-[11px] font-semibold uppercase tracking-[0.08em]",
+                active
+                  ? "text-[#3D421F]"
+                  : "text-[#8a8f7a] group-hover:text-[#3D421F]",
               )}
             >
               {tab.label}

@@ -7,6 +7,7 @@ import {
   UserProfileMenu,
   type ShellUser,
 } from "@/components/layout/user-profile-menu";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { getModuleSidebarForPath } from "@/lib/module-sidebar";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { Venue } from "@/lib/types/database";
@@ -84,11 +85,13 @@ export function AppHeader({
         aria-hidden={hideTitle || undefined}
       >
         {ModuleIcon ? (
-          <ModuleIcon
-            className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
-            strokeWidth={1.5}
-            aria-hidden
-          />
+          <AnimatedSymbol>
+            <ModuleIcon
+              className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
+              strokeWidth={1.5}
+              aria-hidden
+            />
+          </AnimatedSymbol>
         ) : null}
         <span className="truncate">{title}</span>
       </h1>

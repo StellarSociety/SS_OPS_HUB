@@ -12,6 +12,7 @@ import {
 } from "@/lib/module-sidebar";
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
   subNavLabelClass,
@@ -31,7 +32,7 @@ function shortcutBoxClass(active: boolean, branded = false, textOnly = false) {
   if (textOnly) {
     return cn(
       "inline-flex shrink-0 items-center gap-1.5 px-1 transition-colors",
-      "font-serif text-[17px] capitalize tracking-wide",
+      "font-sans text-[15px] font-medium capitalize tracking-wide",
       active ? "text-black" : "text-black hover:text-black/70",
     );
   }
@@ -78,16 +79,18 @@ function ShortcutLink({
 
   return (
     <ScopedLink href={item.href} className={shortcutBoxClass(active, branded, textOnly)}>
-      <Icon
-        className={cn(
-          textOnly
-            ? "h-4 w-4 shrink-0 text-black"
-            : branded
-              ? moduleBrandedNavIconClass(active)
-              : "h-3.5 w-3.5 shrink-0 opacity-80",
-        )}
-        aria-hidden
-      />
+      <AnimatedSymbol>
+        <Icon
+          className={cn(
+            textOnly
+              ? "h-4 w-4 shrink-0 text-black"
+              : branded
+                ? moduleBrandedNavIconClass(active)
+                : "h-3.5 w-3.5 shrink-0 opacity-80",
+          )}
+          aria-hidden
+        />
+      </AnimatedSymbol>
       {sublabel ? (
         <span className="min-w-0 leading-none">
           <span className="block text-[9px] font-medium uppercase tracking-wide text-black/45">
@@ -162,7 +165,9 @@ function CategorizedShortcuts({
                 !active && hasActiveRoute && "text-[#3D421F]",
               )}
             >
-              <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+              <AnimatedSymbol>
+                <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+              </AnimatedSymbol>
               <span className="whitespace-nowrap">{category.label}</span>
             </button>
           );
