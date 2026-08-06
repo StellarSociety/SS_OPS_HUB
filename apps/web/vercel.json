@@ -14,10 +14,6 @@
     {
       "path": "/api/cron/work-anniversary-emails",
       "schedule": "15 5 * * *"
-    },
-    {
-      "path": "/api/cron/email-replies",
-      "schedule": "0 6 * * *"
     }
   ]
 }
