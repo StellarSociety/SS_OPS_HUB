@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { toScopedHref } from "@/lib/venue/scope-routing";
 import {
   Briefcase,
+  CalendarDays,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -32,8 +33,12 @@ import {
 } from "@/components/hr/staff-entry-form";
 import { StaffPdfDocument } from "@/components/hr/staff-pdf-document";
 import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
+import { PayrollPaidDaysCalendarDialog } from "@/components/hr/payroll-paid-days-calendar-dialog";
 import { createStaff, updateStaff } from "@/lib/actions/hr";
+import { getStaffCurrentPayrollSchedule } from "@/lib/actions/hr-staff-payroll-schedule";
 import { computeAge, computeWorkedTime, type SalaryPercentages } from "@/lib/hr/derived";
+import { shiftPayrollMonth } from "@/lib/hr/payroll/period";
+import type { PayrollDayFraction } from "@/lib/hr/payroll/types";
 import {
   emptyStaffForm,
   staffToForm,
@@ -49,6 +54,7 @@ import type {
   StaffWithLookups,
 } from "@/lib/hr/types";
 import {
+  subNavLabelClass,
   verticalSegmentedSubNavLinkClass,
   verticalSegmentedSubNavShellClass,
 } from "@/lib/sub-nav-ui";
@@ -232,6 +238,35 @@ export function StaffEntryWorkspace({
     null,
   );
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const scheduleRequestRef = useRef(0);
+  const scheduleCacheRef = useRef(
+    new Map<
+      string,
+      {
+        at: number;
+        data: {
+          empNo: string;
+          fullName: string;
+          payrollMonth: string;
+          periodStart: string;
+          periodEnd: string;
+          dayFractions: PayrollDayFraction[];
+          paidDays: number;
+        };
+      }
+    >(),
+  );
+  const [scheduleData, setScheduleData] = useState<{
+    empNo: string;
+    fullName: string;
+    payrollMonth: string;
+    periodStart: string;
+    periodEnd: string;
+    dayFractions: PayrollDayFraction[];
+    paidDays: number;
+  } | null>(null);
 
   const readOnly = loadedStaffId != null && !editing;
 
@@ -262,11 +297,167 @@ export function StaffEntryWorkspace({
     setActiveTab("identity");
     setView("form");
     setSearchOpen(false);
+    // Warm Schedule cache while the user looks at the profile.
+    void loadScheduleMonth({
+      staffId: selected.id,
+      empNo: form.emp_no,
+      fullName: form.full_name,
+      joiningDate: form.joining_date || null,
+      terminationDate: form.termination_date || null,
+      payrollMonth: null,
+      silent: true,
+    });
   }
 
   function cancelEdits() {
     if (savedSnapshot) setValue(savedSnapshot);
     setEditing(false);
+  }
+
+  type SchedulePayload = {
+    empNo: string;
+    fullName: string;
+    payrollMonth: string;
+    periodStart: string;
+    periodEnd: string;
+    dayFractions: PayrollDayFraction[];
+    paidDays: number;
+  };
+
+  async function loadScheduleMonth(opts: {
+    staffId: string;
+    empNo: string;
+    fullName: string;
+    joiningDate: string | null;
+    terminationDate: string | null;
+    payrollMonth?: string | null;
+    /** Prefetch: no loading spinner / soft-fail. */
+    silent?: boolean;
+  }) {
+    const monthKey = opts.payrollMonth?.trim() || "";
+    const cacheKey = `${opts.staffId}:${monthKey || "current"}`;
+
+    const cached = scheduleCacheRef.current.get(cacheKey);
+    if (cached && Date.now() - cached.at < 120_000) {
+      if (!opts.silent) {
+        setScheduleData(cached.data);
+        setScheduleLoading(false);
+      }
+      return cached.data;
+    }
+
+    const requestId = ++scheduleRequestRef.current;
+    if (!opts.silent) setScheduleLoading(true);
+
+    try {
+      const result = await getStaffCurrentPayrollSchedule({
+        staffId: opts.staffId,
+        empNo: opts.empNo,
+        fullName: opts.fullName,
+        joiningDate: opts.joiningDate,
+        terminationDate: opts.terminationDate,
+        payrollMonth: monthKey || null,
+      });
+      if (scheduleRequestRef.current !== requestId && !opts.silent) return null;
+      if (!result.ok) {
+        if (!opts.silent) toast.error(result.error);
+        return null;
+      }
+      const data: SchedulePayload = {
+        empNo: result.empNo,
+        fullName: result.fullName,
+        payrollMonth: result.payrollMonth,
+        periodStart: result.periodStart,
+        periodEnd: result.periodEnd,
+        dayFractions: result.dayFractions,
+        paidDays: result.paidDays,
+      };
+      const at = Date.now();
+      scheduleCacheRef.current.set(`${opts.staffId}:${result.payrollMonth}`, {
+        at,
+        data,
+      });
+      if (!monthKey) {
+        scheduleCacheRef.current.set(`${opts.staffId}:current`, { at, data });
+      }
+      if (!opts.silent) {
+        setScheduleData(data);
+      }
+      return data;
+    } catch (err) {
+      if (scheduleRequestRef.current !== requestId && !opts.silent) return null;
+      console.error("[staff-entry] schedule shortcut failed:", err);
+      if (!opts.silent) toast.error("Could not load schedule — try again.");
+      return null;
+    } finally {
+      if (!opts.silent && scheduleRequestRef.current === requestId) {
+        setScheduleLoading(false);
+      }
+    }
+  }
+
+  async function openScheduleShortcut() {
+    if (!loadedStaffId) return;
+
+    const cacheKey = `${loadedStaffId}:current`;
+    const cached = scheduleCacheRef.current.get(cacheKey);
+
+    if (cached && Date.now() - cached.at < 120_000) {
+      setScheduleData(cached.data);
+      setScheduleOpen(true);
+      setScheduleLoading(false);
+      return;
+    }
+
+    setScheduleData({
+      empNo: value.emp_no.trim() || "—",
+      fullName: value.full_name.trim() || "Employee",
+      payrollMonth: "",
+      periodStart: "",
+      periodEnd: "",
+      dayFractions: [],
+      paidDays: 0,
+    });
+    setScheduleOpen(true);
+    await loadScheduleMonth({
+      staffId: loadedStaffId,
+      empNo: value.emp_no,
+      fullName: value.full_name,
+      joiningDate: value.joining_date || null,
+      terminationDate: value.termination_date || null,
+      payrollMonth: null,
+    });
+  }
+
+  function navigateScheduleMonth(direction: -1 | 1) {
+    if (!loadedStaffId || scheduleLoading) return;
+    const current =
+      scheduleData?.payrollMonth ||
+      scheduleCacheRef.current.get(`${loadedStaffId}:current`)?.data
+        .payrollMonth;
+    if (!current) return;
+    let next: string;
+    try {
+      next = shiftPayrollMonth(current, direction);
+    } catch {
+      return;
+    }
+
+    const cached = scheduleCacheRef.current.get(`${loadedStaffId}:${next}`);
+    if (cached && Date.now() - cached.at < 120_000) {
+      setScheduleData(cached.data);
+      setScheduleLoading(false);
+      return;
+    }
+
+    void loadScheduleMonth({
+      staffId: loadedStaffId,
+      empNo: value.emp_no,
+      fullName: value.full_name,
+      joiningDate: value.joining_date || null,
+      terminationDate: value.termination_date || null,
+      payrollMonth: next,
+    });
   }
 
   async function handleSubmit(formData: FormData) {
@@ -374,8 +565,8 @@ export function StaffEntryWorkspace({
               onPhotoUrlChange={setPhotoUrl}
             />
 
-            <div className="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0">
-              <div className="flex flex-col gap-2">
+            <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:shrink-0">
+              <div className="flex flex-col gap-2 sm:w-52">
                 {/* One primary button — label/handler switch. Avoids Edit↔Save twin nodes. */}
                 <button
                   type="button"
@@ -419,31 +610,64 @@ export function StaffEntryWorkspace({
                 ) : null}
               </div>
 
-              <div className={verticalSegmentedSubNavShellClass} role="tablist">
-                {ENTRY_TABS.map((tab) => {
-                  const Icon = tab.icon;
-                  const active = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() =>
-                        setActiveTab((current) =>
-                          current === tab.id ? null : tab.id,
-                        )
-                      }
-                      className={verticalSegmentedSubNavLinkClass(active)}
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-start">
+                <div className={verticalSegmentedSubNavShellClass} role="tablist">
+                  {ENTRY_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    const active = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() =>
+                          setActiveTab((current) =>
+                            current === tab.id ? null : tab.id,
+                          )
+                        }
+                        className={verticalSegmentedSubNavLinkClass(active)}
+                      >
+                        <Icon
+                          className="h-3.5 w-3.5 shrink-0 opacity-80"
+                          aria-hidden
+                        />
+                        <span className="min-w-0 truncate">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {loadedStaffId ? (
+                  <div
+                    className="flex w-full flex-col overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-40 sm:shrink-0"
+                    aria-label="Shortcuts"
+                  >
+                    <p
+                      className={cn(
+                        subNavLabelClass,
+                        "border-b border-black/10 px-3 py-2 text-black/40",
+                      )}
                     >
-                      <Icon
+                      Shortcuts
+                    </p>
+                    <button
+                      type="button"
+                      disabled={scheduleLoading}
+                      onClick={() => void openScheduleShortcut()}
+                      className={verticalSegmentedSubNavLinkClass(false)}
+                      title="Current payroll month schedule"
+                    >
+                      <CalendarDays
                         className="h-3.5 w-3.5 shrink-0 opacity-80"
                         aria-hidden
                       />
-                      <span className="min-w-0 truncate">{tab.label}</span>
+                      <span className="min-w-0 truncate">
+                        {scheduleLoading ? "Loading…" : "Schedule"}
+                      </span>
                     </button>
-                  );
-                })}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -526,6 +750,24 @@ export function StaffEntryWorkspace({
         departments={departments}
         positions={positions}
         statuses={statuses}
+      />
+
+      <PayrollPaidDaysCalendarDialog
+        open={scheduleOpen}
+        onClose={() => {
+          scheduleRequestRef.current += 1;
+          setScheduleOpen(false);
+          setScheduleLoading(false);
+        }}
+        empNo={scheduleData?.empNo ?? value.emp_no}
+        fullName={scheduleData?.fullName ?? value.full_name}
+        payrollMonth={scheduleData?.payrollMonth || null}
+        periodStart={scheduleData?.periodStart ?? ""}
+        periodEnd={scheduleData?.periodEnd ?? ""}
+        dayFractions={scheduleData?.dayFractions ?? []}
+        paidDays={scheduleData?.paidDays ?? 0}
+        loading={scheduleLoading}
+        onNavigateMonth={navigateScheduleMonth}
       />
     </div>
   );

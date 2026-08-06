@@ -11,6 +11,20 @@ export type CashJournalBalanceInput = {
   closingTillGs: number;
 };
 
+/**
+ * Resolve open/closing till for Cash Journal display.
+ * Journal null (or 0 from an empty numeric input) falls back to Daily Snap.
+ */
+export function coalesceCashJournalTillAmount(
+  journalValue: number | null | undefined,
+  snapValue: number,
+): number {
+  if (journalValue == null || journalValue === 0) {
+    return Number(snapValue ?? 0);
+  }
+  return Number(journalValue);
+}
+
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }

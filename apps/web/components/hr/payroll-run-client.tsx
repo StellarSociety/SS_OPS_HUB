@@ -1,6 +1,15 @@
 "use client";
 
-import { ChevronDown, ChevronUp, ChevronsUpDown, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  ExternalLink,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -75,6 +84,7 @@ import {
   type PayrollStatus,
 } from "@/lib/hr/payroll";
 import {
+  WORKING_STATUS,
   resolveWorkingStatus,
   type WorkingStatusLabel,
 } from "@/lib/hr/working-status";
@@ -1895,6 +1905,11 @@ function RunEmployeesTab({
   const [joinerLeaverFilter, setJoinerLeaverFilter] = useState<
     "all" | "joiner" | "leaver"
   >("all");
+  /** When false, Unpaid Leave staff are hidden and excluded from footer totals. */
+  const [showUnpaidLeaveEmployees, setShowUnpaidLeaveEmployees] =
+    useState(true);
+  /** When false, staff with Included unchecked are hidden from the table. */
+  const [showExcludedEmployees, setShowExcludedEmployees] = useState(true);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(
     () => new Set(),
@@ -2004,6 +2019,16 @@ function RunEmployeesTab({
       selectedIncluded.length > 0 ? new Set(selectedIncluded) : null;
 
     return employees.filter((row) => {
+      const status = resolvePayrollWorkingStatus(row);
+      if (
+        !showUnpaidLeaveEmployees &&
+        status === WORKING_STATUS.unpaidLeave
+      ) {
+        return false;
+      }
+      if (!showExcludedEmployees && !row.included) {
+        return false;
+      }
       const net = Number(row.net_salary) || 0;
       const isZeroNet = Math.abs(net) < 0.005;
       if (netFilter === "zero" && !isZeroNet) return false;
@@ -2013,7 +2038,7 @@ function RunEmployeesTab({
         if (!deptSet.has(dept)) return false;
       }
       if (statusSet) {
-        if (!statusSet.has(resolvePayrollWorkingStatus(row))) return false;
+        if (!statusSet.has(status)) return false;
       }
       if (includedSet) {
         const label = row.included ? "Included" : "Excluded";
@@ -2022,12 +2047,12 @@ function RunEmployeesTab({
       if (joinerLeaverFilter === "joiner" && !row.is_new_joiner) return false;
       if (joinerLeaverFilter === "leaver" && !row.is_leaver) return false;
       if (!q) return true;
-      const status = resolvePayrollWorkingStatus(row).toLowerCase();
+      const statusLower = status.toLowerCase();
       return (
         row.full_name.toLowerCase().includes(q) ||
         row.emp_no.toLowerCase().includes(q) ||
         (row.department_name ?? "").toLowerCase().includes(q) ||
-        status.includes(q)
+        statusLower.includes(q)
       );
     });
   }, [
@@ -2038,6 +2063,8 @@ function RunEmployeesTab({
     selectedIncluded,
     netFilter,
     joinerLeaverFilter,
+    showUnpaidLeaveEmployees,
+    showExcludedEmployees,
   ]);
 
   const sorted = useMemo(() => {
@@ -2097,6 +2124,20 @@ function RunEmployeesTab({
       netSalary,
     };
   }, [filtered, adjustmentsByStaff]);
+
+  const unpaidLeaveEmployeeCount = useMemo(
+    () =>
+      employees.filter(
+        (row) =>
+          resolvePayrollWorkingStatus(row) === WORKING_STATUS.unpaidLeave,
+      ).length,
+    [employees],
+  );
+
+  const excludedEmployeeCount = useMemo(
+    () => employees.filter((row) => !row.included).length,
+    [employees],
+  );
 
   const hasActiveFilters =
     query.trim().length > 0 ||
@@ -2591,42 +2632,195 @@ function RunEmployeesTab({
               <tr className="font-medium text-[#3D421F]">
                 {selectMode ? <td className="px-3 py-2.5" /> : null}
                 <td className="px-3 py-2.5" colSpan={2}>
-                  Included total ({columnTotals.includedCount}
-                  {columnTotals.includedCount !== columnTotals.employeeCount
-                    ? ` of ${columnTotals.employeeCount}`
-                    : ""}
-                  )
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Emp no / Name
+                    </span>
+                    <span>
+                      Included total ({columnTotals.includedCount}
+                      {columnTotals.includedCount !==
+                      columnTotals.employeeCount
+                        ? ` of ${columnTotals.employeeCount}`
+                        : ""}
+                      )
+                    </span>
+                  </div>
                 </td>
                 <td className="px-3 py-2.5" colSpan={2} />
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {columnTotals.paidDays.toFixed(2)}
+                <td className="px-3 py-2.5 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Paid days
+                    </span>
+                    <span className="tabular-nums">
+                      {columnTotals.paidDays.toFixed(2)}
+                    </span>
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {columnTotals.paidLeaveDays.toFixed(2)}
+                <td className="px-3 py-2.5 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Paid leave days
+                    </span>
+                    <span className="tabular-nums">
+                      {columnTotals.paidLeaveDays.toFixed(2)}
+                    </span>
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {columnTotals.unpaidDays.toFixed(2)}
+                <td className="px-3 py-2.5 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Unpaid Days
+                    </span>
+                    <span className="tabular-nums">
+                      {columnTotals.unpaidDays.toFixed(2)}
+                    </span>
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {formatMoney(columnTotals.fixedEarnings, canViewSalary)}
+                <td className="px-3 py-2.5 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Fixed
+                    </span>
+                    <span className="tabular-nums">
+                      {formatMoney(columnTotals.fixedEarnings, canViewSalary)}
+                    </span>
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {formatMoney(columnTotals.variableEarnings, canViewSalary)}
+                <td className="px-3 py-2.5 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Variable
+                    </span>
+                    <span className="tabular-nums">
+                      {formatMoney(
+                        columnTotals.variableEarnings,
+                        canViewSalary,
+                      )}
+                    </span>
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">
-                  {formatMoney(columnTotals.totalDeductions, canViewSalary)}
+                <td className="px-3 py-2.5 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Deductions
+                    </span>
+                    <span className="tabular-nums">
+                      {formatMoney(
+                        columnTotals.totalDeductions,
+                        canViewSalary,
+                      )}
+                    </span>
+                  </div>
                 </td>
-                <td className="bg-[var(--venue-secondary,#F0F3DD)]/70 px-3 py-2.5 text-right tabular-nums font-semibold">
-                  {formatMoney(columnTotals.netSalary, canViewSalary)}
+                <td className="bg-[var(--venue-secondary,#F0F3DD)]/70 px-3 py-2.5 text-right">
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Net
+                    </span>
+                    <span className="tabular-nums font-semibold">
+                      {formatMoney(columnTotals.netSalary, canViewSalary)}
+                    </span>
+                  </div>
                 </td>
-                <td className="px-3 py-2.5 text-center tabular-nums">
-                  {columnTotals.includedCount}
+                <td className="px-3 py-2.5 text-center">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Included
+                    </span>
+                    <span className="tabular-nums">
+                      {columnTotals.includedCount}
+                    </span>
+                  </div>
                 </td>
               </tr>
             </tfoot>
           ) : null}
         </table>
       </div>
+
+      {unpaidLeaveEmployeeCount > 0 || excludedEmployeeCount > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-black/10 bg-white px-3 py-2.5">
+          <div className="min-w-0 space-y-1">
+            {unpaidLeaveEmployeeCount > 0 ? (
+              <div>
+                <p className="text-sm font-medium text-[#3D421F]">
+                  Unpaid leave employees
+                </p>
+                <p className="text-xs text-black/50">
+                  {unpaidLeaveEmployeeCount} staff with Unpaid Leave status
+                  {showUnpaidLeaveEmployees
+                    ? " shown in the table and totals"
+                    : " hidden from the table and totals"}
+                </p>
+              </div>
+            ) : null}
+            {excludedEmployeeCount > 0 ? (
+              <div>
+                <p className="text-sm font-medium text-[#3D421F]">
+                  Excluded employees
+                </p>
+                <p className="text-xs text-black/50">
+                  {excludedEmployeeCount} staff with Included unchecked
+                  {showExcludedEmployees
+                    ? " shown in the table"
+                    : " hidden from the table"}
+                </p>
+              </div>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {unpaidLeaveEmployeeCount > 0 ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showUnpaidLeaveEmployees}
+                aria-label={
+                  showUnpaidLeaveEmployees
+                    ? "Hide unpaid leave employees"
+                    : "Show unpaid leave employees"
+                }
+                onClick={() =>
+                  setShowUnpaidLeaveEmployees((current) => !current)
+                }
+                className={cn(
+                  "inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium transition",
+                  showUnpaidLeaveEmployees
+                    ? "border-[var(--venue-primary,#818a40)]/40 bg-[var(--venue-secondary,#F0F3DD)] text-[#3D421F]"
+                    : "border-black/10 bg-white text-black/55 hover:bg-black/[0.02]",
+                )}
+              >
+                {showUnpaidLeaveEmployees
+                  ? "Hide unpaid leave"
+                  : "Show unpaid leave"}
+              </button>
+            ) : null}
+            {excludedEmployeeCount > 0 ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showExcludedEmployees}
+                aria-label={
+                  showExcludedEmployees
+                    ? "Hide excluded employees"
+                    : "Show excluded employees"
+                }
+                onClick={() =>
+                  setShowExcludedEmployees((current) => !current)
+                }
+                className={cn(
+                  "inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium transition",
+                  showExcludedEmployees
+                    ? "border-[var(--venue-primary,#818a40)]/40 bg-[var(--venue-secondary,#F0F3DD)] text-[#3D421F]"
+                    : "border-black/10 bg-white text-black/55 hover:bg-black/[0.02]",
+                )}
+              >
+                {showExcludedEmployees ? "Hide excluded" : "Show excluded"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <BulkAdjustmentDialog
         open={bulkDialogOpen}
@@ -2925,53 +3119,65 @@ function FragmentRows({
                     </span>
                   </p>
                 </div>
-                {editable || payslipId ? (
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {editable ? (
-                      <PayslipRegenerateButton
-                        runEmployeeId={row.id}
-                        tone="dark"
-                        disabled={pending || !row.included}
-                        onRegenerated={(next) => {
-                          setPayslipId(next.payslipId);
-                          setPayslipVersion(next.version);
-                        }}
-                      />
-                    ) : null}
-                    {payslipVersion != null ? (
-                      <span
-                        className="px-1 text-xs tabular-nums text-zinc-300"
-                        title={`Payslip version ${payslipVersion}`}
-                      >
-                        v{payslipVersion}
-                      </span>
-                    ) : editable ? (
-                      <span className="px-1 text-xs text-zinc-400">
-                        No payslip
-                      </span>
-                    ) : null}
-                    {payslipId ? (
-                      <>
-                        <PayslipViewButton
-                          payslipId={payslipId}
-                          label="Preview payslip"
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                  <Link
+                    href={`/hr/attendance/validation?staffId=${encodeURIComponent(row.staff_id)}&from=${encodeURIComponent(periodStart.slice(0, 10))}&to=${encodeURIComponent(periodEnd.slice(0, 10))}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Open attendance validation for ${row.full_name} (${periodStart.slice(0, 10)} → ${periodEnd.slice(0, 10)})`}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/20 bg-white/10 px-2.5 text-xs font-medium text-zinc-100 transition hover:bg-white/15"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                    Open validation
+                  </Link>
+                  {editable || payslipId ? (
+                    <>
+                      {editable ? (
+                        <PayslipRegenerateButton
+                          runEmployeeId={row.id}
                           tone="dark"
+                          disabled={pending || !row.included}
+                          onRegenerated={(next) => {
+                            setPayslipId(next.payslipId);
+                            setPayslipVersion(next.version);
+                          }}
                         />
-                        {editable ? (
-                          <PayslipEmailButton
+                      ) : null}
+                      {payslipVersion != null ? (
+                        <span
+                          className="px-1 text-xs tabular-nums text-zinc-300"
+                          title={`Payslip version ${payslipVersion}`}
+                        >
+                          v{payslipVersion}
+                        </span>
+                      ) : editable ? (
+                        <span className="px-1 text-xs text-zinc-400">
+                          No payslip
+                        </span>
+                      ) : null}
+                      {payslipId ? (
+                        <>
+                          <PayslipViewButton
                             payslipId={payslipId}
-                            empNo={row.emp_no}
-                            fullName={row.full_name}
-                            version={payslipVersion}
-                            payrollMonthLabel={payrollMonthLabel}
+                            label="Preview payslip"
                             tone="dark"
-                            disabled={pending || !row.included}
                           />
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
+                          {editable ? (
+                            <PayslipEmailButton
+                              payslipId={payslipId}
+                              empNo={row.emp_no}
+                              fullName={row.full_name}
+                              version={payslipVersion}
+                              payrollMonthLabel={payrollMonthLabel}
+                              tone="dark"
+                              disabled={pending || !row.included}
+                            />
+                          ) : null}
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
               </div>
 
               <div className="space-y-2">

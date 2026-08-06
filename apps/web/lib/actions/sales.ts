@@ -36,6 +36,7 @@ import {
   deleteVenueDailySnapDiscountLine,
   deleteVenueDailySnapEvent,
   deleteVenueMonthlyForecast,
+  listVenueDailySnapCashDrawerRows,
   upsertVenueDailySnapCashDrawer,
   upsertVenueDailySnapDiscountLine,
   upsertVenueDailySnapEvent,
@@ -420,13 +421,29 @@ export async function saveVenueCashJournalEntry(formData: FormData) {
   const hasComments = comments.length > 0;
   const hasData = hasJournalData || hasTillData || hasComments;
   const canSyncDailySnap = canEditCashUp(permissions, venue.id);
+  // Empty numeric inputs persist as 0; store null so Daily Snap remains the fallback.
+  const openTillForJournal = openTillGs > 0 ? openTillGs : null;
+  const closingTillForJournal = closingTillGs > 0 ? closingTillGs : null;
 
   try {
-    if (canSyncDailySnap) {
+    if (canSyncDailySnap && hasTillData) {
+      const existingSnapRows = await listVenueDailySnapCashDrawerRows(
+        supabase,
+        venue.id,
+      );
+      const existingSnap = existingSnapRows.find(
+        (row) => row.sale_date === saleDate,
+      );
       await upsertVenueDailySnapCashDrawer(supabase, venue.id, user.id, {
         sale_date: saleDate,
-        cash_drawer_opening_gs: openTillGs,
-        cash_drawer_closing_gs: closingTillGs,
+        cash_drawer_opening_gs:
+          openTillGs > 0
+            ? openTillGs
+            : Number(existingSnap?.cash_drawer_opening_gs ?? 0),
+        cash_drawer_closing_gs:
+          closingTillGs > 0
+            ? closingTillGs
+            : Number(existingSnap?.cash_drawer_closing_gs ?? 0),
       });
       await writeAuditLog({
         actor_id: user.id,
@@ -469,11 +486,11 @@ export async function saveVenueCashJournalEntry(formData: FormData) {
     const record = await upsertVenueCashJournal(supabase, venue.id, user.id, {
       id,
       sale_date: saleDate,
-      open_till_gs: openTillGs,
+      open_till_gs: openTillForJournal,
       cash_withdraw_gs: cashWithdrawGs,
       cash_expenses_gs: cashExpensesGs,
       cash_deposit_gs: cashDepositGs,
-      closing_till_gs: closingTillGs,
+      closing_till_gs: closingTillForJournal,
       comments,
     });
 

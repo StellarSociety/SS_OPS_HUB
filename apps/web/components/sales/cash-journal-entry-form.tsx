@@ -31,6 +31,7 @@ import { toast } from "@/components/ui/toast";
 import { saveVenueCashJournalEntry } from "@/lib/actions/sales";
 import type { CashSalesRecord } from "@/lib/sales/cash-sales-report";
 import {
+  coalesceCashJournalTillAmount,
   computeCashJournalBalance,
   isCashJournalBalanced,
 } from "@/lib/sales/cash-journal-calculations";
@@ -304,11 +305,14 @@ export function CashJournalEntryForm({
     return {
       id: record.id,
       sale_date: record.sale_date,
-      openTillGs: record.open_till_gs ?? snapOpen,
+      openTillGs: coalesceCashJournalTillAmount(record.open_till_gs, snapOpen),
       cashWithdrawGs: record.cash_withdraw_gs,
       cashExpensesGs: record.cash_expenses_gs,
       cashDepositGs: record.cash_deposit_gs,
-      closingTillGs: record.closing_till_gs ?? snapClosing,
+      closingTillGs: coalesceCashJournalTillAmount(
+        record.closing_till_gs,
+        snapClosing,
+      ),
       comments: record.comments ?? "",
     };
   }

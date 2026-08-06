@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { scheduleLeaveDisplayName } from "@/lib/hr/leave";
-import type { PayrollDayFraction } from "@/lib/hr/payroll";
+import { formatPayrollMonthLabel } from "@/lib/hr/payroll/period";
+import type { PayrollDayFraction } from "@/lib/hr/payroll/types";
 import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
@@ -208,6 +209,9 @@ export function PayrollPaidDaysCalendarDialog({
   periodEnd,
   dayFractions,
   paidDays,
+  loading = false,
+  payrollMonth = null,
+  onNavigateMonth,
 }: {
   open: boolean;
   onClose: () => void;
@@ -217,7 +221,18 @@ export function PayrollPaidDaysCalendarDialog({
   periodEnd: string;
   dayFractions: PayrollDayFraction[];
   paidDays: number;
+  /** Show a loading state while day data is fetched. */
+  loading?: boolean;
+  /** Named payroll month (YYYY-MM-01) — enables month label in the nav. */
+  payrollMonth?: string | null;
+  /** When set, shows prev/next arrows above the calendar. */
+  onNavigateMonth?: (direction: -1 | 1) => void;
 }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const byDate = useMemo(() => {
     const map = new Map<string, PayrollDayFraction>();
     for (const day of dayFractions) {
@@ -228,7 +243,8 @@ export function PayrollPaidDaysCalendarDialog({
   }, [dayFractions]);
 
   const cells = useMemo(
-    () => buildPeriodGrid(periodStart, periodEnd),
+    () =>
+      periodStart && periodEnd ? buildPeriodGrid(periodStart, periodEnd) : [],
     [periodStart, periodEnd],
   );
 
@@ -238,16 +254,30 @@ export function PayrollPaidDaysCalendarDialog({
     const endKey = periodEnd.slice(0, 10);
     for (const day of dayFractions) {
       const key = String(day.workDate ?? "").slice(0, 10);
-      if (key < startKey || key > endKey) continue;
+      if (!startKey || !endKey || key < startKey || key > endKey) continue;
       const visual = classifyDay(day, true);
       tallies[visual] = (tallies[visual] ?? 0) + 1;
     }
     return tallies;
   }, [dayFractions, periodStart, periodEnd]);
 
-  if (!open || typeof document === "undefined") return null;
+  const monthLabel = useMemo(() => {
+    if (!payrollMonth) return null;
+    try {
+      return formatPayrollMonthLabel(payrollMonth);
+    } catch {
+      return payrollMonth.slice(0, 7);
+    }
+  }, [payrollMonth]);
 
-  const periodLabel = `${periodStart.slice(0, 10)} → ${periodEnd.slice(0, 10)}`;
+  if (!open || !mounted) return null;
+
+  const periodLabel =
+    periodStart && periodEnd
+      ? `${periodStart.slice(0, 10)} → ${periodEnd.slice(0, 10)}`
+      : "Current payroll period";
+
+  const showMonthNav = Boolean(onNavigateMonth);
 
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -273,11 +303,15 @@ export function PayrollPaidDaysCalendarDialog({
             </h3>
             <p className="mt-0.5 text-sm text-black/55">
               Payroll period {periodLabel}
-              <span className="mx-1.5 text-black/25">·</span>
-              Paid days{" "}
-              <span className="tabular-nums font-medium text-[#3D421F]">
-                {Number(paidDays).toFixed(2)}
-              </span>
+              {!loading ? (
+                <>
+                  <span className="mx-1.5 text-black/25">·</span>
+                  Paid days{" "}
+                  <span className="tabular-nums font-medium text-[#3D421F]">
+                    {Number(paidDays).toFixed(2)}
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
           <button
@@ -291,77 +325,115 @@ export function PayrollPaidDaysCalendarDialog({
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-          <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-black/55">
-            {(
-              [
-                "worked",
-                "paid_leave",
-                "half_pay_leave",
-                "unpaid_leave",
-                "off",
-                "unpaid",
-              ] as DayVisual[]
-            ).map((key) => (
-              <span key={key} className="inline-flex items-center gap-1.5">
-                <span
-                  className={cn("size-2.5 rounded-sm", DAY_STYLES[key].legend)}
-                />
-                {DAY_STYLES[key].label}
-                {counts[key] != null ? (
-                  <span className="tabular-nums text-black/35">
-                    ({counts[key]})
-                  </span>
-                ) : null}
-              </span>
-            ))}
-          </div>
-
-          <div className="space-y-2">
-            <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium uppercase tracking-wide text-black/40">
-              {WEEKDAYS.map((d) => (
-                <div key={d} className="py-1">
-                  {d}
-                </div>
-              ))}
+          {showMonthNav ? (
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                aria-label="Previous payroll month"
+                disabled={loading}
+                onClick={() => onNavigateMonth?.(-1)}
+                className="inline-flex size-9 items-center justify-center rounded-md border border-black/10 text-[#3D421F] transition hover:bg-black/[0.04] disabled:opacity-40"
+              >
+                <ChevronLeft className="size-4" aria-hidden />
+              </button>
+              <div className="min-w-0 text-center">
+                <p className="font-serif text-base text-[#3D421F]">
+                  {monthLabel ?? "Payroll month"}
+                </p>
+                <p className="text-[11px] tabular-nums text-black/40">
+                  {periodLabel}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Next payroll month"
+                disabled={loading}
+                onClick={() => onNavigateMonth?.(1)}
+                className="inline-flex size-9 items-center justify-center rounded-md border border-black/10 text-[#3D421F] transition hover:bg-black/[0.04] disabled:opacity-40"
+              >
+                <ChevronRight className="size-4" aria-hidden />
+              </button>
             </div>
-            <div className="grid grid-cols-7 gap-1">
-              {cells.map((cell) => {
-                const day = byDate.get(cell.key);
-                const visual = classifyDay(day, cell.inPeriod);
-                const style = DAY_STYLES[visual];
-                return (
-                  <div
-                    key={cell.key}
-                    title={dayTooltip(day, visual, cell.key)}
-                    className={cn(
-                      "flex min-h-12 flex-col items-center justify-center rounded-md border px-0.5 py-1 text-xs tabular-nums",
-                      style.cell,
-                      cell.inPeriod && "ring-1 ring-inset ring-black/5",
-                    )}
-                  >
-                    {cell.showMonthLabel ? (
-                      <span className="text-[8px] font-medium uppercase leading-none opacity-80">
-                        {MONTH_SHORT[cell.monthIndex]}
-                      </span>
-                    ) : null}
-                    <span className="leading-none">{cell.day}</span>
-                    {cell.inPeriod && day?.isLeave && day.labelCode ? (
-                      <span className="mt-0.5 max-w-full truncate text-[8px] leading-none opacity-90">
-                        {day.labelCode}
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {dayFractions.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-black/15 px-3 py-4 text-center text-sm text-black/45">
-              No day-level roster data on this payroll run yet. Recalculate the
-              run after attendance is validated.
-            </p>
           ) : null}
+
+          {loading ? (
+            <p className="rounded-lg border border-dashed border-black/15 px-3 py-8 text-center text-sm text-black/45">
+              Loading schedule…
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-black/55">
+                {(
+                  [
+                    "worked",
+                    "paid_leave",
+                    "half_pay_leave",
+                    "unpaid_leave",
+                    "off",
+                    "unpaid",
+                  ] as DayVisual[]
+                ).map((key) => (
+                  <span key={key} className="inline-flex items-center gap-1.5">
+                    <span
+                      className={cn("size-2.5 rounded-sm", DAY_STYLES[key].legend)}
+                    />
+                    {DAY_STYLES[key].label}
+                    {counts[key] != null ? (
+                      <span className="tabular-nums text-black/35">
+                        ({counts[key]})
+                      </span>
+                    ) : null}
+                  </span>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-medium uppercase tracking-wide text-black/40">
+                  {WEEKDAYS.map((d) => (
+                    <div key={d} className="py-1">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {cells.map((cell) => {
+                    const day = byDate.get(cell.key);
+                    const visual = classifyDay(day, cell.inPeriod);
+                    const style = DAY_STYLES[visual];
+                    return (
+                      <div
+                        key={cell.key}
+                        title={dayTooltip(day, visual, cell.key)}
+                        className={cn(
+                          "flex min-h-12 flex-col items-center justify-center rounded-md border px-0.5 py-1 text-xs tabular-nums",
+                          style.cell,
+                          cell.inPeriod && "ring-1 ring-inset ring-black/5",
+                        )}
+                      >
+                        {cell.showMonthLabel ? (
+                          <span className="text-[8px] font-medium uppercase leading-none opacity-80">
+                            {MONTH_SHORT[cell.monthIndex]}
+                          </span>
+                        ) : null}
+                        <span className="leading-none">{cell.day}</span>
+                        {cell.inPeriod && day?.isLeave && day.labelCode ? (
+                          <span className="mt-0.5 max-w-full truncate text-[8px] leading-none opacity-90">
+                            {day.labelCode}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {dayFractions.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-black/15 px-3 py-4 text-center text-sm text-black/45">
+                  No day-level roster data for this payroll period yet.
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
 
         <div className="flex justify-end border-t border-black/8 px-4 py-3">

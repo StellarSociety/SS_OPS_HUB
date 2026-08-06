@@ -1793,6 +1793,8 @@ export function StaffEntryForm({
       currentPositionId={value.position_id}
       currentWagePackage={value.wage_package}
       currentCompanyAccommodation={value.company_accommodation}
+      currentVisaStatus={value.visa_status}
+      currentVisaExpiry={value.visa_expiry}
       salaryPct={salaryPct}
       onPositionSalaryApplied={(patch) => {
         onChange(patch);

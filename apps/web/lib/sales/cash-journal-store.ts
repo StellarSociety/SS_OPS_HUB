@@ -36,11 +36,13 @@ export async function upsertVenueCashJournal(
   payload: {
     id?: string;
     sale_date: string;
-    open_till_gs: number;
+    /** Null keeps Daily Snap as the source of truth for this till amount. */
+    open_till_gs: number | null;
     cash_withdraw_gs: number;
     cash_expenses_gs: number;
     cash_deposit_gs: number;
-    closing_till_gs: number;
+    /** Null keeps Daily Snap as the source of truth for this till amount. */
+    closing_till_gs: number | null;
     comments: string;
   },
 ): Promise<VenueCashJournalRecord> {

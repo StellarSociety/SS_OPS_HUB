@@ -168,6 +168,16 @@ export function formatPayrollMonthLabel(payrollMonth: string): string {
   });
 }
 
+/** Shift a payroll month key (YYYY-MM-01 or YYYY-MM) by N calendar months. */
+export function shiftPayrollMonth(
+  payrollMonth: string,
+  deltaMonths: number,
+): string {
+  const { year, month } = parsePayrollMonth(payrollMonth);
+  const d = new Date(Date.UTC(year, month - 1 + deltaMonths, 1));
+  return payrollMonthKey(d.getUTCFullYear(), d.getUTCMonth() + 1);
+}
+
 /**
  * Which named payroll month contains an ISO work date, given venue period
  * settings (e.g. 25→24 cross-month windows).

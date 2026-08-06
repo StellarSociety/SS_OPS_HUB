@@ -25,6 +25,12 @@ import { cn } from "@/lib/utils";
 const fieldClass =
   "h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20";
 
+const VISA_STATUS_OPTIONS = [
+  "Visa Self Owned",
+  "Visa Provided",
+  "Visa Pending",
+] as const;
+
 /** Snap any ISO date to the first day of its calendar month. */
 function toMonthStartIso(iso: string): string {
   const m = /^(\d{4})-(\d{2})/.exec(iso.trim());
@@ -52,27 +58,37 @@ type StaffEmploymentPathPositionSalaryProps = {
   currentPositionId: string;
   currentWagePackage: string;
   currentCompanyAccommodation: string;
+  currentVisaStatus?: string;
+  currentVisaExpiry?: string;
   salaryPct: SalaryPercentages;
   onApplied?: (patch: {
     department_id: string;
     position_id: string;
     wage_package: string;
     company_accommodation: string;
+    visa_status?: string;
+    visa_expiry?: string;
   }) => void;
   /** Open edit dialog for this change id once items are loaded. */
   openEditChangeId?: string | null;
   onOpenEditChangeIdConsumed?: () => void;
 };
 
-function kindLabel(kind: StaffPositionSalaryChangeItem["changeKind"]) {
-  switch (kind) {
-    case "position":
-      return "Position";
-    case "salary":
-      return "Salary";
-    case "both":
-      return "Position & salary";
-  }
+function kindLabel(
+  kind: StaffPositionSalaryChangeItem["changeKind"],
+  changeVisa: boolean,
+) {
+  const base =
+    kind === "position"
+      ? "Position"
+      : kind === "salary"
+        ? "Salary"
+        : kind === "both"
+          ? "Position & salary"
+          : "Visa";
+  if (kind === "visa") return base;
+  if (changeVisa) return `${base} · Visa`;
+  return base;
 }
 
 function kindBadgeClass(kind: StaffPositionSalaryChangeItem["changeKind"]) {
@@ -83,6 +99,8 @@ function kindBadgeClass(kind: StaffPositionSalaryChangeItem["changeKind"]) {
       return "border-emerald-200/80 bg-emerald-50 text-emerald-950";
     case "both":
       return "border-[var(--venue-primary)]/25 bg-[var(--venue-primary)]/10 text-[#3D421F]";
+    case "visa":
+      return "border-amber-200/80 bg-amber-50 text-amber-950";
   }
 }
 
@@ -140,7 +158,7 @@ function ChangePathRow({
                 kindBadgeClass(item.changeKind),
               )}
             >
-              {kindLabel(item.changeKind)}
+              {kindLabel(item.changeKind, item.changeVisa)}
             </span>
           </div>
           {canEdit && onEdit ? (
@@ -206,6 +224,27 @@ function ChangePathRow({
           <p className="mt-1.5 text-sm text-black/45">Salary updated</p>
         ) : null}
 
+        {item.changeVisa ? (
+          <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-[#3D421F]">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/40">
+              Visa
+            </span>
+            <span className="text-black/55">
+              {item.fromVisaStatus || "—"}
+              {item.fromVisaExpiry
+                ? ` · ${formatDateOnly(item.fromVisaExpiry)}`
+                : ""}
+            </span>
+            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-black/30" />
+            <span className="font-medium">
+              {item.toVisaStatus || "—"}
+              {item.toVisaExpiry
+                ? ` · ${formatDateOnly(item.toVisaExpiry)}`
+                : ""}
+            </span>
+          </p>
+        ) : null}
+
         {item.reason.trim() ? (
           <p className="mt-2 text-xs text-black/50">
             <span className="font-medium text-black/55">Reason:</span>{" "}
@@ -231,6 +270,8 @@ function AlterationDialog({
   currentPositionId,
   currentWagePackage,
   currentCompanyAccommodation,
+  currentVisaStatus,
+  currentVisaExpiry,
   salaryPct,
   editingItem = null,
   onSaved,
@@ -245,6 +286,8 @@ function AlterationDialog({
   currentPositionId: string;
   currentWagePackage: string;
   currentCompanyAccommodation: string;
+  currentVisaStatus: string;
+  currentVisaExpiry: string;
   salaryPct: SalaryPercentages;
   editingItem?: StaffPositionSalaryChangeItem | null;
   onSaved: (result: {
@@ -254,12 +297,15 @@ function AlterationDialog({
       position_id: string;
       wage_package: string;
       company_accommodation: string;
+      visa_status?: string;
+      visa_expiry?: string;
     };
   }) => void;
 }) {
   const isEdit = Boolean(editingItem);
   const [changePosition, setChangePosition] = useState(false);
   const [changeSalary, setChangeSalary] = useState(false);
+  const [changeVisa, setChangeVisa] = useState(false);
   const [effectiveDate, setEffectiveDate] = useState("");
   const [departmentId, setDepartmentId] = useState(currentDepartmentId);
   const [positionId, setPositionId] = useState(currentPositionId);
@@ -267,6 +313,8 @@ function AlterationDialog({
   const [companyAccommodation, setCompanyAccommodation] = useState(
     currentCompanyAccommodation || "No",
   );
+  const [visaStatus, setVisaStatus] = useState(currentVisaStatus);
+  const [visaExpiry, setVisaExpiry] = useState(currentVisaExpiry);
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [pending, startTransition] = useTransition();
@@ -282,6 +330,10 @@ function AlterationDialog({
     editingItem?.fromCompanyAccommodation ||
     currentCompanyAccommodation ||
     "No";
+  const baselineVisaStatus =
+    editingItem?.fromVisaStatus ?? currentVisaStatus;
+  const baselineVisaExpiry =
+    editingItem?.fromVisaExpiry ?? currentVisaExpiry;
 
   useEffect(() => {
     if (!open) return;
@@ -294,6 +346,7 @@ function AlterationDialog({
         editingItem.changeKind === "salary" ||
           editingItem.changeKind === "both",
       );
+      setChangeVisa(editingItem.changeVisa || editingItem.changeKind === "visa");
       setEffectiveDate(editingItem.effectiveDate);
       setDepartmentId(editingItem.toDepartmentId ?? "");
       setPositionId(editingItem.toPositionId ?? "");
@@ -303,17 +356,22 @@ function AlterationDialog({
           : "",
       );
       setCompanyAccommodation(editingItem.toCompanyAccommodation || "No");
+      setVisaStatus(editingItem.toVisaStatus ?? currentVisaStatus);
+      setVisaExpiry(editingItem.toVisaExpiry ?? currentVisaExpiry);
       setReason(editingItem.reason);
       setNotes(editingItem.notes ?? "");
       return;
     }
     setChangePosition(false);
     setChangeSalary(canViewSalary);
+    setChangeVisa(false);
     setEffectiveDate("");
     setDepartmentId(currentDepartmentId);
     setPositionId(currentPositionId);
     setWagePackage(currentWagePackage);
     setCompanyAccommodation(currentCompanyAccommodation || "No");
+    setVisaStatus(currentVisaStatus);
+    setVisaExpiry(currentVisaExpiry);
     setReason("");
     setNotes("");
   }, [
@@ -324,6 +382,8 @@ function AlterationDialog({
     currentPositionId,
     currentWagePackage,
     currentCompanyAccommodation,
+    currentVisaStatus,
+    currentVisaExpiry,
   ]);
 
   const positionsForDept = useMemo(
@@ -348,7 +408,7 @@ function AlterationDialog({
 
   const canSubmit =
     Boolean(effectiveDate.trim()) &&
-    (changePosition || salaryChangeActive) &&
+    (changePosition || salaryChangeActive || changeVisa) &&
     (!requireMonthStart || /^\d{4}-\d{2}-01$/.test(effectiveDate));
 
   if (!open || typeof document === "undefined") return null;
@@ -364,8 +424,8 @@ function AlterationDialog({
       );
       return;
     }
-    if (!changePosition && !salaryChangeActive) {
-      toast.error("Choose a position and/or salary change.");
+    if (!changePosition && !salaryChangeActive && !changeVisa) {
+      toast.error("Choose a position, salary, and/or visa change.");
       return;
     }
     startTransition(async () => {
@@ -376,10 +436,13 @@ function AlterationDialog({
           : effectiveDate,
         changePosition,
         changeSalary: salaryChangeActive,
+        changeVisa,
         toDepartmentId: departmentId || null,
         toPositionId: positionId || null,
         toWagePackage: wageNum,
         toCompanyAccommodation: companyAccommodation,
+        toVisaStatus: visaStatus || null,
+        toVisaExpiry: visaExpiry || null,
         reason,
         notes,
       };
@@ -508,10 +571,20 @@ function AlterationDialog({
                 Salary update
               </label>
             ) : null}
+            <label className="inline-flex items-center gap-2 text-[#3D421F]">
+              <input
+                type="checkbox"
+                checked={changeVisa}
+                onChange={(e) => setChangeVisa(e.target.checked)}
+                className="size-4 rounded border-black/20"
+              />
+              Visa update
+            </label>
           </div>
           <p className="text-xs text-black/40">
             Salary-only increments keep the current role. Position-only moves
-            keep the current package.
+            keep the current package. Visa can be updated on its own or with
+            either change.
           </p>
 
           {changePosition ? (
@@ -654,6 +727,51 @@ function AlterationDialog({
             </div>
           ) : null}
 
+          {changeVisa ? (
+            <div className="space-y-3 rounded-lg border border-black/8 bg-black/[0.02] p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+                New visa
+              </p>
+              <p className="text-xs text-black/45">
+                Current:{" "}
+                <span className="text-[#3D421F]">
+                  {baselineVisaStatus || "—"}
+                  {baselineVisaExpiry
+                    ? ` · ${formatDateOnly(baselineVisaExpiry)}`
+                    : ""}
+                </span>
+              </p>
+              <label className="block space-y-1 text-sm">
+                <span className="text-xs font-medium text-black/55">
+                  Visa status
+                </span>
+                <select
+                  value={visaStatus}
+                  onChange={(e) => setVisaStatus(e.target.value)}
+                  className={fieldClass}
+                >
+                  <option value="">—</option>
+                  {VISA_STATUS_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span className="text-xs font-medium text-black/55">
+                  Visa expiry
+                </span>
+                <DateInput
+                  value={visaExpiry}
+                  onChange={setVisaExpiry}
+                  className="w-full"
+                  inputClassName={fieldClass}
+                />
+              </label>
+            </div>
+          ) : null}
+
           <label className="block space-y-1 text-sm">
             <span className="text-xs font-medium text-black/55">
               Reason (optional)
@@ -716,6 +834,8 @@ export function StaffEmploymentPathPositionSalary({
   currentPositionId,
   currentWagePackage,
   currentCompanyAccommodation,
+  currentVisaStatus = "",
+  currentVisaExpiry = "",
   salaryPct,
   onApplied,
   openEditChangeId = null,
@@ -851,7 +971,7 @@ export function StaffEmploymentPathPositionSalary({
               </ul>
             ) : null}
             <p className="text-sm text-black/45">
-              No position or salary alterations recorded yet.
+              No position, salary, or visa alterations recorded yet.
             </p>
           </div>
         ) : null}
@@ -904,6 +1024,8 @@ export function StaffEmploymentPathPositionSalary({
           currentPositionId={currentPositionId}
           currentWagePackage={currentWagePackage}
           currentCompanyAccommodation={currentCompanyAccommodation}
+          currentVisaStatus={currentVisaStatus}
+          currentVisaExpiry={currentVisaExpiry}
           salaryPct={salaryPct}
           editingItem={editingItem}
           onSaved={({ item, staffPatch }) => {

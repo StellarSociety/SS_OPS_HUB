@@ -53,12 +53,16 @@ type StaffEmploymentPathProps = {
   currentPositionId?: string;
   currentWagePackage?: string;
   currentCompanyAccommodation?: string;
+  currentVisaStatus?: string;
+  currentVisaExpiry?: string;
   salaryPct?: SalaryPercentages;
   onPositionSalaryApplied?: (patch: {
     department_id: string;
     position_id: string;
     wage_package: string;
     company_accommodation: string;
+    visa_status?: string;
+    visa_expiry?: string;
   }) => void;
   className?: string;
 };
@@ -172,15 +176,31 @@ function PathOverview({
                   ) : null}
                 </div>
                 <p className="mt-1 text-sm text-[#3D421F]">
-                  {item.changeKind === "salary"
-                    ? "Salary update"
-                    : item.changeKind === "both"
-                      ? "Position & salary change"
-                      : "Position change"}
+                  {item.changeKind === "visa"
+                    ? "Visa update"
+                    : item.changeKind === "salary"
+                      ? "Salary update"
+                      : item.changeKind === "both"
+                        ? "Position & salary change"
+                        : "Position change"}
+                  {item.changeVisa && item.changeKind !== "visa"
+                    ? " · Visa"
+                    : ""}
                   {showPosition && item.toPositionName
                     ? ` → ${item.toPositionName}`
                     : ""}
                 </p>
+                {item.changeVisa ? (
+                  <p className="mt-1 text-xs text-black/50">
+                    Visa{" "}
+                    <span className="font-semibold text-[#3D421F]">
+                      {item.toVisaStatus || "—"}
+                    </span>
+                    {item.toVisaExpiry
+                      ? ` · ${formatDateOnly(item.toVisaExpiry)}`
+                      : ""}
+                  </p>
+                ) : null}
                 {canViewSalary && showSalary && item.toWagePackage != null ? (
                   <p className="mt-1 text-xs text-black/50">
                     Package{" "}
@@ -256,6 +276,8 @@ export function StaffEmploymentPath({
   currentPositionId = "",
   currentWagePackage = "",
   currentCompanyAccommodation = "No",
+  currentVisaStatus = "",
+  currentVisaExpiry = "",
   salaryPct = { basic: 60, accom: 25, transp: 15 },
   onPositionSalaryApplied,
   className,
@@ -317,6 +339,8 @@ export function StaffEmploymentPath({
           currentPositionId={currentPositionId}
           currentWagePackage={currentWagePackage}
           currentCompanyAccommodation={currentCompanyAccommodation}
+          currentVisaStatus={currentVisaStatus}
+          currentVisaExpiry={currentVisaExpiry}
           salaryPct={salaryPct}
           onApplied={onPositionSalaryApplied}
           openEditChangeId={editFromPathId}

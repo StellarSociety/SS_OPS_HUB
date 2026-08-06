@@ -21,12 +21,13 @@ import { getHrVenueSetting } from "@/lib/hr/store";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type PositionSalaryChangeKind = "position" | "salary" | "both";
+export type PositionSalaryChangeKind = "position" | "salary" | "both" | "visa";
 
 export type StaffPositionSalaryChangeItem = {
   id: string;
   effectiveDate: string;
   changeKind: PositionSalaryChangeKind;
+  changeVisa: boolean;
   fromDepartmentId: string | null;
   toDepartmentId: string | null;
   fromPositionId: string | null;
@@ -39,6 +40,10 @@ export type StaffPositionSalaryChangeItem = {
   toWagePackage: number | null;
   fromCompanyAccommodation: string | null;
   toCompanyAccommodation: string | null;
+  fromVisaStatus: string | null;
+  toVisaStatus: string | null;
+  fromVisaExpiry: string | null;
+  toVisaExpiry: string | null;
   reason: string;
   notes: string | null;
   createdAt: string;
@@ -49,10 +54,13 @@ export type CreatePositionSalaryChangeInput = {
   effectiveDate: string;
   changePosition: boolean;
   changeSalary: boolean;
+  changeVisa?: boolean;
   toDepartmentId: string | null;
   toPositionId: string | null;
   toWagePackage: number | null;
   toCompanyAccommodation: string | null;
+  toVisaStatus?: string | null;
+  toVisaExpiry?: string | null;
   reason: string;
   notes?: string | null;
 };
@@ -66,6 +74,8 @@ export type CreatePositionSalaryChangeResult =
         position_id: string;
         wage_package: string;
         company_accommodation: string;
+        visa_status?: string;
+        visa_expiry?: string;
       };
     }
   | { ok: false; error: string };
@@ -85,6 +95,18 @@ function numOrNull(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseOptionalIsoDate(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return parseIsoDate(trimmed);
+}
+
+function normalizeVisaStatus(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed || null;
+}
+
 function mapChangeRow(
   row: Record<string, unknown>,
   names: {
@@ -97,10 +119,17 @@ function mapChangeRow(
   const fromPos = (row.from_position_id as string | null) ?? null;
   const toPos = (row.to_position_id as string | null) ?? null;
   const kind = row.change_kind as PositionSalaryChangeKind;
+  const fromVisaExpiry = row.from_visa_expiry
+    ? String(row.from_visa_expiry).slice(0, 10)
+    : null;
+  const toVisaExpiry = row.to_visa_expiry
+    ? String(row.to_visa_expiry).slice(0, 10)
+    : null;
   return {
     id: row.id as string,
     effectiveDate: String(row.effective_date).slice(0, 10),
     changeKind: kind,
+    changeVisa: Boolean(row.change_visa) || kind === "visa",
     fromDepartmentId: fromDept,
     toDepartmentId: toDept,
     fromPositionId: fromPos,
@@ -117,6 +146,10 @@ function mapChangeRow(
       (row.from_company_accommodation as string | null) ?? null,
     toCompanyAccommodation:
       (row.to_company_accommodation as string | null) ?? null,
+    fromVisaStatus: (row.from_visa_status as string | null) ?? null,
+    toVisaStatus: (row.to_visa_status as string | null) ?? null,
+    fromVisaExpiry,
+    toVisaExpiry,
     reason: String(row.reason ?? ""),
     notes: (row.notes as string | null) ?? null,
     createdAt: row.created_at as string,
@@ -209,8 +242,12 @@ export async function createStaffPositionSalaryChange(
 
   const changePosition = Boolean(input.changePosition);
   const changeSalary = Boolean(input.changeSalary);
-  if (!changePosition && !changeSalary) {
-    return { ok: false, error: "Choose a position and/or salary change." };
+  const changeVisa = Boolean(input.changeVisa);
+  if (!changePosition && !changeSalary && !changeVisa) {
+    return {
+      ok: false,
+      error: "Choose a position, salary, and/or visa change.",
+    };
   }
 
   if (changeSalary && !/^\d{4}-\d{2}-01$/.test(effectiveDate)) {
@@ -226,7 +263,7 @@ export async function createStaffPositionSalaryChange(
   const { data: before, error: loadError } = await supabase
     .from("staff")
     .select(
-      "id, created_by, department_id, position_id, wage_package, basic_salary_60, accom_all_25, transp_all_15, company_accommodation, home_venue_id",
+      "id, created_by, department_id, position_id, wage_package, basic_salary_60, accom_all_25, transp_all_15, company_accommodation, visa_status, visa_expiry, home_venue_id",
     )
     .eq("id", staffId)
     .eq("home_venue_id", venue.id)
@@ -259,6 +296,12 @@ export async function createStaffPositionSalaryChange(
   const fromTransp = numOrNull(before.transp_all_15);
   const fromAccomFlag =
     (before.company_accommodation as string | null)?.trim() || "No";
+  const fromVisaStatus = normalizeVisaStatus(
+    before.visa_status as string | null,
+  );
+  const fromVisaExpiry = before.visa_expiry
+    ? String(before.visa_expiry).slice(0, 10)
+    : null;
 
   let toDepartmentId = fromDepartmentId;
   let toPositionId = fromPositionId;
@@ -267,6 +310,8 @@ export async function createStaffPositionSalaryChange(
   let toAccom = fromAccom;
   let toTransp = fromTransp;
   let toAccomFlag = fromAccomFlag;
+  let toVisaStatus = fromVisaStatus;
+  let toVisaExpiry = fromVisaExpiry;
 
   if (changePosition) {
     toDepartmentId = input.toDepartmentId?.trim() || null;
@@ -306,14 +351,35 @@ export async function createStaffPositionSalaryChange(
     toTransp = breakdown.transp;
   }
 
+  if (changeVisa) {
+    toVisaStatus = normalizeVisaStatus(input.toVisaStatus);
+    toVisaExpiry = parseOptionalIsoDate(input.toVisaExpiry);
+    if (input.toVisaExpiry?.trim() && !toVisaExpiry) {
+      return { ok: false, error: "Enter a valid visa expiry date." };
+    }
+  }
+
   const positionActuallyChanged =
     changePosition &&
     (toDepartmentId !== fromDepartmentId || toPositionId !== fromPositionId);
   const salaryActuallyChanged =
     changeSalary &&
     (toWage !== fromWage || toAccomFlag !== fromAccomFlag);
+  const visaActuallyChanged =
+    changeVisa &&
+    (toVisaStatus !== fromVisaStatus || toVisaExpiry !== fromVisaExpiry);
 
-  if (!positionActuallyChanged && !salaryActuallyChanged) {
+  if (
+    !positionActuallyChanged &&
+    !salaryActuallyChanged &&
+    !visaActuallyChanged
+  ) {
+    if (changeVisa && !changePosition && !changeSalary) {
+      return {
+        ok: false,
+        error: "Update visa status or expiry, or turn off Visa update.",
+      };
+    }
     if (changePosition && changeSalary) {
       return {
         ok: false,
@@ -333,24 +399,31 @@ export async function createStaffPositionSalaryChange(
         error: "Enter a different salary, or turn off Salary update.",
       };
     }
-    return { ok: false, error: "Choose a position and/or salary change." };
+    return {
+      ok: false,
+      error: "Choose a position, salary, and/or visa change.",
+    };
   }
 
   const applyPosition = positionActuallyChanged;
   const applySalary = salaryActuallyChanged;
+  const applyVisa = visaActuallyChanged;
 
   const changeKind: PositionSalaryChangeKind =
-    applyPosition && applySalary
-      ? "both"
-      : applyPosition
-        ? "position"
-        : "salary";
+    !applyPosition && !applySalary && applyVisa
+      ? "visa"
+      : applyPosition && applySalary
+        ? "both"
+        : applyPosition
+          ? "position"
+          : "salary";
 
   const insertRow = {
     venue_id: venue.id,
     staff_id: staffId,
     effective_date: effectiveDate,
     change_kind: changeKind,
+    change_visa: applyVisa,
     from_department_id: fromDepartmentId,
     to_department_id: applyPosition ? toDepartmentId : fromDepartmentId,
     from_position_id: fromPositionId,
@@ -365,6 +438,10 @@ export async function createStaffPositionSalaryChange(
     to_transp_all_15: applySalary ? toTransp : fromTransp,
     from_company_accommodation: fromAccomFlag,
     to_company_accommodation: applySalary ? toAccomFlag : fromAccomFlag,
+    from_visa_status: fromVisaStatus,
+    to_visa_status: applyVisa ? toVisaStatus : fromVisaStatus,
+    from_visa_expiry: fromVisaExpiry,
+    to_visa_expiry: applyVisa ? toVisaExpiry : fromVisaExpiry,
     reason,
     notes: input.notes?.trim() || null,
     created_by: user.id,
@@ -397,6 +474,10 @@ export async function createStaffPositionSalaryChange(
     staffUpdates.transp_all_15 = toTransp;
     staffUpdates.company_accommodation = toAccomFlag;
   }
+  if (applyVisa) {
+    staffUpdates.visa_status = toVisaStatus;
+    staffUpdates.visa_expiry = toVisaExpiry;
+  }
 
   const { error: updateError } = await service
     .from("staff")
@@ -425,6 +506,8 @@ export async function createStaffPositionSalaryChange(
       position_id: fromPositionId,
       wage_package: fromWage,
       company_accommodation: fromAccomFlag,
+      visa_status: fromVisaStatus,
+      visa_expiry: fromVisaExpiry,
     },
     after: {
       ...insertRow,
@@ -458,6 +541,12 @@ export async function createStaffPositionSalaryChange(
             ? String(fromWage)
             : "",
       company_accommodation: applySalary ? toAccomFlag : fromAccomFlag,
+      ...(applyVisa
+        ? {
+            visa_status: toVisaStatus ?? "",
+            visa_expiry: toVisaExpiry ?? "",
+          }
+        : {}),
     },
   };
 }
@@ -482,8 +571,12 @@ export async function updateStaffPositionSalaryChange(
 
   const changePosition = Boolean(input.changePosition);
   const changeSalary = Boolean(input.changeSalary);
-  if (!changePosition && !changeSalary) {
-    return { ok: false, error: "Choose a position and/or salary change." };
+  const changeVisa = Boolean(input.changeVisa);
+  if (!changePosition && !changeSalary && !changeVisa) {
+    return {
+      ok: false,
+      error: "Choose a position, salary, and/or visa change.",
+    };
   }
 
   if (changeSalary && !/^\d{4}-\d{2}-01$/.test(effectiveDate)) {
@@ -515,7 +608,7 @@ export async function updateStaffPositionSalaryChange(
 
   const { data: staff, error: loadStaffError } = await supabase
     .from("staff")
-    .select("id, created_by")
+    .select("id, created_by, visa_status, visa_expiry")
     .eq("id", staffId)
     .eq("home_venue_id", venue.id)
     .maybeSingle();
@@ -544,6 +637,14 @@ export async function updateStaffPositionSalaryChange(
   const fromTransp = numOrNull(existing.from_transp_all_15);
   const fromAccomFlag =
     (existing.from_company_accommodation as string | null)?.trim() || "No";
+  const fromVisaStatus =
+    normalizeVisaStatus(existing.from_visa_status as string | null) ??
+    normalizeVisaStatus(staff.visa_status as string | null);
+  const fromVisaExpiry = existing.from_visa_expiry
+    ? String(existing.from_visa_expiry).slice(0, 10)
+    : staff.visa_expiry
+      ? String(staff.visa_expiry).slice(0, 10)
+      : null;
 
   let toDepartmentId = fromDepartmentId;
   let toPositionId = fromPositionId;
@@ -552,6 +653,8 @@ export async function updateStaffPositionSalaryChange(
   let toAccomAmt = fromAccomAmt;
   let toTransp = fromTransp;
   let toAccomFlag = fromAccomFlag;
+  let toVisaStatus = fromVisaStatus;
+  let toVisaExpiry = fromVisaExpiry;
 
   if (changePosition) {
     toDepartmentId = input.toDepartmentId?.trim() || null;
@@ -586,16 +689,31 @@ export async function updateStaffPositionSalaryChange(
     toTransp = breakdown.transp;
   }
 
+  if (changeVisa) {
+    toVisaStatus = normalizeVisaStatus(input.toVisaStatus);
+    toVisaExpiry = parseOptionalIsoDate(input.toVisaExpiry);
+    if (input.toVisaExpiry?.trim() && !toVisaExpiry) {
+      return { ok: false, error: "Enter a valid visa expiry date." };
+    }
+  }
+
+  const applyPosition = changePosition;
+  const applySalary = changeSalary;
+  const applyVisa = changeVisa;
+
   const changeKind: PositionSalaryChangeKind =
-    changePosition && changeSalary
-      ? "both"
-      : changePosition
-        ? "position"
-        : "salary";
+    !applyPosition && !applySalary && applyVisa
+      ? "visa"
+      : applyPosition && applySalary
+        ? "both"
+        : applyPosition
+          ? "position"
+          : "salary";
 
   const updateRow = {
     effective_date: effectiveDate,
     change_kind: changeKind,
+    change_visa: applyVisa,
     to_department_id: changePosition ? toDepartmentId : fromDepartmentId,
     to_position_id: changePosition ? toPositionId : fromPositionId,
     to_wage_package: changeSalary ? toWage : fromWage,
@@ -603,6 +721,10 @@ export async function updateStaffPositionSalaryChange(
     to_accom_all_25: changeSalary ? toAccomAmt : fromAccomAmt,
     to_transp_all_15: changeSalary ? toTransp : fromTransp,
     to_company_accommodation: changeSalary ? toAccomFlag : fromAccomFlag,
+    from_visa_status: fromVisaStatus,
+    to_visa_status: applyVisa ? toVisaStatus : fromVisaStatus,
+    from_visa_expiry: fromVisaExpiry,
+    to_visa_expiry: applyVisa ? toVisaExpiry : fromVisaExpiry,
     reason: input.reason.trim(),
     notes: input.notes?.trim() || null,
   };
@@ -647,6 +769,10 @@ export async function updateStaffPositionSalaryChange(
       staffUpdates.transp_all_15 = updateRow.to_transp_all_15;
       staffUpdates.company_accommodation = updateRow.to_company_accommodation;
     }
+    if (applyVisa) {
+      staffUpdates.visa_status = toVisaStatus;
+      staffUpdates.visa_expiry = toVisaExpiry;
+    }
     if (Object.keys(staffUpdates).length > 0) {
       const { error: staffError } = await service
         .from("staff")
@@ -690,6 +816,12 @@ export async function updateStaffPositionSalaryChange(
       wage_package:
         item.toWagePackage != null ? String(item.toWagePackage) : "",
       company_accommodation: item.toCompanyAccommodation || "No",
+      ...(applyVisa && latest?.id === changeId
+        ? {
+            visa_status: toVisaStatus ?? "",
+            visa_expiry: toVisaExpiry ?? "",
+          }
+        : {}),
     },
   };
 }

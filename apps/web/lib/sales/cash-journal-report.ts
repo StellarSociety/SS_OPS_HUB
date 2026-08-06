@@ -4,6 +4,7 @@ import {
   getWeekDayLabel,
 } from "@/lib/sales/daily-sales-calculations";
 import {
+  coalesceCashJournalTillAmount,
   computeCashJournalBalance,
   type CashJournalBalanceInput,
 } from "@/lib/sales/cash-journal-calculations";
@@ -119,19 +120,19 @@ export function mergeCashJournalSyncedRecords(input: {
       const drawer = drawerByDate.get(sale_date);
       return {
         sale_date,
-        openTillGs:
-          journal?.open_till_gs != null
-            ? Number(journal.open_till_gs)
-            : Number(drawer?.cash_drawer_opening_gs ?? 0),
+        openTillGs: coalesceCashJournalTillAmount(
+          journal?.open_till_gs,
+          Number(drawer?.cash_drawer_opening_gs ?? 0),
+        ),
         cashWithdrawGs: Number(journal?.cash_withdraw_gs ?? 0),
         totalCashSalesGs: cashSalesByDate.get(sale_date) ?? 0,
         cashGratuityGs: cashGratuityByDate.get(sale_date) ?? 0,
         cashExpensesGs: Number(journal?.cash_expenses_gs ?? 0),
         cashDepositGs: Number(journal?.cash_deposit_gs ?? 0),
-        closingTillGs:
-          journal?.closing_till_gs != null
-            ? Number(journal.closing_till_gs)
-            : Number(drawer?.cash_drawer_closing_gs ?? 0),
+        closingTillGs: coalesceCashJournalTillAmount(
+          journal?.closing_till_gs,
+          Number(drawer?.cash_drawer_closing_gs ?? 0),
+        ),
         comments: String(journal?.comments ?? "").trim(),
       };
     });

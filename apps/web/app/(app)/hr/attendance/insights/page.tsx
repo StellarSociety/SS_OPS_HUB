@@ -1,80 +1,107 @@
 import { AttendanceInsightsPanel } from "@/components/hr/attendance-insights-panel";
-import { AttendanceMonthUrlPicker } from "@/components/hr/attendance-month-url-picker";
 import {
-  formatMonthKeyLabel,
-  monthKeysFromSearchParams,
   rangeForMonthKeys,
   resolveFetchMonthKeys,
 } from "@/lib/hr/attendance-months";
-import {
-  hrFiltersStorageKey,
-  HR_ATTENDANCE_MONTHS_KEY,
-  parseAttendanceMonthKeysCookie,
-} from "@/lib/hr/hr-filters-storage";
+import { isOutEmploymentStatus } from "@/lib/hr/employment-status";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
+  mergePayrollSettings,
+  type HrPayrollSettings,
+} from "@/lib/hr/payroll";
+import {
+  getHrVenueSetting,
   listAttendanceDays,
   listAttendanceMonths,
+  listScheduleDaysByDateRange,
   listStaffForVenue,
 } from "@/lib/hr/store";
-import { cookies } from "next/headers";
+import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
 
-type Props = {
-  searchParams: Promise<{ month?: string; months?: string }>;
-};
-
-export default async function AttendanceInsightsPage({ searchParams }: Props) {
+export default async function AttendanceInsightsPage() {
   const { supabase, venue } = await getHrPageContext();
-  const params = await searchParams;
-  const fromUrl = monthKeysFromSearchParams(params);
-  const cookieStore = await cookies();
-  const fromCookie = parseAttendanceMonthKeysCookie(
-    cookieStore.get(hrFiltersStorageKey(HR_ATTENDANCE_MONTHS_KEY, venue.slug))
-      ?.value,
-  );
-  const selectedMonthKeys = fromUrl.length > 0 ? fromUrl : fromCookie;
 
-  const [staff, months] = await Promise.all([
+  const [staff, months, payrollRaw] = await Promise.all([
     listStaffForVenue(supabase, venue.id),
     listAttendanceMonths(supabase, venue.id),
+    getHrVenueSetting<Partial<HrPayrollSettings>>(
+      supabase,
+      venue.id,
+      HR_SETTINGS_KEYS.payroll,
+      {},
+    ),
   ]);
 
+  const payrollSettings = mergePayrollSettings(payrollRaw);
   const fetchMonthKeys = resolveFetchMonthKeys(
-    selectedMonthKeys,
+    [],
     months.map((m) => m.month_key),
   );
   const range = rangeForMonthKeys(fetchMonthKeys);
 
-  const days = await listAttendanceDays(supabase, venue.id, {
-    fromDate: range.fromDate,
-    toDate: range.toDate,
-    limit: 5000,
-  });
+  const [days, scheduleDays] = await Promise.all([
+    listAttendanceDays(supabase, venue.id, {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      limit: 5000,
+    }),
+    listScheduleDaysByDateRange(supabase, venue.id, {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+    }),
+  ]);
 
   const staffByEmp: Record<
     string,
     {
+      id: string;
       emp_no: string;
       full_name: string;
       department_id: string | null;
       department_name: string | null;
+      employment_status: string | null;
+      working_status: string | null;
+      termination_date: string | null;
     }
   > = {};
+  const outEmpNos = new Set<string>();
+  const includedStaffIds = new Set<string>();
   for (const s of staff) {
-    staffByEmp[s.emp_no.trim().toLowerCase()] = {
+    const key = s.emp_no.trim().toLowerCase();
+    if (isOutEmploymentStatus(s.employment_status?.name)) {
+      outEmpNos.add(key);
+      continue;
+    }
+    includedStaffIds.add(s.id);
+    staffByEmp[key] = {
+      id: s.id,
       emp_no: s.emp_no,
       full_name: s.full_name,
       department_id: s.department_id,
       department_name: s.department?.name ?? null,
+      employment_status: s.employment_status?.name ?? null,
+      working_status: s.working_status?.name ?? null,
+      termination_date: s.termination_date,
     };
   }
 
-  const monthLabel =
-    selectedMonthKeys.length === 0
-      ? "all loaded months"
-      : selectedMonthKeys.length === 1
-        ? formatMonthKeyLabel(selectedMonthKeys[0]!)
-        : `${selectedMonthKeys.length} months`;
+  const visibleDays = days.filter(
+    (day) => !outEmpNos.has(day.emp_no.trim().toLowerCase()),
+  );
+
+  const scheduleDaysByStaffId: Record<
+    string,
+    Array<{ workDate: string; labelCode: string }>
+  > = {};
+  for (const day of scheduleDays) {
+    if (!includedStaffIds.has(day.staff_id)) continue;
+    const code = day.label_code?.trim();
+    if (!code) continue;
+    const list = scheduleDaysByStaffId[day.staff_id] ?? [];
+    list.push({ workDate: day.work_date, labelCode: code });
+    scheduleDaysByStaffId[day.staff_id] = list;
+  }
+
   const availableHint =
     months.length > 0
       ? `${months[months.length - 1]?.month_key} → ${months[0]?.month_key}`
@@ -82,23 +109,22 @@ export default async function AttendanceInsightsPage({ searchParams }: Props) {
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="font-serif text-lg text-[#3D421F]">Insights</h2>
-          <p className="text-sm text-black/55">
-            Hours worked and punch completeness by staff for {monthLabel}
-            {availableHint ? ` (indexed ${availableHint})` : ""}. Months are
-            optional — week/day filters apply within the loaded slice.
-          </p>
-        </div>
-        <AttendanceMonthUrlPicker selectedMonthKeys={selectedMonthKeys} />
+      <div>
+        <h2 className="font-serif text-lg text-[#3D421F]">Insights</h2>
+        <p className="text-sm text-black/55">
+          Hours worked and punch completeness by staff
+          {availableHint ? ` (indexed ${availableHint})` : ""}. Use payroll,
+          week, or day filters within the loaded slice.
+        </p>
       </div>
       <AttendanceInsightsPanel
-        key={selectedMonthKeys.join(",") || "any"}
-        days={days}
+        days={visibleDays}
         staffByEmp={staffByEmp}
-        defaultMonthKeys={selectedMonthKeys}
-        monthPickerInParent
+        scheduleDaysByStaffId={scheduleDaysByStaffId}
+        loadedFromDate={range.fromDate}
+        loadedToDate={range.toDate}
+        payrollPeriodStartDay={payrollSettings.periodStartDay}
+        payrollPeriodEndDay={payrollSettings.periodEndDay}
       />
     </section>
   );

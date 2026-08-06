@@ -434,6 +434,44 @@ function MonthSection({
                     ))
                   )}
                 </tbody>
+                {month.weeks.length > 0 ? (
+                  <tfoot>
+                    <tr className="border-t-2 border-black/10 bg-black/[0.03] font-semibold text-[#3D421F]">
+                      <td className="px-2 py-2.5">Total</td>
+                      <td className="px-2 py-2.5 tabular-nums">
+                        {month.fiscalWeekCount} weeks
+                      </td>
+                      <td className="px-2 py-2.5 tabular-nums">
+                        {formatMoney(month.forecastGs)}
+                      </td>
+                      <td className="px-2 py-2.5 tabular-nums">
+                        {formatMoney(month.actualGs)}
+                      </td>
+                      <td
+                        className={cn(
+                          "px-2 py-2.5 tabular-nums",
+                          varianceClass(month.revenueVariancePct),
+                        )}
+                      >
+                        {formatVariancePct(month.revenueVariancePct)}
+                      </td>
+                      <td className="px-2 py-2.5 tabular-nums">
+                        {month.forecastCovers.toLocaleString()}
+                      </td>
+                      <td className="px-2 py-2.5 tabular-nums">
+                        {month.actualCovers.toLocaleString()}
+                      </td>
+                      <td
+                        className={cn(
+                          "px-2 py-2.5 tabular-nums",
+                          varianceClass(month.coversVariancePct),
+                        )}
+                      >
+                        {formatVariancePct(month.coversVariancePct)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                ) : null}
               </table>
             </div>
           </div>
