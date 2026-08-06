@@ -145,6 +145,35 @@ export async function getVenueDailySnapNotes(
   return (data as VenueDailySnapNotes | null) ?? null;
 }
 
+export type VenueDailySnapCashDrawerRow = {
+  sale_date: string;
+  cash_drawer_opening_gs: number;
+  cash_drawer_closing_gs: number;
+};
+
+/** Opening / closing till amounts from Daily Snap notes (for Cash Journal). */
+export async function listVenueDailySnapCashDrawerRows(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<VenueDailySnapCashDrawerRow[]> {
+  const { data, error } = await supabase
+    .from("venue_daily_snap_notes")
+    .select("sale_date, cash_drawer_opening_gs, cash_drawer_closing_gs")
+    .eq("venue_id", venueId)
+    .order("sale_date", { ascending: true });
+
+  if (error) {
+    if (isMissingTableError(error, "venue_daily_snap_notes")) return [];
+    throw error;
+  }
+
+  return (data ?? []).map((row) => ({
+    sale_date: String(row.sale_date),
+    cash_drawer_opening_gs: Number(row.cash_drawer_opening_gs ?? 0),
+    cash_drawer_closing_gs: Number(row.cash_drawer_closing_gs ?? 0),
+  }));
+}
+
 export async function listVenueDailySnapDiscountLines(
   supabase: SupabaseClient,
   venueId: string,
@@ -357,6 +386,39 @@ export async function listVenueDailySnapReportStatus(
   }
 
   return result;
+}
+
+export async function upsertVenueDailySnapCashDrawer(
+  supabase: SupabaseClient,
+  venueId: string,
+  userId: string,
+  payload: {
+    sale_date: string;
+    cash_drawer_opening_gs: number;
+    cash_drawer_closing_gs: number;
+  },
+): Promise<VenueDailySnapNotes> {
+  const { data: existing, error: existingError } = await supabase
+    .from("venue_daily_snap_notes")
+    .select(
+      "id, eighty_six_lunch, eighty_six_dinner, service_comments_lunch, service_comments_dinner",
+    )
+    .eq("venue_id", venueId)
+    .eq("sale_date", payload.sale_date)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  return upsertVenueDailySnapNotes(supabase, venueId, userId, {
+    id: existing?.id,
+    sale_date: payload.sale_date,
+    eighty_six_lunch: String(existing?.eighty_six_lunch ?? ""),
+    eighty_six_dinner: String(existing?.eighty_six_dinner ?? ""),
+    service_comments_lunch: String(existing?.service_comments_lunch ?? ""),
+    service_comments_dinner: String(existing?.service_comments_dinner ?? ""),
+    cash_drawer_opening_gs: payload.cash_drawer_opening_gs,
+    cash_drawer_closing_gs: payload.cash_drawer_closing_gs,
+  });
 }
 
 export async function upsertVenueDailySnapNotes(

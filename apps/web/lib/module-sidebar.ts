@@ -201,7 +201,13 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: GitCompareArrows,
       },
       { label: "Discounts", href: "/sales/discounts", icon: Tag },
-      { label: "Cash", href: "/sales/cash", icon: Wallet, dividerAfter: true },
+      {
+        label: "Cash",
+        href: "/sales/cash/journal",
+        activePathPrefix: "/sales/cash",
+        icon: Wallet,
+        dividerAfter: true,
+      },
       {
         label: "TAX Collections",
         href: "/sales/tax-collections",

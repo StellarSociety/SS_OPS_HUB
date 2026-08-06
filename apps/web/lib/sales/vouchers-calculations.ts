@@ -175,6 +175,48 @@ function buildDayAllocation(
   };
 }
 
+/** Single-day issue allocation for Daily Sales → Voucher Issue workspace. */
+export function buildIssueDayAllocationForDate(
+  saleDate: string,
+  issueGs: number,
+  vouchers: ReadonlyArray<VenueVoucher>,
+): VoucherDayAllocation {
+  const linked = vouchers.filter(
+    (voucher) =>
+      ISSUE_LEDGER_STATUSES.has(voucher.status) &&
+      voucher.issued_date === saleDate,
+  );
+  const allocation = buildDayAllocation(saleDate, issueGs, linked);
+  return {
+    ...allocation,
+    issue_gs: issueGs,
+    tender_gs: issueGs,
+  };
+}
+
+/**
+ * Face-value totals of vouchers issued on a day, grouped by Payment Form tender.
+ * Used on Daily Sales to show e.g. Visa ← 500 from linked voucher issues.
+ */
+export function sumIssuedVoucherPaymentsByTenderId(
+  vouchers: ReadonlyArray<
+    Pick<VenueVoucher, "payment_form_tender_id" | "face_value_gs">
+  >,
+): Map<string, number> {
+  const byTender = new Map<string, number>();
+  for (const voucher of vouchers) {
+    const tenderId = voucher.payment_form_tender_id;
+    if (!tenderId) continue;
+    byTender.set(
+      tenderId,
+      roundMoney(
+        (byTender.get(tenderId) ?? 0) + (Number(voucher.face_value_gs) || 0),
+      ),
+    );
+  }
+  return byTender;
+}
+
 /** Days with Voucher Issue tender amounts, plus ledger vouchers allocated to each. */
 export function buildIssueDayAllocations(
   tenderTotals: VoucherTenderTotals,
@@ -340,6 +382,24 @@ export function buildVoucherTenderTotalsMerged(
     issue_gs: roundMoney(days.reduce((sum, d) => sum + d.issue_gs, 0)),
     redeem_gs: roundMoney(days.reduce((sum, d) => sum + d.redeem_gs, 0)),
     days,
+  };
+}
+
+/** Single-day redeem allocation for Daily Sales → Voucher Redeem workspace. */
+export function buildRedeemDayAllocationForDate(
+  saleDate: string,
+  redeemGs: number,
+  vouchers: ReadonlyArray<VenueVoucher>,
+): VoucherDayAllocation {
+  const linked = vouchers.filter(
+    (voucher) =>
+      voucher.status === "redeemed" && voucher.redeemed_date === saleDate,
+  );
+  const allocation = buildDayAllocation(saleDate, redeemGs, linked);
+  return {
+    ...allocation,
+    redeem_gs: redeemGs,
+    tender_gs: redeemGs,
   };
 }
 

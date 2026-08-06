@@ -9,9 +9,9 @@ export function normalizeTenderName(name: string): string {
 }
 
 /**
- * Voucher Issue tracks gift vouchers sold / issued. It is not food revenue and
- * is not a payment toward waiter Sales Total — exclude it when matching tenders
- * to revenue or to Sales + CC Gratuity. Voucher Redeem remains included.
+ * Voucher Issue tracks gift vouchers sold / issued. Voucher Redeem tracks
+ * liability drawdown. Neither is a guest payment toward Sales Total — exclude
+ * both from Payment Total / sales-matching tender sums.
  */
 export function isVoucherIssueTender(name: string): boolean {
   const normalized = normalizeTenderName(name);
@@ -29,13 +29,66 @@ export function isVoucherRelatedTender(name: string): boolean {
   );
 }
 
-/** Active non-voucher tenders for Payment Form dropdowns. */
+export function isVoucherRedeemTender(name: string): boolean {
+  const normalized = normalizeTenderName(name);
+  return (
+    normalized === "voucher redeem" || normalized === "redeemed voucher"
+  );
+}
+
+/**
+ * Display order: normal tenders by sort_order, then Voucher Issue, then
+ * Voucher Redeem — always last.
+ */
+export function sortTendersForDisplay<
+  T extends Pick<VenueTender, "name" | "sort_order">,
+>(tenders: ReadonlyArray<T>): T[] {
+  return [...tenders].sort((a, b) => {
+    const aBucket = tenderDisplayBucket(a.name);
+    const bBucket = tenderDisplayBucket(b.name);
+    if (aBucket !== bBucket) return aBucket - bBucket;
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function tenderDisplayBucket(name: string): number {
+  if (isVoucherIssueTender(name)) return 1;
+  if (isVoucherRedeemTender(name)) return 2;
+  return 0;
+}
+
+/** Keep voucher tenders at the end after a manual drag reorder. */
+export function pinVoucherTendersToEnd(
+  orderedIds: ReadonlyArray<string>,
+  tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>,
+): string[] {
+  const byId = new Map(tenders.map((t) => [t.id, t]));
+  const normal: string[] = [];
+  const issues: string[] = [];
+  const redeems: string[] = [];
+  for (const id of orderedIds) {
+    const tender = byId.get(id);
+    if (!tender) {
+      normal.push(id);
+      continue;
+    }
+    if (isVoucherIssueTender(tender.name)) issues.push(id);
+    else if (isVoucherRedeemTender(tender.name)) redeems.push(id);
+    else normal.push(id);
+  }
+  return [...normal, ...issues, ...redeems];
+}
+
+/** Active tenders marked for voucher Payment Form dropdowns. */
 export function paymentFormTenders(
   tenders: ReadonlyArray<VenueTender>,
 ): VenueTender[] {
   return tenders.filter(
     (tender) =>
-      tender.status === "active" && !isVoucherRelatedTender(tender.name),
+      tender.status === "active" &&
+      tender.voucher_payment_form &&
+      !isVoucherRelatedTender(tender.name),
   );
 }
 
@@ -44,6 +97,16 @@ export function voucherIssueTenderIds(
 ): Set<string> {
   return new Set(
     tenders.filter((tender) => isVoucherIssueTender(tender.name)).map((t) => t.id),
+  );
+}
+
+export function voucherRelatedTenderIds(
+  tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>,
+): Set<string> {
+  return new Set(
+    tenders
+      .filter((tender) => isVoucherRelatedTender(tender.name))
+      .map((t) => t.id),
   );
 }
 
@@ -60,13 +123,13 @@ export function sumTenderAmounts(
   return roundMoney(sum);
 }
 
-/** Tender total used for Sales Total ↔ revenue / waiter balance checks. */
+/** Payment Total — excludes Voucher Issue and Voucher Redeem. */
 export function sumSalesMatchingTenderAmounts(
   amounts: Record<string, number>,
   tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>,
 ): number {
   return sumTenderAmounts(amounts, {
-    excludeTenderIds: voucherIssueTenderIds(tenders),
+    excludeTenderIds: voucherRelatedTenderIds(tenders),
   });
 }
 

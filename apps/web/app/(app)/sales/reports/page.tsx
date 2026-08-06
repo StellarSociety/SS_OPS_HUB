@@ -7,11 +7,17 @@ import {
 } from "lucide-react";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { CashSalesReportHubItem } from "@/components/sales/cash-sales-report-hub-item";
 import { GratuityByWaiterReportHubItem } from "@/components/sales/gratuity-by-waiter-report-hub-item";
 import { GratuityReportHubItem } from "@/components/sales/gratuity-report-hub-item";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
+import type { CashSalesRecord } from "@/lib/sales/cash-sales-report";
+import { listVenueCashSalesRows } from "@/lib/sales/daily-tender-totals-store";
 import { getSalesPageContext } from "@/lib/sales/page-context";
-import { canAccessWaiterDaily } from "@/lib/sales/permissions";
+import {
+  canAccessVenueDaily,
+  canAccessWaiterDaily,
+} from "@/lib/sales/permissions";
 import {
   listVenueWaiterGratuityRows,
   type VenueWaiterGratuityRow,
@@ -39,7 +45,15 @@ const REPORT_CATEGORIES: ReportCategory[] = [
     title: "Revenue",
     description: "Sales, tender mix, and period revenue summaries.",
     icon: Banknote,
-    reports: [],
+    reports: [
+      {
+        id: "monthly-cash-sales",
+        href: "/sales/reports/revenue/monthly-cash-sales",
+        title: "Monthly cash sales",
+        description:
+          "Cash tender totals for every day of the month from daily sales.",
+      },
+    ],
   },
   {
     id: "gratuity",
@@ -82,23 +96,36 @@ const REPORT_CATEGORIES: ReportCategory[] = [
 export default async function SalesReportsPage() {
   const { venue, permissions, supabase, user } = await getSalesPageContext();
   const canExportGratuity = canAccessWaiterDaily(permissions, venue.id);
+  const canExportCashSales = canAccessVenueDaily(permissions, venue.id);
 
   let gratuityRecords: VenueWaiterGratuityRow[] = [];
+  let cashSalesRecords: CashSalesRecord[] = [];
   let userDisplayName = buildExportUserLabel(null, user.email);
 
-  if (canExportGratuity) {
-    const [rows, profileResult] = await Promise.all([
-      listVenueWaiterGratuityRows(supabase, venue.id).catch((error) => {
-        console.error("[sales/reports] gratuity rows:", error);
-        return [] as VenueWaiterGratuityRow[];
-      }),
+  const needsProfile = canExportGratuity || canExportCashSales;
+
+  if (needsProfile) {
+    const [gratuityRows, cashRows, profileResult] = await Promise.all([
+      canExportGratuity
+        ? listVenueWaiterGratuityRows(supabase, venue.id).catch((error) => {
+            console.error("[sales/reports] gratuity rows:", error);
+            return [] as VenueWaiterGratuityRow[];
+          })
+        : Promise.resolve([] as VenueWaiterGratuityRow[]),
+      canExportCashSales
+        ? listVenueCashSalesRows(supabase, venue.id).catch((error) => {
+            console.error("[sales/reports] cash sales rows:", error);
+            return [] as CashSalesRecord[];
+          })
+        : Promise.resolve([] as CashSalesRecord[]),
       supabase
         .from("profiles")
         .select("full_name, email")
         .eq("id", user.id)
         .single(),
     ]);
-    gratuityRecords = rows;
+    gratuityRecords = gratuityRows;
+    cashSalesRecords = cashRows;
     userDisplayName = buildExportUserLabel(
       profileResult.data?.full_name,
       profileResult.data?.email ?? user.email,
@@ -145,8 +172,20 @@ export default async function SalesReportsPage() {
                 <ul className="mt-4 space-y-2">
                   {reports.map((report) => (
                     <li key={report.id}>
-                      {id === "gratuity" &&
-                      report.id === "monthly-by-day" ? (
+                      {id === "revenue" &&
+                      report.id === "monthly-cash-sales" ? (
+                        <CashSalesReportHubItem
+                          href={report.href}
+                          title={report.title}
+                          description={report.description}
+                          venueName={venue.name}
+                          venueLogoUrl={venueLogoUrl}
+                          userDisplayName={userDisplayName}
+                          records={cashSalesRecords}
+                          canExport={canExportCashSales}
+                        />
+                      ) : id === "gratuity" &&
+                        report.id === "monthly-by-day" ? (
                         <GratuityReportHubItem
                           href={report.href}
                           title={report.title}

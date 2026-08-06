@@ -6,7 +6,10 @@ import {
   removeVenueTender,
   reorderVenueTendersAction,
   saveVenueTender,
+  setVenueTenderStatusAction,
+  setVenueTenderVoucherPaymentFormAction,
 } from "@/lib/actions/sales";
+import { isVoucherRelatedTender, normalizeTenderName } from "@/lib/sales/tenders-calculations";
 import {
   VENUE_TENDER_STATUS_LABELS,
   type VenueTender,
@@ -25,6 +28,7 @@ type SalesTendersSettingsPanelProps = {
 const EMPTY_FORM = {
   name: "",
   status: "active" as VenueTenderStatus,
+  voucher_payment_form: true,
 };
 
 export function SalesTendersSettingsPanel({
@@ -42,7 +46,11 @@ export function SalesTendersSettingsPanel({
 
   function startEdit(tender: VenueTender) {
     setEditingId(tender.id);
-    setForm({ name: tender.name, status: tender.status });
+    setForm({
+      name: tender.name,
+      status: tender.status,
+      voucher_payment_form: tender.voucher_payment_form,
+    });
   }
 
   function handleSave() {
@@ -52,8 +60,18 @@ export function SalesTendersSettingsPanel({
       formData.set("name", form.name);
       formData.set("status", form.status);
       formData.set(
+        "voucher_payment_form",
+        form.voucher_payment_form && !isVoucherRelatedTender(form.name)
+          ? "true"
+          : "false",
+      );
+      formData.set(
         "sort_order",
-        String(editingId ? tenders.find((t) => t.id === editingId)?.sort_order ?? 0 : tenders.length + 1),
+        String(
+          editingId
+            ? (tenders.find((t) => t.id === editingId)?.sort_order ?? 0)
+            : tenders.length + 1,
+        ),
       );
 
       const result = await saveVenueTender(formData);
@@ -79,6 +97,43 @@ export function SalesTendersSettingsPanel({
     });
   }
 
+  function handleStatusToggle(tender: VenueTender, active: boolean) {
+    startTransition(async () => {
+      const result = await setVenueTenderStatusAction(
+        tender.id,
+        active ? "active" : "inactive",
+      );
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Updated.");
+      if (editingId === tender.id) {
+        setForm((prev) => ({
+          ...prev,
+          status: active ? "active" : "inactive",
+        }));
+      }
+    });
+  }
+
+  function handleVoucherPaymentToggle(tender: VenueTender, checked: boolean) {
+    if (isVoucherRelatedTender(tender.name)) return;
+    startTransition(async () => {
+      const result = await setVenueTenderVoucherPaymentFormAction(
+        tender.id,
+        checked,
+      );
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.saved(result.success ?? "Updated.");
+    });
+  }
+
+  const colSpan = canEdit ? 5 : 4;
+
   return (
     <div className="space-y-6">
       <Card className="space-y-4 p-6">
@@ -87,8 +142,8 @@ export function SalesTendersSettingsPanel({
             {editingId ? "Edit tender" : "Add tender"}
           </h2>
           <p className="mt-1 text-sm text-black/60">
-            Active tenders appear on the waiter sales entry form. Inactive tenders
-            are hidden from entry.
+            Active tenders can be entered on daily and waiter sales. Inactive
+            tenders stay listed here but cannot be populated on entry forms.
           </p>
         </div>
 
@@ -99,7 +154,9 @@ export function SalesTendersSettingsPanel({
               type="text"
               disabled={!canEdit || isPending}
               value={form.name}
-              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, name: e.target.value }))
+              }
               placeholder="e.g. Visa, Cash"
               className="mt-1 h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] disabled:opacity-60"
             />
@@ -122,6 +179,30 @@ export function SalesTendersSettingsPanel({
                 {VENUE_TENDER_STATUS_LABELS.inactive}
               </option>
             </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              disabled={
+                !canEdit ||
+                isPending ||
+                isVoucherRelatedTender(form.name)
+              }
+              checked={
+                form.voucher_payment_form &&
+                !isVoucherRelatedTender(form.name)
+              }
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  voucher_payment_form: e.target.checked,
+                }))
+              }
+              className="h-4 w-4 rounded border-black/20 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30 disabled:opacity-50"
+            />
+            <span className="font-medium text-[#3D421F]">
+              Available as voucher payment form
+            </span>
           </label>
         </div>
 
@@ -154,17 +235,28 @@ export function SalesTendersSettingsPanel({
           <h3 className="font-serif text-lg text-[#3D421F]">Tender types</h3>
           {canEdit ? (
             <p className="mt-1 text-xs text-black/50">
-              Drag the grip handle to change display order on waiter sales.
+              Drag to reorder payment tenders (vouchers stay fixed at the
+              bottom). Untick Active to keep the name listed but hide it from
+              daily and waiter entry. Tick voucher pay for Payment Form
+              dropdowns.
             </p>
           ) : null}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[28rem] border-collapse text-left text-sm">
+          <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/50 text-xs font-bold uppercase tracking-wide text-black">
                 {canEdit ? <th className="w-10 px-2 py-3" /> : null}
                 <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Status</th>
+                <th
+                  className="px-4 py-3 text-center"
+                  title="Shown on entry forms when active"
+                >
+                  Active
+                </th>
+                <th className="px-4 py-3 text-center" title="Voucher payment form">
+                  Voucher pay
+                </th>
                 {canEdit ? (
                   <th className="px-4 py-3 text-right">Actions</th>
                 ) : null}
@@ -176,53 +268,98 @@ export function SalesTendersSettingsPanel({
                 canEdit={canEdit}
                 onReorder={reorderVenueTendersAction}
                 emptyMessage="No tenders configured yet."
-                colSpan={canEdit ? 4 : 2}
-                renderRow={(tender, dragHandle) => (
-                  <>
-                    {canEdit ? (
-                      <td className="w-10 px-2 py-3 align-middle">{dragHandle}</td>
-                    ) : null}
-                    <td className="px-4 py-3 font-medium text-[#3D421F]">
-                      {tender.name}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
+                colSpan={colSpan}
+                isDraggable={(tender) => !isVoucherRelatedTender(tender.name)}
+                renderAfterRow={(tender) =>
+                  normalizeTenderName(tender.name) === "zomato" ? (
+                    <tr key={`sep-after-${tender.id}`} aria-hidden>
+                      <td colSpan={colSpan} className="p-0">
+                        <div className="border-t-2 border-black/15" />
+                      </td>
+                    </tr>
+                  ) : null
+                }
+                renderRow={(tender, dragHandle) => {
+                  const voucherLocked = isVoucherRelatedTender(tender.name);
+                  const isActive = tender.status === "active";
+                  return (
+                    <>
+                      {canEdit ? (
+                        <td className="w-10 px-2 py-3 align-middle">
+                          {dragHandle}
+                        </td>
+                      ) : null}
+                      <td
                         className={cn(
-                          "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium",
-                          tender.status === "active"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-black/10 text-black/50",
+                          "px-4 py-3 font-medium",
+                          isActive ? "text-[#3D421F]" : "text-black/40",
                         )}
                       >
-                        {VENUE_TENDER_STATUS_LABELS[tender.status]}
-                      </span>
-                    </td>
-                    {canEdit ? (
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            disabled={isPending}
-                            onClick={() => startEdit(tender)}
-                            title="Edit tender"
-                            className="rounded p-1.5 text-black/50 hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isPending}
-                            onClick={() => handleDelete(tender.id, tender.name)}
-                            title="Delete tender"
-                            className="rounded p-1.5 text-black/50 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
+                        {tender.name}
+                        {!isActive ? (
+                          <span className="ml-2 text-xs font-normal text-black/35">
+                            Inactive
+                          </span>
+                        ) : null}
                       </td>
-                    ) : null}
-                  </>
-                )}
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Keep ${tender.name} active on entry forms`}
+                          disabled={!canEdit || isPending}
+                          checked={isActive}
+                          onChange={(e) =>
+                            handleStatusToggle(tender, e.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-black/20 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30 disabled:opacity-40"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          aria-label={`Use ${tender.name} as voucher payment form`}
+                          disabled={!canEdit || isPending || voucherLocked}
+                          checked={
+                            !voucherLocked && Boolean(tender.voucher_payment_form)
+                          }
+                          onChange={(e) =>
+                            handleVoucherPaymentToggle(
+                              tender,
+                              e.target.checked,
+                            )
+                          }
+                          className="h-4 w-4 rounded border-black/20 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30 disabled:opacity-40"
+                        />
+                      </td>
+                      {canEdit ? (
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() => startEdit(tender)}
+                              title="Edit tender"
+                              className="rounded p-1.5 text-black/50 hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isPending}
+                              onClick={() =>
+                                handleDelete(tender.id, tender.name)
+                              }
+                              title="Delete tender"
+                              className="rounded p-1.5 text-black/50 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      ) : null}
+                    </>
+                  );
+                }}
               />
             </tbody>
           </table>

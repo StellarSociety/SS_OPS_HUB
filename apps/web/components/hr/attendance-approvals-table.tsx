@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { FileText } from "lucide-react";
+import { CircleHelp, FileText } from "lucide-react";
+import { usePersistedHrAttendanceValidationFilters } from "@/components/hr/use-persisted-hr-filters";
+import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
@@ -9,17 +11,18 @@ import {
   AttendanceMultiWeekPicker,
   AttendancePayrollMonthPicker,
 } from "@/components/hr/attendance-date-filters";
-import { usePersistedHrAttendanceValidationFilters } from "@/components/hr/use-persisted-hr-filters";
 import {
   approveAttendanceDays,
   loadAttendanceValidationRowsForRange,
   saveValidationRosterDays,
   type ValidationRosterLabelCode,
 } from "@/lib/actions/hr-attendance";
+import { getOffboardingLeaveSnapshot } from "@/lib/actions/hr-offboarding";
 import {
   ATTENDANCE_APPROVED_STATUS,
   attendanceDayRequiresApproval,
 } from "@/lib/hr/attendance-approval";
+import { computeWorkedTime } from "@/lib/hr/derived";
 import { exportAttendanceValidationPdf } from "@/lib/hr/attendance-validation-pdf";
 import {
   DEFAULT_SCHEDULE_VARIANCE_MINUTES,
@@ -370,6 +373,7 @@ export function AttendanceApprovalsTable({
 }: Props) {
   const [pending, startTransition] = useTransition();
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [showDescription, setShowDescription] = useState(false);
   const [busyAction, setBusyAction] = useState<"save" | "approve" | null>(
     null,
   );
@@ -390,6 +394,11 @@ export function AttendanceApprovalsTable({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [loadingRange, setLoadingRange] = useState(false);
+  const [leaveSnapshot, setLeaveSnapshot] = useState<{
+    alBalance: number;
+    phBalance: number;
+  } | null>(null);
+  const [leaveLoading, setLeaveLoading] = useState(false);
   const appliedInitialStaffRef = useRef<string | null>(null);
 
   const hasWeekFilter = selectedWeekKeys.length > 0;
@@ -493,6 +502,47 @@ export function AttendanceApprovalsTable({
     [employees, empNo],
   );
 
+  const workedTime = useMemo(
+    () =>
+      selectedEmployee
+        ? computeWorkedTime(
+            selectedEmployee.joiningDate,
+            selectedEmployee.terminationDate,
+          )
+        : null,
+    [selectedEmployee],
+  );
+
+  useEffect(() => {
+    const staffId = selectedEmployee?.id;
+    if (!staffId) {
+      setLeaveSnapshot(null);
+      setLeaveLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLeaveLoading(true);
+    setLeaveSnapshot(null);
+
+    void getOffboardingLeaveSnapshot({ staffId }).then((result) => {
+      if (cancelled) return;
+      setLeaveLoading(false);
+      if (result.error) {
+        setLeaveSnapshot(null);
+        return;
+      }
+      setLeaveSnapshot({
+        alBalance: result.alBalance,
+        phBalance: result.phBalance,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmployee?.id]);
+
   const ready = Boolean(empNo && (hasWeekFilter || hasDayRange));
 
   useEffect(() => {
@@ -549,7 +599,6 @@ export function AttendanceApprovalsTable({
 
     for (const row of local) {
       if (row.empNo.trim().toLowerCase() !== empKey) continue;
-      if (row.departmentId !== departmentId) continue;
       if (!dateSet.has(row.workDate)) continue;
       byDate.set(row.workDate, row);
     }
@@ -562,7 +611,7 @@ export function AttendanceApprovalsTable({
           workDate,
           empNo,
           fullName: selectedEmployee.fullName,
-          departmentId,
+          departmentId: selectedEmployee.departmentId,
         });
       const key = draftKey(empNo, workDate);
       if (!(key in drafts)) return base;
@@ -589,7 +638,6 @@ export function AttendanceApprovalsTable({
     local,
     ready,
     empNo,
-    departmentId,
     selectedDates,
     selectedEmployee,
     drafts,
@@ -962,16 +1010,18 @@ export function AttendanceApprovalsTable({
 
   function onDepartmentChange(next: string) {
     const selected = employees.find((e) => e.empNo === empNo);
+    // Department only narrows the employee list. Keep the period (weeks/days/
+    // payroll) so switching departments does not wipe a chosen range.
     const clearEmp =
       Boolean(next) && Boolean(empNo) && selected?.departmentId !== next;
     patchFilters({
       departmentId: next,
       empNo: clearEmp ? "" : empNo,
     });
-    setSelectedWeekKeys([]);
-    setDayRange("", "");
-    setDrafts({});
-    setSelectedIds(new Set());
+    if (clearEmp) {
+      setDrafts({});
+      setSelectedIds(new Set());
+    }
     setActionError(null);
   }
 
@@ -1071,39 +1121,109 @@ export function AttendanceApprovalsTable({
   return (
     <div className="min-w-0 space-y-3 overflow-x-hidden">
       <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">{heading}</h2>
-        <div className="mt-1 flex items-start justify-between gap-4">
-          <p className="min-w-0 flex-1 text-sm text-black/55">{description}</p>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={
-              exportingPdf ||
-              pending ||
-              !ready ||
-              filtered.length === 0 ||
-              loadingRange
-            }
-            onClick={() => {
-              void exportCurrentViewPdf();
-            }}
-            className="h-10 shrink-0 gap-1.5 px-3"
-            title={
-              !ready
-                ? "Select an employee and period first"
-                : filtered.length === 0
-                  ? "No rows in the current view"
-                  : "Download PDF of the current validation table"
-            }
-          >
-            <FileText className="h-4 w-4" />
-            {exportingPdf ? "Exporting…" : "PDF Export"}
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h2 className="font-serif text-lg text-[#3D421F]">{heading}</h2>
+            <button
+              type="button"
+              onClick={() => setShowDescription((open) => !open)}
+              aria-expanded={showDescription}
+              aria-controls="attendance-validation-help"
+              title={showDescription ? "Hide help" : "Show help"}
+              className={cn(
+                "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-black/40 transition-colors hover:bg-black/[0.04] hover:text-[#3D421F]",
+                showDescription && "bg-black/[0.04] text-[#3D421F]",
+              )}
+            >
+              <CircleHelp className="h-4 w-4" aria-hidden />
+              <span className="sr-only">
+                {showDescription ? "Hide help" : "Show help"}
+              </span>
+            </button>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {canEditRoster ? (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={pending || !ready || selectableKeys.length === 0}
+                  onClick={toggleSelectAll}
+                  className="h-10 px-3"
+                >
+                  {allSelectableSelected ? "Unselect all" : "Select all"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={pending || selectedCount === 0 || hasDrafts}
+                  onClick={approveSelected}
+                  className="h-10 px-4"
+                  title={
+                    hasDrafts
+                      ? "Save roster edits before approving attendance"
+                      : undefined
+                  }
+                >
+                  {busyAction === "approve"
+                    ? "Approving…"
+                    : selectedCount > 0
+                      ? `Approve Attendance (${selectedCount})`
+                      : "Approve Attendance"}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={pending || !hasDrafts}
+                  onClick={saveDrafts}
+                  className="h-10 px-4"
+                >
+                  {busyAction === "save"
+                    ? "Saving…"
+                    : hasDrafts
+                      ? `Save ${draftCount} edit${draftCount === 1 ? "" : "s"}`
+                      : "Save"}
+                </Button>
+              </>
+            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={
+                exportingPdf ||
+                pending ||
+                !ready ||
+                filtered.length === 0 ||
+                loadingRange
+              }
+              onClick={() => {
+                void exportCurrentViewPdf();
+              }}
+              className="h-10 shrink-0 gap-1.5 px-3"
+              title={
+                !ready
+                  ? "Select an employee and period first"
+                  : filtered.length === 0
+                    ? "No rows in the current view"
+                    : "Download PDF of the current validation table"
+              }
+            >
+              <FileText className="h-4 w-4" />
+              {exportingPdf ? "Exporting…" : "PDF Export"}
+            </Button>
+          </div>
         </div>
+        {showDescription ? (
+          <p
+            id="attendance-validation-help"
+            className="mt-1 text-sm text-black/55"
+          >
+            {description}
+          </p>
+        ) : null}
       </div>
 
-      <div className="flex flex-col gap-3">
-        <div className="flex w-full max-w-md flex-col gap-1">
+      <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-0.5">
+        <div className="flex min-w-[10rem] w-[12rem] shrink-0 flex-col gap-1">
           <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
             Department
           </span>
@@ -1115,7 +1235,7 @@ export function AttendanceApprovalsTable({
             searchPlaceholder="Search department…"
           />
         </div>
-        <div className="flex w-full max-w-md flex-col gap-1">
+        <div className="flex min-w-[14rem] w-[18rem] shrink-0 flex-col gap-1">
           <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
             Employee
           </span>
@@ -1129,27 +1249,7 @@ export function AttendanceApprovalsTable({
         </div>
         <div
           className={cn(
-            "w-full max-w-md",
-            !empNo && "pointer-events-none opacity-45",
-          )}
-        >
-          <AttendanceMultiWeekPicker
-            fieldLabel="Weeks"
-            emptyLabel={empNo ? "Select week(s)" : "Select employee first"}
-            selectedWeekKeys={selectedWeekKeys}
-            onChange={(keys) => {
-              setSelectedWeekKeys(keys);
-              // Weeks and days are alternate period tools — using one clears the other.
-              if (keys.length > 0) {
-                setDayRange("", "");
-              }
-              setSelectedIds(new Set());
-            }}
-          />
-        </div>
-        <div
-          className={cn(
-            "w-full max-w-md",
+            "shrink-0",
             !empNo && "pointer-events-none opacity-45",
           )}
         >
@@ -1169,7 +1269,27 @@ export function AttendanceApprovalsTable({
         </div>
         <div
           className={cn(
-            "w-full max-w-md",
+            "shrink-0",
+            !empNo && "pointer-events-none opacity-45",
+          )}
+        >
+          <AttendanceMultiWeekPicker
+            fieldLabel="Weeks"
+            emptyLabel={empNo ? "Select week(s)" : "Select employee first"}
+            selectedWeekKeys={selectedWeekKeys}
+            onChange={(keys) => {
+              setSelectedWeekKeys(keys);
+              // Weeks and days are alternate period tools — using one clears the other.
+              if (keys.length > 0) {
+                setDayRange("", "");
+              }
+              setSelectedIds(new Set());
+            }}
+          />
+        </div>
+        <div
+          className={cn(
+            "shrink-0",
             !empNo && "pointer-events-none opacity-45",
           )}
         >
@@ -1186,50 +1306,88 @@ export function AttendanceApprovalsTable({
             }}
           />
         </div>
-        {canEditRoster ? (
-          <div className="flex flex-wrap items-end gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={pending || !ready || selectableKeys.length === 0}
-              onClick={toggleSelectAll}
-              className="h-10 px-3"
-            >
-              {allSelectableSelected ? "Unselect all" : "Select all"}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={pending || selectedCount === 0 || hasDrafts}
-              onClick={approveSelected}
-              className="h-10 px-4"
-              title={
-                hasDrafts
-                  ? "Save roster edits before approving attendance"
-                  : undefined
-              }
-            >
-              {busyAction === "approve"
-                ? "Approving…"
-                : selectedCount > 0
-                  ? `Approve Attendance (${selectedCount})`
-                  : "Approve Attendance"}
-            </Button>
-            <Button
-              type="button"
-              disabled={pending || !hasDrafts}
-              onClick={saveDrafts}
-              className="h-10 px-4"
-            >
-              {busyAction === "save"
-                ? "Saving…"
-                : hasDrafts
-                  ? `Save ${draftCount} edit${draftCount === 1 ? "" : "s"}`
-                  : "Save"}
-            </Button>
-          </div>
-        ) : null}
       </div>
+
+      {selectedEmployee ? (
+        <div className="flex flex-wrap items-stretch gap-0 overflow-hidden rounded-lg border border-black/10 bg-white/70">
+          <div className="flex min-w-[7rem] flex-col gap-0.5 px-3.5 py-2.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+              Emp no
+            </span>
+            <Link
+              href={`/hr/${selectedEmployee.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open staff directory details"
+              className="w-fit text-sm font-medium tabular-nums text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:underline"
+            >
+              {selectedEmployee.empNo}
+            </Link>
+          </div>
+          <div
+            className="hidden w-px self-stretch bg-black/10 sm:block"
+            aria-hidden
+          />
+          <div className="flex min-w-[6rem] flex-col gap-0.5 px-3.5 py-2.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+              Leave
+            </span>
+            <Link
+              href={`/hr/attendance/leave/balances?staffId=${encodeURIComponent(selectedEmployee.id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open leave management for this employee"
+              className="w-fit text-sm font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:underline"
+            >
+              View
+            </Link>
+          </div>
+          <div
+            className="hidden w-px self-stretch bg-black/10 sm:block"
+            aria-hidden
+          />
+          <div className="flex min-w-[10rem] flex-1 flex-col gap-0.5 px-3.5 py-2.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+              Work time
+            </span>
+            <span className="text-sm font-medium tabular-nums text-[#3D421F]">
+              {workedTime ?? "—"}
+            </span>
+          </div>
+          <div
+            className="hidden w-px self-stretch bg-black/10 sm:block"
+            aria-hidden
+          />
+          <div className="flex min-w-[8rem] flex-1 flex-col gap-0.5 px-3.5 py-2.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+              APL remaining
+            </span>
+            <span className="text-sm font-medium tabular-nums text-[#3D421F]">
+              {leaveLoading
+                ? "…"
+                : leaveSnapshot
+                  ? `${Math.round(leaveSnapshot.alBalance)} days`
+                  : "—"}
+            </span>
+          </div>
+          <div
+            className="hidden w-px self-stretch bg-black/10 sm:block"
+            aria-hidden
+          />
+          <div className="flex min-w-[8rem] flex-1 flex-col gap-0.5 px-3.5 py-2.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+              PH remaining
+            </span>
+            <span className="text-sm font-medium tabular-nums text-[#3D421F]">
+              {leaveLoading
+                ? "…"
+                : leaveSnapshot
+                  ? `${Math.round(leaveSnapshot.phBalance)} days`
+                  : "—"}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {actionError ? (
         <p className="text-sm text-rose-800" role="alert">

@@ -51,7 +51,7 @@ export function computeWaiterSalesReconciliation(
   >,
   /**
    * Tender sum used for the balance check. Pass the sales-matching total
-   * (excludes Voucher Issue); Payment Total is still compared as entered.
+   * (excludes Voucher Issue & Redeem); Payment Total is still compared as entered.
    */
   tendersTotalForBalanceGs: number,
 ): WaiterSalesReconciliation {

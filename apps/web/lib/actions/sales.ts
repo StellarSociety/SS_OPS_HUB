@@ -5,6 +5,12 @@ import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
 import {
+  deleteVenueCashJournal,
+  upsertVenueCashJournal,
+} from "@/lib/sales/cash-journal-store";
+import { replaceVenueCashExpenseLinesForDate } from "@/lib/sales/cash-expenses-store";
+import type { VenueCashExpenseLineInput } from "@/lib/sales/cash-expenses-types";
+import {
   deleteVenueDailyDiscounts,
   upsertVenueDailyDiscounts,
 } from "@/lib/sales/discounts-store";
@@ -30,6 +36,7 @@ import {
   deleteVenueDailySnapDiscountLine,
   deleteVenueDailySnapEvent,
   deleteVenueMonthlyForecast,
+  upsertVenueDailySnapCashDrawer,
   upsertVenueDailySnapDiscountLine,
   upsertVenueDailySnapEvent,
   upsertVenueDailySnapNotes,
@@ -38,6 +45,8 @@ import {
 import {
   deleteVenueTender,
   reorderVenueTenders,
+  setVenueTenderStatus,
+  setVenueTenderVoucherPaymentForm,
   upsertVenueTender,
 } from "@/lib/sales/tenders-store";
 import type { VenueTenderStatus } from "@/lib/sales/tenders-types";
@@ -98,6 +107,19 @@ const SALES_DISCOUNTS_PATHS = [
 
 function revalidateSalesDiscounts() {
   for (const path of SALES_DISCOUNTS_PATHS) {
+    revalidatePath(path);
+  }
+}
+
+const SALES_CASH_JOURNAL_PATHS = [
+  "/sales/cash",
+  "/sales/cash/journal",
+  "/sales/cash/data",
+  "/sales/cash/expenses",
+];
+
+function revalidateSalesCashJournal() {
+  for (const path of SALES_CASH_JOURNAL_PATHS) {
     revalidatePath(path);
   }
 }
@@ -366,6 +388,239 @@ export async function saveVenueSalesTaxSettings(input: TaxSettingsInput) {
   }
 }
 
+export async function saveVenueCashJournalEntry(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  const canEdit =
+    canEditCashUp(permissions, venue.id) ||
+    canEditVenueDaily(permissions, venue.id);
+
+  if (!canEdit) {
+    return { error: "You do not have permission to edit the cash journal." };
+  }
+
+  const saleDate = String(formData.get("sale_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim() || undefined;
+  const createDateError = salesEntryCreateDateError(saleDate, !id);
+  if (createDateError) return { error: createDateError };
+
+  const openTillGs = parseMoney(formData.get("open_till_gs"));
+  const cashWithdrawGs = parseMoney(formData.get("cash_withdraw_gs"));
+  const cashExpensesGs = parseMoney(formData.get("cash_expenses_gs"));
+  const cashDepositGs = parseMoney(formData.get("cash_deposit_gs"));
+  const closingTillGs = parseMoney(formData.get("closing_till_gs"));
+  const comments = String(formData.get("comments") ?? "").trim();
+  const hasJournalData =
+    cashWithdrawGs > 0 || cashExpensesGs > 0 || cashDepositGs > 0;
+  const hasTillData = openTillGs > 0 || closingTillGs > 0;
+  const hasComments = comments.length > 0;
+  const hasData = hasJournalData || hasTillData || hasComments;
+  const canSyncDailySnap = canEditCashUp(permissions, venue.id);
+
+  try {
+    if (canSyncDailySnap) {
+      await upsertVenueDailySnapCashDrawer(supabase, venue.id, user.id, {
+        sale_date: saleDate,
+        cash_drawer_opening_gs: openTillGs,
+        cash_drawer_closing_gs: closingTillGs,
+      });
+      await writeAuditLog({
+        actor_id: user.id,
+        action: "update",
+        module_key: SALES_MODULE_KEY,
+        entity: "venue_daily_snap_notes",
+        venue_id: venue.id,
+        after: {
+          sale_date: saleDate,
+          cash_drawer_opening_gs: openTillGs,
+          cash_drawer_closing_gs: closingTillGs,
+          source: "cash_journal",
+        },
+      });
+    }
+
+    if (!hasData) {
+      if (id) {
+        await deleteVenueCashJournal(supabase, venue.id, id);
+        await writeAuditLog({
+          actor_id: user.id,
+          action: "delete",
+          module_key: SALES_MODULE_KEY,
+          entity: "venue_cash_journal",
+          entity_id: id,
+          venue_id: venue.id,
+          after: { sale_date: saleDate },
+        });
+      }
+      revalidateSalesCashJournal();
+      revalidateSalesDailySnap();
+      return {
+        success: canSyncDailySnap
+          ? "Till values synced to Daily Snap."
+          : "Cash journal entry cleared.",
+        record: null,
+      };
+    }
+
+    const record = await upsertVenueCashJournal(supabase, venue.id, user.id, {
+      id,
+      sale_date: saleDate,
+      open_till_gs: openTillGs,
+      cash_withdraw_gs: cashWithdrawGs,
+      cash_expenses_gs: cashExpensesGs,
+      cash_deposit_gs: cashDepositGs,
+      closing_till_gs: closingTillGs,
+      comments,
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: id ? "update" : "create",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_cash_journal",
+      entity_id: record.id,
+      venue_id: venue.id,
+      after: { sale_date: saleDate },
+    });
+
+    revalidateSalesCashJournal();
+    revalidateSalesDailySnap();
+    return {
+      success: canSyncDailySnap
+        ? "Cash journal saved and till synced to Daily Snap."
+        : "Cash journal saved.",
+      record,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message.includes("unique")
+        ? "A cash journal entry already exists for this date."
+        : "Could not save cash journal.";
+    console.error("[saveVenueCashJournalEntry]", error);
+    return { error: message };
+  }
+}
+
+export async function removeVenueCashJournalEntry(id: string) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  const canEdit =
+    canEditCashUp(permissions, venue.id) ||
+    canEditVenueDaily(permissions, venue.id);
+
+  if (!canEdit) {
+    return { error: "You do not have permission to delete cash journal entries." };
+  }
+
+  try {
+    await deleteVenueCashJournal(supabase, venue.id, id);
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "delete",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_cash_journal",
+      entity_id: id,
+      venue_id: venue.id,
+    });
+    revalidateSalesCashJournal();
+    return { success: "Cash journal entry removed." };
+  } catch {
+    return { error: "Could not delete cash journal entry." };
+  }
+}
+
+export async function saveVenueCashExpenseLines(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  const canEdit =
+    canEditCashUp(permissions, venue.id) ||
+    canEditVenueDaily(permissions, venue.id);
+
+  if (!canEdit) {
+    return { error: "You do not have permission to edit cash expenses." };
+  }
+
+  const saleDate = String(formData.get("sale_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(formData.get("lines") ?? "[]"));
+  } catch {
+    return { error: "Invalid expense references payload." };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { error: "Invalid expense references payload." };
+  }
+
+  const lines: VenueCashExpenseLineInput[] = [];
+  for (const [index, raw] of parsed.entries()) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const description = String(row.description ?? "").trim();
+    const grossGs = parseMoney(row.gross_gs ?? row.grossGs);
+    const vatGs = parseMoney(row.vat_gs ?? row.vatGs);
+    const netGs = parseMoney(row.net_gs ?? row.netGs);
+    const pchasePortal = Boolean(row.pchase_portal ?? row.pchasePortal);
+    if (!description && grossGs <= 0 && vatGs <= 0 && netGs <= 0 && !pchasePortal) {
+      continue;
+    }
+    if (grossGs < 0 || vatGs < 0 || netGs < 0) {
+      return { error: "Expense amounts cannot be negative." };
+    }
+    lines.push({
+      description,
+      gross_gs: grossGs,
+      vat_gs: vatGs,
+      net_gs: netGs,
+      pchase_portal: pchasePortal,
+      sort_order: index,
+    });
+  }
+
+  const createDateError = salesEntryCreateDateError(saleDate, lines.length > 0);
+  if (createDateError) return { error: createDateError };
+
+  try {
+    const records = await replaceVenueCashExpenseLinesForDate(
+      supabase,
+      venue.id,
+      user.id,
+      saleDate,
+      lines,
+    );
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: lines.length === 0 ? "delete" : "update",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_cash_expense_lines",
+      entity_id: saleDate,
+      venue_id: venue.id,
+      after: { sale_date: saleDate, line_count: records.length },
+    });
+
+    revalidateSalesCashJournal();
+    return {
+      success:
+        lines.length === 0
+          ? "Cash expense references cleared."
+          : "Cash expense references saved.",
+      records,
+    };
+  } catch (error) {
+    console.error("[saveVenueCashExpenseLines]", error);
+    return { error: "Could not save cash expense references." };
+  }
+}
+
 export async function saveVenueDailyDiscountsEntry(formData: FormData) {
   const { supabase, user, venue, permissions } = await getSalesAuthContext();
 
@@ -579,6 +834,11 @@ export async function saveVenueTender(formData: FormData) {
   const id = String(formData.get("id") ?? "").trim() || undefined;
   const status = parseTenderStatus(formData.get("status"));
   const sortOrder = Number.parseInt(String(formData.get("sort_order") ?? "0"), 10);
+  const voucherPaymentRaw = formData.get("voucher_payment_form");
+  const voucherPaymentForm =
+    voucherPaymentRaw === null || voucherPaymentRaw === undefined
+      ? undefined
+      : voucherPaymentRaw === "true" || voucherPaymentRaw === "on" || voucherPaymentRaw === "1";
 
   try {
     const tender = await upsertVenueTender(supabase, venue.id, user.id, {
@@ -586,6 +846,7 @@ export async function saveVenueTender(formData: FormData) {
       name,
       status,
       sort_order: Number.isFinite(sortOrder) ? sortOrder : 0,
+      voucher_payment_form: voucherPaymentForm,
     });
 
     await writeAuditLog({
@@ -595,7 +856,11 @@ export async function saveVenueTender(formData: FormData) {
       entity: "venue_tenders",
       entity_id: tender.id,
       venue_id: venue.id,
-      after: { name, status },
+      after: {
+        name,
+        status,
+        voucher_payment_form: tender.voucher_payment_form,
+      },
     });
 
     revalidateSalesWaiters();
@@ -653,6 +918,101 @@ export async function reorderVenueTendersAction(orderedIds: string[]) {
     return { success: "Tender order updated." };
   } catch {
     return { error: "Could not update tender order." };
+  }
+}
+
+export async function setVenueTenderStatusAction(
+  tenderId: string,
+  status: VenueTenderStatus,
+) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canManageSalesWaiters(permissions, venue.id)) {
+    return { error: "You do not have permission to manage tenders." };
+  }
+
+  const id = String(tenderId ?? "").trim();
+  if (!id) return { error: "Tender is required." };
+
+  const nextStatus = parseTenderStatus(status);
+
+  try {
+    const tender = await setVenueTenderStatus(
+      supabase,
+      venue.id,
+      user.id,
+      id,
+      nextStatus,
+    );
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "update",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_tenders",
+      entity_id: tender.id,
+      venue_id: venue.id,
+      after: {
+        name: tender.name,
+        status: tender.status,
+      },
+    });
+
+    revalidateSalesWaiters();
+    revalidatePath("/sales/daily/entry");
+    revalidatePath("/sales/waiter/entry");
+    return {
+      success:
+        nextStatus === "active"
+          ? "Tender activated."
+          : "Tender deactivated.",
+      tender,
+    };
+  } catch {
+    return { error: "Could not update tender status." };
+  }
+}
+
+export async function setVenueTenderVoucherPaymentFormAction(
+  tenderId: string,
+  voucherPaymentForm: boolean,
+) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canManageSalesWaiters(permissions, venue.id)) {
+    return { error: "You do not have permission to manage tenders." };
+  }
+
+  const id = String(tenderId ?? "").trim();
+  if (!id) return { error: "Tender is required." };
+
+  try {
+    const tender = await setVenueTenderVoucherPaymentForm(
+      supabase,
+      venue.id,
+      user.id,
+      id,
+      Boolean(voucherPaymentForm),
+    );
+
+    await writeAuditLog({
+      actor_id: user.id,
+      action: "update",
+      module_key: SALES_MODULE_KEY,
+      entity: "venue_tenders",
+      entity_id: tender.id,
+      venue_id: venue.id,
+      after: {
+        name: tender.name,
+        voucher_payment_form: tender.voucher_payment_form,
+      },
+    });
+
+    revalidateSalesWaiters();
+    revalidatePath("/sales/daily/entry");
+    return { success: "Voucher payment form updated.", tender };
+  } catch {
+    return { error: "Could not update voucher payment form setting." };
   }
 }
 

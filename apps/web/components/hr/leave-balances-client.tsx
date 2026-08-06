@@ -25,6 +25,7 @@ type DetailPayload = {
     joining_date: string | null;
     termination_date: string | null;
     probation_status: string | null;
+    photo_url: string | null;
     department: { name: string } | null;
   };
   balances: HrLeaveBalance[];

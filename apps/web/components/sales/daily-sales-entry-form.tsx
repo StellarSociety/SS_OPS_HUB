@@ -29,6 +29,9 @@ import type {
 } from "@/lib/sales/daily-sales-types";
 import type { VenueTender } from "@/lib/sales/tenders-types";
 import {
+  isVoucherIssueTender,
+  isVoucherRedeemTender,
+  isVoucherRelatedTender,
   sumSalesMatchingTenderAmounts,
   sumTenderAmounts,
   sumVoucherIssueAmount,
@@ -51,6 +54,8 @@ import {
   SalesFormFieldRow,
   SalesFormInputModeToggle,
   SalesFormSectionHeader,
+  SALES_FORM_FIELD_GRID_COLUMNS,
+  SALES_FORM_FIELD_INPUT_WIDTH,
   salesFormColumnClassName,
   salesFormColumnShellClass,
   salesFormColumnWidthClass,
@@ -58,19 +63,32 @@ import {
   salesFormDateBannerShellClass,
 } from "@/components/sales/sales-form-field-row";
 import { SalesNumericInput } from "@/components/sales/sales-numeric-input";
+import {
+  VoucherIssueConfigureButton,
+  VoucherIssueDayDialog,
+} from "@/components/sales/voucher-issue-day-dialog";
+import { VoucherRedeemDayDialog } from "@/components/sales/voucher-redeem-day-dialog";
 import { usePersistedSalesEntryDate } from "@/components/sales/use-persisted-sales-filters";
 import { useSalesFormUnsavedGuard } from "@/components/sales/use-sales-form-unsaved-guard";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import type { VenueVoucher } from "@/lib/sales/vouchers-types";
+import {
+  buildIssueDayAllocationForDate,
+  buildRedeemDayAllocationForDate,
+  sumIssuedVoucherPaymentsByTenderId,
+} from "@/lib/sales/vouchers-calculations";
 
 type DailySalesEntryFormProps = {
   records: VenueDailySalesRecord[];
   tenders: VenueTender[];
   waiterRecords: VenueWaiterDailySalesEntry[];
   tenderTotals: VenueDailyTenderTotal[];
+  vouchers: VenueVoucher[];
   totalTaxPct: number;
   taxSettings: VenueSalesTaxSettings;
   canEdit: boolean;
+  canEditVouchers: boolean;
 };
 
 type SalesInputMode = "gross" | "net";
@@ -391,7 +409,7 @@ function DailyDiscountBox({
   return (
     <div
       className={salesFormColumnShellClass(
-        "border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
+        "shrink-0 border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
       )}
     >
       <SalesFormSectionHeader
@@ -430,6 +448,7 @@ function DailyTotalsColumn({
   dinnerBookings,
   dinnerWalkinTables,
   dinnerWalkinCovers,
+  className,
 }: {
   totals: ReturnType<typeof computeDailySales>;
   lunchCovers: number;
@@ -440,17 +459,21 @@ function DailyTotalsColumn({
   dinnerBookings: number;
   dinnerWalkinTables: number;
   dinnerWalkinCovers: number;
+  className?: string;
 }) {
   return (
     <div
-      className={salesFormColumnClassName(
-        "border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
+      className={cn(
+        salesFormColumnShellClass(
+          "border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
+        ),
+        className,
       )}
     >
       <h3 className="whitespace-nowrap font-serif text-lg font-bold text-[#3D421F]">
         Total Revenue
       </h3>
-      <div className="flex flex-1 flex-col space-y-2">
+      <div className="flex min-h-0 flex-1 flex-col space-y-2">
         <TotalCell
           label="Lunch Revenue"
           gross={totals.lunchTotalGs}
@@ -502,7 +525,7 @@ function TotalCell({
 }) {
   return (
     <div className="flex flex-1 flex-col justify-center rounded-lg border border-black/10 bg-white px-4 py-3 text-center">
-      <p className="text-xs font-medium tracking-wide text-black/50">
+      <p className="text-sm font-medium tracking-wide text-black/50">
         {label}
       </p>
       <div className="mt-2 grid grid-cols-2 gap-3">
@@ -577,10 +600,9 @@ function DailyTenderTotalsColumn({
   inputMode,
   onInputModeChange,
   onChange,
-  discountValue,
-  discountInputMode,
-  onDiscountInputModeChange,
-  onDiscountChange,
+  saleDate,
+  vouchers,
+  canEditVouchers,
 }: {
   tenders: VenueTender[];
   amounts: Record<string, number>;
@@ -589,11 +611,13 @@ function DailyTenderTotalsColumn({
   inputMode: SalesInputMode;
   onInputModeChange: (mode: SalesInputMode) => void;
   onChange: (tenderId: string, value: string) => void;
-  discountValue: number;
-  discountInputMode: SalesInputMode;
-  onDiscountInputModeChange: (mode: SalesInputMode) => void;
-  onDiscountChange: (value: string) => void;
+  saleDate: string;
+  vouchers: VenueVoucher[];
+  canEditVouchers: boolean;
 }) {
+  const [issueDialogOpen, setIssueDialogOpen] = useState(false);
+  const [redeemDialogOpen, setRedeemDialogOpen] = useState(false);
+
   function displayValue(gross: number): number {
     if (inputMode === "gross") return gross;
     return Math.round(grossToNet(gross, totalTaxPct) * 100) / 100;
@@ -612,34 +636,59 @@ function DailyTenderTotalsColumn({
     onChange(tenderId, String(gross));
   }
 
+  // Payment Total excludes Voucher Issue & Redeem; inc Vouchers includes all.
   const enteredTotalGross = useMemo(
-    () =>
-      Math.round(
-        tenders.reduce((sum, t) => sum + (amounts[t.id] ?? 0), 0) * 100,
-      ) / 100,
-    [tenders, amounts],
+    () => sumSalesMatchingTenderAmounts(amounts, tenders),
+    [amounts, tenders],
   );
   const enteredTotalNet =
     Math.round(grossToNet(enteredTotalGross, totalTaxPct) * 100) / 100;
+  const paymentTotalIncVouchersGross = useMemo(
+    () => sumTenderAmounts(amounts),
+    [amounts],
+  );
+  const paymentTotalIncVouchersNet =
+    Math.round(
+      grossToNet(paymentTotalIncVouchersGross, totalTaxPct) * 100,
+    ) / 100;
+
+  const voucherIssueTender = useMemo(
+    () => tenders.find((t) => isVoucherIssueTender(t.name)) ?? null,
+    [tenders],
+  );
+  const voucherIssueAmountGs = voucherIssueTender
+    ? Number(amounts[voucherIssueTender.id]) || 0
+    : 0;
+  const issueDayAllocation = useMemo(
+    () =>
+      buildIssueDayAllocationForDate(saleDate, voucherIssueAmountGs, vouchers),
+    [saleDate, voucherIssueAmountGs, vouchers],
+  );
+  const voucherRedeemTender = useMemo(
+    () => tenders.find((t) => isVoucherRedeemTender(t.name)) ?? null,
+    [tenders],
+  );
+  const voucherRedeemAmountGs = voucherRedeemTender
+    ? Number(amounts[voucherRedeemTender.id]) || 0
+    : 0;
+  const redeemDayAllocation = useMemo(
+    () =>
+      buildRedeemDayAllocationForDate(
+        saleDate,
+        voucherRedeemAmountGs,
+        vouchers,
+      ),
+    [saleDate, voucherRedeemAmountGs, vouchers],
+  );
+  const voucherPaymentsByTenderId = useMemo(
+    () => sumIssuedVoucherPaymentsByTenderId(issueDayAllocation.vouchers),
+    [issueDayAllocation.vouchers],
+  );
 
   return (
-    <div
-      className={cn(
-        salesFormColumnWidthClass(),
-        "flex flex-col gap-6 self-stretch",
-      )}
-    >
-      <DailyDiscountBox
-        value={discountValue}
-        totalTaxPct={totalTaxPct}
-        canEdit={canEdit}
-        inputMode={discountInputMode}
-        onInputModeChange={onDiscountInputModeChange}
-        onChange={onDiscountChange}
-      />
-
+    <>
       <div
-        className={salesFormColumnShellClass(
+        className={salesFormColumnClassName(
           "border-black/15 bg-[var(--venue-secondary,#F0F3DD)]",
         )}
       >
@@ -668,47 +717,211 @@ function DailyTenderTotalsColumn({
             </Link>
           </p>
         ) : (
-          <div className="flex flex-1 flex-col space-y-2">
-            {tenders.map((tender) => (
-              <Fragment key={tender.id}>
-                <SalesFormFieldRow label={tender.name}>
-                  <SalesNumericInput
-                    key={`${tender.id}-${inputMode}`}
-                    value={displayValue(amounts[tender.id] ?? 0)}
-                    disabled={!canEdit}
-                    onChange={(v) => handleTenderChange(tender.id, v)}
-                  />
-                </SalesFormFieldRow>
-                {tender.name.trim().toLowerCase() === "cash" ? (
-                  <div aria-hidden className="border-t border-black/10" />
-                ) : null}
-              </Fragment>
-            ))}
-            <div className="flex flex-col gap-1 rounded-lg border border-black/10 bg-white px-3 py-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-black/50">
-                Total
-              </span>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-                  Gross
+          <div className="flex min-h-0 flex-1 flex-col space-y-2">
+            {tenders.map((tender, index) => {
+              const dividerBeforeVouchers =
+                isVoucherRelatedTender(tender.name) &&
+                !tenders
+                  .slice(0, index)
+                  .some((t) => isVoucherRelatedTender(t.name));
+
+              if (isVoucherIssueTender(tender.name)) {
+                return (
+                  <Fragment key={tender.id}>
+                    {dividerBeforeVouchers ? (
+                      <div aria-hidden className="border-t border-black/10" />
+                    ) : null}
+                    <div
+                      className="grid items-center gap-x-4 text-sm"
+                      style={{
+                        gridTemplateColumns: SALES_FORM_FIELD_GRID_COLUMNS,
+                      }}
+                    >
+                      <div className="flex min-h-9 items-center justify-end gap-1.5 text-right text-black/60">
+                        <VoucherIssueConfigureButton
+                          visible={voucherIssueAmountGs > 0}
+                          balanced={issueDayAllocation.balanced}
+                          disabled={!canEditVouchers}
+                          onClick={() => setIssueDialogOpen(true)}
+                        />
+                        <span>{tender.name}</span>
+                      </div>
+                      <div
+                        className="justify-self-end"
+                        style={{ width: SALES_FORM_FIELD_INPUT_WIDTH }}
+                      >
+                        <SalesNumericInput
+                          key={`${tender.id}-${inputMode}`}
+                          value={displayValue(amounts[tender.id] ?? 0)}
+                          disabled={!canEdit}
+                          onChange={(v) => handleTenderChange(tender.id, v)}
+                        />
+                      </div>
+                    </div>
+                  </Fragment>
+                );
+              }
+
+              if (isVoucherRedeemTender(tender.name)) {
+                return (
+                  <Fragment key={tender.id}>
+                    {dividerBeforeVouchers ? (
+                      <div aria-hidden className="border-t border-black/10" />
+                    ) : null}
+                    <div
+                      className="grid items-center gap-x-4 text-sm"
+                      style={{
+                        gridTemplateColumns: SALES_FORM_FIELD_GRID_COLUMNS,
+                      }}
+                    >
+                      <div className="flex min-h-9 items-center justify-end gap-1.5 text-right text-black/60">
+                        <VoucherIssueConfigureButton
+                          visible={voucherRedeemAmountGs > 0}
+                          balanced={redeemDayAllocation.balanced}
+                          disabled={!canEditVouchers}
+                          title="Configure redeemed vouchers"
+                          onClick={() => setRedeemDialogOpen(true)}
+                        />
+                        <span>{tender.name}</span>
+                      </div>
+                      <div
+                        className="justify-self-end"
+                        style={{ width: SALES_FORM_FIELD_INPUT_WIDTH }}
+                      >
+                        <SalesNumericInput
+                          key={`${tender.id}-${inputMode}`}
+                          value={displayValue(amounts[tender.id] ?? 0)}
+                          disabled={!canEdit}
+                          onChange={(v) => handleTenderChange(tender.id, v)}
+                        />
+                      </div>
+                    </div>
+                  </Fragment>
+                );
+              }
+
+              return (
+                <Fragment key={tender.id}>
+                  {dividerBeforeVouchers ? (
+                    <div aria-hidden className="border-t border-black/10" />
+                  ) : null}
+                  <div
+                    className="grid items-start gap-x-4 text-sm"
+                    style={{
+                      gridTemplateColumns: SALES_FORM_FIELD_GRID_COLUMNS,
+                    }}
+                  >
+                    <span className="flex min-h-9 items-center justify-end text-right text-black/60">
+                      {tender.name}
+                    </span>
+                    <div
+                      className="justify-self-end"
+                      style={{ width: SALES_FORM_FIELD_INPUT_WIDTH }}
+                    >
+                      <SalesNumericInput
+                        key={`${tender.id}-${inputMode}`}
+                        value={displayValue(amounts[tender.id] ?? 0)}
+                        disabled={!canEdit}
+                        onChange={(v) => handleTenderChange(tender.id, v)}
+                      />
+                    </div>
+                    {(voucherPaymentsByTenderId.get(tender.id) ?? 0) > 0 ? (
+                      <>
+                        <span
+                          className="mt-1 justify-self-end text-right text-xs font-medium text-black"
+                          title="Linked voucher issues paid with this tender"
+                        >
+                          vouchers
+                        </span>
+                        <span
+                          className="mt-1 justify-self-end pr-3 text-right text-xs font-medium tabular-nums text-black"
+                          style={{ width: SALES_FORM_FIELD_INPUT_WIDTH }}
+                          title="Linked voucher issues paid with this tender"
+                        >
+                          {formatMoney(
+                            displayValue(
+                              voucherPaymentsByTenderId.get(tender.id) ?? 0,
+                            ),
+                          )}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+                </Fragment>
+              );
+            })}
+            <div className="mt-auto flex flex-col gap-2 rounded-lg border border-black/10 bg-white px-3 py-2">
+              <div className="space-y-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-black/50">
+                  Payment Total
                 </span>
-                <span className="text-base font-bold tabular-nums text-[#3D421F]">
-                  {formatMoney(enteredTotalGross)}
-                </span>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="tabular-nums text-[#3D421F]">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Gross{" "}
+                    </span>
+                    <span className="text-sm font-bold">
+                      {formatMoney(enteredTotalGross)}
+                    </span>
+                  </span>
+                  <span className="tabular-nums text-[#3D421F]">
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                      Net{" "}
+                    </span>
+                    <span className="text-sm font-bold">
+                      {formatMoney(enteredTotalNet)}
+                    </span>
+                  </span>
+                </div>
               </div>
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
-                  Net
-                </span>
-                <span className="text-base font-bold tabular-nums text-[#3D421F]">
-                  {formatMoney(enteredTotalNet)}
-                </span>
-              </div>
+              {voucherIssueTender ? (
+                <div className="space-y-1 border-t border-black/10 pt-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-black/50">
+                    Payment Total inc Vouchers
+                  </span>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="tabular-nums text-[#3D421F]">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                        Gross{" "}
+                      </span>
+                      <span className="text-sm font-bold">
+                        {formatMoney(paymentTotalIncVouchersGross)}
+                      </span>
+                    </span>
+                    <span className="tabular-nums text-[#3D421F]">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                        Net{" "}
+                      </span>
+                      <span className="text-sm font-bold">
+                        {formatMoney(paymentTotalIncVouchersNet)}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         )}
       </div>
-    </div>
+
+      <VoucherIssueDayDialog
+        open={issueDialogOpen}
+        onClose={() => setIssueDialogOpen(false)}
+        saleDate={saleDate}
+        issueAmountGs={voucherIssueAmountGs}
+        vouchers={vouchers}
+        tenders={tenders}
+        canEdit={canEditVouchers}
+      />
+      <VoucherRedeemDayDialog
+        open={redeemDialogOpen}
+        onClose={() => setRedeemDialogOpen(false)}
+        saleDate={saleDate}
+        redeemAmountGs={voucherRedeemAmountGs}
+        vouchers={vouchers}
+        canEdit={canEditVouchers}
+      />
+    </>
   );
 }
 
@@ -725,13 +938,19 @@ function TenderVerificationColumn({
   gratuityCc: number;
   venueRevenueGross: number;
 }) {
+  const verificationTenders = useMemo(
+    () => tenders.filter((tender) => !isVoucherIssueTender(tender.name)),
+    [tenders],
+  );
+
+  // Payment Total excludes Voucher Issue & Redeem (not guest payment forms).
   const enteredTotalGross = useMemo(
-    () => sumTenderAmounts(amounts),
-    [amounts],
+    () => sumSalesMatchingTenderAmounts(amounts, tenders),
+    [amounts, tenders],
   );
   const waitersTotalGross = useMemo(
-    () => sumTenderAmounts(waiterSums),
-    [waiterSums],
+    () => sumSalesMatchingTenderAmounts(waiterSums, tenders),
+    [waiterSums, tenders],
   );
   const overallDifference =
     Math.round((enteredTotalGross - waitersTotalGross) * 100) / 100;
@@ -746,21 +965,14 @@ function TenderVerificationColumn({
     [amounts, tenders],
   );
 
-  // Sales Total for verification = Payment Total − CC Gratuity − Voucher Issue.
-  // Voucher Issue is liability tracking, not food revenue. Voucher Redeem stays in.
+  // Sales Total = Payment Total − CC Gratuity.
   const waitersExGratuity = useMemo(
-    () =>
-      Math.round(
-        (sumSalesMatchingTenderAmounts(waiterSums, tenders) - gratuityCc) * 100,
-      ) / 100,
-    [waiterSums, tenders, gratuityCc],
+    () => Math.round((waitersTotalGross - gratuityCc) * 100) / 100,
+    [waitersTotalGross, gratuityCc],
   );
   const enteredExGratuity = useMemo(
-    () =>
-      Math.round(
-        (sumSalesMatchingTenderAmounts(amounts, tenders) - gratuityCc) * 100,
-      ) / 100,
-    [amounts, tenders, gratuityCc],
+    () => Math.round((enteredTotalGross - gratuityCc) * 100) / 100,
+    [enteredTotalGross, gratuityCc],
   );
   const exGratuityDifference =
     Math.round((enteredExGratuity - waitersExGratuity) * 100) / 100;
@@ -772,7 +984,7 @@ function TenderVerificationColumn({
   const salesVsRevenueBalanced =
     Math.abs(salesVsRevenueDiff) <= ROUNDING_TOLERANCE;
 
-  if (tenders.length === 0) return null;
+  if (verificationTenders.length === 0) return null;
 
   return (
     <div className={salesFormColumnClassName("bg-white/80")}>
@@ -806,7 +1018,7 @@ function TenderVerificationColumn({
           <span className="w-16 text-right">Δ</span>
         </div>
         <div className="flex flex-1 flex-col">
-          {tenders.map((tender) => (
+          {verificationTenders.map((tender) => (
             <TenderVerificationRow
               key={tender.id}
               label={tender.name}
@@ -1118,9 +1330,11 @@ export function DailySalesEntryForm({
   tenders,
   waiterRecords,
   tenderTotals,
+  vouchers,
   totalTaxPct,
   taxSettings,
   canEdit,
+  canEditVouchers,
 }: DailySalesEntryFormProps) {
   const today = formatLocalDate(new Date());
   const tenderIds = useMemo(() => tenders.map((t) => t.id), [tenders]);
@@ -1449,22 +1663,37 @@ export function DailySalesEntryForm({
           inputMode={tenderInputMode}
           onInputModeChange={setTenderInputMode}
           onChange={updateTenderTotal}
-          discountValue={form.all_day_discount_gs}
-          discountInputMode={discountInputMode}
-          onDiscountInputModeChange={setDiscountInputMode}
-          onDiscountChange={(v) => updateField("all_day_discount_gs", v)}
+          saleDate={selectedDate}
+          vouchers={vouchers}
+          canEditVouchers={canEditVouchers}
         />
-        <DailyTotalsColumn
-          totals={totals}
-          lunchCovers={form.lunch_covers}
-          lunchBookings={form.lunch_bookings}
-          lunchWalkinTables={form.lunch_walkin_tables}
-          lunchWalkinCovers={form.lunch_walkin_covers}
-          dinnerCovers={form.dinner_covers}
-          dinnerBookings={form.dinner_bookings}
-          dinnerWalkinTables={form.dinner_walkin_tables}
-          dinnerWalkinCovers={form.dinner_walkin_covers}
-        />
+        <div
+          className={cn(
+            salesFormColumnWidthClass(),
+            "flex flex-col gap-6 self-stretch",
+          )}
+        >
+          <DailyDiscountBox
+            value={form.all_day_discount_gs}
+            totalTaxPct={totalTaxPct}
+            canEdit={fieldsEditable}
+            inputMode={discountInputMode}
+            onInputModeChange={setDiscountInputMode}
+            onChange={(v) => updateField("all_day_discount_gs", v)}
+          />
+          <DailyTotalsColumn
+            className="min-h-0 flex-1"
+            totals={totals}
+            lunchCovers={form.lunch_covers}
+            lunchBookings={form.lunch_bookings}
+            lunchWalkinTables={form.lunch_walkin_tables}
+            lunchWalkinCovers={form.lunch_walkin_covers}
+            dinnerCovers={form.dinner_covers}
+            dinnerBookings={form.dinner_bookings}
+            dinnerWalkinTables={form.dinner_walkin_tables}
+            dinnerWalkinCovers={form.dinner_walkin_covers}
+          />
+        </div>
         <TenderVerificationColumn
           tenders={tenders}
           amounts={form.tender_totals}

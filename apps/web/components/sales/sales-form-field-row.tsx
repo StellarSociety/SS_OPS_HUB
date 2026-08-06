@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 export const SALES_FORM_FIELD_INPUT_WIDTH = "8.5rem";
 /** Keep in sync with `salesFormColumnSizeClass` below. */
-export const SALES_FORM_COLUMN_MAX_WIDTH = "17rem";
+export const SALES_FORM_COLUMN_MAX_WIDTH = "20rem";
 export const SALES_FORM_COLUMNS_GAP = "1.5rem";
 export const SALES_FORM_TWO_COLUMN_SPAN_MAX_WIDTH = `calc(2 * ${SALES_FORM_COLUMN_MAX_WIDTH} + ${SALES_FORM_COLUMNS_GAP})`;
 export const SALES_FORM_THREE_COLUMN_GROUP_MAX_WIDTH = `calc(3 * ${SALES_FORM_COLUMN_MAX_WIDTH} + 2 * ${SALES_FORM_COLUMNS_GAP})`;
@@ -31,7 +31,7 @@ export function salesFormColumnShellClass(className?: string) {
 }
 
 const salesFormColumnSizeClass =
-  "min-w-[min(100%,12rem)] max-w-[17rem] flex-[1_1_15rem]";
+  "min-w-[min(100%,14rem)] max-w-[20rem] flex-[1_1_18rem]";
 
 /** Width/sizing shared by Lunch, Dinner, totals columns and aligned banners. */
 export function salesFormColumnWidthClass() {
@@ -88,12 +88,15 @@ export function SalesFormThreeColumnGroup({ children }: { children: ReactNode })
 
 type SalesFormFieldRowProps = {
   label: ReactNode;
+  /** Shown to the right of the label (icon or formula mark). */
+  symbol?: ReactNode;
   className?: string;
   children: ReactNode;
 };
 
 export function SalesFormFieldRow({
   label,
+  symbol,
   className,
   children,
 }: SalesFormFieldRowProps) {
@@ -104,8 +107,16 @@ export function SalesFormFieldRow({
         gridTemplateColumns: SALES_FORM_FIELD_GRID_COLUMNS,
       }}
     >
-      <span className="flex min-h-9 items-center justify-end text-right text-black/60">
-        {label}
+      <span className="flex min-h-9 items-center justify-end gap-1.5 text-right text-black/60">
+        <span>{label}</span>
+        {symbol ? (
+          <span
+            aria-hidden
+            className="inline-flex h-4 min-w-5 shrink-0 items-center justify-center text-black/45"
+          >
+            {symbol}
+          </span>
+        ) : null}
       </span>
       <div
         className="justify-self-end"

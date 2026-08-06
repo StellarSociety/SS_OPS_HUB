@@ -6,6 +6,8 @@ export type VenueTender = {
   name: string;
   status: VenueTenderStatus;
   sort_order: number;
+  /** Offered as Payment Form when creating/editing vouchers. */
+  voucher_payment_form: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;

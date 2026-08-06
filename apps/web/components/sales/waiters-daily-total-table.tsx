@@ -304,6 +304,8 @@ export function WaitersDailyTotalTable({
   }
 
   function comparisonDifference(column: WaiterSalesColumn): number | null {
+    // ASPH is an average — waiter vs daily difference is not meaningful here.
+    if (column.key === "asph") return null;
     const waiterValue = waiterTotalValue(column);
     const dailyValue = dailySalesValue(column);
     if (waiterValue == null || dailyValue == null) return null;

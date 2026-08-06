@@ -12,8 +12,8 @@ import type {
 } from "@/lib/sales/daily-sales-types";
 import type { VenueDailyTenderTotal } from "@/lib/sales/daily-tender-totals-store";
 import {
+  isVoucherIssueTender,
   sumSalesMatchingTenderAmounts,
-  sumTenderAmounts,
 } from "@/lib/sales/tenders-calculations";
 import type { VenueTender } from "@/lib/sales/tenders-types";
 import { computeWaiterSalesReconciliation } from "@/lib/sales/waiter-sales-calculations";
@@ -150,23 +150,27 @@ function buildTenderCheck(
 ): FiguresAlertCheck | null {
   if (!hasDailyTenders && !hasWaiterTenders) return null;
 
-  const enteredTotal = sumTenderAmounts(dailyTenderAmounts);
-  const waitersTotal = sumTenderAmounts(waiterTenderAmounts);
-  const overallDiff = roundMoney(enteredTotal - waitersTotal);
-
-  const waitersSalesMatching = sumSalesMatchingTenderAmounts(
+  const enteredTotal = sumSalesMatchingTenderAmounts(dailyTenderAmounts, tenders);
+  const waitersTotal = sumSalesMatchingTenderAmounts(
     waiterTenderAmounts,
     tenders,
   );
+  const overallDiff = roundMoney(enteredTotal - waitersTotal);
+
+  const waitersSalesMatching = waitersTotal;
   const waitersExGratuity = roundMoney(waitersSalesMatching - waiterGratuityCc);
   const salesVsRevenueDiff = roundMoney(waitersExGratuity - venueRevenueGross);
 
+  const issueTenderIds = new Set(
+    tenders.filter((t) => isVoucherIssueTender(t.name)).map((t) => t.id),
+  );
   const tenderIds = new Set([
     ...Object.keys(dailyTenderAmounts),
     ...Object.keys(waiterTenderAmounts),
   ]);
   let mismatchedTenders = 0;
   for (const tenderId of tenderIds) {
+    if (issueTenderIds.has(tenderId)) continue;
     const daily = dailyTenderAmounts[tenderId] ?? 0;
     const waiters = waiterTenderAmounts[tenderId] ?? 0;
     if (!amountsMatch(daily, waiters)) mismatchedTenders += 1;
@@ -187,8 +191,8 @@ function buildTenderCheck(
   if (!amountsMatch(waitersExGratuity, venueRevenueGross)) {
     mismatches.push(
       salesVsRevenueDiff > 0
-        ? `Waiter Sales total excl. CC gratuity & Voucher Issue (${formatMoneyPlain(waitersExGratuity)}) is higher than Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`
-        : `Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) is higher than Waiter Sales total excl. CC gratuity & Voucher Issue (${formatMoneyPlain(waitersExGratuity)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`,
+        ? `Waiter Sales total excl. CC gratuity (${formatMoneyPlain(waitersExGratuity)}) is higher than Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`
+        : `Daily Sales → Total Revenue (${formatMoneyPlain(venueRevenueGross)}) is higher than Waiter Sales total excl. CC gratuity (${formatMoneyPlain(waitersExGratuity)}) by ${formatMoneyPlain(Math.abs(salesVsRevenueDiff))}.`,
     );
   }
   if (mismatchedTenders > 0) {
@@ -229,7 +233,7 @@ function buildTenderCheck(
           unit: "money",
         },
         {
-          label: "Sales excl. CC gratuity & Voucher Issue",
+          label: "Sales excl. CC gratuity",
           page: "Waiter Sales → Entry",
           value: waitersExGratuity,
           unit: "money",

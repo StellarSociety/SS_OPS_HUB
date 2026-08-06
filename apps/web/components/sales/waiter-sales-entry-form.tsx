@@ -2,7 +2,14 @@
 
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { saveVenueWaiterDailySalesEntry } from "@/lib/actions/sales";
 import {
   canCreateSalesEntryForDate,
@@ -18,6 +25,8 @@ import {
 import { computeWaiterSales, computeWaiterSalesReconciliation } from "@/lib/sales/waiter-sales-calculations";
 import { FIGURES_ALERTS_TOLERANCE } from "@/lib/sales/figures-alerts-calculations";
 import {
+  isVoucherIssueTender,
+  isVoucherRelatedTender,
   sumSalesMatchingTenderAmounts,
   sumTenderAmounts,
   sumVoucherIssueAmount,
@@ -267,6 +276,10 @@ export function WaiterSalesEntryForm({
   const today = formatLocalDate(new Date());
   const searchParams = useSearchParams();
   const tenderIds = useMemo(() => tenders.map((t) => t.id), [tenders]);
+  const entryTenders = useMemo(
+    () => tenders.filter((tender) => !isVoucherIssueTender(tender.name)),
+    [tenders],
+  );
 
   const recordsByKey = useMemo(
     () =>
@@ -324,19 +337,11 @@ export function WaiterSalesEntryForm({
   );
 
   const tendersTotalGross = useMemo(
-    () => sumTenderAmounts(form.tender_amounts),
-    [form.tender_amounts],
-  );
-
-  const tendersTotalForBalance = useMemo(
     () => sumSalesMatchingTenderAmounts(form.tender_amounts, tenders),
     [form.tender_amounts, tenders],
   );
 
-  const voucherIssueAmount = useMemo(
-    () => sumVoucherIssueAmount(form.tender_amounts, tenders),
-    [form.tender_amounts, tenders],
-  );
+  const tendersTotalForBalance = tendersTotalGross;
 
   const tendersTotalNet = useMemo(
     () =>
@@ -710,7 +715,7 @@ export function WaiterSalesEntryForm({
           <Card className={waiterEntryColumnCardClass("h-full space-y-4 shadow-sm backdrop-blur-xl")}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-serif text-lg font-bold text-[#3D421F]">Tenders Total</h3>
-              {tenders.length === 0 ? (
+              {entryTenders.length === 0 ? (
                 <Link
                   href="/sales/settings/tenders"
                   className="text-sm font-medium text-[var(--venue-primary)] underline-offset-2 hover:underline"
@@ -719,25 +724,37 @@ export function WaiterSalesEntryForm({
                 </Link>
               ) : null}
             </div>
-            {tenders.length === 0 ? (
+            {entryTenders.length === 0 ? (
               <p className="text-sm text-black/50">
                 No active tenders. Add them in Settings → Tenders.
               </p>
             ) : (
               <>
                 <div className="space-y-2">
-                  {tenders.map((tender) => (
-                    <SalesFormFieldRow key={tender.id} label={tender.name}>
-                      <SalesNumericInput
-                        key={`${tender.id}-${form.id}-${inputMode}`}
-                        value={displayMoney(
-                          form.tender_amounts[tender.id] ?? 0,
-                        )}
-                        disabled={!fieldsEditable}
-                        onChange={(v) => applyTenderChange(tender.id, v)}
-                      />
-                    </SalesFormFieldRow>
-                  ))}
+                  {entryTenders.map((tender, index) => {
+                    const dividerBeforeVouchers =
+                      isVoucherRelatedTender(tender.name) &&
+                      !entryTenders
+                        .slice(0, index)
+                        .some((t) => isVoucherRelatedTender(t.name));
+                    return (
+                      <Fragment key={tender.id}>
+                        {dividerBeforeVouchers ? (
+                          <div aria-hidden className="border-t border-black/10" />
+                        ) : null}
+                        <SalesFormFieldRow label={tender.name}>
+                          <SalesNumericInput
+                            key={`${tender.id}-${form.id}-${inputMode}`}
+                            value={displayMoney(
+                              form.tender_amounts[tender.id] ?? 0,
+                            )}
+                            disabled={!fieldsEditable}
+                            onChange={(v) => applyTenderChange(tender.id, v)}
+                          />
+                        </SalesFormFieldRow>
+                      </Fragment>
+                    );
+                  })}
                 </div>
                 <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary)]/20 px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-black/50">
@@ -787,9 +804,7 @@ export function WaiterSalesEntryForm({
               </span>
             </div>
             <p className="text-sm text-black/60">
-              Payment Total and the tenders total
-              {voucherIssueAmount !== 0 ? " (excluding Voucher Issue)" : ""}{" "}
-              should both equal{" "}
+              Payment Total and the tenders total should both equal{" "}
               <span className="font-medium text-[#3D421F]">
                 Sales Total + Credit Card Gratuity
               </span>
@@ -814,11 +829,7 @@ export function WaiterSalesEntryForm({
                 difference={reconciliation.paymentsDifferenceGs}
               />
               <ReconciliationRow
-                label={
-                  voucherIssueAmount !== 0
-                    ? "Tenders total (excl. Voucher Issue)"
-                    : "Tenders total"
-                }
+                label="Tenders total"
                 entered={tendersTotalForBalance}
                 expected={reconciliation.expectedPaymentsGs}
                 difference={reconciliation.tendersDifferenceGs}

@@ -127,6 +127,7 @@ type LeaveEmployeeDetailProps = {
     joining_date: string | null;
     termination_date: string | null;
     probation_status: string | null;
+    photo_url: string | null;
     department: { name: string } | null;
   };
   balances: HrLeaveBalance[];
@@ -576,12 +577,23 @@ export function LeaveEmployeeDetail({
           </p>
         </div>
         <div className="shrink-0 self-center">
-          <div
-            className="flex h-20 w-16 items-center justify-center rounded-lg border border-dashed border-black/15 bg-black/[0.03] text-xs text-black/35 sm:h-24 sm:w-20"
-            aria-hidden
-          >
-            No photo
-          </div>
+          {staff.photo_url ? (
+            <div className="h-20 w-16 overflow-hidden rounded-lg border border-black/10 bg-black/[0.03] sm:h-24 sm:w-20">
+              {/* eslint-disable-next-line @next/next/no-img-element -- staff photo URL from storage */}
+              <img
+                src={staff.photo_url}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            </div>
+          ) : (
+            <div
+              className="flex h-20 w-16 items-center justify-center rounded-lg border border-dashed border-black/15 bg-black/[0.03] text-xs text-black/35 sm:h-24 sm:w-20"
+              aria-hidden
+            >
+              No photo
+            </div>
+          )}
         </div>
       </div>
 
