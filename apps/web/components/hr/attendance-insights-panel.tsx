@@ -378,12 +378,25 @@ export function AttendanceInsightsPanel({
   /** Charts: only staff with SHIFT days; unpaid leave still excluded. */
   const punchStaffRows = useMemo(
     () =>
-      staffRows.filter(
-        (row) =>
-          row.dayCount > 0 &&
-          row.punchCompletePct != null &&
-          row.workingStatus !== WORKING_STATUS.unpaidLeave,
-      ),
+      staffRows.flatMap((row) => {
+        if (
+          row.dayCount <= 0 ||
+          row.punchCompletePct == null ||
+          row.workingStatus === WORKING_STATUS.unpaidLeave
+        ) {
+          return [];
+        }
+        return [
+          {
+            empNo: row.empNo,
+            fullName: row.fullName,
+            departmentName: row.departmentName,
+            dayCount: row.dayCount,
+            completeDayCount: row.completeDayCount,
+            punchCompletePct: row.punchCompletePct,
+          },
+        ];
+      }),
     [staffRows],
   );
   const punchDepartmentRows = useMemo(() => {
