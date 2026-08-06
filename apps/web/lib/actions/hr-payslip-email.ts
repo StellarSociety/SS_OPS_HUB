@@ -6,6 +6,7 @@ import {
   getActionAuthContext,
   type ActionAuthContext,
 } from "@/lib/auth/action-context";
+import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { canAdminLookups, canEditPayroll } from "@/lib/hr/permissions";
 import { formatPayrollMonthLabel, summarizePayrollLeave } from "@/lib/hr/payroll";
@@ -885,7 +886,7 @@ export async function sendPayslipsEmail(
     }
 
     try {
-      await sendAppEmail(
+      const sendResult = await sendAppEmail(
         {
           to,
           fromOverride: settings.fromEmail || undefined,
@@ -896,15 +897,33 @@ export async function sendPayslipsEmail(
         { venueId: venue.id, supabase },
       );
 
+      const sentAt = new Date().toISOString();
       await service
         .from("hr_payslips")
         .update({
           email_status: "sent",
-          email_sent_at: new Date().toISOString(),
+          email_sent_at: sentAt,
           email_error: null,
         })
         .eq("id", row.id)
         .eq("venue_id", venue.id);
+
+      if (sendResult.messageId && row.staff_id) {
+        await recordOutboundStaffEmail({
+          supabase: service,
+          venueId: venue.id,
+          staffId: String(row.staff_id),
+          rfcMessageId: sendResult.messageId,
+          subject,
+          fromEmail: settings.fromEmail || null,
+          toEmail: to,
+          bodyHtml: html,
+          bodyText: bodyText,
+          sourceKind: "payslip",
+          sourceId: String(row.id),
+          occurredAt: sentAt,
+        });
+      }
 
       sent += 1;
     } catch (e) {

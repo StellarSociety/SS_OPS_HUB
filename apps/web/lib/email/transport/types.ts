@@ -19,9 +19,13 @@ export type SendAppEmailParams = {
   attachments?: SendAppEmailAttachment[];
   /** Overrides the configured from address when set. */
   fromOverride?: string;
+  /** Optional pre-generated RFC Message-ID (with or without angle brackets). */
+  messageId?: string;
 };
 
 export type SendAppEmailResult = {
   provider: string;
   imapAppended: boolean;
+  /** RFC Message-ID used for the outbound message (angle-bracket form). */
+  messageId: string | null;
 };

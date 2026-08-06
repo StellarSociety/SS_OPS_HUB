@@ -1,6 +1,7 @@
 import "server-only";
 
 import { writeAuditLog } from "@/lib/audit";
+import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
@@ -199,7 +200,7 @@ export async function deliverUniformTermsEmail(params: {
       },
     });
 
-    await sendAppEmail(
+    const sendResult = await sendAppEmail(
       {
         to: composed.to,
         subject: composed.subject,
@@ -210,26 +211,42 @@ export async function deliverUniformTermsEmail(params: {
       },
       { venueId: params.venue.id, supabase },
     );
+
+    const auditId = await writeAuditLog({
+      actor_id: params.actorId,
+      action: "uniform_terms_email.sent",
+      module_key: HR_MODULE_KEY,
+      entity: "staff",
+      entity_id: params.staff.id,
+      venue_id: params.venue.id,
+      after: {
+        to: composed.to,
+        itemCount: params.items.length,
+        totalValue: uniformsOnHandTotal(params.items),
+      },
+    });
+
+    if (sendResult.messageId && auditId) {
+      await recordOutboundStaffEmail({
+        supabase,
+        venueId: params.venue.id,
+        staffId: params.staff.id,
+        rfcMessageId: sendResult.messageId,
+        subject: composed.subject,
+        fromEmail: params.settings.fromEmail || null,
+        toEmail: composed.to,
+        bodyHtml: html,
+        bodyText: composed.body,
+        sourceKind: "audit",
+        sourceId: auditId,
+      });
+    }
   } catch (e) {
     return {
       ok: false,
       error: e instanceof Error ? e.message : "Failed to send email.",
     };
   }
-
-  await writeAuditLog({
-    actor_id: params.actorId,
-    action: "uniform_terms_email.sent",
-    module_key: HR_MODULE_KEY,
-    entity: "staff",
-    entity_id: params.staff.id,
-    venue_id: params.venue.id,
-    after: {
-      to: composed.to,
-      itemCount: params.items.length,
-      totalValue: uniformsOnHandTotal(params.items),
-    },
-  });
 
   return { ok: true, to: composed.to };
 }

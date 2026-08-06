@@ -11,10 +11,16 @@ export type AuditEntry = {
   after?: Record<string, unknown> | null;
 };
 
-export async function writeAuditLog(entry: AuditEntry) {
+export async function writeAuditLog(entry: AuditEntry): Promise<string | null> {
   const supabase = createServiceClient();
-  const { error } = await supabase.from("audit_log").insert(entry);
+  const { data, error } = await supabase
+    .from("audit_log")
+    .insert(entry)
+    .select("id")
+    .maybeSingle();
   if (error) {
     console.error("[audit_log] insert failed:", error.message);
+    return null;
   }
+  return data?.id ? String(data.id) : null;
 }

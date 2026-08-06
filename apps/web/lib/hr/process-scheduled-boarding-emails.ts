@@ -1,6 +1,7 @@
 import "server-only";
 
 import { writeAuditLog } from "@/lib/audit";
+import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
 import { HR_MODULE_KEY, parseBoardingEmailAction, parseBoardingTemplateToEmails } from "@/lib/hr/types";
@@ -142,6 +143,23 @@ export async function processDueScheduledBoardingEmails(options?: {
           `${row.id}: sent but persist failed — ${persistError.message}`,
         );
         continue;
+      }
+
+      if (result.messageId) {
+        await recordOutboundStaffEmail({
+          supabase: service,
+          venueId: row.venue_id,
+          staffId: row.staff_id,
+          rfcMessageId: result.messageId,
+          subject: row.subject,
+          fromEmail: row.from_email,
+          toEmail: row.to_email,
+          bodyHtml: html,
+          bodyText: row.message,
+          sourceKind: "boarding",
+          sourceId: row.id,
+          occurredAt: sentAt,
+        });
       }
 
       await writeAuditLog({

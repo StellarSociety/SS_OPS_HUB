@@ -33,6 +33,7 @@ export type UserListRow = {
     work_email: string | null;
     personal_email: string | null;
     home_venue_id: string;
+    photo_url: string | null;
     department: { name: string } | null;
     position: { name: string } | null;
     employment_status: { name: string } | null;

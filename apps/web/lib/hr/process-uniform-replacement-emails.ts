@@ -1,6 +1,7 @@
 import "server-only";
 
 import { writeAuditLog } from "@/lib/audit";
+import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatAed } from "@/lib/hr/derived";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
@@ -179,6 +180,9 @@ export async function deliverUniformReplacementEmail(params: {
 
   const supabase = params.supabase ?? createServiceClient();
 
+  let sendMessageId: string | null = null;
+  let sentHtml = "";
+
   try {
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
@@ -187,8 +191,9 @@ export async function deliverUniformReplacementEmail(params: {
         slug: params.venue.slug ?? "",
       },
     });
+    sentHtml = html;
 
-    await sendAppEmail(
+    const sendResult = await sendAppEmail(
       {
         to: composed.to,
         subject: composed.subject,
@@ -199,6 +204,7 @@ export async function deliverUniformReplacementEmail(params: {
       },
       { venueId: params.venue.id, supabase },
     );
+    sendMessageId = sendResult.messageId;
   } catch (e) {
     return {
       ok: false,
@@ -213,7 +219,7 @@ export async function deliverUniformReplacementEmail(params: {
       .in("id", params.replacementIds);
   }
 
-  await writeAuditLog({
+  const auditId = await writeAuditLog({
     actor_id: params.actorId,
     action: "uniform_replacement_email.sent",
     module_key: HR_MODULE_KEY,
@@ -226,6 +232,22 @@ export async function deliverUniformReplacementEmail(params: {
       replacementIds: params.replacementIds ?? [],
     },
   });
+
+  if (sendMessageId && auditId) {
+    await recordOutboundStaffEmail({
+      supabase,
+      venueId: params.venue.id,
+      staffId: params.staff.id,
+      rfcMessageId: sendMessageId,
+      subject: composed.subject,
+      fromEmail: params.settings.fromEmail || null,
+      toEmail: composed.to,
+      bodyHtml: sentHtml,
+      bodyText: composed.body,
+      sourceKind: "audit",
+      sourceId: auditId,
+    });
+  }
 
   return { ok: true, to: composed.to };
 }

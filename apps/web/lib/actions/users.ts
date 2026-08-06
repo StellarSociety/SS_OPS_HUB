@@ -16,10 +16,15 @@ import {
 import type { PermissionGrantInput } from "@/lib/access/types";
 import { writeAuditLog } from "@/lib/audit";
 import {
+  generateRfcMessageId,
+  recordOutboundStaffEmail,
+} from "@/lib/email/record-staff-email";
+import {
   buildInviteEmailHtml,
   buildPasswordResetEmailHtml,
   sendResendEmail,
 } from "@/lib/email/resend";
+import { createServiceClient } from "@/lib/supabase/service";
 import { VENUE_TOGGLEABLE_MODULES } from "@/lib/modules-catalog";
 import {
   convertImageToWebp,
@@ -30,7 +35,6 @@ import {
   USER_AVATAR_MAX_UPLOAD_BYTES,
 } from "@/lib/user/avatar-upload-constants";
 import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 
 const SETTINGS_PATHS = [
@@ -91,9 +95,30 @@ async function tryDeliverInvite(params: {
   to: string;
   subject: string;
   html: string;
+  staffId?: string | null;
+  venueId?: string | null;
+  auditId?: string | null;
 }): Promise<string | null> {
   try {
+    const messageId = generateRfcMessageId(
+      process.env.RESEND_FROM_EMAIL ?? undefined,
+    );
     await sendResendEmail(params);
+    if (params.staffId && params.venueId && params.auditId) {
+      const service = createServiceClient();
+      await recordOutboundStaffEmail({
+        supabase: service,
+        venueId: params.venueId,
+        staffId: params.staffId,
+        rfcMessageId: messageId,
+        subject: params.subject,
+        fromEmail: process.env.RESEND_FROM_EMAIL ?? null,
+        toEmail: params.to,
+        bodyHtml: params.html,
+        sourceKind: "invite",
+        sourceId: params.auditId,
+      });
+    }
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : "Failed to send email.";
@@ -228,6 +253,7 @@ export async function inviteUser(staffId: string, options: InviteOptions = {}) {
       full_name,
       work_email,
       personal_email,
+      home_venue_id,
       home_venue:home_venue_id ( name )
     `,
     )
@@ -327,6 +353,16 @@ export async function inviteUser(staffId: string, options: InviteOptions = {}) {
     return { error: profileError.message };
   }
 
+  const auditId = await writeAuditLog({
+    actor_id: actor.id,
+    action: "create",
+    module_key: "app",
+    entity: "user",
+    entity_id: invitedUserId,
+    venue_id: staff.home_venue_id ? String(staff.home_venue_id) : null,
+    after: { email, staff_id: staff.id, full_name: staff.full_name, emailSource },
+  });
+
   const emailError = await tryDeliverInvite({
     to: email,
     subject: "You're invited to the SS Operational Hub",
@@ -334,15 +370,9 @@ export async function inviteUser(staffId: string, options: InviteOptions = {}) {
       firstName,
       inviteLink,
     }),
-  });
-
-  await writeAuditLog({
-    actor_id: actor.id,
-    action: "create",
-    module_key: "app",
-    entity: "user",
-    entity_id: invitedUserId,
-    after: { email, staff_id: staff.id, full_name: staff.full_name, emailSource },
+    staffId: staff.id,
+    venueId: staff.home_venue_id ? String(staff.home_venue_id) : null,
+    auditId,
   });
 
   revalidateSettings();
@@ -503,6 +533,32 @@ export async function resendUserInvite(userId: string) {
     fallback: linkData.properties.action_link,
   });
 
+  let venueId: string | null = null;
+  if (target.staff_id) {
+    const { data: staffRow } = await service
+      .from("staff")
+      .select("home_venue_id")
+      .eq("id", target.staff_id)
+      .maybeSingle();
+    venueId = staffRow?.home_venue_id
+      ? String(staffRow.home_venue_id)
+      : null;
+  }
+
+  const auditId = await writeAuditLog({
+    actor_id: actor.id,
+    action: "update",
+    module_key: "app",
+    entity: "user_invite",
+    entity_id: userId,
+    venue_id: venueId,
+    after: {
+      email: target.email,
+      resent: true,
+      staff_id: target.staff_id,
+    },
+  });
+
   const emailError = await tryDeliverInvite({
     to: target.email,
     subject: "Your SS Operational Hub invitation",
@@ -510,16 +566,18 @@ export async function resendUserInvite(userId: string) {
       firstName,
       inviteLink,
     }),
+    staffId: target.staff_id,
+    venueId,
+    auditId,
   });
 
-  await writeAuditLog({
-    actor_id: actor.id,
-    action: "update",
-    module_key: "app",
-    entity: "user_invite",
-    entity_id: userId,
-    after: { email: target.email, resent: true, emailError },
-  });
+  // Update audit with emailError if needed (best-effort; trail already has the send).
+  if (emailError && auditId) {
+    await service
+      .from("audit_log")
+      .update({ after: { email: target.email, resent: true, emailError, staff_id: target.staff_id } })
+      .eq("id", auditId);
+  }
 
   revalidateSettings();
   if (emailError) {

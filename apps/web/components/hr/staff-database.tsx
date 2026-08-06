@@ -420,9 +420,18 @@ export function StaffDatabase({
             .join("");
           return (
             <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-black/10 bg-[#3D421F] text-[10px] font-medium text-white">
-              <span className="flex h-full w-full items-center justify-center">
-                {initials || "?"}
-              </span>
+              {s.photo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={s.photo_url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center">
+                  {initials || "?"}
+                </span>
+              )}
             </div>
           );
         },

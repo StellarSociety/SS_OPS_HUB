@@ -257,15 +257,19 @@ export async function sendAppEmail(
   }
 
   if (settings.provider === "resend") {
-    await sendViaResend(params);
-    return { provider: "resend", imapAppended: false };
+    const result = await sendViaResend(params);
+    return {
+      provider: "resend",
+      imapAppended: false,
+      messageId: result.messageId,
+    };
   }
 
   const password = resolvePassword(settings);
-  const { imapAppended } = await sendViaSmtp({
+  const { imapAppended, messageId } = await sendViaSmtp({
     message: params,
     settings,
     password,
   });
-  return { provider: settings.provider, imapAppended };
+  return { provider: settings.provider, imapAppended, messageId };
 }

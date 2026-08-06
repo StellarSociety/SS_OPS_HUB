@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { StaffAvatarField } from "@/components/hr/staff-avatar-field";
 import {
   STAFF_ENTRY_FORM_ID,
   StaffEntryForm,
@@ -42,7 +43,6 @@ import {
   verticalSegmentedSubNavLinkClass,
   verticalSegmentedSubNavShellClass,
 } from "@/lib/sub-nav-ui";
-import { getUserInitials } from "@/lib/user/display";
 
 type StaffDetailViewProps = {
   staff: StaffWithLookups;
@@ -92,15 +92,18 @@ export function StaffDetailView({
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<StaffEntryTab | null>(null);
   const [value, setValue] = useState<StaffFormState>(() => staffToForm(staff));
+  const [photoUrl, setPhotoUrl] = useState<string | null>(staff.photo_url ?? null);
   useEffect(() => {
     if (editing) return;
     setValue(staffToForm(staff));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- skip while editing
   }, [staff]);
+  useEffect(() => {
+    setPhotoUrl(staff.photo_url ?? null);
+  }, [staff.photo_url]);
 
   const readOnly = !editing || !canEdit;
   const displayName = value.full_name.trim() || staff.full_name;
-  const initials = getUserInitials(displayName, staff.work_email ?? "?");
   const departmentName =
     departments.find((d) => d.id === value.department_id)?.name ?? null;
   const positionName =
@@ -148,11 +151,14 @@ export function StaffDetailView({
         <div className="w-full max-w-lg shrink-0">
           <Card className="px-6 py-8 sm:px-8">
             <div className="flex flex-col items-center gap-4 text-center">
-              <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10 sm:h-32 sm:w-32">
-                <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-3xl font-medium text-white sm:text-4xl">
-                  {initials}
-                </div>
-              </div>
+              <StaffAvatarField
+                staffId={staff.id}
+                photoUrl={photoUrl}
+                fullName={displayName}
+                emailFallback={staff.work_email ?? staff.personal_email}
+                canEdit={canEdit}
+                onPhotoUrlChange={setPhotoUrl}
+              />
               <div className="min-w-0 w-full space-y-0.5">
                 <p className="text-xs font-medium uppercase tracking-[0.12em] text-black/45">
                   Employee

@@ -70,6 +70,16 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getActionAuthContext, diagnosePersistenceAccess } from "@/lib/auth/action-context";
+import {
+  asUploadBlob,
+  convertImageToWebp,
+  resolveRasterImageMime,
+  uploadBlobMeta,
+} from "@/lib/storage/convert-to-webp";
+import {
+  STAFF_PHOTO_MAX_CROPPED_BYTES,
+  STAFF_PHOTOS_BUCKET,
+} from "@/lib/hr/staff-photo-constants";
 
 async function getAuthContext() {
   const ctx = await getActionAuthContext();
@@ -424,6 +434,204 @@ async function updateStaffInner(
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
   return { success: true };
+}
+
+function staffPhotoObjectPaths(venueId: string, staffId: string) {
+  return {
+    crop: `${venueId}/${staffId}.webp`,
+    legacy: [
+      `${venueId}/${staffId}.jpg`,
+      `${venueId}/${staffId}.jpeg`,
+      `${venueId}/${staffId}.png`,
+    ],
+  };
+}
+
+async function resolveStaffPhotoUpdate({
+  service,
+  venueId,
+  staffId,
+  formData,
+  previousUrl,
+}: {
+  service: ReturnType<typeof createServiceClient>;
+  venueId: string;
+  staffId: string;
+  formData: FormData;
+  previousUrl: string | null;
+}): Promise<{ photo_url?: string | null; error?: string }> {
+  const clear = String(formData.get("photo_clear") ?? "") === "1";
+  const photo = asUploadBlob(formData.get("photo"));
+  const paths = staffPhotoObjectPaths(venueId, staffId);
+
+  const photoField = formData.get("photo");
+  if (
+    photoField != null &&
+    typeof photoField !== "string" &&
+    typeof (photoField as Blob).size === "number" &&
+    (photoField as Blob).size === 0
+  ) {
+    return {
+      error:
+        "Staff photo upload arrived empty. Try a smaller source image, then save again.",
+    };
+  }
+
+  if (photo) {
+    if (photo.size > STAFF_PHOTO_MAX_CROPPED_BYTES) {
+      return { error: "Staff photo must be 512 KB or smaller." };
+    }
+    if (!resolveRasterImageMime(uploadBlobMeta(photo))) {
+      return { error: "Staff photo must be a PNG, JPEG, GIF, AVIF, or WebP image." };
+    }
+
+    const bytes = Buffer.from(await photo.arrayBuffer());
+    if (bytes.length === 0) {
+      return {
+        error:
+          "Staff photo upload arrived empty. Try a smaller source image, then save again.",
+      };
+    }
+
+    let webp: Awaited<ReturnType<typeof convertImageToWebp>>;
+    try {
+      webp = await convertImageToWebp(bytes);
+    } catch (err) {
+      console.error(
+        "[hr] staff photo WebP convert failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return { error: "Could not convert staff photo to WebP." };
+    }
+
+    await service.storage
+      .from(STAFF_PHOTOS_BUCKET)
+      .remove([paths.crop, ...paths.legacy]);
+
+    const { error: uploadError } = await service.storage
+      .from(STAFF_PHOTOS_BUCKET)
+      .upload(paths.crop, new Uint8Array(webp.buffer), {
+        contentType: webp.contentType,
+        upsert: true,
+        cacheControl: "31536000",
+      });
+
+    if (uploadError) {
+      console.error("[hr] staff photo upload failed:", uploadError.message);
+      return {
+        error: `Could not upload staff photo (${uploadError.message}). Ensure the staff-photos storage bucket exists (run db migrations).`,
+      };
+    }
+
+    const { data: publicData } = service.storage
+      .from(STAFF_PHOTOS_BUCKET)
+      .getPublicUrl(paths.crop);
+
+    return { photo_url: `${publicData.publicUrl}?v=${Date.now()}` };
+  }
+
+  if (clear) {
+    const toRemove = new Set<string>([paths.crop, ...paths.legacy]);
+    if (previousUrl) {
+      const match = previousUrl.match(/\/staff-photos\/([^?]+)/);
+      if (match?.[1]) {
+        toRemove.add(decodeURIComponent(match[1]));
+      }
+    }
+    await service.storage.from(STAFF_PHOTOS_BUCKET).remove([...toRemove]);
+    return { photo_url: null };
+  }
+
+  return {};
+}
+
+/**
+ * Dedicated staff photo upload/clear — small FormData, not mixed with the
+ * full employee form (avoids body truncation).
+ */
+export async function saveStaffPhoto(staffId: string, formData: FormData) {
+  try {
+    return await saveStaffPhotoInner(staffId, formData);
+  } catch (err) {
+    const digest =
+      err && typeof err === "object" && "digest" in err
+        ? String((err as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw err;
+    const message =
+      err instanceof Error ? err.message : "Could not save staff photo.";
+    console.error("[hr] saveStaffPhoto:", message);
+    return { error: message };
+  }
+}
+
+async function saveStaffPhotoInner(staffId: string, formData: FormData) {
+  const { supabase, user, venue, permissions } = await getAuthContext();
+
+  const { data: before } = await supabase
+    .from("staff")
+    .select("id, photo_url, created_by, home_venue_id")
+    .eq("id", staffId)
+    .eq("home_venue_id", venue.id)
+    .single();
+
+  if (!before) return { error: "Staff member not found." };
+
+  if (!canEditOwnStaff(permissions, venue.id, before.created_by, user.id)) {
+    return { error: "You do not have permission to edit staff." };
+  }
+
+  const hasPhoto = asUploadBlob(formData.get("photo"));
+  const clear = String(formData.get("photo_clear") ?? "") === "1";
+  if (!hasPhoto && !clear) {
+    return { error: "No photo change to save." };
+  }
+
+  const service = createServiceClient();
+  const photoResult = await resolveStaffPhotoUpdate({
+    service,
+    venueId: venue.id,
+    staffId,
+    formData,
+    previousUrl: (before as { photo_url?: string | null }).photo_url ?? null,
+  });
+  if (photoResult.error) return { error: photoResult.error };
+  if (photoResult.photo_url === undefined) {
+    return { error: "No photo change to save." };
+  }
+
+  const { error } = await service
+    .from("staff")
+    .update({ photo_url: photoResult.photo_url })
+    .eq("id", staffId);
+
+  if (error) return { error: error.message };
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "update",
+    module_key: HR_MODULE_KEY,
+    entity: "staff",
+    entity_id: staffId,
+    venue_id: venue.id,
+    before: { photo_url: before.photo_url ?? null },
+    after: { photo_url: photoResult.photo_url },
+  });
+
+  revalidatePath(`/hr/${staffId}`);
+  revalidatePath("/hr");
+  revalidatePath("/hr/staff");
+  revalidatePath("/hr/staff/data");
+  revalidatePath("/settings/users");
+  revalidatePath("/profile");
+  revalidatePath("/profile/settings");
+  revalidatePath("/select-venue");
+  revalidatePath("/", "layout");
+
+  return {
+    success: true as const,
+    photo_url: photoResult.photo_url,
+  };
 }
 
 export async function createStaff(formData: FormData) {

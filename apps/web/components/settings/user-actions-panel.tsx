@@ -18,6 +18,7 @@ import { AccessCredentialsBox } from "@/components/settings/access-credentials-b
 import { InviteLinkBox } from "@/components/settings/invite-link-box";
 import { UserAvatarField } from "@/components/profile/user-avatar-field";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
+import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { useUnsavedChangesGuard } from "@/components/use-unsaved-changes-guard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -231,7 +232,10 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
         <>
           <UserAvatarField
             userId={user.id}
-            avatarUrl={user.avatar_url}
+            avatarUrl={resolveAvatarUrl({
+              profileAvatarUrl: user.avatar_url,
+              staffPhotoUrl: user.staff?.photo_url,
+            })}
             fullName={user.full_name}
             email={user.email}
           />

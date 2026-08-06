@@ -14,6 +14,11 @@ type AvatarCropDialogProps = {
   file: File | null;
   onClose: () => void;
   onConfirm: (cropped: File) => void;
+  /** Square canvas export size in px. Defaults to user-avatar constant. */
+  outputPx?: number;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
 };
 
 function clamp(n: number, min: number, max: number) {
@@ -58,6 +63,10 @@ export function AvatarCropDialog({
   file,
   onClose,
   onConfirm,
+  outputPx = USER_AVATAR_CROP_OUTPUT_PX,
+  title = "Profile photo",
+  description = "Drag, zoom, and position your photo in the circle.",
+  confirmLabel = "Save photo",
 }: AvatarCropDialogProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
@@ -135,7 +144,7 @@ export function AvatarCropDialog({
   async function exportCropped(): Promise<File | null> {
     if (!sourceUrl || !naturalSize) return null;
     const img = await loadImage(sourceUrl);
-    const size = USER_AVATAR_CROP_OUTPUT_PX;
+    const size = outputPx;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
@@ -239,7 +248,7 @@ export function AvatarCropDialog({
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Crop profile photo"
+      aria-label={title}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !exporting) onClose();
       }}
@@ -248,11 +257,9 @@ export function AvatarCropDialog({
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-black/10 px-4 py-3 sm:px-5 sm:py-4">
           <div className="min-w-0">
             <h2 className="font-serif text-lg leading-tight text-[#3D421F]">
-              Profile photo
+              {title}
             </h2>
-            <p className="text-xs text-black/50">
-              Drag, zoom, and position your photo in the circle.
-            </p>
+            <p className="text-xs text-black/50">{description}</p>
           </div>
           <button
             type="button"
@@ -365,7 +372,7 @@ export function AvatarCropDialog({
                   Saving…
                 </>
               ) : (
-                "Save photo"
+                confirmLabel
               )}
             </Button>
           </div>

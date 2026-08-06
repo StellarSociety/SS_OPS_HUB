@@ -3,6 +3,7 @@ import { SelectVenueWelcome } from "@/components/venue/select-venue-welcome";
 import { VenueGrid } from "@/components/venue/venue-grid";
 import { canAccessGlobal } from "@/lib/role-permissions";
 import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
+import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { normalizeVenueRows } from "@/lib/venue/normalize";
 
@@ -25,7 +26,9 @@ export default async function SelectVenuePage() {
           email,
           full_name,
           avatar_url,
+          is_external,
           staff:staff_id (
+            photo_url,
             emp_no,
             position:position_id ( name )
           )
@@ -36,6 +39,7 @@ export default async function SelectVenuePage() {
     ]);
 
   type StaffShape = {
+    photo_url?: string | null;
     emp_no?: string | null;
     position?: { name: string } | { name: string }[] | null;
   };
@@ -44,6 +48,7 @@ export default async function SelectVenuePage() {
     email?: string | null;
     full_name?: string | null;
     avatar_url?: string | null;
+    is_external?: boolean | null;
     staff?: StaffShape | StaffShape[] | null;
   } | null;
 
@@ -64,7 +69,7 @@ export default async function SelectVenuePage() {
     const { data: profileFallback } = await supabase
       .from("profiles")
       .select(
-        `email, full_name, avatar_url, staff:staff_id ( emp_no, position:position_id ( name ) )`,
+        `email, full_name, avatar_url, is_external, staff:staff_id ( photo_url, emp_no, position:position_id ( name ) )`,
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -80,10 +85,18 @@ export default async function SelectVenuePage() {
         ? (positionRaw[0]?.name ?? null)
         : positionRaw.name;
   const empNo = staff?.emp_no?.trim() || null;
+  const email = profile?.email ?? user.email ?? "";
+  const preferStaffPhoto = !canManageProfileAvatar({
+    is_external: profile?.is_external,
+    email,
+    staff: staff ? { emp_no: staff.emp_no } : null,
+  });
 
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: profile?.avatar_url,
+    staffPhotoUrl: staff?.photo_url ?? null,
+    preferStaffPhoto,
     userMetadata: metadata,
   });
 
@@ -101,7 +114,7 @@ export default async function SelectVenuePage() {
         <div className="flex min-h-0 items-end justify-center px-4 pb-6 pt-10 sm:pb-10 sm:pt-14">
           <SelectVenueWelcome
             fullName={profile?.full_name ?? null}
-            email={profile?.email ?? user.email ?? ""}
+            email={email}
             avatarUrl={avatarUrl}
             empNo={empNo}
             position={positionName}

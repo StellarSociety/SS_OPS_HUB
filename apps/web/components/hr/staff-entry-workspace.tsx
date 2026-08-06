@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
+import { StaffAvatarField } from "@/components/hr/staff-avatar-field";
 import {
   STAFF_ENTRY_FORM_ID,
   StaffEntryForm,
@@ -51,7 +52,6 @@ import {
   verticalSegmentedSubNavLinkClass,
   verticalSegmentedSubNavShellClass,
 } from "@/lib/sub-nav-ui";
-import { getUserInitials } from "@/lib/user/display";
 import { nationalityDisplay } from "@/lib/hr/nationality-flag";
 import { cn } from "@/lib/utils";
 
@@ -99,17 +99,21 @@ function StaffProfileHero({
   departmentName,
   positionName,
   nationalityName,
+  staffId,
+  photoUrl,
+  canEdit,
+  onPhotoUrlChange,
 }: {
   value: StaffFormState;
   departmentName: string | null;
   positionName: string | null;
   nationalityName: string | null;
+  staffId: string | null;
+  photoUrl: string | null;
+  canEdit: boolean;
+  onPhotoUrlChange: (url: string | null) => void;
 }) {
   const displayName = value.full_name.trim() || "New employee";
-  const initials = getUserInitials(
-    value.full_name.trim() || null,
-    value.work_email || value.personal_email || "?",
-  );
   const empNo = value.emp_no.trim();
   const nationality = nationalityDisplay(nationalityName);
   const age = computeAge(value.dob || null);
@@ -122,11 +126,14 @@ function StaffProfileHero({
     <div className="w-full max-w-lg shrink-0">
       <Card className="px-6 py-8 sm:px-8">
         <div className="flex flex-col items-center gap-4 text-center">
-          <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10 sm:h-32 sm:w-32">
-            <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-3xl font-medium text-white sm:text-4xl">
-              {initials}
-            </div>
-          </div>
+          <StaffAvatarField
+            staffId={staffId}
+            photoUrl={photoUrl}
+            fullName={displayName}
+            emailFallback={value.work_email || value.personal_email}
+            canEdit={canEdit}
+            onPhotoUrlChange={onPhotoUrlChange}
+          />
 
           <div className="min-w-0 w-full space-y-0.5">
             <p className="text-xs font-medium uppercase tracking-[0.12em] text-black/45">
@@ -224,6 +231,7 @@ export function StaffEntryWorkspace({
   const [savedSnapshot, setSavedSnapshot] = useState<StaffFormState | null>(
     null,
   );
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   const readOnly = loadedStaffId != null && !editing;
 
@@ -238,6 +246,7 @@ export function StaffEntryWorkspace({
     setValue(emptyStaffForm(suggestedEmpNo));
     setSavedSnapshot(null);
     setLoadedStaffId(null);
+    setPhotoUrl(null);
     setEditing(true);
     setActiveTab("identity");
     setView("form");
@@ -248,6 +257,7 @@ export function StaffEntryWorkspace({
     setValue(form);
     setSavedSnapshot(form);
     setLoadedStaffId(selected.id);
+    setPhotoUrl(selected.photo_url ?? null);
     setEditing(false);
     setActiveTab("identity");
     setView("form");
@@ -358,6 +368,10 @@ export function StaffEntryWorkspace({
               departmentName={departmentName}
               positionName={positionName}
               nationalityName={nationalityName}
+              staffId={loadedStaffId}
+              photoUrl={photoUrl}
+              canEdit={Boolean(loadedStaffId)}
+              onPhotoUrlChange={setPhotoUrl}
             />
 
             <div className="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0">

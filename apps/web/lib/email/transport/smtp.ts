@@ -3,6 +3,10 @@ import "server-only";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
+import {
+  generateRfcMessageId,
+  normalizeRfcMessageId,
+} from "@/lib/email/record-staff-email";
 import type { HrEmailTransportSettings } from "@/lib/hr/types";
 import type { SendAppEmailParams } from "./types";
 
@@ -33,6 +37,10 @@ function buildMailOptions(
     ? `"${fromName.replace(/"/g, '\\"')}" <${fromEmail}>`
     : fromEmail;
 
+  const messageId =
+    normalizeRfcMessageId(params.messageId) ||
+    generateRfcMessageId(fromEmail);
+
   return {
     from,
     to,
@@ -41,6 +49,7 @@ function buildMailOptions(
     replyTo: settings.smtp.replyTo?.trim() || undefined,
     subject: params.subject,
     html: params.html,
+    messageId,
     attachments: (params.attachments ?? []).map((a) => ({
       filename: a.filename,
       content: Buffer.from(a.content, "base64"),
@@ -101,7 +110,7 @@ export async function sendViaSmtp(params: {
   message: SendAppEmailParams;
   settings: HrEmailTransportSettings;
   password: string;
-}): Promise<{ imapAppended: boolean }> {
+}): Promise<{ imapAppended: boolean; messageId: string }> {
   const { message, settings, password } = params;
 
   if (!settings.smtp.host.trim()) {
@@ -115,6 +124,7 @@ export async function sendViaSmtp(params: {
   }
 
   const mail = buildMailOptions(message, settings);
+  const messageId = normalizeRfcMessageId(mail.messageId);
   const raw = await buildRawMessage(mail);
 
   const transporter = nodemailer.createTransport({
@@ -142,5 +152,5 @@ export async function sendViaSmtp(params: {
     imapAppended = true;
   }
 
-  return { imapAppended };
+  return { imapAppended, messageId };
 }

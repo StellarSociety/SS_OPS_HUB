@@ -23,6 +23,7 @@ import { getModuleEntryHref, getOverviewModuleByKey } from "@/lib/modules-regist
 import { createClient } from "@/lib/supabase/server";
 import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
 import { getUserInitials } from "@/lib/user/display";
+import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { Card } from "@/components/ui/card";
 
@@ -49,7 +50,7 @@ export default async function ProfilePage() {
 
   const STAFF_JOIN = `
       staff:staff_id (
-        emp_no, first_name, full_name, work_email, personal_email,
+        emp_no, first_name, full_name, work_email, personal_email, photo_url,
         department:department_id ( name ),
         position:position_id ( name ),
         home_venue:home_venue_id ( name )
@@ -91,6 +92,7 @@ export default async function ProfilePage() {
     emp_no: string;
     work_email: string | null;
     personal_email: string | null;
+    photo_url?: string | null;
     department: Named;
     position: Named;
     home_venue: Named;
@@ -99,6 +101,7 @@ export default async function ProfilePage() {
     email?: string | null;
     full_name?: string | null;
     avatar_url?: string | null;
+    is_external?: boolean | null;
     staff?: StaffShape | StaffShape[] | null;
   };
 
@@ -109,6 +112,7 @@ export default async function ProfilePage() {
         emp_no: staffRaw.emp_no,
         work_email: staffRaw.work_email,
         personal_email: staffRaw.personal_email,
+        photo_url: staffRaw.photo_url ?? null,
         department: unwrap(staffRaw.department),
         position: unwrap(staffRaw.position),
         home_venue: unwrap(staffRaw.home_venue),
@@ -117,8 +121,15 @@ export default async function ProfilePage() {
   const fullName = p?.full_name ?? user.email ?? "User";
   const email = p?.email ?? user.email ?? "";
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  const preferStaffPhoto = !canManageProfileAvatar({
+    is_external: p?.is_external,
+    email,
+    staff: staff ? { emp_no: staff.emp_no } : null,
+  });
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: p?.avatar_url,
+    staffPhotoUrl: staff?.photo_url ?? null,
+    preferStaffPhoto,
     userMetadata: metadata,
   });
 

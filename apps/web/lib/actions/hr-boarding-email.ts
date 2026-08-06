@@ -7,6 +7,7 @@ import {
   type ActionAuthContext,
 } from "@/lib/auth/action-context";
 import { sendAppEmail } from "@/lib/email/transport";
+import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { canAdminLookups, canEditStaff } from "@/lib/hr/permissions";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import {
@@ -760,6 +761,23 @@ export async function sendBoardingNoticeEmail(input: {
         ok: false,
         error: `Email sent but failed to save record: ${persistError.message}`,
       };
+    }
+
+    if (result.messageId) {
+      await recordOutboundStaffEmail({
+        supabase: service,
+        venueId: ctx.auth.venue.id,
+        staffId: input.staffId,
+        rfcMessageId: result.messageId,
+        subject: ctx.subject,
+        fromEmail,
+        toEmail,
+        bodyHtml: html,
+        bodyText: ctx.message,
+        sourceKind: "boarding",
+        sourceId: (data as BoardingEmailRow).id,
+        occurredAt: sentAt,
+      });
     }
 
     await writeAuditLog({

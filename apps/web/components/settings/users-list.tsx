@@ -132,6 +132,7 @@ function InviteStatusBadge({ user }: { user: UserListRow }) {
 function UserListAvatar({ user }: { user: UserListRow }) {
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: user.avatar_url,
+    staffPhotoUrl: user.staff?.photo_url,
   });
   const initials = getUserInitials(user.full_name, user.email);
   const label = user.full_name?.trim() || user.email;
