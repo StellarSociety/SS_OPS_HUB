@@ -17,7 +17,7 @@
     },
     {
       "path": "/api/cron/email-replies",
-      "schedule": "30 * * * *"
+      "schedule": "0 6 * * *"
     }
   ]
 }
