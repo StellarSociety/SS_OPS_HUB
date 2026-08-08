@@ -1,9 +1,9 @@
 "use client";
 
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { formatDateOnly } from "@/lib/hr/derived";
 import {
@@ -111,14 +111,11 @@ export function StaffDirectory({
                 key={s.id}
                 className="border-b border-black/5 hover:bg-[var(--venue-secondary)]/30"
               >
-                <td className="px-4 py-3 font-mono text-xs">{s.emp_no}</td>
                 <td className="px-4 py-3">
-                  <Link
-                    href={`/hr/${s.id}`}
-                    className="font-medium text-[#3D421F] hover:underline"
-                  >
-                    {s.full_name}
-                  </Link>
+                  <StaffDirectoryLink staffId={s.id} empNo={s.emp_no} />
+                </td>
+                <td className="px-4 py-3 font-medium text-[#3D421F]">
+                  {s.full_name}
                 </td>
                 <td className="px-4 py-3 text-black/70">
                   {s.department?.name ?? "—"}
@@ -144,15 +141,18 @@ export function StaffDirectory({
       {/* Mobile cards */}
       <div className="grid gap-3 md:hidden">
         {filtered.map((s) => (
-          <Link
+          <div
             key={s.id}
-            href={`/hr/${s.id}`}
             className="rounded-lg border border-black/10 bg-white p-4 shadow-sm"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="font-medium text-[#3D421F]">{s.full_name}</p>
-                <p className="font-mono text-xs text-black/50">{s.emp_no}</p>
+                <StaffDirectoryLink
+                  staffId={s.id}
+                  empNo={s.emp_no}
+                  className="mt-0.5 inline-block"
+                />
               </div>
               <StatusBadge status={s.employment_status?.name} />
             </div>
@@ -174,7 +174,7 @@ export function StaffDirectory({
                 <dd>{formatDateOnly(s.joining_date)}</dd>
               </div>
             </dl>
-          </Link>
+          </div>
         ))}
       </div>
 

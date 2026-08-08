@@ -1,5 +1,5 @@
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { UpdatedDocsRequestSendButton } from "@/components/hr/updated-docs-request-send-button";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { formatDateOnly } from "@/lib/hr/derived";
@@ -72,15 +72,18 @@ export function ExpiryWidgets({
                 urgencyClass(item.daysUntil),
               )}
             >
-              <Link
-                href={`/hr/${item.staffId}`}
-                className="min-w-0 flex-1 truncate text-xs transition hover:opacity-90"
-              >
-                <span className="font-medium">
-                  {item.fullName}{" "}
-                  <span className="font-normal text-black/50">
-                    ({item.empNo})
-                  </span>
+              <div className="min-w-0 flex-1 truncate text-xs">
+                <span className="font-medium">{item.fullName}</span>
+                <span className="mx-1 text-black/25" aria-hidden>
+                  (
+                </span>
+                <StaffDirectoryLink
+                  staffId={item.staffId}
+                  empNo={item.empNo}
+                  className="inline font-normal"
+                />
+                <span className="text-black/25" aria-hidden>
+                  )
                 </span>
                 <span className="mx-1.5 text-black/25" aria-hidden>
                   ·
@@ -92,7 +95,7 @@ export function ExpiryWidgets({
                 <span className="text-black/60">
                   {formatDateOnly(item.expiryDate)}
                 </span>
-              </Link>
+              </div>
               {!compact ? (
                 <UpdatedDocsRequestSendButton
                   staffId={item.staffId}

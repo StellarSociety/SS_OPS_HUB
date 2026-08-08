@@ -10,7 +10,7 @@ import { AttendanceInsightsPunchCharts } from "@/components/hr/attendance-insigh
 import { StatusBadge } from "@/components/hr/status-badge";
 import { usePersistedHrAttendanceInsightsFilters } from "@/components/hr/use-persisted-hr-filters";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import type { HrAttendanceDay } from "@/lib/types/database";
 import {
   isOffBoardingForWeek,
@@ -575,15 +575,7 @@ function DepartmentTableSection({ group }: { group: DepartmentGroup }) {
           className="border-b border-black/5 last:border-0 hover:bg-black/[0.015]"
         >
           <td className="px-3 py-2 font-mono text-xs text-[#3D421F]">
-            <Link
-              href={`/hr/${row.staffId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open staff directory entry"
-              className="rounded text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:bg-[var(--venue-secondary,#F0F3DD)] hover:underline"
-            >
-              {row.empNo}
-            </Link>
+            <StaffDirectoryLink staffId={row.staffId} empNo={row.empNo} />
           </td>
           <td className="px-3 py-2 font-medium text-[#3D421F]">
             {row.fullName}

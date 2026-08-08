@@ -149,7 +149,7 @@ export const moduleCatalog: ModuleDef[] = [
       {
         key: "insurance",
         label: "Insurance",
-        href: "/hr/assets/insurance",
+        href: "/hr/assets/insurance/employees",
       },
       {
         key: "certifications",

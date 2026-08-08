@@ -289,7 +289,7 @@ export function InsuranceCategoriesSection({
   return (
     <LookupSection
       title="Insurance categories"
-      description="Drag to reorder, set the default medical value inline, or add a new category."
+      description="Quick category list with default medical values. For provider contacts and position defaults, use Staff Compliance → Insurance → Provider."
     >
       <LookupEditor
         items={categories}
@@ -321,7 +321,7 @@ export function CertificationTypesSection({
   return (
     <LookupSection
       title="Certifications"
-      description="Training and certification types, their renewal cycle, and reminder lead days."
+      description="Training and certification types, renewal cycle, provider defaults, and reminder lead days."
     >
       <LookupEditor
         items={certifications}
@@ -341,6 +341,55 @@ export function CertificationTypesSection({
             label: "Reminder lead (days)",
             type: "number",
             placeholder: "Lead days",
+            className: "h-9 w-28",
+          },
+          {
+            key: "provider_company",
+            label: "Provider company",
+            type: "text",
+            placeholder: "Provider",
+            className: "h-9 w-40",
+          },
+          {
+            key: "contact_person",
+            label: "Contact person",
+            type: "text",
+            placeholder: "Contact",
+            className: "h-9 w-36",
+          },
+          {
+            key: "contact_phone",
+            label: "Contact number",
+            type: "text",
+            placeholder: "+971 …",
+            className: "h-9 w-36",
+          },
+          {
+            key: "contact_email",
+            label: "Email",
+            type: "text",
+            placeholder: "email@",
+            className: "h-9 w-40",
+          },
+          {
+            key: "cost_net",
+            label: "Net (AED)",
+            type: "number",
+            placeholder: "0",
+            className: "h-9 w-28",
+          },
+          {
+            key: "cost_vat",
+            label: "VAT (AED)",
+            type: "number",
+            placeholder: "0",
+            className: "h-9 w-28",
+          },
+          {
+            key: "cost_value",
+            label: "Gross (AED)",
+            type: "number",
+            placeholder: "0",
             className: "h-9 w-28",
           },
         ]}

@@ -13,6 +13,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -3012,16 +3013,11 @@ function FragmentRows({
           </td>
         ) : null}
         <td className="px-3 py-2 font-mono text-xs text-[#3D421F]">
-          <Link
-            href={`/hr/${row.staff_id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open staff directory entry"
-            className="rounded text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:bg-[var(--venue-secondary,#F0F3DD)] hover:underline"
+          <StaffDirectoryLink
+            staffId={row.staff_id}
+            empNo={row.emp_no}
             onClick={(e) => e.stopPropagation()}
-          >
-            {row.emp_no}
-          </Link>
+          />
         </td>
         <td className="px-3 py-2 text-[#3D421F]">
           {row.full_name}

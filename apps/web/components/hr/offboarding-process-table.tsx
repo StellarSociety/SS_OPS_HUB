@@ -16,7 +16,7 @@ import {
   OffboardingNoticeEmailRecordCard,
   OffboardingNoticeEmailRecordViewer,
 } from "@/components/hr/offboarding-notice-email-record";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
@@ -394,16 +394,16 @@ export function OffboardingProcessTable({
                             </span>
                           ) : null}
                         </p>
-                        <ScopedLink
-                          href={`/hr/${row.staffId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-0.5 block text-xs text-black/45 underline-offset-2 transition-colors hover:text-[#3D421F] hover:underline"
-                        >
-                          {row.empNo}
-                          {row.departmentName ? ` · ${row.departmentName}` : ""}
-                        </ScopedLink>
+                        <div className="mt-0.5 text-xs text-black/45">
+                          <StaffDirectoryLink
+                            staffId={row.staffId}
+                            empNo={row.empNo}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          {row.departmentName
+                            ? ` · ${row.departmentName}`
+                            : ""}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-[#3D421F]">
                         {terminationKindLabel(row.terminationKind)}

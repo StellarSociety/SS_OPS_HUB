@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { StatusBadge } from "@/components/hr/status-badge";
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -854,14 +854,11 @@ export function LeaveBalancesTable({
                     }
                   >
                     <td className="px-3 py-2.5 font-mono text-xs text-black/55">
-                      <Link
-                        href={`/hr/${row.staffId}`}
-                        title="Open staff directory entry"
-                        className="rounded text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:bg-[var(--venue-secondary,#F0F3DD)] hover:underline"
+                      <StaffDirectoryLink
+                        staffId={row.staffId}
+                        empNo={row.empNo}
                         onClick={(e) => e.stopPropagation()}
-                      >
-                        {row.empNo}
-                      </Link>
+                      />
                     </td>
                     <td className="px-3 py-2.5 font-medium text-[#3D421F]">
                       {row.fullName}

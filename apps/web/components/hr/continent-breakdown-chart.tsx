@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { Earth, X } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { Card } from "@/components/ui/card";
 import type { HrContinentRow } from "@/lib/hr/overview";
 import { cn } from "@/lib/utils";
@@ -217,21 +217,20 @@ export function ContinentBreakdownChart({
               <ul className="max-h-[min(16rem,55vh)] space-y-0.5 overflow-y-auto px-2 py-1.5">
                 {openPanel.slice.staff.map((person) => (
                   <li key={person.staffId}>
-                    <Link
-                      href={`/hr/${person.staffId}`}
-                      className="flex items-baseline gap-1.5 rounded px-1.5 py-1 text-[11px] transition hover:bg-black/[0.04]"
-                      onClick={closePanel}
-                    >
-                      <span className="shrink-0 font-semibold text-[var(--venue-primary,#6B7B3A)]">
-                        {person.empNo}
-                      </span>
+                    <div className="flex items-baseline gap-1.5 rounded px-1.5 py-1 text-[11px]">
+                      <StaffDirectoryLink
+                        staffId={person.staffId}
+                        empNo={person.empNo}
+                        className="shrink-0 font-semibold"
+                        onClick={closePanel}
+                      />
                       <span className="min-w-0 flex-1 truncate text-[#3D421F]">
                         {person.fullName}
                       </span>
                       <span className="max-w-[5.5rem] shrink-0 truncate text-right text-black/45">
                         {person.country}
                       </span>
-                    </Link>
+                    </div>
                   </li>
                 ))}
               </ul>

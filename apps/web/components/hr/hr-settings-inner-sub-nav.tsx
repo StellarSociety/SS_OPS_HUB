@@ -20,6 +20,7 @@ import {
   Mail,
   Mails,
   PartyPopper,
+  Package,
   Percent,
   Shirt,
   Stamp,
@@ -41,6 +42,9 @@ import {
   HR_SETTINGS_ATTENDANCE_LEAVE_HREF,
   HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
   HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF,
+  HR_SETTINGS_EMAILS_OTHER_ASSET_TERMS_HREF,
+  HR_SETTINGS_EMAILS_OTHER_CERTIFICATION_REQUEST_HREF,
+  HR_SETTINGS_EMAILS_OTHER_INSURANCE_REQUEST_HREF,
   HR_SETTINGS_EMAILS_OTHER_HREF,
   HR_SETTINGS_EMAILS_OTHER_UNIFORM_TERMS_HREF,
   HR_SETTINGS_EMAILS_OTHER_UPDATED_DOCS_HREF,
@@ -347,6 +351,21 @@ const EMAILS_OTHER_TABS: Tab[] = [
     href: HR_SETTINGS_EMAILS_OTHER_UNIFORM_TERMS_HREF,
     label: "Uniform",
     icon: Shirt,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_ASSET_TERMS_HREF,
+    label: "Assets",
+    icon: Package,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_CERTIFICATION_REQUEST_HREF,
+    label: "Certifications",
+    icon: GraduationCap,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_INSURANCE_REQUEST_HREF,
+    label: "Insurance",
+    icon: ShieldCheck,
   },
 ];
 

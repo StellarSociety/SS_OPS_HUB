@@ -12,11 +12,11 @@ const HR_EXPIRY_FIELDS = [
   { field: "contract_expiry", label: "Labour contract" },
   { field: "eresidence_expiry", label: "eResidence card" },
   { field: "medical_insurance_expiry_date", label: "Medical insurance" },
-  { field: "ohc_date", label: "OHC training", renewalMonths: 12 },
-  { field: "pic_date", label: "PIC training", renewalMonths: 12 },
-  { field: "basic_food_safety_date", label: "Food safety", renewalMonths: 12 },
-  { field: "fire_safety_date", label: "Fire safety", renewalMonths: 12 },
-  { field: "first_aid_date", label: "First aid", renewalMonths: 24 },
+  { field: "ohc_date", label: "OCH — Occupational Health Certificate", renewalMonths: 12 },
+  { field: "pic_date", label: "PIC — Person in Charge", renewalMonths: 12 },
+  { field: "basic_food_safety_date", label: "Basic Food Safety", renewalMonths: 12 },
+  { field: "fire_safety_date", label: "Fire Safety", renewalMonths: 12 },
+  { field: "first_aid_date", label: "First Aid", renewalMonths: 24 },
 ] as const;
 
 const STAFF_EXPIRY_SELECT =

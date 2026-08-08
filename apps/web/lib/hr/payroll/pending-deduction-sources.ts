@@ -7,10 +7,10 @@ export const PAYROLL_DEDUCTION_IMPORT_SOURCES = [
     available: true,
   },
   {
-    id: "assets",
+    id: "asset_replacement",
     label: "Assets",
-    description: "Asset / equipment charges",
-    available: false,
+    description: "Asset / equipment replacement charges",
+    available: true,
   },
   {
     id: "insurance",

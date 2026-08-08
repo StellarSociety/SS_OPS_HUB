@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { CircleHelp, FileText } from "lucide-react";
 import { usePersistedHrAttendanceValidationFilters } from "@/components/hr/use-persisted-hr-filters";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -199,6 +200,15 @@ function formatTime(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Decimal hours (e.g. 9.81) → duration time `H:MM` (e.g. 9:49). */
+function formatHoursAsTime(totalHours: number | null | undefined): string {
+  if (totalHours == null || !Number.isFinite(Number(totalHours))) return "—";
+  const totalMinutes = Math.round(Number(totalHours) * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = Math.abs(totalMinutes % 60);
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
 function approvalStatusLabel(
@@ -1093,10 +1103,7 @@ export function AttendanceApprovalsTable({
             scheduleTime: row.scheduleTime ?? "—",
             clockIn: formatTime(row.clockIn),
             clockOut: formatTime(row.clockOut),
-            hours:
-              row.totalHours == null
-                ? "—"
-                : Number(row.totalHours).toFixed(2),
+            hours: formatHoursAsTime(row.totalHours),
             issue,
             approvalStatus: !employedOnDay
               ? "—"
@@ -1314,15 +1321,12 @@ export function AttendanceApprovalsTable({
             <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
               Emp no
             </span>
-            <Link
-              href={`/hr/${selectedEmployee.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
+            <StaffDirectoryLink
+              staffId={selectedEmployee.id}
+              empNo={selectedEmployee.empNo}
               title="Open staff directory details"
-              className="w-fit text-sm font-medium tabular-nums text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:underline"
-            >
-              {selectedEmployee.empNo}
-            </Link>
+              className="w-fit text-sm font-medium tabular-nums"
+            />
           </div>
           <div
             className="hidden w-px self-stretch bg-black/10 sm:block"
@@ -1566,10 +1570,8 @@ export function AttendanceApprovalsTable({
                     <td className="whitespace-nowrap bg-black/[0.07] px-3 py-2">
                       {formatTime(row.clockOut)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      {row.totalHours == null
-                        ? "—"
-                        : Number(row.totalHours).toFixed(2)}
+                    <td className="whitespace-nowrap px-3 py-2 tabular-nums">
+                      {formatHoursAsTime(row.totalHours)}
                     </td>
                     <td className="px-3 py-2 text-xs text-amber-900">
                       {!employedOnDay && savedRosterLabel

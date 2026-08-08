@@ -5,7 +5,7 @@ import { Loader2, Package, Pencil, Plus, Search, Shirt, Trash2 } from "lucide-re
 import { useRouter } from "next/navigation";
 import { AssignAssetDialog } from "@/components/hr/assign-asset-dialog";
 import { CreateAssetDialog } from "@/components/hr/create-asset-dialog";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
@@ -299,12 +299,18 @@ export function AssetsCatalogTable({
                       </td>
                       <td className="px-4 py-3">
                         {asset.assigned_staff_id ? (
-                          <ScopedLink
-                            href={`/hr/${asset.assigned_staff_id}`}
-                            className="font-medium hover:underline"
-                          >
-                            {asset.assigned_staff_name}
-                          </ScopedLink>
+                          <div>
+                            <p className="font-medium text-[#3D421F]">
+                              {asset.assigned_staff_name ?? "—"}
+                            </p>
+                            {asset.assigned_staff_emp_no ? (
+                              <StaffDirectoryLink
+                                staffId={asset.assigned_staff_id}
+                                empNo={asset.assigned_staff_emp_no}
+                                className="mt-0.5 inline-block"
+                              />
+                            ) : null}
+                          </div>
                         ) : (
                           <span className="text-black/45">—</span>
                         )}

@@ -9,6 +9,7 @@ export type StaffWorkDriveDocumentRow = {
   staff_id: string;
   emp_no: string;
   doc_kind: HrWorkDriveDocKind;
+  file_slot_id: string | null;
   workdrive_file_id: string;
   permalink: string | null;
   file_name: string;
@@ -27,6 +28,7 @@ export async function persistStaffWorkDriveDocument(
     staffId: string;
     empNo: string;
     docKind: HrWorkDriveDocKind;
+    fileSlotId?: string | null;
     workdriveFileId: string;
     permalink: string;
     fileName: string;
@@ -44,6 +46,7 @@ export async function persistStaffWorkDriveDocument(
       staff_id: row.staffId,
       emp_no: row.empNo,
       doc_kind: row.docKind,
+      file_slot_id: row.fileSlotId?.trim() || null,
       workdrive_file_id: row.workdriveFileId,
       permalink: row.permalink || null,
       file_name: row.fileName,
@@ -83,14 +86,22 @@ export async function listStaffWorkDriveDocuments(
   venueId: string,
   staffId: string,
   docKind: HrWorkDriveDocKind,
+  opts?: { fileSlotId?: string | null },
 ): Promise<StaffWorkDriveDocumentRow[]> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("hr_staff_workdrive_documents")
     .select("*")
     .eq("venue_id", venueId)
     .eq("staff_id", staffId)
     .eq("doc_kind", docKind)
     .order("uploaded_at", { ascending: false });
+
+  const slot = String(opts?.fileSlotId ?? "").trim();
+  if (slot) {
+    query = query.eq("file_slot_id", slot);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
   return (data ?? []) as StaffWorkDriveDocumentRow[];

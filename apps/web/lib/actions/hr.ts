@@ -894,6 +894,8 @@ type LookupTableConfig = {
   refFields?: string[];
   /** Numeric fields read from the form (parsed, defaulting to 0). */
   numericFields?: string[];
+  /** Optional free-text fields read from the form. */
+  textFields?: string[];
 };
 
 const LOOKUP_CONFIG: Record<LookupTable, LookupTableConfig> = {
@@ -905,7 +907,22 @@ const LOOKUP_CONFIG: Record<LookupTable, LookupTableConfig> = {
   civil_statuses: {},
   genders: {},
   insurance_categories: { numericFields: ["default_medical_value"] },
-  certification_types: { numericFields: ["renewal_months", "lead_days"] },
+  certification_types: {
+    numericFields: [
+      "renewal_months",
+      "lead_days",
+      "cost_value",
+      "cost_net",
+      "cost_vat",
+    ],
+    textFields: [
+      "provider_company",
+      "contact_person",
+      "contact_email",
+      "contact_phone",
+      "staff_field",
+    ],
+  },
 };
 
 async function upsertLookup(table: LookupTable, formData: FormData) {
@@ -935,6 +952,10 @@ async function upsertLookup(table: LookupTable, formData: FormData) {
   }
   for (const field of config.numericFields ?? []) {
     payload[field] = parseNumber((formData.get(field) as string) ?? "") ?? 0;
+  }
+  for (const field of config.textFields ?? []) {
+    const value = (formData.get(field) as string | null) ?? "";
+    payload[field] = value.trim();
   }
 
   const service = createServiceClient();

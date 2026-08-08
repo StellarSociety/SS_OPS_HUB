@@ -1,11 +1,11 @@
 "use client";
 
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronsUpDown, ChevronUp, Search, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StatusBadge } from "@/components/hr/status-badge";
 import {
   formatAed,
@@ -154,12 +154,7 @@ export function StaffDatabase({
         sortValue: (s) => s.emp_no,
         text: (s) => s.emp_no,
         render: (s) => (
-          <Link
-            href={`/hr/${s.id}`}
-            className="font-mono text-xs text-[#3D421F] hover:underline"
-          >
-            {s.emp_no}
-          </Link>
+          <StaffDirectoryLink staffId={s.id} empNo={s.emp_no} />
         ),
       },
       {
@@ -169,12 +164,7 @@ export function StaffDatabase({
         sortValue: (s) => s.full_name,
         text: (s) => s.full_name,
         render: (s) => (
-          <Link
-            href={`/hr/${s.id}`}
-            className="font-medium text-[#3D421F] hover:underline"
-          >
-            {s.full_name}
-          </Link>
+          <span className="font-medium text-[#3D421F]">{s.full_name}</span>
         ),
       },
       {

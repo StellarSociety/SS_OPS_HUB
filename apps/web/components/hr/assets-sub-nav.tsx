@@ -21,19 +21,19 @@ const TABS = [
   },
   {
     id: "assets" as const,
-    href: "/hr/assets/catalog",
+    href: "/hr/assets/catalog/employees",
     label: "Assets",
     icon: Package,
   },
   {
     id: "certifications" as const,
-    href: "/hr/assets/certifications",
+    href: "/hr/assets/certifications/employees",
     label: "Certifications",
     icon: GraduationCap,
   },
   {
     id: "insurance" as const,
-    href: "/hr/assets/insurance",
+    href: "/hr/assets/insurance/employees",
     label: "Insurance",
     icon: ShieldCheck,
   },

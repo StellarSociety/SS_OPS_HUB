@@ -9,7 +9,7 @@ import {
   docExpiryFieldForKind,
   uploadStaffDocumentToWorkDrive,
 } from "@/lib/hr/workdrive/upload";
-import { canEditStaff } from "@/lib/hr/permissions";
+import { canEditAssets, canEditStaff } from "@/lib/hr/permissions";
 import { HR_MODULE_KEY, type HrWorkDriveDocKind } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 import { z } from "zod";
@@ -63,7 +63,7 @@ export async function performStaffWorkDriveUpload(
   try {
     const { user, venue, permissions, supabase } = auth;
 
-    if (!canEditStaff(permissions, venue.id)) {
+    if (!canEditStaff(permissions, venue.id) && !canEditAssets(permissions, venue.id)) {
       return {
         ok: false,
         error: "No permission to upload staff documents.",
@@ -156,6 +156,7 @@ export async function performStaffWorkDriveUpload(
         staffId,
         empNo,
         docKind,
+        fileSlotId,
         workdriveFileId: result.workdriveFileId,
         permalink: result.permalink,
         fileName: result.fileName,

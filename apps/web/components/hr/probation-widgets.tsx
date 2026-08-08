@@ -1,5 +1,5 @@
 import { Clock } from "lucide-react";
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { Card } from "@/components/ui/card";
 import { formatDateOnly } from "@/lib/hr/derived";
 import type { OnProbationItem } from "@/lib/hr/probation";
@@ -26,6 +26,23 @@ function remainingClass(remainingDays: number) {
 
 function remainingLabel(remainingDays: number): string {
   return `${remainingDays} day${remainingDays === 1 ? "" : "s"} remaining`;
+}
+
+function ProbationPersonHeader({ item }: { item: OnProbationItem }) {
+  return (
+    <span className="min-w-0 flex-1 truncate font-medium">
+      {item.fullName}{" "}
+      <span className="font-normal text-black/50">
+        (
+        <StaffDirectoryLink
+          staffId={item.staffId}
+          empNo={item.empNo}
+          className="inline font-normal"
+        />
+        )
+      </span>
+    </span>
+  );
 }
 
 export function ProbationWidgets({
@@ -59,10 +76,9 @@ export function ProbationWidgets({
           <ul className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
             {items.map((item) => (
               <li key={item.staffId}>
-                <Link
-                  href={`/hr/${item.staffId}`}
+                <div
                   className={cn(
-                    "flex items-center gap-2 rounded-md border px-2 py-1.5 transition hover:opacity-90",
+                    "flex items-center gap-2 rounded-md border px-2 py-1.5",
                     remainingClass(item.remainingDays),
                   )}
                 >
@@ -70,7 +86,13 @@ export function ProbationWidgets({
                     <span className="block truncate text-[11px] font-medium">
                       {item.fullName}{" "}
                       <span className="font-normal text-black/50">
-                        ({item.empNo})
+                        (
+                        <StaffDirectoryLink
+                          staffId={item.staffId}
+                          empNo={item.empNo}
+                          className="inline font-normal"
+                        />
+                        )
                       </span>
                     </span>
                     <span className="mt-0.5 block truncate text-[10px] text-black/60">
@@ -85,7 +107,7 @@ export function ProbationWidgets({
                       {item.remainingDays === 1 ? "day" : "days"}
                     </span>
                   </div>
-                </Link>
+                </div>
               </li>
             ))}
           </ul>
@@ -121,20 +143,14 @@ export function ProbationWidgets({
           );
           return (
             <li key={item.staffId}>
-              <Link
-                href={`/hr/${item.staffId}`}
+              <div
                 className={cn(
-                  "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs transition hover:opacity-90",
+                  "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs",
                   remainingClass(item.remainingDays),
                 )}
               >
                 <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {item.fullName}{" "}
-                    <span className="font-normal text-black/50">
-                      ({item.empNo})
-                    </span>
-                  </span>
+                  <ProbationPersonHeader item={item} />
                   {roleParts.length > 0 ? (
                     <span className="shrink-0 truncate text-black/55">
                       {roleParts.join(" · ")}
@@ -176,7 +192,7 @@ export function ProbationWidgets({
                     </>
                   ) : null}
                 </div>
-              </Link>
+              </div>
             </li>
           );
         })}

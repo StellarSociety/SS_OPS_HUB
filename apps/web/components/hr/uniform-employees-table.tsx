@@ -15,12 +15,12 @@ import {
   Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
 import { UniformReplacementDialog } from "@/components/hr/uniform-replacement-dialog";
 import { UniformReplacementsListDialog } from "@/components/hr/uniform-replacements-list-dialog";
 import { UniformStaffItemDialog } from "@/components/hr/uniform-staff-item-dialog";
 import { UniformTermsEmailSendButton } from "@/components/hr/uniform-terms-email-send-button";
-import { ScopedLink } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
@@ -362,14 +362,14 @@ export function UniformEmployeesTable({
                               )}
                             </button>
                             <div className="min-w-0 flex-1">
-                              <ScopedLink
-                                href={`/hr/${row.staff.id}`}
-                                className="font-medium normal-case tracking-normal text-[#3D421F] hover:underline"
-                              >
+                              <p className="font-medium normal-case tracking-normal text-[#3D421F]">
                                 {row.staff.full_name}
-                              </ScopedLink>
+                              </p>
                               <p className="truncate text-xs font-normal normal-case tracking-normal text-black/45">
-                                {row.staff.emp_no}
+                                <StaffDirectoryLink
+                                  staffId={row.staff.id}
+                                  empNo={row.staff.emp_no}
+                                />
                                 {row.staff.department?.name
                                   ? ` · ${row.staff.department.name}`
                                   : ""}

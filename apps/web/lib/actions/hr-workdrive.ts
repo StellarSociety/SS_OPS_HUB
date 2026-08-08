@@ -37,7 +37,13 @@ import {
 } from "@/lib/hr/workdrive/settings";
 import { readWorkDriveEnvCredentials } from "@/lib/hr/workdrive/env";
 import { performStaffWorkDriveUpload } from "@/lib/hr/workdrive/staff-upload";
-import { canAdminLookups, canEditStaff, canViewStaff } from "@/lib/hr/permissions";
+import {
+  canAccessAssets,
+  canAdminLookups,
+  canEditAssets,
+  canEditStaff,
+  canViewStaff,
+} from "@/lib/hr/permissions";
 import { isAppAdmin } from "@/lib/role-permissions";
 import {
   DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS,
@@ -1288,12 +1294,14 @@ export type StaffWorkDriveDocumentListItem = {
   path: string | null;
   permalink: string | null;
   folderId: string | null;
+  fileSlotId: string | null;
   uploadedAt: string;
 };
 
 export async function listStaffWorkDriveDocs(input: {
   staffId: string;
   docKind: HrWorkDriveDocKind;
+  fileSlotId?: string;
 }): Promise<
   | { ok: true; items: StaffWorkDriveDocumentListItem[] }
   | { ok: false; error: string }
@@ -1306,7 +1314,9 @@ export async function listStaffWorkDriveDocs(input: {
 
   if (
     !canViewStaff(auth.permissions, auth.venue.id) &&
-    !canEditStaff(auth.permissions, auth.venue.id)
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canAccessAssets(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
   ) {
     return { ok: false, error: "No permission to view staff documents." };
   }
@@ -1317,6 +1327,7 @@ export async function listStaffWorkDriveDocs(input: {
       auth.venue.id,
       staffId,
       input.docKind,
+      { fileSlotId: input.fileSlotId },
     );
     return {
       ok: true,
@@ -1327,6 +1338,7 @@ export async function listStaffWorkDriveDocs(input: {
         path: row.path,
         permalink: row.permalink,
         folderId: row.subfolder_id || row.employee_folder_id,
+        fileSlotId: row.file_slot_id,
         uploadedAt: row.uploaded_at,
       })),
     };
@@ -1350,7 +1362,8 @@ export async function resolveWorkDriveFolderLink(input: {
 
   if (
     !canViewStaff(auth.permissions, auth.venue.id) &&
-    !canEditStaff(auth.permissions, auth.venue.id)
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canAccessAssets(auth.permissions, auth.venue.id)
   ) {
     return { ok: false, error: "No permission." };
   }
@@ -1381,7 +1394,10 @@ export async function deleteStaffWorkDriveDoc(input: {
   const auth = await getAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
 
-  if (!canEditStaff(auth.permissions, auth.venue.id)) {
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
+  ) {
     return { ok: false, error: "No permission to delete staff documents." };
   }
 

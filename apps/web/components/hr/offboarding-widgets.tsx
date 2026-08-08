@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { UserMinus } from "lucide-react";
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatDateOnly } from "@/lib/hr/derived";
@@ -115,24 +115,29 @@ export function OffBoardingWidgets({
                     const remaining = daysLabel(item.daysUntilTermination);
                     return (
                       <li key={item.staffId}>
-                        <Link
-                          href={`/hr/${item.staffId}`}
+                        <div
                           className={cn(
-                            "flex flex-col gap-0.5 rounded-md border px-2 py-1 text-[11px] transition hover:opacity-90",
+                            "flex flex-col gap-0.5 rounded-md border px-2 py-1 text-[11px]",
                             rowClass(item.daysUntilTermination),
                           )}
                         >
                           <span className="truncate font-medium">
                             {item.fullName}{" "}
                             <span className="font-normal text-black/50">
-                              ({item.empNo})
+                              (
+                              <StaffDirectoryLink
+                                staffId={item.staffId}
+                                empNo={item.empNo}
+                                className="inline font-normal"
+                              />
+                              )
                             </span>
                           </span>
                           <span className="truncate text-black/60">
                             Last day {formatDateOnly(item.terminationDate)}
                             {remaining ? ` · ${remaining}` : null}
                           </span>
-                        </Link>
+                        </div>
                       </li>
                     );
                   })}
@@ -180,10 +185,9 @@ export function OffBoardingWidgets({
             const remaining = daysLabel(item.daysUntilTermination);
             return (
               <li key={item.staffId}>
-                <Link
-                  href={`/hr/${item.staffId}`}
+                <div
                   className={cn(
-                    "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs transition hover:opacity-90",
+                    "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs",
                     rowClass(item.daysUntilTermination),
                   )}
                 >
@@ -191,7 +195,13 @@ export function OffBoardingWidgets({
                     <span className="min-w-0 flex-1 truncate font-medium">
                       {item.fullName}{" "}
                       <span className="font-normal text-black/50">
-                        ({item.empNo})
+                        (
+                        <StaffDirectoryLink
+                          staffId={item.staffId}
+                          empNo={item.empNo}
+                          className="inline font-normal"
+                        />
+                        )
                       </span>
                     </span>
                     {roleParts.length > 0 ? (
@@ -251,7 +261,7 @@ export function OffBoardingWidgets({
                       </>
                     ) : null}
                   </div>
-                </Link>
+                </div>
               </li>
             );
           })}

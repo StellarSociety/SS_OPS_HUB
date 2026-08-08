@@ -18,7 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { DateInput } from "@/components/ui/date-input";
 import { Button } from "@/components/ui/button";
@@ -627,13 +627,8 @@ export function OffboardingProcessForm({
               <p className="mt-1 font-serif text-2xl text-[#3D421F]">
                 {staff.fullName}
               </p>
-              <ScopedLink
-                href={`/hr/${staff.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 block text-sm text-black/55 underline-offset-2 transition-colors hover:text-[#3D421F] hover:underline"
-              >
-                {staff.empNo}
+              <p className="mt-1 text-sm text-black/55">
+                <StaffDirectoryLink staffId={staff.id} empNo={staff.empNo} />
                 {staff.departmentName ? ` · ${staff.departmentName}` : ""}
                 {staff.positionName ? ` · ${staff.positionName}` : ""}
                 {" · "}
@@ -646,7 +641,7 @@ export function OffboardingProcessForm({
                     </span>
                   </>
                 ) : null}
-              </ScopedLink>
+              </p>
             </section>
 
             <section>

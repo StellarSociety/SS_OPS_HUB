@@ -86,6 +86,10 @@ function kindBadgeClass(kind: StaffCommunicationKind): string {
       return "bg-violet-50 text-violet-950 border-violet-200/80";
     case "uniform_replacement_email":
       return "bg-orange-50 text-orange-950 border-orange-200/80";
+    case "asset_terms_email":
+      return "bg-teal-50 text-teal-950 border-teal-200/80";
+    case "asset_replacement_email":
+      return "bg-amber-50 text-amber-950 border-amber-200/80";
     case "hub_invite_email":
       return "bg-slate-100 text-slate-800 border-slate-200/80";
     case "inbound_reply":
@@ -107,6 +111,10 @@ function kindShortLabel(kind: StaffCommunicationKind): string {
       return "Uniform";
     case "uniform_replacement_email":
       return "Uniform replace";
+    case "asset_terms_email":
+      return "Assets";
+    case "asset_replacement_email":
+      return "Asset replace";
     case "hub_invite_email":
       return "Invite";
     case "inbound_reply":
@@ -563,6 +571,8 @@ const KIND_FILTERS: Array<{
   { id: "updated_docs_request_email", label: "Docs request" },
   { id: "uniform_terms_email", label: "Uniform" },
   { id: "uniform_replacement_email", label: "Uniform replace" },
+  { id: "asset_terms_email", label: "Assets" },
+  { id: "asset_replacement_email", label: "Asset replace" },
   { id: "hub_invite_email", label: "Invite" },
   { id: "inbound_reply", label: "Reply" },
 ];

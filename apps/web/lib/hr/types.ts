@@ -56,14 +56,258 @@ export type InsuranceCategory = {
   name: string;
   default_medical_value: number;
   sort_order: number;
+  provider_id?: string | null;
+  archived_at?: string | null;
 };
+
+export type InsuranceCategoryPositionDefault = {
+  id: string;
+  category_id: string;
+  department_id: string;
+  position_id: string | null;
+  department?: Department | null;
+  position?: Position | null;
+};
+
+export type InsuranceCategoryWithDefaults = InsuranceCategory & {
+  provider_id: string | null;
+  archived_at: string | null;
+  position_defaults: InsuranceCategoryPositionDefault[];
+};
+
+export type InsuranceProvider = {
+  id: string;
+  name: string;
+  contact_person: string;
+  contact_email: string;
+  contact_phone: string;
+  lead_days: number;
+  sort_order: number;
+  archived_at: string | null;
+  categories: InsuranceCategoryWithDefaults[];
+};
+
+export type InsuranceStatus = "missing" | "valid" | "expiring" | "expired";
+
+export type InsuranceEmployeeRow = {
+  staff: StaffWithLookups;
+  category: string | null;
+  categoryId: string | null;
+  value: number | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  status: InsuranceStatus;
+  daysUntilExpiry: number | null;
+  leadDays: number;
+  providerId: string | null;
+  providerName: string | null;
+  providerEmail: string | null;
+  suggestedCategoryId: string | null;
+  suggestedCategoryName: string | null;
+  suggestedValue: number | null;
+  hasDocument: boolean;
+};
+
+/** WorkDrive staff docs that can be attached to provider request emails. */
+export type HrEmailStaffDocumentKey =
+  | "passport"
+  | "emirates_id_front"
+  | "emirates_id_back"
+  | "eresidence_card"
+  | "medical_insurance"
+  | "ohc"
+  | "bank"
+  | "offer_letter"
+  | "contract"
+  | "addendums"
+  | "training_pic"
+  | "training_basic_food_safety"
+  | "training_fire_safety"
+  | "training_first_aid";
+
+export type HrInsuranceRequestEmailSettings = {
+  enabled: boolean;
+  fromEmail: string;
+  issueSubject: string;
+  issueMessage: string;
+  renewSubject: string;
+  renewMessage: string;
+  /** WorkDrive docs attached on Issue emails. */
+  issueAttachDocuments: HrEmailStaffDocumentKey[];
+  /** WorkDrive docs attached on Renew emails. */
+  renewAttachDocuments: HrEmailStaffDocumentKey[];
+  /** When true, Issue send fails if selected docs are missing. */
+  issueRequireAttachments: boolean;
+  /** When true, Renew send fails if selected docs are missing. */
+  renewRequireAttachments: boolean;
+};
+
+export const INSURANCE_REQUEST_EMAIL_TEMPLATE_CODES = [
+  { code: "{{PROVIDER_CONTACT}}", description: "Provider contact person (or company)" },
+  { code: "{{PROVIDER_COMPANY}}", description: "Provider company name" },
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{REQUEST_TYPE}}",
+    description: "issue or renewal (matches the template in use)",
+  },
+  { code: "{{INSURANCE_CATEGORY}}", description: "Staff insurance category" },
+  { code: "{{INSURANCE_VALUE}}", description: "Coverage value (AED)" },
+  { code: "{{ISSUE_DATE}}", description: "Current issue date" },
+  { code: "{{EXPIRY_DATE}}", description: "Current expiry date" },
+  { code: "{{PASSPORT_NO}}", description: "Passport number" },
+  {
+    code: "{{PASSPORT_ORIGIN}}",
+    description: "Passport origin / nationality",
+  },
+  { code: "{{PASSPORT_EXPIRY}}", description: "Passport expiry date" },
+  { code: "{{EID_NO}}", description: "Emirates ID number" },
+  { code: "{{EID_EXPIRY}}", description: "Emirates ID expiry date" },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_INSURANCE_ISSUE_EMAIL_SUBJECT =
+  "New medical insurance issue — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_INSURANCE_ISSUE_EMAIL_MESSAGE = `Dear {{PROVIDER_CONTACT}},
+
+Please arrange a new medical insurance policy for {{EMPLOYEE_NAME}} (Employee No. {{EMP_NO}}) at {{VENUE_NAME}}.
+
+• Category: {{INSURANCE_CATEGORY}}
+• Coverage value: {{INSURANCE_VALUE}}
+
+Employee identity details:
+• Passport no.: {{PASSPORT_NO}}
+• Passport origin: {{PASSPORT_ORIGIN}}
+• Passport expiry: {{PASSPORT_EXPIRY}}
+• Emirates ID no.: {{EID_NO}}
+• Emirates ID expiry: {{EID_EXPIRY}}
+
+Kindly confirm receipt and advise on the issuance timeline and any documents required.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_INSURANCE_RENEW_EMAIL_SUBJECT =
+  "Medical insurance renewal — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_INSURANCE_RENEW_EMAIL_MESSAGE = `Dear {{PROVIDER_CONTACT}},
+
+Please renew the medical insurance policy for {{EMPLOYEE_NAME}} (Employee No. {{EMP_NO}}) at {{VENUE_NAME}}.
+
+• Category: {{INSURANCE_CATEGORY}}
+• Coverage value: {{INSURANCE_VALUE}}
+• Current issue date: {{ISSUE_DATE}}
+• Current expiry date: {{EXPIRY_DATE}}
+
+Employee identity details:
+• Passport no.: {{PASSPORT_NO}}
+• Passport origin: {{PASSPORT_ORIGIN}}
+• Passport expiry: {{PASSPORT_EXPIRY}}
+• Emirates ID no.: {{EID_NO}}
+• Emirates ID expiry: {{EID_EXPIRY}}
+
+Kindly confirm receipt and advise on the renewal timeline.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+/** @deprecated Prefer issue/renew defaults — kept for reading older saved settings. */
+export const DEFAULT_INSURANCE_REQUEST_EMAIL_SUBJECT =
+  DEFAULT_INSURANCE_ISSUE_EMAIL_SUBJECT;
+/** @deprecated Prefer issue/renew defaults — kept for reading older saved settings. */
+export const DEFAULT_INSURANCE_REQUEST_EMAIL_MESSAGE =
+  DEFAULT_INSURANCE_ISSUE_EMAIL_MESSAGE;
+
+export const DEFAULT_HR_INSURANCE_REQUEST_EMAIL_SETTINGS: HrInsuranceRequestEmailSettings =
+  {
+    enabled: true,
+    fromEmail: "",
+    issueSubject: DEFAULT_INSURANCE_ISSUE_EMAIL_SUBJECT,
+    issueMessage: DEFAULT_INSURANCE_ISSUE_EMAIL_MESSAGE,
+    renewSubject: DEFAULT_INSURANCE_RENEW_EMAIL_SUBJECT,
+    renewMessage: DEFAULT_INSURANCE_RENEW_EMAIL_MESSAGE,
+    issueAttachDocuments: [
+      "passport",
+      "emirates_id_front",
+      "emirates_id_back",
+    ],
+    renewAttachDocuments: [
+      "passport",
+      "emirates_id_front",
+      "emirates_id_back",
+      "medical_insurance",
+    ],
+    issueRequireAttachments: true,
+    renewRequireAttachments: true,
+  };
+
+/** Staff date columns used for mandatory hospitality certifications. */
+export type CertificationStaffField =
+  | "ohc_date"
+  | "pic_date"
+  | "basic_food_safety_date"
+  | "fire_safety_date"
+  | "first_aid_date";
 
 export type CertificationType = {
   id: string;
   name: string;
+  /** Short header label for the employees table (falls back to name). */
+  label: string;
   renewal_months: number;
   lead_days: number;
   sort_order: number;
+  staff_field: CertificationStaffField | null;
+  provider_company: string;
+  contact_person: string;
+  contact_email: string;
+  contact_phone: string;
+  /** Gross cost per application (AED), inclusive of VAT. */
+  cost_value: number;
+  /** Net cost per application (AED), exclusive of VAT. */
+  cost_net: number;
+  /** VAT amount per application (AED). */
+  cost_vat: number;
+  /** When set, hidden from employee tracking; restore clears this. */
+  archived_at: string | null;
+};
+
+/** Staff row contributing to a certification expense line. */
+export type CertificationExpenseStaff = {
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  certifiedAt: string;
+  photoUrl: string | null;
+};
+
+/** One certification type’s expense subtotal within a month. */
+export type CertificationExpenseLine = {
+  certificationId: string;
+  name: string;
+  label: string;
+  count: number;
+  net: number;
+  vat: number;
+  gross: number;
+  staff: CertificationExpenseStaff[];
+};
+
+/** Monthly certification expense rollup (by certificate issue date). */
+export type CertificationExpenseMonth = {
+  monthKey: string;
+  label: string;
+  lines: CertificationExpenseLine[];
+  totalNet: number;
+  totalVat: number;
+  totalGross: number;
+  totalCount: number;
 };
 
 export type AssetType = {
@@ -115,6 +359,57 @@ export type StaffAssignedAssetRow = {
   status: AssetStatus;
   notes: string;
   asset_type?: AssetType | null;
+};
+
+/** Open assignment shown on Assets → Employees. */
+export type AssetStaffItemRow = {
+  assignment_id: string;
+  asset_id: string;
+  staff_id: string;
+  assigned_at: string;
+  notes: string;
+  name: string;
+  serial_no: string;
+  asset_value: number;
+  status: AssetStatus;
+  asset_type?: AssetType | null;
+};
+
+export type AssetReplacementRow = {
+  id: string;
+  venue_id: string;
+  staff_id: string;
+  asset_id: string;
+  assignment_id: string | null;
+  replacement_asset_id: string | null;
+  disposition: "returned" | "lost";
+  unit_value: number;
+  charged_to_employee: boolean;
+  deduction_amount: number;
+  notes: string;
+  pending_deduction_id: string | null;
+  email_sent_at: string | null;
+  created_at: string;
+  asset_name?: string | null;
+  asset_serial_no?: string | null;
+  replacement_asset_name?: string | null;
+  pending_deduction_status?: "pending" | "applied" | "cleared" | "cancelled" | null;
+  applied_run_id?: string | null;
+  payroll_month?: string | null;
+  payroll_editable?: boolean;
+  original_amount?: number | null;
+  remaining_amount?: number | null;
+  deducted_amount?: number | null;
+};
+
+export type AssetStaffSummaryRow = {
+  staff: StaffWithLookups;
+  items: AssetStaffItemRow[];
+  total_value: number;
+  pending_deduction_total?: number;
+  replacements?: AssetReplacementRow[];
+  archived?: boolean;
+  archived_at?: string | null;
 };
 
 export type UniformProductStatus = "active" | "old";
@@ -357,6 +652,30 @@ export type StaffWithLookups = Staff & {
   nationality?: Nationality | null;
 };
 
+export type CertificationStatus = "missing" | "valid" | "expiring" | "expired";
+
+export type StaffCertificationCell = {
+  certificationId: string;
+  name: string;
+  staffField: CertificationStaffField;
+  certifiedAt: string | null;
+  expiresAt: string | null;
+  daysUntilExpiry: number | null;
+  status: CertificationStatus;
+  renewalMonths: number;
+  leadDays: number;
+  costValue: number;
+  /** True when a WorkDrive certificate file is on record for this slot. */
+  hasDocument: boolean;
+  /** Employee supplied the certificate — excluded from company expenses. */
+  employeeProvided: boolean;
+};
+
+export type CertificationEmployeeRow = {
+  staff: StaffWithLookups;
+  certifications: StaffCertificationCell[];
+};
+
 export type ExpiryItem = {
   staffId: string;
   empNo: string;
@@ -387,11 +706,11 @@ export const EXPIRY_FIELDS = [
   { field: "contract_expiry", label: "Labour contract" },
   { field: "eresidence_expiry", label: "eResidence card" },
   { field: "medical_insurance_expiry_date", label: "Medical insurance" },
-  { field: "ohc_date", label: "OHC training", renewalMonths: 12 },
-  { field: "pic_date", label: "PIC training", renewalMonths: 12 },
-  { field: "basic_food_safety_date", label: "Food safety", renewalMonths: 12 },
-  { field: "fire_safety_date", label: "Fire safety", renewalMonths: 12 },
-  { field: "first_aid_date", label: "First aid", renewalMonths: 24 },
+  { field: "ohc_date", label: "OCH — Occupational Health Certificate", renewalMonths: 12 },
+  { field: "pic_date", label: "PIC — Person in Charge", renewalMonths: 12 },
+  { field: "basic_food_safety_date", label: "Basic Food Safety", renewalMonths: 12 },
+  { field: "fire_safety_date", label: "Fire Safety", renewalMonths: 12 },
+  { field: "first_aid_date", label: "First Aid", renewalMonths: 24 },
 ] as const;
 
 /** Display window for HR expiry widgets (notifications fire at 30/14/7 days). */
@@ -426,6 +745,13 @@ export const HR_SETTINGS_KEYS = {
   uniformTermsEmail: "uniform_terms_email",
   /** Uniform replacement salary-deduction notice email. */
   uniformReplacementEmail: "uniform_replacement_email",
+  /** Asset on-hand confirmation + T&Cs email. */
+  assetTermsEmail: "asset_terms_email",
+  /** Asset replacement salary-deduction notice email. */
+  assetReplacementEmail: "asset_replacement_email",
+  /** Certification / training appointment request email. */
+  certificationRequestEmail: "certification_request_email",
+  insuranceRequestEmail: "insurance_request_email",
   /** Zoho WorkDrive connection + folder/naming rules for staff documents. */
   workDrive: "work_drive",
 } as const;
@@ -1490,6 +1816,95 @@ export const DEFAULT_HR_UPDATED_DOCS_REQUEST_EMAIL_SETTINGS: HrUpdatedDocsReques
   };
 
 // ---------------------------------------------------------------------------
+// Certification / training appointment request email
+// (sent to certification providers — not employees)
+// ---------------------------------------------------------------------------
+
+export type HrCertificationRequestEmailSettings = {
+  enabled: boolean;
+  /**
+   * @deprecated Ignored. Certification request emails are addressed to each
+   * certification type’s provider contact email.
+   */
+  recipientField?: PayslipEmailRecipientField;
+  fromEmail: string;
+  subject: string;
+  message: string;
+  /** WorkDrive docs attached to each provider email. */
+  attachDocuments: HrEmailStaffDocumentKey[];
+  /** When true, send fails if selected docs are missing. */
+  requireAttachments: boolean;
+};
+
+export const CERTIFICATION_REQUEST_EMAIL_TEMPLATE_CODES = [
+  { code: "{{PROVIDER_CONTACT}}", description: "Provider contact person (or company)" },
+  { code: "{{PROVIDER_COMPANY}}", description: "Provider company name" },
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{CERTIFICATIONS}}",
+    description: "Bullet list of full certification names only",
+  },
+  {
+    code: "{{CERTIFICATION_NAMES}}",
+    description: "Comma-separated full certification names, each prefixed with •",
+  },
+  {
+    code: "{{CERTIFICATIONS_COUNT}}",
+    description: "Number of certifications in this email",
+  },
+  { code: "{{PASSPORT_NO}}", description: "Passport number" },
+  {
+    code: "{{PASSPORT_ORIGIN}}",
+    description: "Passport origin / nationality",
+  },
+  { code: "{{PASSPORT_EXPIRY}}", description: "Passport expiry date" },
+  { code: "{{EID_NO}}", description: "Emirates ID number" },
+  { code: "{{EID_EXPIRY}}", description: "Emirates ID expiry date" },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_CERTIFICATION_REQUEST_EMAIL_SUBJECT =
+  "Certification application — {{EMPLOYEE_NAME}} ({{EMP_NO}}) — {{CERTIFICATION_NAMES}}";
+
+export const DEFAULT_CERTIFICATION_REQUEST_EMAIL_MESSAGE = `Dear {{PROVIDER_CONTACT}},
+
+Please process the following certification application(s) for {{EMPLOYEE_NAME}} (Employee No. {{EMP_NO}}) at {{VENUE_NAME}}:
+
+{{CERTIFICATIONS}}
+
+Employee identity details:
+• Passport no.: {{PASSPORT_NO}}
+• Passport origin: {{PASSPORT_ORIGIN}}
+• Passport expiry: {{PASSPORT_EXPIRY}}
+• Emirates ID no.: {{EID_NO}}
+• Emirates ID expiry: {{EID_EXPIRY}}
+
+Passport copy and Emirates ID (front and back) are attached for identity verification.
+
+Kindly confirm receipt and advise on the appointment / processing timeline.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_CERTIFICATION_REQUEST_EMAIL_SETTINGS: HrCertificationRequestEmailSettings =
+  {
+    enabled: true,
+    fromEmail: "",
+    subject: DEFAULT_CERTIFICATION_REQUEST_EMAIL_SUBJECT,
+    message: DEFAULT_CERTIFICATION_REQUEST_EMAIL_MESSAGE,
+    attachDocuments: [
+      "passport",
+      "emirates_id_front",
+      "emirates_id_back",
+    ],
+    requireAttachments: true,
+  };
+
+// ---------------------------------------------------------------------------
 // Uniform on-hand confirmation + terms & conditions email
 // ---------------------------------------------------------------------------
 
@@ -1604,6 +2019,122 @@ export const DEFAULT_HR_UNIFORM_REPLACEMENT_EMAIL_SETTINGS: HrUniformReplacement
     fromEmail: "",
     subject: DEFAULT_UNIFORM_REPLACEMENT_EMAIL_SUBJECT,
     message: DEFAULT_UNIFORM_REPLACEMENT_EMAIL_MESSAGE,
+  };
+
+// ---------------------------------------------------------------------------
+// Asset on-hand confirmation + terms & conditions email
+// ---------------------------------------------------------------------------
+
+export type HrAssetTermsEmailSettings = {
+  enabled: boolean;
+  recipientField: PayslipEmailRecipientField;
+  fromEmail: string;
+  subject: string;
+  message: string;
+};
+
+export const ASSET_TERMS_EMAIL_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{ASSETS_ON_HAND}}",
+    description: "Bullet list of assets currently issued to the employee",
+  },
+  {
+    code: "{{ASSETS_TOTAL_VALUE}}",
+    description: "Total value of assets currently on hand",
+  },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_ASSET_TERMS_EMAIL_SUBJECT =
+  "Company assets on hand & T&Cs — {{EMPLOYEE_NAME}}";
+
+export const DEFAULT_ASSET_TERMS_EMAIL_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+This email confirms the company assets currently issued to you by {{VENUE_NAME}}:
+
+{{ASSETS_ON_HAND}}
+
+Total value of assets on hand: {{ASSETS_TOTAL_VALUE}}
+
+Terms & Conditions of company asset usage
+• Company assets remain the property of {{VENUE_NAME}} and are issued for work use only.
+• You are responsible for the care and safekeeping of all items issued to you.
+• If any asset is lost or damaged beyond normal wear and tear, the respective value will be deducted from your salary.
+• Assets must be returned upon request or when your employment ends.
+
+Please keep this record for your reference. Contact Human Resources if any listed item is incorrect.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_ASSET_TERMS_EMAIL_SETTINGS: HrAssetTermsEmailSettings = {
+  enabled: true,
+  recipientField: "personal",
+  fromEmail: "",
+  subject: DEFAULT_ASSET_TERMS_EMAIL_SUBJECT,
+  message: DEFAULT_ASSET_TERMS_EMAIL_MESSAGE,
+};
+
+// ---------------------------------------------------------------------------
+// Asset replacement deduction notice email
+// ---------------------------------------------------------------------------
+
+export type HrAssetReplacementEmailSettings = {
+  enabled: boolean;
+  recipientField: PayslipEmailRecipientField;
+  fromEmail: string;
+  subject: string;
+  message: string;
+};
+
+export const ASSET_REPLACEMENT_EMAIL_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{ASSETS_REPLACED}}",
+    description: "Bullet list of replaced assets",
+  },
+  {
+    code: "{{DEDUCTION_AMOUNT}}",
+    description: "Amount to be deducted from the next payroll",
+  },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_ASSET_REPLACEMENT_EMAIL_SUBJECT =
+  "Asset replacement deduction — {{EMPLOYEE_NAME}}";
+
+export const DEFAULT_ASSET_REPLACEMENT_EMAIL_MESSAGE = `Dear {{EMPLOYEE_NAME}},
+
+This notice confirms that a company asset replacement has been recorded, and the cost will be recovered from your salary.
+
+Items replaced:
+{{ASSETS_REPLACED}}
+
+Amount to be deducted: {{DEDUCTION_AMOUNT}}
+
+This amount will be deducted from your next payroll.
+
+If you have questions about this deduction, please contact Human Resources.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_ASSET_REPLACEMENT_EMAIL_SETTINGS: HrAssetReplacementEmailSettings =
+  {
+    enabled: true,
+    recipientField: "personal",
+    fromEmail: "",
+    subject: DEFAULT_ASSET_REPLACEMENT_EMAIL_SUBJECT,
+    message: DEFAULT_ASSET_REPLACEMENT_EMAIL_MESSAGE,
   };
 
 /** Footer disclaimer printed at the bottom of every payslip PDF. */

@@ -1,5 +1,5 @@
 import { ClipboardList } from "lucide-react";
-import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { UpdatedDocsRequestSendButton } from "@/components/hr/updated-docs-request-send-button";
 import { Card } from "@/components/ui/card";
 import type { MissingDetailItem } from "@/lib/hr/missing-details";
@@ -44,12 +44,11 @@ export function MissingDetailsWidgets({
             className="flex items-center gap-1.5 py-0.5 text-[11px] leading-snug text-[#3D421F]"
           >
             <div className="flex min-w-0 flex-1 items-baseline gap-x-1.5">
-              <Link
-                href={`/hr/${item.staffId}`}
-                className="shrink-0 font-semibold text-[var(--venue-primary,#6B7B3A)] underline-offset-2 hover:underline"
-              >
-                {item.empNo}
-              </Link>
+              <StaffDirectoryLink
+                staffId={item.staffId}
+                empNo={item.empNo}
+                className="shrink-0 font-semibold"
+              />
               <span className="text-black/25" aria-hidden>
                 —
               </span>

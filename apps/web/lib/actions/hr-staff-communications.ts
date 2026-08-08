@@ -14,6 +14,8 @@ export type StaffCommunicationKind =
   | "updated_docs_request_email"
   | "uniform_terms_email"
   | "uniform_replacement_email"
+  | "asset_terms_email"
+  | "asset_replacement_email"
   | "hub_invite_email"
   | "inbound_reply";
 
@@ -74,6 +76,10 @@ function kindLabel(kind: StaffCommunicationKind): string {
       return "Uniform terms";
     case "uniform_replacement_email":
       return "Uniform replacement";
+    case "asset_terms_email":
+      return "Asset terms";
+    case "asset_replacement_email":
+      return "Asset replacement";
     case "hub_invite_email":
       return "Hub invite";
     case "inbound_reply":
@@ -91,6 +97,10 @@ function auditActionToKind(action: string): StaffCommunicationKind | null {
       return "uniform_terms_email";
     case "uniform_replacement_email.sent":
       return "uniform_replacement_email";
+    case "asset_terms_email.sent":
+      return "asset_terms_email";
+    case "asset_replacement_email.sent":
+      return "asset_replacement_email";
     default:
       return null;
   }
@@ -117,6 +127,15 @@ function auditTitle(
       : kindLabel(kind);
   }
   if (kind === "uniform_replacement_email") {
+    return kindLabel(kind);
+  }
+  if (kind === "asset_terms_email") {
+    const count = after.itemCount != null ? Number(after.itemCount) : null;
+    return count != null && Number.isFinite(count)
+      ? `Asset terms · ${count} item${count === 1 ? "" : "s"}`
+      : kindLabel(kind);
+  }
+  if (kind === "asset_replacement_email") {
     return kindLabel(kind);
   }
   if (kind === "hub_invite_email") {
