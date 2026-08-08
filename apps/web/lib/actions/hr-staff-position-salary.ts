@@ -16,6 +16,7 @@ import {
   DEFAULT_HR_SALARY_DEFAULTS,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
+  normalizeVisaStatusLabel,
 } from "@/lib/hr/types";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -103,8 +104,7 @@ function parseOptionalIsoDate(value: string | null | undefined): string | null {
 }
 
 function normalizeVisaStatus(value: string | null | undefined): string | null {
-  const trimmed = (value ?? "").trim();
-  return trimmed || null;
+  return normalizeVisaStatusLabel(value);
 }
 
 function mapChangeRow(

@@ -2,6 +2,14 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HrWorkDriveDocKind } from "@/lib/hr/types";
+import {
+  probeWorkDriveFilePresence,
+  type WorkDriveFilePresence,
+} from "@/lib/hr/workdrive/client";
+
+export type WorkDriveMissingReason =
+  | "deleted_on_workdrive"
+  | "trashed_on_workdrive";
 
 export type StaffWorkDriveDocumentRow = {
   id: string;
@@ -19,6 +27,8 @@ export type StaffWorkDriveDocumentRow = {
   content_type: string | null;
   uploaded_by: string | null;
   uploaded_at: string;
+  missing_at: string | null;
+  missing_reason: WorkDriveMissingReason | null;
 };
 
 export async function persistStaffWorkDriveDocument(
@@ -55,6 +65,8 @@ export async function persistStaffWorkDriveDocument(
       path: row.path || null,
       content_type: row.contentType || null,
       uploaded_by: row.uploadedBy ?? null,
+      missing_at: null,
+      missing_reason: null,
     })
     .select("*")
     .single();
@@ -138,4 +150,137 @@ export async function getStaffWorkDriveDocumentById(
 
   if (error) throw new Error(error.message);
   return (data as StaffWorkDriveDocumentRow | null) ?? null;
+}
+
+export async function updateStaffWorkDriveDocumentFileName(
+  supabase: SupabaseClient,
+  venueId: string,
+  documentId: string,
+  fileName: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("hr_staff_workdrive_documents")
+    .update({ file_name: fileName })
+    .eq("venue_id", venueId)
+    .eq("id", documentId);
+  if (error) throw new Error(error.message);
+}
+
+export async function markStaffWorkDriveDocumentMissing(
+  supabase: SupabaseClient,
+  venueId: string,
+  documentId: string,
+  reason: WorkDriveMissingReason,
+): Promise<void> {
+  const { error } = await supabase
+    .from("hr_staff_workdrive_documents")
+    .update({
+      missing_at: new Date().toISOString(),
+      missing_reason: reason,
+    })
+    .eq("venue_id", venueId)
+    .eq("id", documentId);
+  if (error) throw new Error(error.message);
+}
+
+export async function clearStaffWorkDriveDocumentMissing(
+  supabase: SupabaseClient,
+  venueId: string,
+  documentId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("hr_staff_workdrive_documents")
+    .update({
+      missing_at: null,
+      missing_reason: null,
+    })
+    .eq("venue_id", venueId)
+    .eq("id", documentId);
+  if (error) throw new Error(error.message);
+}
+
+const PRESENCE_PROBE_CONCURRENCY = 4;
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index]!);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(items.length, 1)) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Probe WorkDrive for each row and persist missing / restored state.
+ * Auth failures leave rows unchanged (`unknown`).
+ */
+export async function reconcileStaffWorkDriveDocumentsPresence(params: {
+  supabase: SupabaseClient;
+  venueId: string;
+  apiDomain: string;
+  accessToken: string;
+  rows: StaffWorkDriveDocumentRow[];
+}): Promise<StaffWorkDriveDocumentRow[]> {
+  const { supabase, venueId, apiDomain, accessToken, rows } = params;
+  if (rows.length === 0) return rows;
+
+  const probes = await mapPool(rows, PRESENCE_PROBE_CONCURRENCY, async (row) => {
+    const presence: WorkDriveFilePresence = await probeWorkDriveFilePresence(
+      apiDomain,
+      accessToken,
+      row.workdrive_file_id,
+    );
+    return { row, presence };
+  });
+
+  const nextRows: StaffWorkDriveDocumentRow[] = [];
+  for (const { row, presence } of probes) {
+    if (presence.state === "unknown") {
+      nextRows.push(row);
+      continue;
+    }
+    if (presence.state === "missing") {
+      if (row.missing_at && row.missing_reason === presence.reason) {
+        nextRows.push(row);
+        continue;
+      }
+      await markStaffWorkDriveDocumentMissing(
+        supabase,
+        venueId,
+        row.id,
+        presence.reason,
+      );
+      nextRows.push({
+        ...row,
+        missing_at: new Date().toISOString(),
+        missing_reason: presence.reason,
+      });
+      continue;
+    }
+    // present
+    if (row.missing_at || row.missing_reason) {
+      await clearStaffWorkDriveDocumentMissing(supabase, venueId, row.id);
+      nextRows.push({
+        ...row,
+        missing_at: null,
+        missing_reason: null,
+      });
+      continue;
+    }
+    nextRows.push(row);
+  }
+  return nextRows;
 }

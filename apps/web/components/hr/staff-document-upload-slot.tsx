@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FileText, HardDrive, Trash2, Upload } from "lucide-react";
+import {
+  CheckCircle2,
+  FileText,
+  HardDrive,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { DETACHED_FILE_FORM_ID } from "@/lib/hr/detached-file-form";
 import { cn } from "@/lib/utils";
 
@@ -14,10 +20,23 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isImageFileName(fileName: string) {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return ["jpg", "jpeg", "png", "webp", "gif"].includes(ext);
+}
+
+export type ExistingStaffDocument = {
+  fileName: string;
+  workdriveFileId?: string;
+  permalink?: string | null;
+};
+
 type StaffDocumentUploadSlotProps = {
   label?: string;
   file: File | null;
   onFileChange: (file: File | null) => void;
+  /** Already-linked file on WorkDrive (shown when no new file is selected). */
+  existingFile?: ExistingStaffDocument | null;
   readOnly?: boolean;
   className?: string;
   /** When set, shows Upload to WorkDrive for the selected file. */
@@ -32,6 +51,7 @@ export function StaffDocumentUploadSlot({
   label = "Upload document",
   file,
   onFileChange,
+  existingFile = null,
   readOnly = false,
   className,
   onUploadToDrive,
@@ -42,6 +62,9 @@ export function StaffDocumentUploadSlot({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [existingPreviewUrl, setExistingPreviewUrl] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!file || !file.type.startsWith("image/")) {
@@ -53,10 +76,47 @@ export function StaffDocumentUploadSlot({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  useEffect(() => {
+    if (file || !existingFile?.workdriveFileId) {
+      setExistingPreviewUrl(null);
+      return;
+    }
+    if (!isImageFileName(existingFile.fileName)) {
+      setExistingPreviewUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    const downloadUrl = `/api/hr/workdrive/download/${encodeURIComponent(existingFile.workdriveFileId)}`;
+
+    void (async () => {
+      try {
+        const res = await fetch(downloadUrl, { credentials: "same-origin" });
+        if (!res.ok || cancelled) return;
+        const blob = await res.blob();
+        if (cancelled || !blob.type.startsWith("image/")) return;
+        setExistingPreviewUrl(URL.createObjectURL(blob));
+      } catch {
+        /* preview is optional */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file, existingFile?.workdriveFileId, existingFile?.fileName]);
+
+  useEffect(() => {
+    if (!existingPreviewUrl) return;
+    return () => URL.revokeObjectURL(existingPreviewUrl);
+  }, [existingPreviewUrl]);
+
   function pick(next: File | null) {
     if (readOnly) return;
     onFileChange(next);
   }
+
+  const showingExisting = !file && !!existingFile;
 
   return (
     <div className={cn("flex w-fit max-w-full flex-col", className)}>
@@ -82,11 +142,20 @@ export function StaffDocumentUploadSlot({
           const next = e.dataTransfer.files?.[0] ?? null;
           if (next) pick(next);
         }}
+        aria-label={
+          showingExisting
+            ? `Replace ${existingFile.fileName}`
+            : file
+              ? `Replace ${file.name}`
+              : label
+        }
         className={cn(
           "flex aspect-square h-32 w-32 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed px-2 py-2 text-center transition-colors",
           dragging
             ? "border-[var(--venue-primary)] bg-[var(--venue-primary)]/10"
-            : "border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/25 hover:border-[var(--venue-primary)]/35 hover:bg-[var(--venue-secondary,#F0F3DD)]/40",
+            : showingExisting
+              ? "border-emerald-200 bg-emerald-50/70 hover:border-emerald-300 hover:bg-emerald-50"
+              : "border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/25 hover:border-[var(--venue-primary)]/35 hover:bg-[var(--venue-secondary,#F0F3DD)]/40",
           (readOnly || uploadingToDrive) && "cursor-not-allowed opacity-60",
           !readOnly && !uploadingToDrive && "cursor-pointer",
         )}
@@ -108,6 +177,28 @@ export function StaffDocumentUploadSlot({
             </p>
             <p className="mt-0.5 text-[9px] text-black/40">
               {formatBytes(file.size)}
+            </p>
+          </>
+        ) : showingExisting ? (
+          <>
+            {existingPreviewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={existingPreviewUrl}
+                alt=""
+                className="max-h-12 max-w-full rounded object-contain"
+              />
+            ) : (
+              <CheckCircle2
+                className="h-6 w-6 text-emerald-700"
+                aria-hidden
+              />
+            )}
+            <p className="mt-1.5 w-full truncate px-0.5 text-[10px] font-semibold leading-tight text-[#3D421F]">
+              {existingFile.fileName}
+            </p>
+            <p className="mt-0.5 text-[9px] font-medium text-emerald-800/80">
+              {dragging ? "Drop to replace" : "On file · click to replace"}
             </p>
           </>
         ) : (
@@ -210,7 +301,7 @@ export function StaffDocumentUploadSlot({
             className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-black/50 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            Remove
+            {existingFile ? "Keep current" : "Remove"}
           </button>
         </div>
       ) : null}

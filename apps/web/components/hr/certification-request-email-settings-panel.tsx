@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
 import { EmailStaffDocumentsPicker } from "@/components/hr/email-staff-documents-picker";
@@ -48,6 +48,15 @@ export function CertificationRequestEmailSettingsPanel({
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEnabled(settings.enabled);
+    setFromEmail(settings.fromEmail);
+    setSubject(settings.subject);
+    setMessage(settings.message);
+    setAttachDocuments(settings.attachDocuments);
+    setRequireAttachments(settings.requireAttachments !== false);
+  }, [settings]);
 
   const watch = useMemo(
     () =>

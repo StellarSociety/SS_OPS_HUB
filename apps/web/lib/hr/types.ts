@@ -89,6 +89,37 @@ export type InsuranceProvider = {
 
 export type InsuranceStatus = "missing" | "valid" | "expiring" | "expired";
 
+/** Linked Zoho WorkDrive file shown next to upload slots. */
+export type StaffLinkedWorkDriveDocument = {
+  id: string;
+  workdriveFileId: string;
+  fileName: string;
+  permalink: string | null;
+  path: string | null;
+  folderId: string | null;
+  fileSlotId: string | null;
+  uploadedAt: string;
+  /** True when Zoho reports the file deleted/trashed outside the hub. */
+  isMissing?: boolean;
+  missingReason?: "deleted_on_workdrive" | "trashed_on_workdrive" | null;
+};
+
+/** One issued insurance policy / reference for a staff member. */
+export type StaffInsuranceRecord = {
+  id: string;
+  reference: string;
+  category: string;
+  value: number | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  /** True when a WorkDrive insurance card is linked to this reference. */
+  hasDocument?: boolean;
+  /** Linked WorkDrive insurance card for this reference (when known). */
+  document?: StaffLinkedWorkDriveDocument | null;
+};
+
 export type InsuranceEmployeeRow = {
   staff: StaffWithLookups;
   category: string | null;
@@ -106,6 +137,48 @@ export type InsuranceEmployeeRow = {
   suggestedCategoryName: string | null;
   suggestedValue: number | null;
   hasDocument: boolean;
+  /** Latest WorkDrive insurance card for preview / open. */
+  document: StaffLinkedWorkDriveDocument | null;
+  /** Insurance references that still need a linked card on WorkDrive. */
+  recordsMissingCard: {
+    id: string;
+    reference: string;
+    category: string;
+  }[];
+};
+
+/** Staff row contributing to an insurance expense line. */
+export type InsuranceExpenseStaff = {
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  issuedAt: string;
+  photoUrl: string | null;
+  reference: string;
+  value: number;
+};
+
+/** One insurance category’s expense subtotal within a month. */
+export type InsuranceExpenseLine = {
+  categoryKey: string;
+  name: string;
+  label: string;
+  count: number;
+  net: number;
+  vat: number;
+  gross: number;
+  staff: InsuranceExpenseStaff[];
+};
+
+/** Monthly insurance expense rollup (by policy issue date). */
+export type InsuranceExpenseMonth = {
+  monthKey: string;
+  label: string;
+  lines: InsuranceExpenseLine[];
+  totalNet: number;
+  totalVat: number;
+  totalGross: number;
+  totalCount: number;
 };
 
 /** WorkDrive staff docs that can be attached to provider request emails. */
@@ -245,6 +318,337 @@ export const DEFAULT_HR_INSURANCE_REQUEST_EMAIL_SETTINGS: HrInsuranceRequestEmai
     ],
     issueRequireAttachments: true,
     renewRequireAttachments: true,
+  };
+
+/** Staff entry / visa module select values. */
+export const VISA_STATUS_OPTIONS = [
+  "Visa Active self owned",
+  "Visa Active Provided",
+  "Visa Applied Pending",
+  "Visa Dispute",
+  "Visa Canceled",
+] as const;
+
+export type VisaStatusOption = (typeof VISA_STATUS_OPTIONS)[number];
+
+/** Legacy staff.visa_status values still shown in badges / remapped on read. */
+export const LEGACY_VISA_STATUS_OPTIONS = [
+  "Visa Self Owned",
+  "Visa Provided",
+  "Visa Pending",
+] as const;
+
+const LEGACY_VISA_STATUS_MAP: Record<string, VisaStatusOption> = {
+  "Visa Self Owned": "Visa Active self owned",
+  "Visa Provided": "Visa Active Provided",
+  "Visa Pending": "Visa Applied Pending",
+};
+
+/** Map legacy labels onto the current select values; leave unknowns unchanged. */
+export function normalizeVisaStatusLabel(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return null;
+  return LEGACY_VISA_STATUS_MAP[trimmed] ?? trimmed;
+}
+
+export type VisaComplianceStatus =
+  | "missing"
+  | "valid"
+  | "expiring"
+  | "expired"
+  | "canceled"
+  | "dispute"
+  | "pending";
+
+export type VisaPenalty = {
+  id: string;
+  description: string;
+  amount: number;
+  /** When true, company covers the cost; otherwise deducted from payroll. */
+  companyCovered: boolean;
+};
+
+/** Fixed expense line categories for the Visa expenses report. */
+export const VISA_EXPENSE_CATEGORY = {
+  processing: "Visa Processing",
+  penalties: "Visa Penalties",
+  cancelations: "Visa Cancelations",
+} as const;
+
+export type VisaExpenseCategoryLabel =
+  (typeof VISA_EXPENSE_CATEGORY)[keyof typeof VISA_EXPENSE_CATEGORY];
+
+/** @deprecated Use {@link VISA_EXPENSE_CATEGORY.cancelations}. */
+export const VISA_CANCELATION_EXPENSE_LABEL =
+  VISA_EXPENSE_CATEGORY.cancelations;
+
+/** Display / sort order for expense TYPE lines. */
+export const VISA_EXPENSE_CATEGORY_ORDER: readonly VisaExpenseCategoryLabel[] = [
+  VISA_EXPENSE_CATEGORY.processing,
+  VISA_EXPENSE_CATEGORY.penalties,
+  VISA_EXPENSE_CATEGORY.cancelations,
+];
+
+/** One issued residency visa / reference for a staff member. */
+export type StaffVisaRecord = {
+  id: string;
+  visaNumber: string;
+  issueDate: string | null;
+  expiryDate: string | null;
+  valueSpend: number | null;
+  /**
+   * Gross cancelation charge (AED, VAT-inclusive), separate from issue valueSpend.
+   * Rolled into expenses as {@link VISA_EXPENSE_CATEGORY.cancelations} by cancel date month.
+   */
+  cancelationSpend: number | null;
+  penalties: VisaPenalty[];
+  visaStatus: string;
+  disputeReference: string;
+  disputeComments: string;
+  cancelDate: string | null;
+  comments: string;
+  createdAt: string;
+  createdBy: string | null;
+  /** True when a WorkDrive residency card is linked to this reference. */
+  hasDocument?: boolean;
+  /** True when a WorkDrive NOC is linked to this reference. */
+  hasNocDocument?: boolean;
+  /** Linked WorkDrive residency card for this reference (when known). */
+  document?: StaffLinkedWorkDriveDocument | null;
+  /** Linked WorkDrive NOC for this reference (when known). */
+  nocDocument?: StaffLinkedWorkDriveDocument | null;
+};
+
+export type VisaProProvider = {
+  id: string;
+  name: string;
+  contact_person: string;
+  contact_email: string;
+  contact_phone: string;
+  lead_days: number;
+  sort_order: number;
+  archived_at: string | null;
+};
+
+export type VisaEmployeeRow = {
+  staff: StaffWithLookups;
+  visaNumber: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  cancelDate: string | null;
+  valueSpend: number | null;
+  /** Gross cancelation charge from the latest visa record. */
+  cancelationSpend: number | null;
+  /** Company-absorbed penalties on the latest visa record (AED gross). */
+  penaltiesCompanyAbsorbed: number;
+  /** Employee-absorbed (payroll) penalties on the latest visa record (AED gross). */
+  penaltiesEmployeeAbsorbed: number;
+  /**
+   * When employee-absorbed amount &gt; 0: true if fully deducted via payroll,
+   * false if still pending / not applied. Null when no employee penalties.
+   */
+  penaltiesEmployeePayrollApplied: boolean | null;
+  visaStatus: string | null;
+  /** Expiry date, or cancel date when canceled. */
+  displayDate: string | null;
+  isCanceled: boolean;
+  status: VisaComplianceStatus;
+  daysUntilExpiry: number | null;
+  leadDays: number;
+  providerId: string | null;
+  providerName: string | null;
+  providerEmail: string | null;
+  hasNocDocument: boolean;
+  hasResidenceDocument: boolean;
+  /** Latest visa reference id — used to link quick uploads to the current entry. */
+  latestRecordId: string | null;
+};
+
+export type VisaExpenseStaff = {
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  issuedAt: string;
+  photoUrl: string | null;
+  reference: string;
+  value: number;
+};
+
+export type VisaExpenseLine = {
+  categoryKey: string;
+  name: string;
+  label: string;
+  count: number;
+  net: number;
+  vat: number;
+  gross: number;
+  staff: VisaExpenseStaff[];
+};
+
+export type VisaExpenseMonth = {
+  monthKey: string;
+  label: string;
+  lines: VisaExpenseLine[];
+  totalNet: number;
+  totalVat: number;
+  totalGross: number;
+  totalCount: number;
+};
+
+export type VisaRequestType = "issue" | "renew" | "cancel";
+
+export type HrVisaRequestEmailSettings = {
+  enabled: boolean;
+  fromEmail: string;
+  issueSubject: string;
+  issueMessage: string;
+  renewSubject: string;
+  renewMessage: string;
+  cancelSubject: string;
+  cancelMessage: string;
+  issueAttachDocuments: HrEmailStaffDocumentKey[];
+  renewAttachDocuments: HrEmailStaffDocumentKey[];
+  cancelAttachDocuments: HrEmailStaffDocumentKey[];
+  issueRequireAttachments: boolean;
+  renewRequireAttachments: boolean;
+  cancelRequireAttachments: boolean;
+};
+
+export const VISA_REQUEST_EMAIL_TEMPLATE_CODES = [
+  { code: "{{PROVIDER_CONTACT}}", description: "PRO contact person (or company)" },
+  { code: "{{PROVIDER_COMPANY}}", description: "PRO company name" },
+  { code: "{{EMPLOYEE_NAME}}", description: "Employee full name" },
+  { code: "{{EMP_NO}}", description: "Employee number" },
+  {
+    code: "{{REQUEST_TYPE}}",
+    description: "issue, renewal, or cancelation (matches the template in use)",
+  },
+  { code: "{{VISA_NUMBER}}", description: "Residence visa number" },
+  { code: "{{VISA_STATUS}}", description: "Current visa status" },
+  { code: "{{ISSUE_DATE}}", description: "Current issue date" },
+  { code: "{{EXPIRY_DATE}}", description: "Current expiry date" },
+  { code: "{{CANCEL_DATE}}", description: "Visa cancelation date" },
+  {
+    code: "{{CANCELATION_GROSS}}",
+    description: "Cancelation charge gross (AED)",
+  },
+  { code: "{{PASSPORT_NO}}", description: "Passport number" },
+  {
+    code: "{{PASSPORT_ORIGIN}}",
+    description: "Passport origin / nationality",
+  },
+  { code: "{{PASSPORT_EXPIRY}}", description: "Passport expiry date" },
+  { code: "{{EID_NO}}", description: "Emirates ID number" },
+  { code: "{{EID_EXPIRY}}", description: "Emirates ID expiry date" },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{USER_NAME}}", description: "Signed-in user sending this email" },
+] as const;
+
+export const DEFAULT_VISA_ISSUE_EMAIL_SUBJECT =
+  "New residency visa issue — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_VISA_ISSUE_EMAIL_MESSAGE = `Dear {{PROVIDER_CONTACT}},
+
+Please arrange a new residency visa for {{EMPLOYEE_NAME}} (Employee No. {{EMP_NO}}) at {{VENUE_NAME}}.
+
+Employee identity details:
+• Passport no.: {{PASSPORT_NO}}
+• Passport origin: {{PASSPORT_ORIGIN}}
+• Passport expiry: {{PASSPORT_EXPIRY}}
+• Emirates ID no.: {{EID_NO}}
+• Emirates ID expiry: {{EID_EXPIRY}}
+
+Kindly confirm receipt and advise on the issuance timeline and any documents required.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_VISA_RENEW_EMAIL_SUBJECT =
+  "Residency visa renewal — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_VISA_RENEW_EMAIL_MESSAGE = `Dear {{PROVIDER_CONTACT}},
+
+Please renew the residency visa for {{EMPLOYEE_NAME}} (Employee No. {{EMP_NO}}) at {{VENUE_NAME}}.
+
+• Visa number: {{VISA_NUMBER}}
+• Current status: {{VISA_STATUS}}
+• Current issue date: {{ISSUE_DATE}}
+• Current expiry date: {{EXPIRY_DATE}}
+
+Employee identity details:
+• Passport no.: {{PASSPORT_NO}}
+• Passport origin: {{PASSPORT_ORIGIN}}
+• Passport expiry: {{PASSPORT_EXPIRY}}
+• Emirates ID no.: {{EID_NO}}
+• Emirates ID expiry: {{EID_EXPIRY}}
+
+Kindly confirm receipt and advise on the renewal timeline.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_VISA_CANCEL_EMAIL_SUBJECT =
+  "Visa cancelation — {{EMPLOYEE_NAME}} ({{EMP_NO}})";
+
+export const DEFAULT_VISA_CANCEL_EMAIL_MESSAGE = `Dear {{PROVIDER_CONTACT}},
+
+Please proceed with residency visa cancelation for {{EMPLOYEE_NAME}} (Employee No. {{EMP_NO}}) at {{VENUE_NAME}}.
+
+• Visa number: {{VISA_NUMBER}}
+• Cancelation date: {{CANCEL_DATE}}
+• Cancelation charge (gross): {{CANCELATION_GROSS}}
+• Current expiry date: {{EXPIRY_DATE}}
+
+Employee identity details:
+• Passport no.: {{PASSPORT_NO}}
+• Passport origin: {{PASSPORT_ORIGIN}}
+• Passport expiry: {{PASSPORT_EXPIRY}}
+• Emirates ID no.: {{EID_NO}}
+• Emirates ID expiry: {{EID_EXPIRY}}
+
+Kindly confirm receipt and advise on next steps and any documents required.
+
+Thank you,
+{{USER_NAME}}
+{{VENUE_NAME}}
+Human Resources`;
+
+export const DEFAULT_HR_VISA_REQUEST_EMAIL_SETTINGS: HrVisaRequestEmailSettings =
+  {
+    enabled: true,
+    fromEmail: "",
+    issueSubject: DEFAULT_VISA_ISSUE_EMAIL_SUBJECT,
+    issueMessage: DEFAULT_VISA_ISSUE_EMAIL_MESSAGE,
+    renewSubject: DEFAULT_VISA_RENEW_EMAIL_SUBJECT,
+    renewMessage: DEFAULT_VISA_RENEW_EMAIL_MESSAGE,
+    cancelSubject: DEFAULT_VISA_CANCEL_EMAIL_SUBJECT,
+    cancelMessage: DEFAULT_VISA_CANCEL_EMAIL_MESSAGE,
+    issueAttachDocuments: [
+      "passport",
+      "emirates_id_front",
+      "emirates_id_back",
+    ],
+    renewAttachDocuments: [
+      "passport",
+      "emirates_id_front",
+      "emirates_id_back",
+      "eresidence_card",
+    ],
+    cancelAttachDocuments: [
+      "passport",
+      "emirates_id_front",
+      "emirates_id_back",
+      "eresidence_card",
+    ],
+    issueRequireAttachments: true,
+    renewRequireAttachments: true,
+    cancelRequireAttachments: true,
   };
 
 /** Staff date columns used for mandatory hospitality certifications. */
@@ -752,9 +1156,31 @@ export const HR_SETTINGS_KEYS = {
   /** Certification / training appointment request email. */
   certificationRequestEmail: "certification_request_email",
   insuranceRequestEmail: "insurance_request_email",
+  /**
+   * Per-staff insurance issuance history.
+   * Full key: `staff_insurance_history:<staffId>`
+   */
+  staffInsuranceHistoryPrefix: "staff_insurance_history:",
+  /** Residency / PRO visa request email templates. */
+  visaRequestEmail: "visa_request_email",
+  /** Venue PRO providers list (JSON array). */
+  visaProProviders: "visa_pro_providers",
+  /**
+   * Per-staff residency visa issuance history.
+   * Full key: `staff_visa_history:<staffId>`
+   */
+  staffVisaHistoryPrefix: "staff_visa_history:",
   /** Zoho WorkDrive connection + folder/naming rules for staff documents. */
   workDrive: "work_drive",
 } as const;
+
+export function staffInsuranceHistorySettingKey(staffId: string): string {
+  return `${HR_SETTINGS_KEYS.staffInsuranceHistoryPrefix}${staffId}`;
+}
+
+export function staffVisaHistorySettingKey(staffId: string): string {
+  return `${HR_SETTINGS_KEYS.staffVisaHistoryPrefix}${staffId}`;
+}
 
 /** Paid status for leave type configuration. */
 export type HrLeavePaidStatus =
@@ -1263,6 +1689,7 @@ export type HrWorkDriveDocKind =
   | "ohc"
   | "medical_insurance"
   | "training_certificates"
+  | "visa_noc"
   | "others";
 
 /**
@@ -1313,10 +1740,13 @@ function defaultDocFileSlot(
 export const DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS: HrWorkDriveDocSubfolder[] = [
   {
     kind: "profile_photo",
+    /** Unused for uploads — profile photos go in the employee folder root. */
     folderName: "Profile Photo",
     label: "ProfilePhoto",
     active: true,
-    fileSlots: [defaultDocFileSlot("ProfilePhoto")],
+    fileSlots: [
+      defaultDocFileSlot("ProfilePhoto", "{emp_no} - {full_name}"),
+    ],
   },
   {
     kind: "passport",
@@ -1389,10 +1819,17 @@ export const DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS: HrWorkDriveDocSubfolder[] = [
   },
   {
     kind: "medical_insurance",
-    folderName: "Medical Insurance",
-    label: "MedicalInsurance",
+    folderName: "Insurance",
+    label: "Insurance",
     active: true,
-    fileSlots: [defaultDocFileSlot("MedicalInsurance")],
+    fileSlots: [defaultDocFileSlot("Insurance")],
+  },
+  {
+    kind: "visa_noc",
+    folderName: "Visa NOC",
+    label: "VisaNOC",
+    active: true,
+    fileSlots: [defaultDocFileSlot("VisaNOC")],
   },
   {
     kind: "training_certificates",
@@ -1446,6 +1883,8 @@ export type HrWorkDriveConnectionStatus =
  * server-side and are never returned to the client.
  *
  * Tree: SS-OPS-HUB (team) → Human Resources (module) → Employee Documents →
+ * `{emp_no} — {full_name}` → doc-type subfolder (except profile photos, which
+ * sit directly in the employee folder as `{emp_no} - {full_name}.ext`).
  * `{emp_no} — {full_name}` → doc-type subfolders.
  */
 export type HrWorkDriveSettings = {

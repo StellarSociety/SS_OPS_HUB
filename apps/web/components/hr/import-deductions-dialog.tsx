@@ -6,6 +6,7 @@ import { SalesImportProgressBar } from "@/components/sales/sales-import-progress
 import { Input } from "@/components/ui/input";
 import {
   listDeductionsForPayrollImport,
+  refreshVisaRunDeductionsForImport,
   type PayrollDeductionImportRow,
   type PayrollDeductionImportType,
 } from "@/lib/actions/hr-payroll";
@@ -77,6 +78,11 @@ export function ImportDeductionsDialog({
   const [staffQuery, setStaffQuery] = useState("");
   const [reloadNonce, setReloadNonce] = useState(0);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [visaRefreshState, setVisaRefreshState] = useState<
+    "idle" | "refreshing" | "done"
+  >("idle");
+  const visaRefreshStarted = useRef(false);
+  const quietReload = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -84,6 +90,9 @@ export function ImportDeductionsDialog({
     setStaffQuery("");
     setLoadError(null);
     setBusyLabel(null);
+    setVisaRefreshState("idle");
+    visaRefreshStarted.current = false;
+    quietReload.current = false;
   }, [open]);
 
   useEffect(() => {
@@ -93,7 +102,9 @@ export function ImportDeductionsDialog({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
+    const quiet = quietReload.current;
+    quietReload.current = false;
+    if (!quiet) setLoading(true);
     setLoadError(null);
     void listDeductionsForPayrollImport({ runId, source }).then((result) => {
       if (cancelled) return;
@@ -127,6 +138,26 @@ export function ImportDeductionsDialog({
       cancelled = true;
     };
   }, [open, runId, source, reloadNonce]);
+
+  // After the fast list paints, refresh visa charges in the background once.
+  useEffect(() => {
+    if (!open || loading || visaRefreshStarted.current) return;
+    if (source !== "all" && source !== "visa_runs") return;
+    visaRefreshStarted.current = true;
+    setVisaRefreshState("refreshing");
+    let cancelled = false;
+    void refreshVisaRunDeductionsForImport().then((result) => {
+      if (cancelled) return;
+      setVisaRefreshState("done");
+      if (result.ok) {
+        quietReload.current = true;
+        setReloadNonce((n) => n + 1);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, loading, source]);
 
   const wasPending = useRef(false);
   useEffect(() => {
@@ -259,8 +290,10 @@ export function ImportDeductionsDialog({
 
   const emptyMessage =
     sourceMeta && !sourceMeta.available
-      ? `${sourceMeta.label} deductions are not wired up yet. Uniform charges are available today.`
-      : "No outstanding deductions for this filter. Charges stay listed until fully recovered.";
+      ? `${sourceMeta.label} deductions are not wired up yet. Uniform, Assets, and Visa runs are available today.`
+      : source === "visa_runs"
+        ? "No outstanding visa employee charges. Uncheck “Company covered” on a visa penalty to queue it here."
+        : "No outstanding deductions for this filter. Charges stay listed until fully recovered.";
 
   return createPortal(
     <div
@@ -289,7 +322,8 @@ export function ImportDeductionsDialog({
           <p className="mt-1 text-sm text-black/55">
             Choose how much of each outstanding charge to recover on this
             payroll. Any remainder stays visible on future runs until cleared.
-            Uniform is live; other sources appear as those modules ship.
+            Uniform, Assets, and Visa runs (employee-charged penalties) are
+            live; Insurance and Certifications appear as those modules ship.
           </p>
         </div>
 
@@ -374,6 +408,12 @@ export function ImportDeductionsDialog({
           {loadError ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {loadError}
+            </p>
+          ) : null}
+
+          {visaRefreshState === "refreshing" && !loading ? (
+            <p className="text-xs text-black/45">
+              Refreshing visa charges in the background…
             </p>
           ) : null}
 

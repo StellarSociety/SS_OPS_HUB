@@ -80,6 +80,20 @@ export function formatDocExpiryDdMmYy(
   ).slice(-2)}`;
 }
 
+/**
+ * Fill an empty `[exp.- ]` / `[exp.-]` placeholder in a WorkDrive file name.
+ * Returns null when no change is needed.
+ */
+export function injectDocExpiryIntoFileName(
+  fileName: string,
+  isoExpiry: string | null | undefined,
+): string | null {
+  const formatted = formatDocExpiryDdMmYy(isoExpiry);
+  if (!formatted) return null;
+  const next = fileName.replace(/\[exp\.\-\s*\]/gi, `[exp.- ${formatted}]`);
+  return next !== fileName ? next : null;
+}
+
 /** Staff date field used for `{doc_expiry}` for a doc kind / file part. */
 export type HrWorkDriveDocExpiryField =
   | "passport_expiry"
@@ -125,6 +139,8 @@ export function docExpiryFieldForKind(
       return "eresidence_expiry";
     case "medical_insurance":
       return "medical_insurance_expiry_date";
+    case "visa_noc":
+      return "visa_expiry";
     case "ohc":
       return "ohc_date";
     default:
@@ -196,7 +212,10 @@ async function resolveOrCreateFolder(params: {
 
 /**
  * Upload a staff document into WorkDrive:
- * Employee Documents → `{emp_no} — {full_name}` → doc-type subfolder → file.
+ * Employee Documents → `{emp_no} — {full_name}` → [doc-type subfolder] → file.
+ *
+ * Profile photos skip the doc-type subfolder and land directly in the
+ * employee folder as `{emp_no} - {full_name}.ext`.
  */
 export async function uploadStaffDocumentToWorkDrive(
   input: UploadStaffDocInput,
@@ -220,6 +239,8 @@ export async function uploadStaffDocumentToWorkDrive(
     );
   }
 
+  const atEmployeeRoot = input.docKind === "profile_photo";
+
   const slots: HrWorkDriveDocFileSlot[] =
     sub.fileSlots?.length > 0
       ? sub.fileSlots
@@ -233,7 +254,24 @@ export async function uploadStaffDocumentToWorkDrive(
   const slot =
     (input.fileSlotId
       ? slots.find((row) => row.id === input.fileSlotId)
-      : undefined) ?? slots[0];
+      : undefined) ??
+    (input.docKind === "medical_insurance" && input.fileSlotId
+      ? {
+          id: input.fileSlotId,
+          label: "Insurance card",
+          fileNameTemplate: `{doc_name}_{first_name}_{last_name}_{doc_expiry}_${input.fileSlotId.slice(0, 8)}`,
+        }
+      : undefined) ??
+    ((input.docKind === "eresidence_card" || input.docKind === "visa_noc") &&
+    input.fileSlotId
+      ? {
+          id: input.fileSlotId,
+          label:
+            input.docKind === "visa_noc" ? "Visa NOC" : "Residency card",
+          fileNameTemplate: `{doc_name}_{first_name}_{last_name}_{doc_expiry}_${input.fileSlotId.slice(0, 8)}`,
+        }
+      : undefined) ??
+    slots[0];
   if (!slot) {
     throw new Error(
       `File part "${input.fileSlotId ?? "default"}" is not configured for "${input.docKind}".`,
@@ -285,19 +323,24 @@ export async function uploadStaffDocumentToWorkDrive(
     autoCreate: settings.autoCreateFolders,
   });
 
-  const docFolder = await resolveOrCreateFolder({
-    apiDomain,
-    accessToken,
-    parentId: empFolder.id,
-    name: sub.folderName,
-    autoCreate: settings.autoCreateFolders,
-  });
+  const uploadParentId = atEmployeeRoot
+    ? empFolder.id
+    : (
+        await resolveOrCreateFolder({
+          apiDomain,
+          accessToken,
+          parentId: empFolder.id,
+          name: sub.folderName,
+          autoCreate: settings.autoCreateFolders,
+        })
+      ).id;
 
   const ext = extensionOf(input.originalFileName) || guessExt(input.contentType);
-  const namingTemplate =
-    slot.fileNameTemplate.trim() ||
-    settings.fileNameTemplate.trim() ||
-    "{doc_label}_{emp_no}_{yyyy-MM-dd}";
+  const namingTemplate = atEmployeeRoot
+    ? "{emp_no} - {full_name}"
+    : slot.fileNameTemplate.trim() ||
+      settings.fileNameTemplate.trim() ||
+      "{doc_label}_{emp_no}_{yyyy-MM-dd}";
   const stem = sanitizeFileName(
     renderWorkDriveTemplate(namingTemplate, templateVars),
   );
@@ -306,11 +349,12 @@ export async function uploadStaffDocumentToWorkDrive(
   let uploaded = await uploadFile({
     apiDomain,
     accessToken,
-    parentId: docFolder.id,
+    parentId: uploadParentId,
     fileName,
     bytes: input.bytes,
     contentType: input.contentType || "application/octet-stream",
-    overrideNameExist: input.overrideNameExist === true,
+    overrideNameExist:
+      input.overrideNameExist === true || atEmployeeRoot,
   });
 
   const storedName = uploaded.name || "";
@@ -332,7 +376,7 @@ export async function uploadStaffDocumentToWorkDrive(
     settings.hrFolderName || ZOHO_WD_VERIFIED.hrFolderName,
     settings.employeeDocsFolderName || ZOHO_WD_VERIFIED.employeeDocsFolderName,
     empFolderName,
-    sub.folderName,
+    ...(atEmployeeRoot ? [] : [sub.folderName]),
     fileName,
   ].join("/");
 
@@ -342,7 +386,7 @@ export async function uploadStaffDocumentToWorkDrive(
     path,
     fileName,
     employeeFolderId: empFolder.id,
-    docFolderId: docFolder.id,
+    docFolderId: uploadParentId,
   };
 }
 

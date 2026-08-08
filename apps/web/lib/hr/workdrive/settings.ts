@@ -80,13 +80,26 @@ function mergeDocSubfolders(
         fileSlots: defaults.fileSlots.map((slot) => ({ ...slot })),
       };
     }
+    const rawFolderName = String(
+      override.folderName ?? defaults.folderName,
+    ).trim();
+    const folderName =
+      defaults.kind === "medical_insurance" &&
+      (!rawFolderName ||
+        rawFolderName.toLowerCase() === "medical insurance")
+        ? defaults.folderName
+        : rawFolderName || defaults.folderName;
+    const rawLabel = String(override.label ?? defaults.label).trim();
     const label =
-      String(override.label ?? defaults.label).trim() || defaults.label;
+      defaults.kind === "medical_insurance" &&
+      (!rawLabel ||
+        rawLabel.toLowerCase() === "medicalinsurance" ||
+        rawLabel.toLowerCase() === "medical insurance")
+        ? defaults.label
+        : rawLabel || defaults.label;
     return {
       kind: defaults.kind,
-      folderName:
-        String(override.folderName ?? defaults.folderName).trim() ||
-        defaults.folderName,
+      folderName,
       label,
       active:
         typeof override.active === "boolean" ? override.active : defaults.active,

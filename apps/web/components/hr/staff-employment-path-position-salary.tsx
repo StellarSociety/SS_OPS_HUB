@@ -20,16 +20,11 @@ import {
   type SalaryPercentages,
 } from "@/lib/hr/derived";
 import type { Department, Position } from "@/lib/hr/types";
+import { normalizeVisaStatusLabel, VISA_STATUS_OPTIONS } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
 const fieldClass =
   "h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20";
-
-const VISA_STATUS_OPTIONS = [
-  "Visa Self Owned",
-  "Visa Provided",
-  "Visa Pending",
-] as const;
 
 /** Snap any ISO date to the first day of its calendar month. */
 function toMonthStartIso(iso: string): string {

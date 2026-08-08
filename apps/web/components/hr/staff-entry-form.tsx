@@ -48,7 +48,7 @@ import type {
   Nationality,
   Position,
 } from "@/lib/hr/types";
-import { STAFF_TERMINATION_TYPE_OPTIONS } from "@/lib/hr/types";
+import { STAFF_TERMINATION_TYPE_OPTIONS, VISA_STATUS_OPTIONS } from "@/lib/hr/types";
 import { DETACHED_FILE_FORM_ID } from "@/lib/hr/detached-file-form";
 import { cn } from "@/lib/utils";
 
@@ -302,9 +302,9 @@ const EMPLOYMENT_DOC_SLOTS: {
     ],
   },
   {
-    title: "Medical Insurance",
+    title: "Insurance",
     docKind: "medical_insurance",
-    documentTitle: "Medical Insurance document",
+    documentTitle: "Insurance card",
     dateFields: [
       {
         field: "medical_insurance_expiry_date",
@@ -1331,9 +1331,11 @@ export function StaffEntryForm({
           className={fieldClass}
         >
           <option value="">—</option>
-          <option value="Visa Self Owned">Visa Self Owned</option>
-          <option value="Visa Provided">Visa Provided</option>
-          <option value="Visa Pending">Visa Pending</option>
+          {VISA_STATUS_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
         </select>
       </Field>
       <Field layout="inline" label="Visa expiry" htmlFor="visa_expiry">

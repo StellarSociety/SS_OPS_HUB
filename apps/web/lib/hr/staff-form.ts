@@ -4,6 +4,7 @@ import {
   DEFAULT_PROBATION_DURATION_VALUE,
 } from "./probation";
 import type { StaffWithLookups } from "./types";
+import { normalizeVisaStatusLabel } from "./types";
 
 /**
  * String-only view of a staff record, shaped for controlled form inputs.
@@ -135,7 +136,7 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     contract_kind: str(s.contract_kind),
     contract_expiry: str(s.contract_expiry),
     eresidence_expiry: str(s.eresidence_expiry),
-    visa_status: str(s.visa_status),
+    visa_status: normalizeVisaStatusLabel(s.visa_status) ?? "",
     visa_expiry: str(s.visa_expiry),
     probation_duration_value: str(s.probation_duration_value) || String(DEFAULT_PROBATION_DURATION_VALUE),
     probation_duration_unit:

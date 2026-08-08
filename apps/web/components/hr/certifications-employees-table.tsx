@@ -11,6 +11,7 @@ import { CertificationRequestEmailDialog } from "@/components/hr/certification-r
 import { CertificationRequestSentEmailsDialog } from "@/components/hr/certification-request-sent-emails-dialog";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -66,7 +67,7 @@ type StatusFilterMap = Record<string, Set<CertificationStatus>>;
 function defaultEmploymentStatusFilter(
   statuses: EmploymentStatus[],
 ): string[] {
-  const wanted = new Set([
+  const wanted = new Set<string>([
     EMPLOYMENT_STATUS_NAMES.onBoard,
     EMPLOYMENT_STATUS_NAMES.offBoard,
   ]);
@@ -168,7 +169,7 @@ function CertCell({ cell }: { cell: StaffCertificationCell }) {
     <td
       className={cn(
         "px-3 py-3 align-top text-center",
-        alert && "bg-red-50 ring-1 ring-inset ring-red-200/80",
+        alert && "rounded-md bg-red-50 ring-1 ring-inset ring-red-200/80",
       )}
     >
       <div
@@ -677,17 +678,11 @@ export function CertificationsEmployeesTable({
                 setEmailOpen(true);
               }}
               className={cn(
-                "inline-flex h-10 items-center gap-2 rounded-md border bg-white px-3.5 text-sm font-medium text-[#3D421F] shadow-sm transition",
-                savedDraftCount > 0
-                  ? "border-black/15 hover:bg-black/[0.03]"
-                  : "border-black/10 hover:bg-black/[0.03]",
+                "inline-flex h-10 items-center gap-2 rounded-md border border-amber-300/70 bg-amber-100 px-3.5 text-sm font-medium text-amber-950 shadow-sm transition hover:bg-amber-200/80",
               )}
             >
               <FileText
-                className={cn(
-                  "h-4 w-4",
-                  savedDraftCount > 0 ? "text-[#3D421F]" : "text-black/40",
-                )}
+                className="h-4 w-4 text-amber-800"
                 aria-hidden
               />
               <span>Drafts</span>
@@ -695,8 +690,8 @@ export function CertificationsEmployeesTable({
                 className={cn(
                   "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
                   savedDraftCount > 0
-                    ? "bg-[var(--venue-primary,#818a40)] text-white"
-                    : "bg-black/5 text-black/40",
+                    ? "bg-amber-700 text-white"
+                    : "bg-amber-200/80 text-amber-800/70",
                 )}
                 aria-label={`${savedDraftCount} saved certification draft emails`}
               >
@@ -849,36 +844,47 @@ export function CertificationsEmployeesTable({
                                 employeeColClass,
                               )}
                             >
-                              <div className="font-medium text-[#3D421F]">
-                                {row.staff.full_name}
-                              </div>
-                              <div
-                                className="mt-0.5 text-xs text-black/45"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <StaffDirectoryLink
-                                  staffId={row.staff.id}
-                                  empNo={row.staff.emp_no}
+                              <div className="flex items-stretch gap-3">
+                                <StaffPhotoThumbnail
+                                  fullName={row.staff.full_name}
+                                  photoUrl={row.staff.photo_url}
+                                  size="fill"
                                 />
-                                {row.staff.position?.name
-                                  ? ` · ${row.staff.position.name}`
-                                  : ""}
-                              </div>
-                              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-black/45">
-                                <StatusBadge
-                                  status={row.staff.employment_status?.name}
-                                />
-                                <span>
-                                  Joined{" "}
-                                  {row.staff.joining_date
-                                    ? formatDateOnly(row.staff.joining_date)
-                                    : "—"}
-                                  {" · "}
-                                  Terminated{" "}
-                                  {row.staff.termination_date
-                                    ? formatDateOnly(row.staff.termination_date)
-                                    : "—"}
-                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-medium text-[#3D421F]">
+                                    {row.staff.full_name}
+                                  </div>
+                                  <div
+                                    className="mt-0.5 text-xs text-black/45"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <StaffDirectoryLink
+                                      staffId={row.staff.id}
+                                      empNo={row.staff.emp_no}
+                                    />
+                                    {row.staff.position?.name
+                                      ? ` · ${row.staff.position.name}`
+                                      : ""}
+                                  </div>
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-black/45">
+                                    <StatusBadge
+                                      status={row.staff.employment_status?.name}
+                                    />
+                                    <span>
+                                      Joined{" "}
+                                      {row.staff.joining_date
+                                        ? formatDateOnly(row.staff.joining_date)
+                                        : "—"}
+                                      {" · "}
+                                      Terminated{" "}
+                                      {row.staff.termination_date
+                                        ? formatDateOnly(
+                                            row.staff.termination_date,
+                                          )
+                                        : "—"}
+                                    </span>
+                                  </div>
+                                </div>
                               </div>
                             </td>
                             {types.map((t) => {

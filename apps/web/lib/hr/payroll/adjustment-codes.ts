@@ -338,6 +338,23 @@ export const DEFAULT_PAYROLL_ADJUSTMENT_CODES: PayrollAdjustmentCodeConfig[] = [
     systemProtected: true,
   },
   {
+    code: "VISA_PROCESSING_FEES",
+    category: "deduction",
+    label: "Visa Processing Fees/ Employee Fines",
+    description:
+      "Fees/fines charged to the employee from visa run and process.",
+    applyBehavior: "separate_line",
+    behaviorExplanation:
+      "Separate deduction line linked to visa-run pending charges. Reason comes from the penalty Description/ Reason on the visa record.",
+    excludeFromPayslip: false,
+    allowAmountInput: true,
+    allowDaysInput: false,
+    allowPercentInput: false,
+    active: true,
+    sortOrder: 335,
+    systemProtected: true,
+  },
+  {
     code: "OTHER_DEDUCTION",
     category: "deduction",
     label: "Other deduction",

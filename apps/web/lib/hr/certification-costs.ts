@@ -14,6 +14,19 @@ export function splitGrossAtVatRate(
   return { net, vat, gross: g };
 }
 
+/** Reverse of splitGrossAtVatRate — enter net (ex-VAT), derive gross + VAT. */
+export function splitNetAtVatRate(
+  net: number,
+  rate = CERTIFICATION_VAT_RATE,
+): { net: number; vat: number; gross: number } {
+  const n =
+    Number.isFinite(net) && net > 0 ? Math.round(net * 100) / 100 : 0;
+  if (n <= 0) return { net: 0, vat: 0, gross: 0 };
+  const gross = Math.round(n * (1 + rate) * 100) / 100;
+  const vat = Math.round((gross - n) * 100) / 100;
+  return { net: n, vat, gross };
+}
+
 /** Fill missing net/VAT from gross (VAT-inclusive) when needed. */
 export function ensureCertificationCostBreakdown(input: {
   cost_value: number;
@@ -35,7 +48,7 @@ export function ensureCertificationCostBreakdown(input: {
     net = Math.round((gross - vat) * 100) / 100;
     if (net < 0) net = 0;
   } else if (gross <= 0 && net > 0) {
-    const split = splitGrossAtVatRate(Math.round(net * 1.05 * 100) / 100);
+    const split = splitNetAtVatRate(net);
     return {
       cost_value: split.gross,
       cost_net: split.net,

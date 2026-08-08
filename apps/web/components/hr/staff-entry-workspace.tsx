@@ -36,6 +36,7 @@ import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
 import { PayrollPaidDaysCalendarDialog } from "@/components/hr/payroll-paid-days-calendar-dialog";
 import { createStaff, updateStaff } from "@/lib/actions/hr";
 import { getStaffCurrentPayrollSchedule } from "@/lib/actions/hr-staff-payroll-schedule";
+import { resolveStaffEmployeeWorkDriveFolderLink } from "@/lib/actions/hr-workdrive";
 import { computeAge, computeWorkedTime, type SalaryPercentages } from "@/lib/hr/derived";
 import { shiftPayrollMonth } from "@/lib/hr/payroll/period";
 import type { PayrollDayFraction } from "@/lib/hr/payroll/types";
@@ -136,6 +137,7 @@ function StaffProfileHero({
             staffId={staffId}
             photoUrl={photoUrl}
             fullName={displayName}
+            empNo={empNo}
             emailFallback={value.work_email || value.personal_email}
             canEdit={canEdit}
             onPhotoUrlChange={onPhotoUrlChange}
@@ -158,7 +160,7 @@ function StaffProfileHero({
                   {nationality ? (
                     <span className="inline-flex items-center gap-1.5">
                       {nationality.flag ? (
-                        <span className="text-base leading-none" aria-hidden>
+                        <span className="text-xl leading-none" aria-hidden>
                           {nationality.flag}
                         </span>
                       ) : null}
@@ -240,6 +242,7 @@ export function StaffEntryWorkspace({
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [driveLoading, setDriveLoading] = useState(false);
   const scheduleRequestRef = useRef(0);
   const scheduleCacheRef = useRef(
     new Map<
@@ -427,6 +430,26 @@ export function StaffEntryWorkspace({
       terminationDate: value.termination_date || null,
       payrollMonth: null,
     });
+  }
+
+  async function openEmployeeDriveShortcut() {
+    if (!loadedStaffId || driveLoading) return;
+    setDriveLoading(true);
+    try {
+      const result = await resolveStaffEmployeeWorkDriveFolderLink({
+        staffId: loadedStaffId,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error("[staff-entry] drive shortcut failed:", err);
+      toast.error("Could not open employee drive — try again.");
+    } finally {
+      setDriveLoading(false);
+    }
   }
 
   function navigateScheduleMonth(direction: -1 | 1) {
@@ -664,6 +687,21 @@ export function StaffEntryWorkspace({
                       />
                       <span className="min-w-0 truncate">
                         {scheduleLoading ? "Loading…" : "Schedule"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={driveLoading}
+                      onClick={() => void openEmployeeDriveShortcut()}
+                      className={verticalSegmentedSubNavLinkClass(false)}
+                      title="Open employee folder in WorkDrive"
+                    >
+                      <FolderOpen
+                        className="h-3.5 w-3.5 shrink-0 opacity-80"
+                        aria-hidden
+                      />
+                      <span className="min-w-0 truncate">
+                        {driveLoading ? "Opening…" : "Drive"}
                       </span>
                     </button>
                   </div>

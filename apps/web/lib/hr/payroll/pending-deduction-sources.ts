@@ -27,8 +27,8 @@ export const PAYROLL_DEDUCTION_IMPORT_SOURCES = [
   {
     id: "visa_runs",
     label: "Visa runs",
-    description: "Visa / immigration cost recoveries",
-    available: false,
+    description: "Employee-charged visa penalties / fines",
+    available: true,
   },
 ] as const;
 

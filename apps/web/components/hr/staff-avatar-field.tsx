@@ -4,15 +4,25 @@ import Image from "next/image";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { Camera, ImagePlus, Loader2, Trash2, Upload, X } from "lucide-react";
+import {
+  Camera,
+  Crop,
+  ImagePlus,
+  Loader2,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { AvatarCropDialog } from "@/components/profile/avatar-crop-dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { saveStaffPhoto } from "@/lib/actions/hr";
+import { uploadStaffDocumentViaApi } from "@/lib/hr/workdrive/client-upload";
 import {
   STAFF_PHOTO_ACCEPT,
   STAFF_PHOTO_CROP_OUTPUT_PX,
   STAFF_PHOTO_MAX_UPLOAD_BYTES,
+  staffPhotoSourceUrlFromCropUrl,
 } from "@/lib/hr/staff-photo-constants";
 import {
   ensureBrowserDecodableImage,
@@ -25,6 +35,7 @@ type StaffAvatarFieldProps = {
   staffId: string | null;
   photoUrl: string | null;
   fullName: string | null;
+  empNo?: string | null;
   emailFallback?: string | null;
   canEdit: boolean;
   /** Called after a successful upload/clear so parents can sync local state. */
@@ -38,10 +49,23 @@ function isAcceptedImage(file: File) {
   return /\.(jpe?g|png|webp|gif|avif|heic|heif)$/i.test(file.name);
 }
 
+function extensionForOriginal(file: File): string {
+  const fromName = file.name.match(/(\.[a-z0-9]+)$/i)?.[1];
+  if (fromName) return fromName.toLowerCase();
+  const type = file.type.toLowerCase();
+  if (type.includes("jpeg") || type.includes("jpg")) return ".jpg";
+  if (type.includes("png")) return ".png";
+  if (type.includes("webp")) return ".webp";
+  if (type.includes("gif")) return ".gif";
+  if (type.includes("heic") || type.includes("heif")) return ".heic";
+  return ".jpg";
+}
+
 export function StaffAvatarField({
   staffId,
   photoUrl,
   fullName,
+  empNo,
   emailFallback,
   canEdit,
   onPhotoUrlChange,
@@ -53,6 +77,8 @@ export function StaffAvatarField({
   const [preview, setPreview] = useState(photoUrl);
   const [pickOpen, setPickOpen] = useState(false);
   const [cropFile, setCropFile] = useState<File | null>(null);
+  /** Uncropped file as picked — uploaded to WorkDrive (not the WebP crop). */
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -62,6 +88,7 @@ export function StaffAvatarField({
 
   const initials = getUserInitials(fullName, emailFallback ?? "?");
   const displayName = fullName?.trim() || "Employee";
+  const employeeNo = empNo?.trim() || "";
 
   useEffect(() => {
     setMounted(true);
@@ -91,7 +118,11 @@ export function StaffAvatarField({
     return () => window.removeEventListener("keydown", onKey);
   }, [pickOpen, busy]);
 
-  function persist(file: File | null, clear = false) {
+  function persist(
+    file: File | null,
+    clear = false,
+    workDriveOriginal: File | null = null,
+  ) {
     if (!staffId) {
       toast.error("Save the employee record first, then upload a photo.");
       return;
@@ -103,6 +134,10 @@ export function StaffAvatarField({
       formData.set("photo_clear", "1");
     } else if (file) {
       formData.set("photo", file);
+      // Full uncropped image — stored as *-source.webp for later re-crop.
+      if (workDriveOriginal) {
+        formData.set("photo_original", workDriveOriginal);
+      }
     }
 
     startTransition(async () => {
@@ -113,12 +148,50 @@ export function StaffAvatarField({
         return;
       }
       const next = result.photo_url ?? null;
-      toast.saved(
-        clear ? "Profile photo removed." : "Profile photo saved.",
-      );
       setPreview(next);
       onPhotoUrlChange?.(next);
       router.refresh();
+
+      if (clear) {
+        toast.saved("Profile photo removed.");
+        return;
+      }
+
+      if (workDriveOriginal && employeeNo && displayName) {
+        const ext = extensionForOriginal(workDriveOriginal);
+        const named = new File(
+          [workDriveOriginal],
+          `${employeeNo} - ${displayName}${ext}`,
+          {
+            type: workDriveOriginal.type || "application/octet-stream",
+            lastModified: workDriveOriginal.lastModified,
+          },
+        );
+        const wd = await uploadStaffDocumentViaApi({
+          staffId,
+          empNo: employeeNo,
+          fullName: displayName,
+          docKind: "profile_photo",
+          file: named,
+        });
+        if (!wd.ok) {
+          toast.error(
+            `Photo saved, but WorkDrive upload failed: ${wd.error}`,
+          );
+          return;
+        }
+        toast.saved(`Profile photo saved and uploaded to WorkDrive.`);
+        return;
+      }
+
+      if (workDriveOriginal && (!employeeNo || !displayName)) {
+        toast.saved(
+          "Profile photo saved. Add employee number and name to sync to WorkDrive.",
+        );
+        return;
+      }
+
+      toast.saved("Profile photo saved.");
     });
   }
 
@@ -134,6 +207,8 @@ export function StaffAvatarField({
     }
 
     void (async () => {
+      // Keep the as-picked file for WorkDrive; crop uses a decodable copy.
+      setOriginalFile(file);
       let next = file;
       if (isHeicLikeFile(file)) {
         setDecoding(true);
@@ -143,6 +218,7 @@ export function StaffAvatarField({
           toast.error(
             "Could not open this HEIC photo. Export it as JPEG or PNG from your phone, then try again.",
           );
+          setOriginalFile(null);
           return;
         } finally {
           setDecoding(false);
@@ -161,6 +237,66 @@ export function StaffAvatarField({
       return;
     }
     setPickOpen(true);
+  }
+
+  /** Re-open crop/zoom using the full source image when available. */
+  function openCropForCurrentPreview() {
+    if (!preview || busy) return;
+
+    void (async () => {
+      setDecoding(true);
+      try {
+        const sourceUrl = staffPhotoSourceUrlFromCropUrl(preview);
+        let blob: Blob | null = null;
+        let usedFullSource = false;
+
+        if (sourceUrl) {
+          const sourceRes = await fetch(sourceUrl);
+          if (sourceRes.ok) {
+            const sourceBlob = await sourceRes.blob();
+            if (sourceBlob.size > 0) {
+              blob = sourceBlob;
+              usedFullSource = true;
+            }
+          }
+        }
+
+        if (!blob) {
+          const res = await fetch(preview);
+          if (!res.ok) throw new Error("fetch failed");
+          blob = await res.blob();
+          if (!blob.size) throw new Error("empty");
+        }
+
+        const type = blob.type || "image/webp";
+        const ext =
+          type.includes("jpeg") || type.includes("jpg")
+            ? ".jpg"
+            : type.includes("png")
+              ? ".png"
+              : ".webp";
+        const file = new File(
+          [blob],
+          usedFullSource ? `photo-source${ext}` : `current-photo${ext}`,
+          { type },
+        );
+        // Re-crop from stored source — keep existing WorkDrive original.
+        setOriginalFile(null);
+        setPickOpen(false);
+        setCropFile(file);
+        setCropOpen(true);
+
+        if (!usedFullSource) {
+          toast.alert(
+            "Only the cropped photo is available. Upload a new image to enable full zoom and pan.",
+          );
+        }
+      } catch {
+        toast.error("Could not open this photo for cropping.");
+      } finally {
+        setDecoding(false);
+      }
+    })();
   }
 
   const thumb = (
@@ -252,7 +388,9 @@ export function StaffAvatarField({
                       Employee profile photo
                     </h2>
                     <p className="text-xs text-black/50">
-                      Upload or drop an image, then crop and zoom before saving.
+                      Click the photo to adjust crop and zoom from the full
+                      image, or upload a new one. New originals sync to
+                      WorkDrive automatically.
                     </p>
                   </div>
                   <button
@@ -268,12 +406,14 @@ export function StaffAvatarField({
 
                 <div className="flex flex-col gap-4 px-4 py-4 sm:px-5">
                   <div className="mx-auto">
-                    <div
-                      className={cn(
-                        "relative h-24 w-24 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10",
-                      )}
-                    >
-                      {preview ? (
+                    {preview ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={openCropForCurrentPreview}
+                        className="group relative h-[200px] w-[200px] overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10 outline-none transition focus-visible:ring-2 focus-visible:ring-[#3D421F]/40 focus-visible:ring-offset-2 disabled:opacity-60"
+                        aria-label="Adjust crop and position"
+                      >
                         <Image
                           src={preview}
                           alt={displayName}
@@ -281,12 +421,25 @@ export function StaffAvatarField({
                           className="object-cover"
                           unoptimized
                         />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-2xl font-medium text-white">
+                        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                          <Crop className="h-6 w-6 text-white" aria-hidden />
+                          <span className="text-xs font-semibold text-white">
+                            Adjust crop
+                          </span>
+                        </span>
+                        {decoding ? (
+                          <span className="absolute inset-0 flex items-center justify-center bg-black/35">
+                            <Loader2 className="h-6 w-6 animate-spin text-white" />
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : (
+                      <div className="relative flex h-[200px] w-[200px] items-center justify-center overflow-hidden rounded-full border-2 border-white bg-[#3D421F] shadow-md ring-1 ring-black/10">
+                        <span className="text-4xl font-medium text-white">
                           {initials}
-                        </div>
-                      )}
-                    </div>
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div
@@ -347,7 +500,7 @@ export function StaffAvatarField({
                     </Button>
                   </div>
 
-                  <div className="flex flex-wrap justify-between gap-2 border-t border-black/5 pt-1">
+                  <div className="flex flex-nowrap items-center justify-between gap-2 border-t border-black/5 pt-1">
                     {preview ? (
                       <Button
                         type="button"
@@ -358,7 +511,7 @@ export function StaffAvatarField({
                           setPickOpen(false);
                           persist(null, true);
                         }}
-                        className="text-black/55 hover:bg-black/5"
+                        className="shrink-0 whitespace-nowrap text-black/55 hover:bg-black/5"
                       >
                         <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                         Remove photo
@@ -372,7 +525,7 @@ export function StaffAvatarField({
                       variant="outline"
                       disabled={busy}
                       onClick={() => setPickOpen(false)}
-                      className="border-black/10 bg-white text-[#3D421F]"
+                      className="shrink-0 whitespace-nowrap border-black/10 bg-white text-[#3D421F]"
                     >
                       Cancel
                     </Button>
@@ -394,13 +547,16 @@ export function StaffAvatarField({
         onClose={() => {
           setCropOpen(false);
           setCropFile(null);
+          setOriginalFile(null);
         }}
         onConfirm={(cropped) => {
+          const original = originalFile;
           setCropOpen(false);
           setCropFile(null);
+          setOriginalFile(null);
           const objectUrl = URL.createObjectURL(cropped);
           setPreview(objectUrl);
-          persist(cropped);
+          persist(cropped, false, original);
         }}
       />
     </>

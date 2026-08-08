@@ -148,7 +148,7 @@ export function MultiSelect({
                 left: pos.left,
                 width: pos.width,
               }}
-              className="z-50 overflow-hidden rounded-md border border-black/10 bg-white shadow-lg"
+              className="z-[250] overflow-hidden rounded-md border border-black/10 bg-white shadow-lg"
             >
               <div className="relative border-b border-black/5 p-2">
                 <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-black/40" />

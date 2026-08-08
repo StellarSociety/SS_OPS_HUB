@@ -17,6 +17,8 @@ export function uploadStaffDocumentViaApi(input: {
   fullName: string;
   docKind: HrWorkDriveDocKind;
   fileSlotId?: string;
+  /** ISO `YYYY-MM-DD` used for `{doc_expiry}` in the WorkDrive file name. */
+  docExpiry?: string | null;
   file: File;
   onProgress?: (percent: number) => void;
 }): Promise<StaffDocumentUploadResult> {
@@ -26,6 +28,8 @@ export function uploadStaffDocumentViaApi(input: {
   fd.set("full_name", input.fullName);
   fd.set("doc_kind", input.docKind);
   if (input.fileSlotId) fd.set("file_slot_id", input.fileSlotId);
+  const docExpiry = String(input.docExpiry ?? "").trim();
+  if (docExpiry) fd.set("doc_expiry", docExpiry);
   fd.set("file", input.file, input.file.name);
 
   return new Promise((resolve) => {

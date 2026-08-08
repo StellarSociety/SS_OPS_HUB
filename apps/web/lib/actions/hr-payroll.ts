@@ -53,6 +53,7 @@ import {
   unapplyPendingPayrollDeductions,
   type PayrollDeductionImportSourceId,
 } from "@/lib/hr/payroll/pending-deductions";
+import { ensureVenueVisaRunPendingDeductions, migrateLegacyVisaRunDeductionIdentity } from "@/lib/hr/payroll/visa-run-pending-deductions";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 
@@ -239,6 +240,19 @@ export async function recalculatePayrollRun(
     const settings = await loadPayrollSettings(supabase, venue.id);
     const period = resolvePayrollPeriod(run.payroll_month, settings);
     const service = createServiceClient();
+    try {
+      await migrateLegacyVisaRunDeductionIdentity({
+        service,
+        venueId: venue.id,
+      });
+    } catch (migrateError) {
+      console.error(
+        "[payroll] visa run identity migrate:",
+        migrateError instanceof Error
+          ? migrateError.message
+          : migrateError,
+      );
+    }
     await persistCalculatedPayrollRun({
       service,
       venueId: venue.id,
@@ -2422,7 +2436,8 @@ export type PayrollBenefitImportType =
   | "tips"
   | "service_charge"
   | "compensation"
-  | "other";
+  | "other"
+  | "flight_ticket";
 
 export type PayrollBenefitImportRow = {
   allocationId: string;
@@ -2441,6 +2456,7 @@ export type PayrollBenefitImportRow = {
 const BENEFIT_TYPE_TO_KIND: Record<string, string> = {
   tips: "gratuity",
   service_charge: "service_charge",
+  flight_ticket: "flight_ticket",
 };
 
 function normalizeBenefitMonthDate(input: string): string {
@@ -3080,6 +3096,11 @@ export async function listDeductionsForPayrollImport(input: {
   }
 
   const service = createServiceClient();
+
+  // Do not block listing on a full visa-history sync — that can take many
+  // seconds for a large venue. Listing uses already-queued pending rows;
+  // call refreshVisaRunDeductionsForImport separately to resync.
+
   let data:
     | {
         id: string;
@@ -3254,6 +3275,37 @@ export async function listDeductionsForPayrollImport(input: {
   return { ok: true, rows };
 }
 
+/** Background-friendly: resync visa history → pending deductions for Import. */
+export async function refreshVisaRunDeductionsForImport(): Promise<
+  | { ok: true; staffSynced: number }
+  | { ok: false; error: string }
+> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { venue, permissions, user } = auth;
+
+  if (!canAccessPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+
+  try {
+    const result = await ensureVenueVisaRunPendingDeductions({
+      service: createServiceClient(),
+      venueId: venue.id,
+      userId: user.id,
+    });
+    return { ok: true, staffSynced: result.staffSynced };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to refresh visa deductions.",
+    };
+  }
+}
+
 /**
  * Apply selected pending deductions (optionally partial amounts) to this run.
  * Deselected rows that were on this run are returned to outstanding balance.
@@ -3366,6 +3418,7 @@ export async function importDeductionsToPayrollRun(input: {
   revalidatePath("/hr/payroll");
   revalidatePath(`/hr/payroll/${input.runId}`);
   revalidatePath("/hr/assets/uniform/employees");
+  revalidatePath("/hr/assets/visa", "layout");
   return { ok: true };
 }
 
@@ -3444,6 +3497,7 @@ export async function clearImportedDeductionsFromPayrollRun(input: {
   revalidatePath("/hr/payroll");
   revalidatePath(`/hr/payroll/${input.runId}`);
   revalidatePath("/hr/assets/uniform/employees");
+  revalidatePath("/hr/assets/visa", "layout");
   return { ok: true };
 }
 

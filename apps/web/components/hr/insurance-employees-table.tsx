@@ -2,16 +2,26 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
-  FileCheck2,
+  ChevronDown,
+  ChevronsUpDown,
+  ChevronUp,
   FileText,
+  FileWarning,
   Mail,
-  Pencil,
   Search,
+  UserRoundX,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { InsuranceCardCell } from "@/components/hr/insurance-card-cell";
 import { InsuranceEmployeeEditDialog } from "@/components/hr/insurance-employee-edit-dialog";
+import {
+  collectPendingInsuranceUploads,
+  InsurancePendingUploadsDialog,
+} from "@/components/hr/insurance-pending-uploads-dialog";
 import { InsuranceRequestEmailDialog } from "@/components/hr/insurance-request-email-dialog";
+import { InsuranceRequestSentEmailsDialog } from "@/components/hr/insurance-request-sent-emails-dialog";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +30,7 @@ import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import {
   compareEmploymentStatusNames,
   EMPLOYMENT_STATUS_NAMES,
+  isOffBoardEmploymentStatus,
   isOutEmploymentStatus,
   normalizeEmploymentStatusName,
 } from "@/lib/hr/employment-status";
@@ -43,6 +54,145 @@ type InsuranceEmployeesTableProps = {
   venueId: string;
   canManage?: boolean;
 };
+
+type SortKey =
+  | "employee"
+  | "category"
+  | "value"
+  | "issue"
+  | "expiry"
+  | "card"
+  | "status"
+  | "provider";
+
+type SortDir = "asc" | "desc";
+
+const STATUS_SORT_ORDER: Record<InsuranceStatus, number> = {
+  missing: 0,
+  expired: 1,
+  expiring: 2,
+  valid: 3,
+};
+
+function compareNullableString(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  const av = a?.trim() || "";
+  const bv = b?.trim() || "";
+  if (!av && bv) return 1;
+  if (av && !bv) return -1;
+  return av.localeCompare(bv);
+}
+
+function compareNullableNumber(
+  a: number | null | undefined,
+  b: number | null | undefined,
+): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a - b;
+}
+
+function compareNullableDate(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return a.localeCompare(b);
+}
+
+function compareDefaultWithinDepartment(
+  a: InsuranceEmployeeRow,
+  b: InsuranceEmployeeRow,
+): number {
+  const aPos = a.staff.position?.sort_order ?? Number.MAX_SAFE_INTEGER;
+  const bPos = b.staff.position?.sort_order ?? Number.MAX_SAFE_INTEGER;
+  if (aPos !== bPos) return aPos - bPos;
+  const byPos = compareNullableString(
+    a.staff.position?.name,
+    b.staff.position?.name,
+  );
+  if (byPos !== 0) return byPos;
+  return a.staff.full_name.localeCompare(b.staff.full_name);
+}
+
+function compareBySortKey(
+  a: InsuranceEmployeeRow,
+  b: InsuranceEmployeeRow,
+  sortKey: SortKey,
+): number {
+  switch (sortKey) {
+    case "employee":
+      return a.staff.full_name.localeCompare(b.staff.full_name);
+    case "category":
+      return compareNullableString(
+        a.category ?? a.suggestedCategoryName,
+        b.category ?? b.suggestedCategoryName,
+      );
+    case "value":
+      return compareNullableNumber(a.value, b.value);
+    case "issue":
+      return compareNullableDate(a.issueDate, b.issueDate);
+    case "expiry":
+      return compareNullableDate(a.expiryDate, b.expiryDate);
+    case "card":
+      return Number(a.hasDocument) - Number(b.hasDocument);
+    case "status":
+      return STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status];
+    case "provider":
+      return compareNullableString(a.providerName, b.providerName);
+  }
+}
+
+function SortLabel({
+  label,
+  sortKey,
+  activeKey,
+  sortDir,
+  onSort,
+  className,
+  align = "start",
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeKey: SortKey | null;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+  className?: string;
+  align?: "start" | "center";
+}) {
+  const active = activeKey === sortKey;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSort(sortKey);
+      }}
+      className={cn(
+        "inline-flex items-center gap-1 whitespace-nowrap transition-colors hover:text-[#3D421F]",
+        align === "center" && "justify-center",
+        className,
+      )}
+      aria-label={`Sort by ${label}`}
+    >
+      <span>{label}</span>
+      {active ? (
+        sortDir === "asc" ? (
+          <ChevronUp className="h-3.5 w-3.5 shrink-0 text-[var(--venue-primary,#818a40)]" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--venue-primary,#818a40)]" />
+        )
+      ) : (
+        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-black/25" />
+      )}
+    </button>
+  );
+}
 
 const selectClass =
   "h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20";
@@ -94,13 +244,13 @@ function statusLabel(status: InsuranceStatus): string {
 function statusClass(status: InsuranceStatus): string {
   switch (status) {
     case "valid":
-      return "text-emerald-800";
+      return "border-emerald-200 bg-emerald-100 text-emerald-800";
     case "expiring":
-      return "text-amber-800";
+      return "border-amber-200 bg-amber-100 text-amber-800";
     case "expired":
-      return "text-red-700";
+      return "border-red-200 bg-red-100 text-red-800";
     default:
-      return "text-black/45";
+      return "border-black/10 bg-black/5 text-black/55";
   }
 }
 
@@ -149,12 +299,28 @@ export function InsuranceEmployeesTable({
   const [emailDialogStep, setEmailDialogStep] = useState<
     "compose" | "drafts-list"
   >("compose");
+  const [sentOpen, setSentOpen] = useState(false);
   const [savedDraftCount, setSavedDraftCount] = useState(0);
+  const [pendingOpen, setPendingOpen] = useState(false);
+  const [uploadedPendingKeys, setUploadedPendingKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [editRow, setEditRow] = useState<InsuranceEmployeeRow | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   useEffect(() => {
     setSavedDraftCount(countInsuranceRequestDraftUnits(venueId));
   }, [venueId, emailOpen]);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDir("asc");
+  }
 
   function refreshDraftCount() {
     setSavedDraftCount(countInsuranceRequestDraftUnits(venueId));
@@ -238,16 +404,13 @@ export function InsuranceEmployeesTable({
       a: InsuranceEmployeeRow,
       b: InsuranceEmployeeRow,
     ): number {
-      const aPos = a.staff.position?.sort_order ?? Number.MAX_SAFE_INTEGER;
-      const bPos = b.staff.position?.sort_order ?? Number.MAX_SAFE_INTEGER;
-      if (aPos !== bPos) return aPos - bPos;
-      const aPosName = a.staff.position?.name?.trim() ?? "";
-      const bPosName = b.staff.position?.name?.trim() ?? "";
-      if (!aPosName && bPosName) return 1;
-      if (aPosName && !bPosName) return -1;
-      const byPos = aPosName.localeCompare(bPosName);
-      if (byPos !== 0) return byPos;
-      return a.staff.full_name.localeCompare(b.staff.full_name);
+      if (sortKey) {
+        const dir = sortDir === "asc" ? 1 : -1;
+        const byKey = compareBySortKey(a, b, sortKey);
+        if (byKey !== 0) return byKey * dir;
+        return compareDefaultWithinDepartment(a, b);
+      }
+      return compareDefaultWithinDepartment(a, b);
     }
 
     return [...byDept.values()]
@@ -263,7 +426,7 @@ export function InsuranceEmployeesTable({
         if (ao !== bo) return ao - bo;
         return a.name.localeCompare(b.name);
       });
-  }, [filtered, departments]);
+  }, [filtered, departments, sortKey, sortDir]);
 
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((r) => selectedIds.has(r.staff.id));
@@ -306,15 +469,22 @@ export function InsuranceEmployeesTable({
   );
 
   const missingCount = missingAttentionTargets.length;
-  const coveredCount = useMemo(
+
+  const pendingUploads = useMemo(() => {
+    const all = collectPendingInsuranceUploads(rows);
+    if (uploadedPendingKeys.size === 0) return all;
+    return all.filter((item) => !uploadedPendingKeys.has(item.key));
+  }, [rows, uploadedPendingKeys]);
+
+  /** Badge excludes OUT / OFF Boarding; popup still lists everyone. */
+  const pendingCount = useMemo(
     () =>
-      rows.filter(
-        (r) =>
-          r.status === "valid" ||
-          r.status === "expiring" ||
-          r.status === "expired",
+      pendingUploads.filter(
+        (item) =>
+          !isOutEmploymentStatus(item.employmentStatusName) &&
+          !isOffBoardEmploymentStatus(item.employmentStatusName),
       ).length,
-    [rows],
+    [pendingUploads],
   );
 
   function applyMissingAttention() {
@@ -341,13 +511,23 @@ export function InsuranceEmployeesTable({
     );
   }
 
-  function toggleStatusChip(status: InsuranceStatus) {
-    setStatusFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(status)) next.delete(status);
-      else next.add(status);
-      return next;
-    });
+  const statusFilterLabels = useMemo(
+    () =>
+      STATUS_FILTER_OPTIONS.filter((status) => statusFilter.has(status)).map(
+        statusLabel,
+      ),
+    [statusFilter],
+  );
+
+  function setStatusFilterFromLabels(labels: string[]) {
+    const next = new Set<InsuranceStatus>();
+    for (const label of labels) {
+      const match = STATUS_FILTER_OPTIONS.find(
+        (status) => statusLabel(status) === label,
+      );
+      if (match) next.add(match);
+    }
+    setStatusFilter(next);
   }
 
   const categoryNames = useMemo(() => {
@@ -413,6 +593,14 @@ export function InsuranceEmployeesTable({
             placeholder="All statuses"
             searchPlaceholder="Search statuses…"
           />
+          <MultiSelect
+            className={statusControlClass}
+            options={STATUS_FILTER_OPTIONS.map(statusLabel)}
+            selected={statusFilterLabels}
+            onChange={setStatusFilterFromLabels}
+            placeholder="All coverage"
+            searchPlaceholder="Search coverage…"
+          />
           {canManage ? (
             <label
               className={cn(
@@ -436,42 +624,77 @@ export function InsuranceEmployeesTable({
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="flex flex-wrap gap-1">
-            {STATUS_FILTER_OPTIONS.map((status) => {
-              const active = statusFilter.has(status);
-              return (
-                <button
-                  key={status}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => toggleStatusChip(status)}
-                  className={cn(
-                    "rounded-md px-2 py-1 text-[11px] font-medium transition",
-                    active
-                      ? "bg-[var(--venue-primary,#818a40)] text-white"
-                      : "bg-black/[0.04] text-black/45 hover:bg-black/[0.08] hover:text-[#3D421F]",
-                  )}
-                >
-                  {statusLabel(status)}
-                </button>
-              );
-            })}
-          </div>
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => setPendingOpen(true)}
+              className={cn(
+                "inline-flex h-10 items-center gap-2 rounded-md border bg-white px-3.5 text-sm font-medium text-[#3D421F] shadow-sm transition",
+                pendingCount > 0
+                  ? "border-red-200 hover:border-red-300 hover:bg-red-50/60"
+                  : "border-black/10 hover:bg-black/[0.03]",
+              )}
+            >
+              <FileWarning
+                className={cn(
+                  "h-4 w-4",
+                  pendingCount > 0 ? "text-red-600" : "text-black/40",
+                )}
+                aria-hidden
+              />
+              <span>Cards</span>
+              <span
+                className={cn(
+                  "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
+                  pendingCount > 0
+                    ? "bg-red-600 text-white"
+                    : "bg-black/5 text-black/40",
+                )}
+                aria-label={`${pendingCount} insurance cards pending upload`}
+              >
+                {pendingCount}
+              </span>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={applyMissingAttention}
+            aria-pressed={missingAttentionFilter}
             className={cn(
-              "rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-wide transition",
+              "inline-flex h-10 items-center gap-2 rounded-md border px-3.5 text-sm font-medium shadow-sm transition",
               missingAttentionFilter
-                ? "border-amber-500/40 bg-amber-50 text-amber-900"
-                : "border-black/10 bg-white text-[#3D421F] hover:bg-black/[0.02]",
+                ? "border-[var(--venue-primary,#818a40)] bg-[var(--venue-primary,#818a40)] text-white hover:opacity-90"
+                : missingCount > 0
+                  ? "border-amber-200 bg-white text-[#3D421F] hover:border-amber-300 hover:bg-amber-50/60"
+                  : "border-black/10 bg-white text-[#3D421F] hover:bg-black/[0.03]",
             )}
           >
-            Missing {missingCount}
+            <UserRoundX
+              className={cn(
+                "h-4 w-4",
+                missingAttentionFilter
+                  ? "text-white"
+                  : missingCount > 0
+                    ? "text-amber-700"
+                    : "text-black/40",
+              )}
+              aria-hidden
+            />
+            <span>Missing</span>
+            <span
+              className={cn(
+                "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
+                missingAttentionFilter
+                  ? "bg-white/20 text-white"
+                  : missingCount > 0
+                    ? "bg-amber-600 text-white"
+                    : "bg-black/5 text-black/40",
+              )}
+              aria-label={`${missingCount} employees missing or expiring insurance`}
+            >
+              {missingCount}
+            </span>
           </button>
-          <span className="text-xs text-black/40">
-            Covered {coveredCount}
-          </span>
           {canManage ? (
             <>
               <button
@@ -481,17 +704,11 @@ export function InsuranceEmployeesTable({
                   setEmailOpen(true);
                 }}
                 className={cn(
-                  "inline-flex h-9 items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium text-[#3D421F] shadow-sm transition",
-                  savedDraftCount > 0
-                    ? "border-black/15 hover:bg-black/[0.03]"
-                    : "border-black/10 hover:bg-black/[0.03]",
+                  "inline-flex h-9 items-center gap-2 rounded-md border border-amber-300/70 bg-amber-100 px-3 text-sm font-medium text-amber-950 shadow-sm transition hover:bg-amber-200/80",
                 )}
               >
                 <FileText
-                  className={cn(
-                    "h-4 w-4",
-                    savedDraftCount > 0 ? "text-[#3D421F]" : "text-black/40",
-                  )}
+                  className="h-4 w-4 text-amber-800"
                   aria-hidden
                 />
                 <span>Drafts</span>
@@ -499,8 +716,8 @@ export function InsuranceEmployeesTable({
                   className={cn(
                     "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
                     savedDraftCount > 0
-                      ? "bg-[var(--venue-primary,#818a40)] text-white"
-                      : "bg-black/5 text-black/40",
+                      ? "bg-amber-700 text-white"
+                      : "bg-amber-200/80 text-amber-800/70",
                   )}
                   aria-label={`${savedDraftCount} saved insurance draft emails`}
                 >
@@ -520,6 +737,17 @@ export function InsuranceEmployeesTable({
                 Email request
                 {selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
               </Button>
+              <button
+                type="button"
+                onClick={() => setSentOpen(true)}
+                className={cn(
+                  "inline-flex h-9 items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium text-[#3D421F] shadow-sm transition",
+                  "border-black/10 hover:bg-black/[0.03]",
+                )}
+              >
+                <Mail className="h-4 w-4 text-black/40" aria-hidden />
+                Sent
+              </button>
             </>
           ) : null}
         </div>
@@ -549,17 +777,81 @@ export function InsuranceEmployeesTable({
                     </th>
                   ) : null}
                   <th className="min-w-[16rem] px-4 py-3 font-medium">
-                    Employee
+                    <SortLabel
+                      label="Employee"
+                      sortKey="employee"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    />
                   </th>
-                  <th className="px-4 py-3 font-medium">Category</th>
-                  <th className="px-4 py-3 font-medium">Value</th>
-                  <th className="px-4 py-3 font-medium">Issue</th>
-                  <th className="px-4 py-3 font-medium">Expiry</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Provider</th>
-                  {canManage ? (
-                    <th className="px-4 py-3 text-right font-medium">Actions</th>
-                  ) : null}
+                  <th className="px-4 py-3 font-medium">
+                    <SortLabel
+                      label="Category"
+                      sortKey="category"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    />
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    <SortLabel
+                      label="Value"
+                      sortKey="value"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    />
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    <SortLabel
+                      label="Issue"
+                      sortKey="issue"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    />
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    <SortLabel
+                      label="Expiry"
+                      sortKey="expiry"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    />
+                  </th>
+                  <th className="px-3 py-3 text-center font-medium">
+                    <SortLabel
+                      label="Card"
+                      sortKey="card"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                      align="center"
+                      className="w-full justify-center"
+                    />
+                  </th>
+                  <th className="px-4 py-3 text-center font-medium">
+                    <SortLabel
+                      label="Status"
+                      sortKey="status"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                      align="center"
+                      className="w-full justify-center"
+                    />
+                  </th>
+                  <th className="px-4 py-3 font-medium">
+                    <SortLabel
+                      label="Provider"
+                      sortKey="provider"
+                      activeKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggleSort}
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -567,7 +859,7 @@ export function InsuranceEmployeesTable({
                   <Fragment key={group.id}>
                     <tr className="bg-[var(--venue-secondary,#F0F3DD)]/40">
                       <td
-                        colSpan={canManage ? 9 : 7}
+                        colSpan={canManage ? 9 : 8}
                         className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#3D421F]"
                       >
                         {group.name}
@@ -582,13 +874,34 @@ export function InsuranceEmployeesTable({
                       return (
                         <tr
                           key={row.staff.id}
+                          role={canManage ? "button" : undefined}
+                          tabIndex={canManage ? 0 : undefined}
+                          onClick={
+                            canManage ? () => setEditRow(row) : undefined
+                          }
+                          onKeyDown={
+                            canManage
+                              ? (e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    setEditRow(row);
+                                  }
+                                }
+                              : undefined
+                          }
                           className={cn(
                             "border-b border-black/5 last:border-0",
-                            selectedIds.has(row.staff.id) && "bg-[var(--venue-primary,#818a40)]/[0.04]",
+                            canManage &&
+                              "cursor-pointer transition-colors hover:bg-[var(--venue-secondary,#F0F3DD)]/40",
+                            selectedIds.has(row.staff.id) &&
+                              "bg-[var(--venue-primary,#818a40)]/[0.04]",
                           )}
                         >
                           {canManage ? (
-                            <td className="px-3 py-3 align-middle">
+                            <td
+                              className="px-3 py-3 align-middle"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <input
                                 type="checkbox"
                                 className="h-4 w-4 rounded border-black/20"
@@ -599,33 +912,39 @@ export function InsuranceEmployeesTable({
                             </td>
                           ) : null}
                           <td className="px-4 py-3 align-middle">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-[#3D421F]">
-                                {row.staff.full_name}
-                              </span>
-                              {row.hasDocument ? (
-                                <FileCheck2
-                                  className="h-3.5 w-3.5 shrink-0 text-emerald-700"
-                                  aria-label="Insurance document uploaded"
-                                />
-                              ) : null}
-                            </div>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-x-1 text-xs text-black/45">
-                              <StaffDirectoryLink
-                                staffId={row.staff.id}
-                                empNo={row.staff.emp_no}
+                            <div className="flex items-stretch gap-3">
+                              <StaffPhotoThumbnail
+                                fullName={row.staff.full_name}
+                                photoUrl={row.staff.photo_url}
+                                size="fill"
                               />
-                              {row.staff.position?.name
-                                ? ` · ${row.staff.position.name}`
-                                : null}
-                            </div>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                              <StatusBadge
-                                status={row.staff.employment_status?.name}
-                              />
-                              {row.staff.visa_status ? (
-                                <StatusBadge status={row.staff.visa_status} />
-                              ) : null}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-[#3D421F]">
+                                    {row.staff.full_name}
+                                  </span>
+                                </div>
+                                <div
+                                  className="mt-0.5 flex flex-wrap items-center gap-x-1 text-xs text-black/45"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <StaffDirectoryLink
+                                    staffId={row.staff.id}
+                                    empNo={row.staff.emp_no}
+                                  />
+                                  {row.staff.position?.name
+                                    ? ` · ${row.staff.position.name}`
+                                    : null}
+                                </div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                                  <StatusBadge
+                                    status={row.staff.employment_status?.name}
+                                  />
+                                  {row.staff.visa_status ? (
+                                    <StatusBadge status={row.staff.visa_status} />
+                                  ) : null}
+                                </div>
+                              </div>
                             </div>
                           </td>
                           <td className="px-4 py-3 align-middle text-[#3D421F]">
@@ -655,10 +974,20 @@ export function InsuranceEmployeesTable({
                               ? formatDateOnly(row.expiryDate)
                               : "—"}
                           </td>
-                          <td className="px-4 py-3 align-middle">
+                          <td
+                            className="px-3 py-3 align-middle text-center"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <InsuranceCardCell
+                              row={row}
+                              canManage={canManage}
+                              onUploaded={() => router.refresh()}
+                            />
+                          </td>
+                          <td className="px-4 py-3 align-middle text-center">
                             <span
                               className={cn(
-                                "text-xs font-medium",
+                                "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium",
                                 statusClass(row.status),
                               )}
                             >
@@ -668,21 +997,6 @@ export function InsuranceEmployeesTable({
                           <td className="px-4 py-3 align-middle text-[#3D421F]">
                             {row.providerName || "—"}
                           </td>
-                          {canManage ? (
-                            <td className="px-4 py-3 align-middle">
-                              <div className="flex justify-end">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setEditRow(row)}
-                                  aria-label={`Edit insurance for ${row.staff.full_name}`}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          ) : null}
                         </tr>
                       );
                     })}
@@ -704,6 +1018,18 @@ export function InsuranceEmployeesTable({
         onSaved={() => router.refresh()}
       />
 
+      {pendingOpen ? (
+        <InsurancePendingUploadsDialog
+          open={pendingOpen}
+          onOpenChange={setPendingOpen}
+          items={pendingUploads}
+          canManage={canManage}
+          onUploaded={(itemKey) => {
+            setUploadedPendingKeys((prev) => new Set(prev).add(itemKey));
+          }}
+        />
+      ) : null}
+
       <InsuranceRequestEmailDialog
         open={emailOpen}
         onOpenChange={setEmailOpen}
@@ -717,6 +1043,11 @@ export function InsuranceEmployeesTable({
           refreshDraftCount();
           router.refresh();
         }}
+      />
+
+      <InsuranceRequestSentEmailsDialog
+        open={sentOpen}
+        onOpenChange={setSentOpen}
       />
     </div>
   );

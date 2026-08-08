@@ -164,6 +164,9 @@ function benefitLineLabel(
   if (benefitType === "compensation") {
     return monthName ? `Compensations (${monthName})` : "Compensations";
   }
+  if (benefitType === "flight_ticket") {
+    return monthName ? `Flight ticket (${monthName})` : "Flight ticket";
+  }
   return monthName ? `Other benefit (${monthName})` : "Other benefit";
 }
 
@@ -666,7 +669,9 @@ export function calculateVenuePayroll(input: {
             ? "SERVICE_CHARGE"
             : b.benefit_type === "compensation"
               ? "COMPENSATION"
-              : "BENEFIT_OTHER";
+              : b.benefit_type === "flight_ticket"
+                ? "FLIGHT_TICKET"
+                : "BENEFIT_OTHER";
       const monthKey = benefitMonthKey(b);
       lines.push({
         category: "variable",

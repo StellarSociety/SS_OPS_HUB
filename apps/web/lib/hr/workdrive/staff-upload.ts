@@ -1,16 +1,32 @@
 import "server-only";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { writeAuditLog } from "@/lib/audit";
 import type { ActionAuthContext } from "@/lib/auth/action-context";
-import { WorkDriveApiError } from "@/lib/hr/workdrive/client";
-import { persistStaffWorkDriveDocument } from "@/lib/hr/workdrive/documents";
+import { loadStaffInsuranceHistory } from "@/lib/hr/insurance-store";
+import { canEditAssets, canEditStaff } from "@/lib/hr/permissions";
+import { loadStaffVisaHistory } from "@/lib/hr/visa-store";
+import {
+  credentialsFromSettings,
+  ensureAccessToken,
+  renameFile,
+  WorkDriveApiError,
+} from "@/lib/hr/workdrive/client";
+import {
+  persistStaffWorkDriveDocument,
+  updateStaffWorkDriveDocumentFileName,
+} from "@/lib/hr/workdrive/documents";
 import { loadWorkDriveSettings } from "@/lib/hr/workdrive/settings";
 import {
   docExpiryFieldForKind,
+  injectDocExpiryIntoFileName,
   uploadStaffDocumentToWorkDrive,
 } from "@/lib/hr/workdrive/upload";
-import { canEditAssets, canEditStaff } from "@/lib/hr/permissions";
-import { HR_MODULE_KEY, type HrWorkDriveDocKind } from "@/lib/hr/types";
+import {
+  HR_MODULE_KEY,
+  type HrWorkDriveDocKind,
+  type StaffLinkedWorkDriveDocument,
+} from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 import { z } from "zod";
 
@@ -25,6 +41,7 @@ export const staffWorkDriveDocKindSchema = z.enum([
   "eresidence_card",
   "ohc",
   "medical_insurance",
+  "visa_noc",
   "training_certificates",
   "others",
 ]);
@@ -39,6 +56,8 @@ export type StaffWorkDriveUploadInput = {
   bytes: Buffer;
   originalFileName: string;
   contentType: string;
+  /** Replace a same-named file in WorkDrive when true. */
+  overrideNameExist?: boolean;
 };
 
 export type StaffWorkDriveUploadResult =
@@ -50,6 +69,40 @@ export type StaffWorkDriveUploadResult =
       fileName: string;
     }
   | { ok: false; error: string; status?: number };
+
+function isoDateOrNull(raw: unknown): string | null {
+  const value = String(raw ?? "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+async function resolveExpiryFromLinkedRecord(
+  supabase: SupabaseClient,
+  venueId: string,
+  staffId: string,
+  docKind: HrWorkDriveDocKind,
+  fileSlotId: string | undefined,
+): Promise<string | null> {
+  const slot = String(fileSlotId ?? "").trim();
+  if (!slot || slot === "default") return null;
+
+  if (docKind === "eresidence_card" || docKind === "visa_noc") {
+    const records = await loadStaffVisaHistory(supabase, venueId, staffId);
+    const match = records.find((record) => record.id === slot);
+    return match?.expiryDate ?? match?.cancelDate ?? null;
+  }
+
+  if (docKind === "medical_insurance") {
+    const records = await loadStaffInsuranceHistory(
+      supabase,
+      venueId,
+      staffId,
+    );
+    const match = records.find((record) => record.id === slot);
+    return match?.expiryDate ?? null;
+  }
+
+  return null;
+}
 
 /**
  * Shared WorkDrive staff-document upload used by the API route (preferred)
@@ -63,7 +116,10 @@ export async function performStaffWorkDriveUpload(
   try {
     const { user, venue, permissions, supabase } = auth;
 
-    if (!canEditStaff(permissions, venue.id) && !canEditAssets(permissions, venue.id)) {
+    if (
+      !canEditStaff(permissions, venue.id) &&
+      !canEditAssets(permissions, venue.id)
+    ) {
       return {
         ok: false,
         error: "No permission to upload staff documents.",
@@ -121,12 +177,22 @@ export async function performStaffWorkDriveUpload(
     const expiryField = docExpiryFieldForKind(docKind, fileSlotId);
     const docExpiryFromStaff =
       expiryField && staffRow
-        ? ((staffRow as Record<string, unknown>)[expiryField] as
-            | string
-            | null
-            | undefined)
+        ? isoDateOrNull((staffRow as Record<string, unknown>)[expiryField])
         : null;
-    const docExpiryOverride = String(input.docExpiry ?? "").trim();
+    const docExpiryFromVisaStaff =
+      docKind === "eresidence_card" && staffRow
+        ? isoDateOrNull(
+            (staffRow as { visa_expiry?: string | null }).visa_expiry,
+          )
+        : null;
+    const docExpiryOverride = isoDateOrNull(input.docExpiry);
+    const docExpiryFromRecord = await resolveExpiryFromLinkedRecord(
+      supabase,
+      venue.id,
+      staffId,
+      docKind,
+      fileSlotId,
+    );
 
     const result = await uploadStaffDocumentToWorkDrive({
       venueId: venue.id,
@@ -143,11 +209,16 @@ export async function performStaffWorkDriveUpload(
         ).trim() || undefined,
       docKind,
       fileSlotId,
-      docExpiry: docExpiryOverride || docExpiryFromStaff || null,
+      docExpiry:
+        docExpiryOverride ||
+        docExpiryFromRecord ||
+        docExpiryFromStaff ||
+        docExpiryFromVisaStaff ||
+        null,
       bytes: input.bytes,
       originalFileName: input.originalFileName,
       contentType: input.contentType || "application/octet-stream",
-      overrideNameExist: false,
+      overrideNameExist: input.overrideNameExist === true,
     });
 
     try {
@@ -215,7 +286,52 @@ export async function performStaffWorkDriveUpload(
           : error instanceof Error
             ? error.message
             : "Upload failed.",
-      status: 500,
+      status: error instanceof WorkDriveApiError ? error.status : 500,
     };
+  }
+}
+
+/**
+ * When a linked WorkDrive file was saved with an empty `[exp.- ]` placeholder,
+ * rename it using the reference expiry and update stored metadata.
+ */
+export async function repairLinkedWorkDriveDocExpiryName(input: {
+  venueId: string;
+  doc: StaffLinkedWorkDriveDocument;
+  expiryDate: string | null | undefined;
+}): Promise<StaffLinkedWorkDriveDocument> {
+  const expiryDate = isoDateOrNull(input.expiryDate);
+  const nextName = injectDocExpiryIntoFileName(input.doc.fileName, expiryDate);
+  if (!nextName || !expiryDate) return input.doc;
+
+  try {
+    const supabase = createServiceClient();
+    const settings = await loadWorkDriveSettings(supabase, input.venueId);
+    if (!settings.enabled) return input.doc;
+
+    const credentials = credentialsFromSettings(settings);
+    const { accessToken, apiDomain } = await ensureAccessToken(
+      input.venueId,
+      credentials,
+    );
+    await renameFile(
+      apiDomain,
+      accessToken,
+      input.doc.workdriveFileId,
+      nextName,
+    );
+    await updateStaffWorkDriveDocumentFileName(
+      supabase,
+      input.venueId,
+      input.doc.id,
+      nextName,
+    );
+    return { ...input.doc, fileName: nextName };
+  } catch (error) {
+    console.error(
+      "[workdrive] repairLinkedWorkDriveDocExpiryName:",
+      error instanceof Error ? error.message : error,
+    );
+    return input.doc;
   }
 }

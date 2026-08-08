@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Users } from "lucide-react";
+import { Building2, Receipt, Users } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
@@ -16,6 +16,11 @@ const TABS = [
     href: "/hr/assets/insurance/details",
     label: "Provider",
     icon: Building2,
+  },
+  {
+    href: "/hr/assets/insurance/expenses",
+    label: "Expenses",
+    icon: Receipt,
   },
 ] as const;
 

@@ -9,7 +9,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, ChevronsUpDown, Search, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  FileDown,
+  Search,
+  X,
+} from "lucide-react";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +40,7 @@ import {
   type GratuityDisciplinaryDeduction,
   type WaiterCcTipOutMode,
 } from "@/lib/hr/benefits";
+import { exportBenefitRunPdf } from "@/lib/hr/benefit-run-export";
 import { cn } from "@/lib/utils";
 import {
   segmentedSubNavLinkClass,
@@ -190,7 +198,7 @@ function PolicyDisclosure({
         />
       </button>
       {open ? (
-        <div className="mt-2 max-w-3xl space-y-2 text-sm leading-relaxed text-black/55">
+        <div className="mt-2 space-y-2 text-sm leading-relaxed text-black/55">
           {children}
         </div>
       ) : null}
@@ -574,6 +582,9 @@ export function BenefitRunClient({
   departmentAllocationMode = "fixed_percent",
   asphKpiThreshold = null,
   forecastAsphKpiThreshold = null,
+  venueName = "Venue",
+  venueLogoUrl = null,
+  userDisplayName = "Unknown",
 }: {
   kind: BenefitKind;
   run: {
@@ -605,9 +616,13 @@ export function BenefitRunClient({
   asphKpiThreshold?: number | null;
   /** Sales Forecast venue ASPH target for the benefit month. */
   forecastAsphKpiThreshold?: number | null;
+  venueName?: string;
+  venueLogoUrl?: string | null;
+  userDisplayName?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [search, setSearch] = useState("");
@@ -1504,6 +1519,58 @@ export function BenefitRunClient({
               {pending ? "Saving…" : "Save"}
             </Button>
           ) : null}
+          <Button
+            type="button"
+            size="sm"
+            disabled={exportingPdf || pending}
+            className="border border-emerald-800/20 bg-emerald-700 text-white hover:bg-emerald-800 hover:opacity-100"
+            onClick={() => {
+              setError(null);
+              setExportingPdf(true);
+              void (async () => {
+                try {
+                  await exportBenefitRunPdf({
+                    kind,
+                    venueName,
+                    venueLogoUrl,
+                    benefitMonth: run.benefit_month,
+                    periodStart: run.period_start,
+                    periodEnd: run.period_end,
+                    distributionDate: run.distribution_date,
+                    statusLabel: status,
+                    payoutMode,
+                    summaryCards: summaryCards.map((card) => ({
+                      label: card.label,
+                      value: card.value,
+                    })),
+                    rows: poolAllocationRows.map((row) => ({
+                      empNo: row.emp_no ?? "",
+                      fullName: row.full_name ?? "",
+                      position: row.position_name ?? "",
+                      department: departmentLabelOf(row, departmentOrder),
+                      points: row.points,
+                      workedDays: row.worked_days,
+                      deductionPercent: deductionPctOf(row),
+                      retain: Number(row.amount) || 0,
+                    })),
+                    exportedAt: new Date(),
+                    userDisplayName,
+                  });
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? err.message
+                      : "PDF export failed.",
+                  );
+                } finally {
+                  setExportingPdf(false);
+                }
+              })();
+            }}
+          >
+            <FileDown className="h-4 w-4" aria-hidden />
+            {exportingPdf ? "Exporting…" : "PDF"}
+          </Button>
           {canFinalize ? (
             <Button
               type="button"

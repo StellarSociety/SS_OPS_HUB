@@ -12,6 +12,7 @@ import {
   clearAccessTokenCache,
   ensureAccessToken,
   exchangeAuthorizationCode,
+  findChildByName,
   fingerprintCredential,
   getMetadata,
   renameFile,
@@ -25,6 +26,7 @@ import {
   deleteStaffWorkDriveDocumentMeta,
   getStaffWorkDriveDocumentById,
   listStaffWorkDriveDocuments,
+  reconcileStaffWorkDriveDocumentsPresence,
 } from "@/lib/hr/workdrive/documents";
 import {
   emptyWorkDriveConnection,
@@ -35,8 +37,10 @@ import {
   loadWorkDriveStore,
   workDriveFolderWebUrl,
 } from "@/lib/hr/workdrive/settings";
+import { ZOHO_WD_VERIFIED } from "@/lib/hr/workdrive/constants";
 import { readWorkDriveEnvCredentials } from "@/lib/hr/workdrive/env";
 import { performStaffWorkDriveUpload } from "@/lib/hr/workdrive/staff-upload";
+import { renderWorkDriveTemplate } from "@/lib/hr/workdrive/upload";
 import {
   canAccessAssets,
   canAdminLookups,
@@ -63,6 +67,13 @@ import {
 } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
+function sanitizeWorkDriveFileName(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const regionSchema = z.enum([
   "com",
   "eu",
@@ -85,6 +96,7 @@ const docKindSchema = z.enum([
   "eresidence_card",
   "ohc",
   "medical_insurance",
+  "visa_noc",
   "training_certificates",
   "others",
 ]);
@@ -1296,7 +1308,27 @@ export type StaffWorkDriveDocumentListItem = {
   folderId: string | null;
   fileSlotId: string | null;
   uploadedAt: string;
+  /** True when Zoho reports the file deleted/trashed outside the hub. */
+  isMissing: boolean;
+  missingReason: "deleted_on_workdrive" | "trashed_on_workdrive" | null;
 };
+
+function toStaffWorkDriveDocumentListItem(
+  row: Awaited<ReturnType<typeof listStaffWorkDriveDocuments>>[number],
+): StaffWorkDriveDocumentListItem {
+  return {
+    id: row.id,
+    workdriveFileId: row.workdrive_file_id,
+    fileName: row.file_name,
+    path: row.path,
+    permalink: row.permalink,
+    folderId: row.subfolder_id || row.employee_folder_id,
+    fileSlotId: row.file_slot_id,
+    uploadedAt: row.uploaded_at,
+    isMissing: Boolean(row.missing_at),
+    missingReason: row.missing_reason,
+  };
+}
 
 export async function listStaffWorkDriveDocs(input: {
   staffId: string;
@@ -1322,25 +1354,40 @@ export async function listStaffWorkDriveDocs(input: {
   }
 
   try {
+    const service = createServiceClient();
     const rows = await listStaffWorkDriveDocuments(
-      createServiceClient(),
+      service,
       auth.venue.id,
       staffId,
       input.docKind,
       { fileSlotId: input.fileSlotId },
     );
+
+    let reconciled = rows;
+    if (rows.length > 0) {
+      try {
+        const settings = await loadWorkDriveSettings(service, auth.venue.id);
+        const credentials = credentialsFromSettings(settings);
+        const { accessToken, apiDomain } = await ensureAccessToken(
+          auth.venue.id,
+          credentials,
+        );
+        reconciled = await reconcileStaffWorkDriveDocumentsPresence({
+          supabase: service,
+          venueId: auth.venue.id,
+          apiDomain,
+          accessToken,
+          rows,
+        });
+      } catch {
+        // Listing still works from metadata if WorkDrive is unreachable.
+        reconciled = rows;
+      }
+    }
+
     return {
       ok: true,
-      items: rows.map((row) => ({
-        id: row.id,
-        workdriveFileId: row.workdrive_file_id,
-        fileName: row.file_name,
-        path: row.path,
-        permalink: row.permalink,
-        folderId: row.subfolder_id || row.employee_folder_id,
-        fileSlotId: row.file_slot_id,
-        uploadedAt: row.uploaded_at,
-      })),
+      items: reconciled.map(toStaffWorkDriveDocumentListItem),
     };
   } catch (error) {
     return {
@@ -1388,6 +1435,154 @@ export async function resolveWorkDriveFolderLink(input: {
   }
 }
 
+/**
+ * Open the staff member's Employee Documents folder in WorkDrive
+ * (SS-OPS-HUB → Human Resources → Employee Documents → `{emp_no} — {full_name}`).
+ */
+export async function resolveStaffEmployeeWorkDriveFolderLink(input: {
+  staffId: string;
+}): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const auth = await getAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canViewStaff(auth.permissions, auth.venue.id) &&
+    !canEditStaff(auth.permissions, auth.venue.id)
+  ) {
+    return { ok: false, error: "No permission." };
+  }
+
+  const staffId = String(input.staffId ?? "").trim();
+  if (!staffId) return { ok: false, error: "Missing staff id." };
+
+  const service = createServiceClient();
+
+  const { data: staff, error: staffError } = await auth.supabase
+    .from("staff")
+    .select("id, emp_no, full_name")
+    .eq("id", staffId)
+    .eq("home_venue_id", auth.venue.id)
+    .maybeSingle();
+
+  if (staffError) return { ok: false, error: staffError.message };
+  if (!staff) return { ok: false, error: "Staff member not found." };
+
+  const empNo = String(staff.emp_no ?? "").trim();
+  const fullName = String(staff.full_name ?? "").trim();
+  if (!empNo || !fullName) {
+    return {
+      ok: false,
+      error: "Employee number and full name are required.",
+    };
+  }
+
+  try {
+    const settings = await loadWorkDriveSettings(service, auth.venue.id);
+    if (!settings.enabled) {
+      return {
+        ok: false,
+        error: "Enable WorkDrive in Venue Settings → Drive config first.",
+      };
+    }
+
+    // Prefer a folder id already recorded from a prior upload.
+    const { data: docRow } = await service
+      .from("hr_staff_workdrive_documents")
+      .select("employee_folder_id")
+      .eq("venue_id", auth.venue.id)
+      .eq("staff_id", staffId)
+      .not("employee_folder_id", "is", null)
+      .order("uploaded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const knownFolderId = String(
+      (docRow as { employee_folder_id?: string | null } | null)
+        ?.employee_folder_id ?? "",
+    ).trim();
+    if (knownFolderId) {
+      return {
+        ok: true,
+        url: workDriveFolderWebUrl(settings.region, knownFolderId),
+      };
+    }
+
+    const parentId =
+      settings.employeeDocsFolderId.trim() ||
+      ZOHO_WD_VERIFIED.employeeDocsFolderId;
+    if (!parentId) {
+      return {
+        ok: false,
+        error: "Employee Documents folder ID is not configured.",
+      };
+    }
+
+    const credentials = credentialsFromSettings(settings);
+    const { accessToken, apiDomain } = await ensureAccessToken(
+      auth.venue.id,
+      credentials,
+    );
+
+    const empFolderName = sanitizeWorkDriveFileName(
+      renderWorkDriveTemplate(settings.employeeFolderTemplate, {
+        emp_no: empNo,
+        full_name: fullName,
+      }),
+    );
+    if (!empFolderName) {
+      return { ok: false, error: "Employee folder name resolved empty." };
+    }
+
+    let folder = await findChildByName(
+      apiDomain,
+      accessToken,
+      parentId,
+      empFolderName,
+    );
+
+    if (!folder && settings.autoCreateFolders) {
+      try {
+        folder = await createFolder(
+          apiDomain,
+          accessToken,
+          parentId,
+          empFolderName,
+        );
+      } catch {
+        folder = await findChildByName(
+          apiDomain,
+          accessToken,
+          parentId,
+          empFolderName,
+        );
+      }
+    }
+
+    if (!folder) {
+      return {
+        ok: false,
+        error:
+          "Employee folder not found in WorkDrive yet. Upload a document first, or enable auto-create folders in Drive config.",
+      };
+    }
+
+    return {
+      ok: true,
+      url: workDriveFolderWebUrl(settings.region, folder.id),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof WorkDriveApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Could not open employee folder.",
+    };
+  }
+}
+
 export async function deleteStaffWorkDriveDoc(input: {
   documentId: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -1423,7 +1618,9 @@ export async function deleteStaffWorkDriveDoc(input: {
     );
 
     try {
-      await trashFile(apiDomain, accessToken, existing.workdrive_file_id);
+      if (!existing.missing_at) {
+        await trashFile(apiDomain, accessToken, existing.workdrive_file_id);
+      }
     } catch (error) {
       // File already gone in WorkDrive — still clear local metadata.
       if (
@@ -1463,4 +1660,109 @@ export async function deleteStaffWorkDriveDoc(input: {
             : "Delete failed.",
     };
   }
+}
+
+/**
+ * Push the staff member's current profile photo (from staff-photos storage)
+ * into WorkDrive under Employee Documents → `{emp_no} — {full_name}` as
+ * `{emp_no} - {full_name}.webp`.
+ */
+export async function uploadStaffProfilePhotoToWorkDrive(
+  staffId: string,
+): Promise<
+  | {
+      ok: true;
+      workdriveFileId: string;
+      permalink: string;
+      path: string;
+      fileName: string;
+    }
+  | { ok: false; error: string }
+> {
+  const auth = await getAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const id = String(staffId ?? "").trim();
+  if (!id) return { ok: false, error: "Missing staff id." };
+
+  if (!canEditStaff(auth.permissions, auth.venue.id)) {
+    return { ok: false, error: "No permission to upload staff documents." };
+  }
+
+  const { data: staff, error: staffError } = await auth.supabase
+    .from("staff")
+    .select("id, emp_no, full_name, first_name, last_name, photo_url")
+    .eq("id", id)
+    .eq("home_venue_id", auth.venue.id)
+    .maybeSingle();
+
+  if (staffError) return { ok: false, error: staffError.message };
+  if (!staff) return { ok: false, error: "Staff member not found." };
+
+  const empNo = String(staff.emp_no ?? "").trim();
+  const fullName = String(staff.full_name ?? "").trim();
+  const photoUrl = String(staff.photo_url ?? "").trim();
+  if (!empNo || !fullName) {
+    return {
+      ok: false,
+      error: "Employee number and full name are required before uploading.",
+    };
+  }
+  if (!photoUrl) {
+    return { ok: false, error: "This employee has no profile photo to upload." };
+  }
+
+  const service = createServiceClient();
+  const cropPath = `${auth.venue.id}/${id}.webp`;
+  let bytes: Buffer | null = null;
+  let contentType = "image/webp";
+
+  const { data: downloaded, error: downloadError } = await service.storage
+    .from("staff-photos")
+    .download(cropPath);
+
+  if (!downloadError && downloaded) {
+    bytes = Buffer.from(await downloaded.arrayBuffer());
+    contentType = downloaded.type || "image/webp";
+  } else {
+    try {
+      const res = await fetch(photoUrl);
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: "Could not download the current profile photo.",
+        };
+      }
+      bytes = Buffer.from(await res.arrayBuffer());
+      contentType = res.headers.get("content-type") || "image/webp";
+    } catch {
+      return {
+        ok: false,
+        error: "Could not download the current profile photo.",
+      };
+    }
+  }
+
+  if (!bytes?.length) {
+    return { ok: false, error: "Profile photo file is empty." };
+  }
+
+  const ext =
+    contentType.includes("jpeg") || contentType.includes("jpg")
+      ? ".jpg"
+      : contentType.includes("png")
+        ? ".png"
+        : ".webp";
+  const fileName = `${empNo} - ${fullName}${ext}`;
+
+  return performStaffWorkDriveUpload(auth, {
+    staffId: id,
+    empNo,
+    fullName,
+    docKind: "profile_photo",
+    bytes,
+    originalFileName: fileName,
+    contentType,
+    overrideNameExist: true,
+  });
 }

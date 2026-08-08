@@ -33,7 +33,17 @@ export type WorkDriveFileRef = {
   isFolder: boolean;
   parentId?: string;
   downloadUrl?: string;
+  /** Zoho WorkDrive status code as string (e.g. `"1"` active, `"51"` trash). */
+  status?: string;
 };
+
+/** WorkDrive trash status (`attributes.status`). */
+export const WORKDRIVE_STATUS_TRASH = "51";
+
+export type WorkDriveFilePresence =
+  | { state: "present" }
+  | { state: "missing"; reason: "deleted_on_workdrive" | "trashed_on_workdrive" }
+  | { state: "unknown"; error: string };
 
 function stripProtocol(hostOrUrl: string): string {
   return hostOrUrl.replace(/^https?:\/\//i, "").replace(/\/$/, "");
@@ -103,7 +113,12 @@ function parseResource(raw: unknown): WorkDriveFileRef | null {
     : attrs.parentId
       ? String(attrs.parentId)
       : undefined;
-  return { id, name, permalink, isFolder, parentId, downloadUrl };
+  const statusRaw = attrs.status ?? attrs.Status;
+  const status =
+    statusRaw === undefined || statusRaw === null
+      ? undefined
+      : String(statusRaw).trim() || undefined;
+  return { id, name, permalink, isFolder, parentId, downloadUrl, status };
 }
 
 /** Alias matching the cursor prompt naming. */
@@ -224,6 +239,35 @@ export async function getMetadata(
     throw new Error("Metadata response had no resource id.");
   }
   return parsed;
+}
+
+/**
+ * Check whether a WorkDrive resource still exists and is not in trash.
+ * Auth/network failures return `unknown` — callers must not mark rows missing.
+ */
+export async function probeWorkDriveFilePresence(
+  apiDomain: string,
+  accessToken: string,
+  resourceId: string,
+): Promise<WorkDriveFilePresence> {
+  try {
+    const meta = await getMetadata(apiDomain, accessToken, resourceId);
+    if (meta.status === WORKDRIVE_STATUS_TRASH) {
+      return { state: "missing", reason: "trashed_on_workdrive" };
+    }
+    return { state: "present" };
+  } catch (error) {
+    if (error instanceof WorkDriveApiError) {
+      if (error.status === 404 || error.status === 400) {
+        return { state: "missing", reason: "deleted_on_workdrive" };
+      }
+      return { state: "unknown", error: error.message };
+    }
+    return {
+      state: "unknown",
+      error: error instanceof Error ? error.message : "WorkDrive probe failed.",
+    };
+  }
 }
 
 export async function renameFile(

@@ -2,6 +2,7 @@ import {
   BenefitRunClient,
   type BenefitAllocationView,
 } from "@/components/hr/benefit-run-client";
+import { buildExportUserLabel } from "@/lib/exports/user-label";
 import {
   loadForecastVenueAsphForMonth,
   mergeGratuitySettings,
@@ -12,6 +13,7 @@ import { getHrPageContext } from "@/lib/hr/page-context";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getVenueLogoUrl } from "@/lib/venue/branding";
 import { notFound } from "next/navigation";
 
 type Props = {
@@ -22,7 +24,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HrBenefitsGratuityRunPage({ params }: Props) {
   const { runId } = await params;
-  const { supabase, venue, permissions } = await getHrPageContext();
+  const { supabase, venue, permissions, user } = await getHrPageContext();
 
   if (!canAccessBenefits(permissions, venue.id)) {
     return (
@@ -33,6 +35,16 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
   }
 
   const canEdit = canEditBenefits(permissions, venue.id);
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .maybeSingle();
+  const userDisplayName = buildExportUserLabel(
+    profile?.full_name,
+    profile?.email ?? user.email,
+  );
 
   const { data: run, error } = await supabase
     .from("hr_benefit_runs")
@@ -177,6 +189,9 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
       }
       asphKpiThreshold={asphKpiThreshold}
       forecastAsphKpiThreshold={forecastAsph}
+      venueName={venue.name ?? "Venue"}
+      venueLogoUrl={getVenueLogoUrl(venue)}
+      userDisplayName={userDisplayName}
     />
   );
 }

@@ -16,7 +16,9 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
+import { StatusBadge } from "@/components/hr/status-badge";
 import { UniformReplacementDialog } from "@/components/hr/uniform-replacement-dialog";
 import { UniformReplacementsListDialog } from "@/components/hr/uniform-replacements-list-dialog";
 import { UniformStaffItemDialog } from "@/components/hr/uniform-staff-item-dialog";
@@ -78,7 +80,7 @@ export function UniformEmployeesTable({
     () => new Set(),
   );
   const [expandedStaffIds, setExpandedStaffIds] = useState<Set<string>>(
-    () => new Set(rows.filter((r) => r.items.length > 0).map((r) => r.staff.id)),
+    () => new Set(),
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [assignStaff, setAssignStaff] = useState<StaffWithLookups | null>(null);
@@ -325,29 +327,14 @@ export function UniformEmployeesTable({
                       <col className="w-28" />
                       {canManage ? <col className="w-[5.25rem]" /> : null}
                     </colgroup>
-                    <thead>
-                      <tr className="border-b border-black/10 text-left text-xs uppercase tracking-wide text-black/45">
-                        <th className="px-4 py-2.5 font-medium" colSpan={3}>
-                          <span className="sr-only">Employee</span>
-                        </th>
-                        <th className="w-28 px-4 py-2.5 font-medium text-right">
-                          Subtotal
-                        </th>
-                        {canManage ? (
-                          <th className="w-[5.25rem] px-4 py-2.5 font-medium text-right">
-                            <span className="sr-only">Actions</span>
-                          </th>
-                        ) : null}
-                      </tr>
-                    </thead>
                     <tbody>
                       <tr className="text-[#3D421F]">
                         <td className="px-4 py-3" colSpan={3}>
-                          <div className="flex min-w-0 items-center gap-2">
+                          <div className="flex min-w-0 items-stretch gap-3">
                             <button
                               type="button"
                               onClick={() => toggleExpanded(row.staff.id)}
-                              className="shrink-0 rounded-md p-1 text-black/45 hover:bg-black/5 hover:text-[#3D421F]"
+                              className="shrink-0 self-center rounded-md p-1 text-black/45 hover:bg-black/5 hover:text-[#3D421F]"
                               aria-expanded={expanded}
                               aria-label={
                                 expanded
@@ -361,22 +348,42 @@ export function UniformEmployeesTable({
                                 <ChevronRight className="h-4 w-4" />
                               )}
                             </button>
+                            <StaffPhotoThumbnail
+                              fullName={row.staff.full_name}
+                              photoUrl={row.staff.photo_url}
+                              size="fill"
+                            />
                             <div className="min-w-0 flex-1">
-                              <p className="font-medium normal-case tracking-normal text-[#3D421F]">
+                              <div className="font-medium text-[#3D421F]">
                                 {row.staff.full_name}
-                              </p>
-                              <p className="truncate text-xs font-normal normal-case tracking-normal text-black/45">
+                              </div>
+                              <div className="mt-0.5 text-xs text-black/45">
                                 <StaffDirectoryLink
                                   staffId={row.staff.id}
                                   empNo={row.staff.emp_no}
                                 />
-                                {row.staff.department?.name
-                                  ? ` · ${row.staff.department.name}`
-                                  : ""}
                                 {row.staff.position?.name
                                   ? ` · ${row.staff.position.name}`
                                   : ""}
-                              </p>
+                              </div>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-black/45">
+                                <StatusBadge
+                                  status={row.staff.employment_status?.name}
+                                />
+                                <span>
+                                  Joined{" "}
+                                  {row.staff.joining_date
+                                    ? formatDateOnly(row.staff.joining_date)
+                                    : "—"}
+                                  {" · "}
+                                  Terminated{" "}
+                                  {row.staff.termination_date
+                                    ? formatDateOnly(
+                                        row.staff.termination_date,
+                                      )
+                                    : "—"}
+                                </span>
+                              </div>
                             </div>
                             <div className="flex w-[13.5rem] shrink-0 flex-col items-end justify-center gap-1">
                               {canManage ? (

@@ -155,6 +155,7 @@ export function StaffDetailView({
                 staffId={staff.id}
                 photoUrl={photoUrl}
                 fullName={displayName}
+                empNo={staff.emp_no}
                 emailFallback={staff.work_email ?? staff.personal_email}
                 canEdit={canEdit}
                 onPhotoUrlChange={setPhotoUrl}
@@ -175,7 +176,7 @@ export function StaffDetailView({
                       {nationality ? (
                         <span className="inline-flex items-center gap-1.5">
                           {nationality.flag ? (
-                            <span className="text-base leading-none" aria-hidden>
+                            <span className="text-xl leading-none" aria-hidden>
                               {nationality.flag}
                             </span>
                           ) : null}

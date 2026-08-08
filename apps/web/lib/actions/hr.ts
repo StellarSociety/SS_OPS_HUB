@@ -52,6 +52,7 @@ import {
   DEFAULT_HR_ATTENDANCE_IMPORT_RULES,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
+  normalizeVisaStatusLabel,
 } from "@/lib/hr/types";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
@@ -78,7 +79,10 @@ import {
 } from "@/lib/storage/convert-to-webp";
 import {
   STAFF_PHOTO_MAX_CROPPED_BYTES,
+  STAFF_PHOTO_MAX_UPLOAD_BYTES,
+  STAFF_PHOTO_SOURCE_MAX_EDGE_PX,
   STAFF_PHOTOS_BUCKET,
+  staffPhotoObjectPaths,
 } from "@/lib/hr/staff-photo-constants";
 
 async function getAuthContext() {
@@ -436,17 +440,6 @@ async function updateStaffInner(
   return { success: true };
 }
 
-function staffPhotoObjectPaths(venueId: string, staffId: string) {
-  return {
-    crop: `${venueId}/${staffId}.webp`,
-    legacy: [
-      `${venueId}/${staffId}.jpg`,
-      `${venueId}/${staffId}.jpeg`,
-      `${venueId}/${staffId}.png`,
-    ],
-  };
-}
-
 async function resolveStaffPhotoUpdate({
   service,
   venueId,
@@ -462,6 +455,7 @@ async function resolveStaffPhotoUpdate({
 }): Promise<{ photo_url?: string | null; error?: string }> {
   const clear = String(formData.get("photo_clear") ?? "") === "1";
   const photo = asUploadBlob(formData.get("photo"));
+  const original = asUploadBlob(formData.get("photo_original"));
   const paths = staffPhotoObjectPaths(venueId, staffId);
 
   const photoField = formData.get("photo");
@@ -504,6 +498,8 @@ async function resolveStaffPhotoUpdate({
       return { error: "Could not convert staff photo to WebP." };
     }
 
+    // Replace crop (+ legacy formats). Keep existing *-source.webp unless a
+    // new full original is provided below.
     await service.storage
       .from(STAFF_PHOTOS_BUCKET)
       .remove([paths.crop, ...paths.legacy]);
@@ -523,6 +519,57 @@ async function resolveStaffPhotoUpdate({
       };
     }
 
+    if (original) {
+      if (original.size > STAFF_PHOTO_MAX_UPLOAD_BYTES) {
+        return { error: "Original photo must be 5 MB or smaller." };
+      }
+      if (!resolveRasterImageMime(uploadBlobMeta(original))) {
+        return {
+          error:
+            "Original photo must be a PNG, JPEG, GIF, AVIF, or WebP image.",
+        };
+      }
+      const originalBytes = Buffer.from(await original.arrayBuffer());
+      if (originalBytes.length === 0) {
+        return { error: "Original photo upload arrived empty." };
+      }
+      let sourceWebp: Awaited<ReturnType<typeof convertImageToWebp>>;
+      try {
+        sourceWebp = await convertImageToWebp(originalBytes, {
+          maxWidth: STAFF_PHOTO_SOURCE_MAX_EDGE_PX,
+          maxHeight: STAFF_PHOTO_SOURCE_MAX_EDGE_PX,
+        });
+      } catch (err) {
+        console.error(
+          "[hr] staff photo source WebP convert failed:",
+          err instanceof Error ? err.message : err,
+        );
+        return { error: "Could not convert the original photo to WebP." };
+      }
+
+      await service.storage
+        .from(STAFF_PHOTOS_BUCKET)
+        .remove([paths.source, ...paths.legacySource]);
+
+      const { error: sourceError } = await service.storage
+        .from(STAFF_PHOTOS_BUCKET)
+        .upload(paths.source, new Uint8Array(sourceWebp.buffer), {
+          contentType: sourceWebp.contentType,
+          upsert: true,
+          cacheControl: "31536000",
+        });
+
+      if (sourceError) {
+        console.error(
+          "[hr] staff photo source upload failed:",
+          sourceError.message,
+        );
+        return {
+          error: `Could not store the full photo for re-cropping (${sourceError.message}).`,
+        };
+      }
+    }
+
     const { data: publicData } = service.storage
       .from(STAFF_PHOTOS_BUCKET)
       .getPublicUrl(paths.crop);
@@ -531,7 +578,12 @@ async function resolveStaffPhotoUpdate({
   }
 
   if (clear) {
-    const toRemove = new Set<string>([paths.crop, ...paths.legacy]);
+    const toRemove = new Set<string>([
+      paths.crop,
+      paths.source,
+      ...paths.legacy,
+      ...paths.legacySource,
+    ]);
     if (previousUrl) {
       const match = previousUrl.match(/\/staff-photos\/([^?]+)/);
       if (match?.[1]) {
@@ -1235,7 +1287,7 @@ function formDataToStaffPayload(formData: FormData) {
     contract_kind: str("contract_kind"),
     contract_expiry: parseDate(str("contract_expiry") ?? undefined),
     eresidence_expiry: parseDate(str("eresidence_expiry") ?? undefined),
-    visa_status: str("visa_status"),
+    visa_status: normalizeVisaStatusLabel(str("visa_status")),
     visa_expiry: parseDate(str("visa_expiry") ?? undefined),
     probation_duration_value: durationValue,
     probation_duration_unit: durationUnit,

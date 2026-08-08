@@ -23,6 +23,7 @@ export const HR_SETTINGS_PAY_PAYSLIP_DOCUMENT_HREF =
 export const HR_BENEFITS_GRATUITY_HREF = "/hr/benefits/gratuity";
 export const HR_BENEFITS_COLLECTIONS_HREF = "/hr/benefits/collections";
 export const HR_BENEFITS_SERVICE_CHARGE_HREF = "/hr/benefits/service-charge";
+export const HR_BENEFITS_FLIGHT_TICKET_HREF = "/hr/benefits/flight-ticket";
 export const HR_SETTINGS_BOARDING_HREF = "/hr/settings/boarding";
 export const HR_SETTINGS_SCHEDULE_APPROVAL_HREF =
   "/hr/settings/attendance/schedule-approval";
@@ -61,6 +62,8 @@ export const HR_SETTINGS_EMAILS_OTHER_CERTIFICATION_REQUEST_HREF =
   `${HR_SETTINGS_EMAILS_OTHER_HREF}/certification-request`;
 export const HR_SETTINGS_EMAILS_OTHER_INSURANCE_REQUEST_HREF =
   `${HR_SETTINGS_EMAILS_OTHER_HREF}/insurance-request`;
+export const HR_SETTINGS_EMAILS_OTHER_VISA_REQUEST_HREF =
+  `${HR_SETTINGS_EMAILS_OTHER_HREF}/visa-request`;
 
 export const HR_SETTINGS_DEFAULT_HREF =
   `${HR_SETTINGS_STAFF_DETAILS_HREF}/departments` as const;

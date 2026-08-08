@@ -52,6 +52,24 @@ export { resolveBenefitPointsForStaff } from "./points";
 export { floorPayoutToAed5, sumAed5RoundingRemainder } from "./rounding";
 export { countBenefitsWorkedDays, isBenefitsWorkedDay } from "./worked-days";
 export {
+  anniversaryInYear,
+  buildFlightTicketEntitlement,
+  calculateFlightTicketPayable,
+  completedServiceYearsAsOf,
+  dubaiTodayIso,
+  dubaiPayrollMonthKey,
+  flightTicketStatusLabel,
+  isFlightTicketAllocationSettled,
+  isFlightTicketExcludedContract,
+  isFreelanceContract,
+  resolveDisplayAnniversaryYear,
+  type FlightTicketEntitlement,
+  type FlightTicketEntitlementStatus,
+  type FlightTicketStaffInput,
+} from "./flight-ticket";
+// flight-ticket-store is server-only — import from
+// `@/lib/hr/benefits/flight-ticket-store` in Server Components / actions only.
+export {
   benefitMonthToDate,
   listBenefitPoolCollections,
   listGratuityRunPoolHintsByMonth,

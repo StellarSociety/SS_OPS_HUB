@@ -12,9 +12,17 @@ import { loadStaffEmailAttachments } from "@/lib/hr/email-staff-attachments";
 import { parseEmailStaffDocumentKeysFromForm } from "@/lib/hr/email-staff-documents";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
 import {
+  annotateInsuranceRecordsWithDocuments,
+  listMedicalInsuranceDocs,
   loadInsuranceProviders,
+  loadOrSeedStaffInsuranceHistory,
+  loadStaffInsuranceHistory,
   mergeInsuranceRequestEmailSettings,
+  pickLatestStaffInsuranceRecord,
+  saveStaffInsuranceHistory,
+  syncStaffInsuranceFromLatestRecord,
 } from "@/lib/hr/insurance-store";
+import { repairLinkedWorkDriveDocExpiryName } from "@/lib/hr/workdrive/staff-upload";
 import { canAdminLookups, canEditAssets, canEditStaff } from "@/lib/hr/permissions";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import {
@@ -22,6 +30,7 @@ import {
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
   type HrInsuranceRequestEmailSettings,
+  type StaffInsuranceRecord,
 } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -336,6 +345,350 @@ const staffInsuranceSchema = z.object({
     .nullable(),
 });
 
+const staffInsuranceRecordSchema = z.object({
+  staffId: z.string().uuid(),
+  reference: z.string().trim().max(120).optional(),
+  category: z.string().trim().min(1).max(200),
+  value: z.coerce.number().min(0).max(999_999_999).nullable(),
+  issueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  expiryDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+});
+
+export async function listStaffInsuranceRecords(input: {
+  staffId: string;
+}): Promise<
+  | { ok: true; records: StaffInsuranceRecord[]; latestId: string | null }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id) &&
+    !canAdminLookups(auth.permissions, auth.venue.id)
+  ) {
+    return { ok: false, error: "No permission to view staff insurance." };
+  }
+
+  const staffId = String(input.staffId ?? "").trim();
+  if (!z.string().uuid().safeParse(staffId).success) {
+    return { ok: false, error: "Invalid staff." };
+  }
+
+  const service = createServiceClient();
+  const { data: staff, error } = await service
+    .from("staff")
+    .select(
+      "id, home_venue_id, insurance_category, medical_insurance_value, medical_insurance_issue_date, medical_insurance_expiry_date",
+    )
+    .eq("id", staffId)
+    .eq("home_venue_id", auth.venue.id)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!staff) return { ok: false, error: "Staff not found." };
+
+  const records = await loadOrSeedStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    staff,
+  );
+  const docs = await listMedicalInsuranceDocs(service, auth.venue.id, [
+    staffId,
+  ]);
+  const annotated = annotateInsuranceRecordsWithDocuments(
+    records,
+    docs.slotsByStaff.get(staffId),
+    docs.staffWithAny.has(staffId),
+    docs.docsBySlotByStaff.get(staffId),
+    docs.latestByStaff.get(staffId) ?? null,
+  );
+
+  const repaired = await Promise.all(
+    annotated.map(async (record) => {
+      if (!record.document) return record;
+      const document = await repairLinkedWorkDriveDocExpiryName({
+        venueId: auth.venue.id,
+        doc: record.document,
+        expiryDate: record.expiryDate,
+      });
+      return document === record.document ? record : { ...record, document };
+    }),
+  );
+
+  const latest = pickLatestStaffInsuranceRecord(repaired);
+  return { ok: true, records: repaired, latestId: latest?.id ?? null };
+}
+
+export async function addStaffInsuranceRecord(
+  input: z.infer<typeof staffInsuranceRecordSchema>,
+): Promise<
+  | { ok: true; record: StaffInsuranceRecord }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
+  ) {
+    return {
+      ok: false,
+      error: "No permission to update staff insurance.",
+    };
+  }
+
+  const parsed = staffInsuranceRecordSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
+  }
+
+  const service = createServiceClient();
+  const { data: staff, error: staffError } = await service
+    .from("staff")
+    .select("id, home_venue_id")
+    .eq("id", parsed.data.staffId)
+    .eq("home_venue_id", auth.venue.id)
+    .maybeSingle();
+  if (staffError) return { ok: false, error: staffError.message };
+  if (!staff) return { ok: false, error: "Staff not found." };
+
+  const existing = await loadStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+  );
+
+  const record: StaffInsuranceRecord = {
+    id: crypto.randomUUID(),
+    reference: parsed.data.reference?.trim() || "",
+    category: parsed.data.category.trim(),
+    value: parsed.data.value,
+    issueDate: parsed.data.issueDate,
+    expiryDate: parsed.data.expiryDate,
+    createdAt: new Date().toISOString(),
+    createdBy: auth.user.id,
+  };
+
+  const next = [...existing, record];
+  const saved = await saveStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+    next,
+  );
+  if (!saved.ok) return saved;
+
+  const synced = await syncStaffInsuranceFromLatestRecord(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+    next,
+  );
+  if (!synced.ok) return synced;
+
+  await writeAuditLog({
+    actor_id: auth.user.id,
+    action: "staff.insurance.record.added",
+    module_key: HR_MODULE_KEY,
+    entity: "staff",
+    entity_id: parsed.data.staffId,
+    venue_id: auth.venue.id,
+    after: record,
+  });
+
+  revalidateInsurancePaths();
+  revalidatePath("/hr/staff", "layout");
+  return { ok: true, record };
+}
+
+export async function deleteStaffInsuranceRecord(input: {
+  staffId: string;
+  recordId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
+  ) {
+    return {
+      ok: false,
+      error: "No permission to update staff insurance.",
+    };
+  }
+
+  const staffId = String(input.staffId ?? "").trim();
+  const recordId = String(input.recordId ?? "").trim();
+  if (
+    !z.string().uuid().safeParse(staffId).success ||
+    !z.string().uuid().safeParse(recordId).success
+  ) {
+    return { ok: false, error: "Invalid input." };
+  }
+
+  const service = createServiceClient();
+  const { data: staff, error: staffError } = await service
+    .from("staff")
+    .select("id")
+    .eq("id", staffId)
+    .eq("home_venue_id", auth.venue.id)
+    .maybeSingle();
+  if (staffError) return { ok: false, error: staffError.message };
+  if (!staff) return { ok: false, error: "Staff not found." };
+
+  const existing = await loadStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    staffId,
+  );
+  const next = existing.filter((row) => row.id !== recordId);
+  if (next.length === existing.length) {
+    return { ok: false, error: "Record not found." };
+  }
+
+  const saved = await saveStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    staffId,
+    next,
+  );
+  if (!saved.ok) return saved;
+
+  const synced = await syncStaffInsuranceFromLatestRecord(
+    service,
+    auth.venue.id,
+    staffId,
+    next,
+  );
+  if (!synced.ok) return synced;
+
+  await writeAuditLog({
+    actor_id: auth.user.id,
+    action: "staff.insurance.record.deleted",
+    module_key: HR_MODULE_KEY,
+    entity: "staff",
+    entity_id: staffId,
+    venue_id: auth.venue.id,
+    after: { recordId },
+  });
+
+  revalidateInsurancePaths();
+  revalidatePath("/hr/staff", "layout");
+  return { ok: true };
+}
+
+export async function updateStaffInsuranceRecord(
+  input: z.infer<typeof staffInsuranceRecordSchema> & { recordId: string },
+): Promise<
+  | { ok: true; record: StaffInsuranceRecord }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
+  ) {
+    return {
+      ok: false,
+      error: "No permission to update staff insurance.",
+    };
+  }
+
+  const recordId = String(input.recordId ?? "").trim();
+  if (!z.string().uuid().safeParse(recordId).success) {
+    return { ok: false, error: "Invalid record." };
+  }
+
+  const parsed = staffInsuranceRecordSchema.safeParse({
+    staffId: input.staffId,
+    reference: input.reference,
+    category: input.category,
+    value: input.value,
+    issueDate: input.issueDate,
+    expiryDate: input.expiryDate,
+  });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
+  }
+
+  const service = createServiceClient();
+  const { data: staff, error: staffError } = await service
+    .from("staff")
+    .select("id, home_venue_id")
+    .eq("id", parsed.data.staffId)
+    .eq("home_venue_id", auth.venue.id)
+    .maybeSingle();
+  if (staffError) return { ok: false, error: staffError.message };
+  if (!staff) return { ok: false, error: "Staff not found." };
+
+  const existing = await loadStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+  );
+  const index = existing.findIndex((row) => row.id === recordId);
+  if (index < 0) return { ok: false, error: "Record not found." };
+
+  const previous = existing[index]!;
+  const record: StaffInsuranceRecord = {
+    ...previous,
+    reference: parsed.data.reference?.trim() || "",
+    category: parsed.data.category.trim(),
+    value: parsed.data.value,
+    issueDate: parsed.data.issueDate,
+    expiryDate: parsed.data.expiryDate,
+  };
+
+  const next = existing.map((row, i) => (i === index ? record : row));
+  const saved = await saveStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+    next,
+  );
+  if (!saved.ok) return saved;
+
+  const synced = await syncStaffInsuranceFromLatestRecord(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+    next,
+  );
+  if (!synced.ok) return synced;
+
+  await writeAuditLog({
+    actor_id: auth.user.id,
+    action: "staff.insurance.record.updated",
+    module_key: HR_MODULE_KEY,
+    entity: "staff",
+    entity_id: parsed.data.staffId,
+    venue_id: auth.venue.id,
+    before: previous,
+    after: record,
+  });
+
+  revalidateInsurancePaths();
+  revalidatePath("/hr/staff", "layout");
+  return { ok: true, record };
+}
+
 export async function updateStaffInsurance(
   input: z.infer<typeof staffInsuranceSchema>,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -373,6 +726,56 @@ export async function updateStaffInsurance(
     .eq("home_venue_id", auth.venue.id);
 
   if (error) return { ok: false, error: error.message };
+
+  // Keep issuance history aligned: update latest row, or seed one.
+  const history = await loadStaffInsuranceHistory(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+  );
+  const latest = pickLatestStaffInsuranceRecord(history);
+  let next: StaffInsuranceRecord[];
+  if (latest) {
+    next = history.map((row) =>
+      row.id === latest.id
+        ? {
+            ...row,
+            category: parsed.data.insuranceCategory?.trim() || "",
+            value: parsed.data.medicalInsuranceValue,
+            issueDate: parsed.data.medicalInsuranceIssueDate,
+            expiryDate: parsed.data.medicalInsuranceExpiryDate,
+          }
+        : row,
+    );
+  } else if (
+    parsed.data.insuranceCategory ||
+    parsed.data.medicalInsuranceValue != null ||
+    parsed.data.medicalInsuranceIssueDate ||
+    parsed.data.medicalInsuranceExpiryDate
+  ) {
+    next = [
+      {
+        id: crypto.randomUUID(),
+        reference: "",
+        category: parsed.data.insuranceCategory?.trim() || "",
+        value: parsed.data.medicalInsuranceValue,
+        issueDate: parsed.data.medicalInsuranceIssueDate,
+        expiryDate: parsed.data.medicalInsuranceExpiryDate,
+        createdAt: new Date().toISOString(),
+        createdBy: auth.user.id,
+      },
+    ];
+  } else {
+    next = history;
+  }
+  if (next !== history) {
+    await saveStaffInsuranceHistory(
+      service,
+      auth.venue.id,
+      parsed.data.staffId,
+      next,
+    );
+  }
 
   await writeAuditLog({
     actor_id: auth.user.id,
@@ -674,6 +1077,110 @@ export async function sendInsuranceRequestEmails(input: {
 
   revalidateInsurancePaths();
   return { ok: true, sent };
+}
+
+export type InsuranceRequestEmailSendRecord = {
+  id: string;
+  sentAt: string;
+  staffId: string;
+  employeeName: string;
+  empNo: string;
+  to: string | null;
+  providerName: string | null;
+  requestType: string | null;
+  sentBy: string | null;
+};
+
+export async function listInsuranceRequestEmailSends(): Promise<
+  | { ok: true; sends: InsuranceRequestEmailSendRecord[] }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const denied = requireSendPermission(auth.permissions, auth.venue.id);
+  if (denied) return { ok: false, error: denied };
+
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("audit_log")
+    .select("id, actor_id, entity_id, after, created_at")
+    .eq("venue_id", auth.venue.id)
+    .eq("entity", "staff")
+    .eq("action", "insurance_request_email.sent")
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (error) return { ok: false, error: error.message };
+
+  const rows = data ?? [];
+  const staffIds = [
+    ...new Set(
+      rows
+        .map((row) => (row.entity_id ? String(row.entity_id).trim() : ""))
+        .filter(Boolean),
+    ),
+  ];
+  const actorIds = [
+    ...new Set(
+      rows
+        .map((row) => (row.actor_id ? String(row.actor_id).trim() : ""))
+        .filter(Boolean),
+    ),
+  ];
+
+  const staffNames = new Map<string, { fullName: string; empNo: string }>();
+  if (staffIds.length > 0) {
+    const { data: staffRows } = await service
+      .from("staff")
+      .select("id, full_name, emp_no")
+      .in("id", staffIds)
+      .eq("home_venue_id", auth.venue.id);
+    for (const staff of staffRows ?? []) {
+      staffNames.set(String(staff.id), {
+        fullName: String(staff.full_name ?? "").trim() || "Employee",
+        empNo: String(staff.emp_no ?? "").trim(),
+      });
+    }
+  }
+
+  const actorNames = new Map<string, string>();
+  if (actorIds.length > 0) {
+    const { data: profiles } = await service
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", actorIds);
+    for (const profile of profiles ?? []) {
+      const name =
+        String(profile.full_name ?? "").trim() ||
+        String(profile.email ?? "").trim();
+      if (name) actorNames.set(String(profile.id), name);
+    }
+  }
+
+  const sends: InsuranceRequestEmailSendRecord[] = rows.map((row) => {
+    const after =
+      row.after && typeof row.after === "object" && !Array.isArray(row.after)
+        ? (row.after as Record<string, unknown>)
+        : {};
+    const staffId = row.entity_id ? String(row.entity_id) : "";
+    const staff = staffNames.get(staffId);
+    const actorId = row.actor_id ? String(row.actor_id) : "";
+    const requestType = String(after.requestType ?? "").trim() || null;
+    return {
+      id: String(row.id),
+      sentAt: String(row.created_at),
+      staffId,
+      employeeName: staff?.fullName ?? "Employee",
+      empNo: staff?.empNo ?? "",
+      to: String(after.to ?? "").trim() || null,
+      providerName: String(after.providerName ?? "").trim() || null,
+      requestType,
+      sentBy: actorId ? (actorNames.get(actorId) ?? null) : null,
+    };
+  });
+
+  return { ok: true, sends };
 }
 
 export async function getInsuranceRequestEmailSettings(): Promise<HrInsuranceRequestEmailSettings> {

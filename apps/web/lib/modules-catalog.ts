@@ -156,7 +156,7 @@ export const moduleCatalog: ModuleDef[] = [
         label: "Certifications",
         href: "/hr/assets/certifications",
       },
-      { key: "visa", label: "Visa", href: "/hr/assets/visa" },
+      { key: "visa", label: "Visa", href: "/hr/assets/visa/employees" },
       { key: "assets", label: "Assets", href: "/hr/assets/catalog" },
       { key: "schedules", label: "Schedules", href: "/hr/schedules" },
       {

@@ -4,8 +4,12 @@ import {
   credentialsFromSettings,
   downloadFile,
   ensureAccessToken,
+  WorkDriveApiError,
 } from "@/lib/hr/workdrive/client";
-import { getStaffWorkDriveDocumentByFileId } from "@/lib/hr/workdrive/documents";
+import {
+  getStaffWorkDriveDocumentByFileId,
+  markStaffWorkDriveDocumentMissing,
+} from "@/lib/hr/workdrive/documents";
 import { loadWorkDriveSettings } from "@/lib/hr/workdrive/settings";
 import { canEditStaff, canViewStaff, canAccessAssets } from "@/lib/hr/permissions";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -54,6 +58,13 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  if (meta?.missing_at) {
+    return NextResponse.json(
+      { error: "This file was deleted from WorkDrive." },
+      { status: 404 },
+    );
+  }
+
   try {
     const settings = await loadWorkDriveSettings(service, venue.id);
     const credentials = credentialsFromSettings(settings);
@@ -90,6 +101,27 @@ export async function GET(_request: Request, context: RouteContext) {
 
     return new NextResponse(downloaded.body, { status: 200, headers });
   } catch (error) {
+    if (
+      error instanceof WorkDriveApiError &&
+      (error.status === 404 || error.status === 400) &&
+      meta
+    ) {
+      try {
+        await markStaffWorkDriveDocumentMissing(
+          service,
+          venue.id,
+          meta.id,
+          "deleted_on_workdrive",
+        );
+      } catch {
+        /* best-effort persist */
+      }
+      return NextResponse.json(
+        { error: "This file was deleted from WorkDrive." },
+        { status: 404 },
+      );
+    }
+
     const message =
       error instanceof Error ? error.message : "WorkDrive download failed.";
     const scopeIssue = /INVALID_OAUTHSCOPE/i.test(message);

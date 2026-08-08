@@ -3020,17 +3020,19 @@ function FragmentRows({
           />
         </td>
         <td className="px-3 py-2 text-[#3D421F]">
-          {row.full_name}
-          {row.is_new_joiner ? (
-            <span className="ml-1.5 text-[10px] uppercase tracking-wide text-black/40">
-              joiner
-            </span>
-          ) : null}
-          {row.is_leaver ? (
-            <span className="ml-1.5 text-[10px] uppercase tracking-wide text-black/40">
-              leaver
-            </span>
-          ) : null}
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            {row.full_name}
+            {row.is_new_joiner ? (
+              <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                Joiner
+              </span>
+            ) : null}
+            {row.is_leaver ? (
+              <span className="inline-flex rounded-full border border-rose-300 bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-800">
+                Leaver
+              </span>
+            ) : null}
+          </span>
         </td>
         <td className="px-3 py-2 text-black/60">
           {row.department_name ?? "—"}
@@ -3646,6 +3648,8 @@ function benefitTypeLabel(type: string): string {
       return "Service charge";
     case "compensation":
       return "Compensations";
+    case "flight_ticket":
+      return "Flight ticket";
     default:
       return "Other benefit";
   }
@@ -3874,6 +3878,7 @@ function ImportBenefitsDialog({
                 <option value="all">All benefits</option>
                 <option value="tips">Tips (Gratuity)</option>
                 <option value="service_charge">Service charge</option>
+                <option value="flight_ticket">Flight ticket</option>
                 <option value="compensation">Compensations</option>
                 <option value="other">Other</option>
               </select>

@@ -39,7 +39,7 @@ const TABS = [
   },
   {
     id: "visa" as const,
-    href: "/hr/assets/visa",
+    href: "/hr/assets/visa/employees",
     label: "Visa",
     icon: IdCard,
   },
@@ -84,7 +84,7 @@ export function AssetsSubNav() {
   return (
     <nav
       aria-label="Staff compliance sections"
-      className="flex flex-wrap items-center justify-center gap-6"
+      className="flex w-full flex-wrap items-center justify-center gap-x-[clamp(0.5rem,3vw,1.5rem)] gap-y-4"
     >
       {TABS.map((tab) => {
         const active = isTabActive(pathname, tab.id);
@@ -97,7 +97,7 @@ export function AssetsSubNav() {
             aria-current={active ? "page" : undefined}
             title={tab.label}
             className={cn(
-              "group flex w-32 shrink-0 flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors",
+              "group flex w-[clamp(5.5rem,18vw,8rem)] flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors",
               active ? "text-[#3D421F]" : "text-[#8a8f7a] hover:text-[#3D421F]",
             )}
           >

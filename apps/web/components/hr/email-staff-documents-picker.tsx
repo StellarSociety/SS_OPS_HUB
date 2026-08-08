@@ -119,7 +119,11 @@ export function EmailStaffDocumentsPicker({
 
       {/* Marker so an empty selection still posts (no docs attached). */}
       <input type="hidden" name={`${name}_present`} value="1" />
-      {/* Keep checkboxes mounted when collapsed so FormData still includes them. */}
+      {/* Persist selection from React state — controlled checkboxes are not
+          reliable FormData sources with server actions / revalidation. */}
+      {selected.map((key) => (
+        <input key={key} type="hidden" name={name} value={key} />
+      ))}
       <div className={cn(!open && "hidden")}>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {HR_EMAIL_STAFF_DOCUMENT_OPTIONS.map((opt) => {
@@ -137,8 +141,6 @@ export function EmailStaffDocumentsPicker({
               >
                 <input
                   type="checkbox"
-                  name={name}
-                  value={opt.key}
                   className="mt-0.5 size-4 rounded border-black/20"
                   checked={checked}
                   disabled={disabled}
