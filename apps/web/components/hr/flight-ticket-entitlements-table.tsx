@@ -108,6 +108,13 @@ function EntitlementRow({
             fullName={row.fullName}
             photoUrl={row.photoUrl}
             size="fill"
+            empNo={row.empNo}
+            department={row.departmentName}
+            position={row.positionName}
+            employeeStatus={row.employmentStatusName}
+            workingStatus={row.workingStatusName}
+            nationality={row.nationalityName}
+            joiningDate={row.joiningDate}
           />
           <div className="min-w-0">
             <div className="truncate font-medium text-[#3D421F]">

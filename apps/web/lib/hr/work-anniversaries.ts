@@ -15,6 +15,12 @@ export type WorkAnniversaryItem = {
   staffId: string;
   empNo: string;
   fullName: string;
+  photoUrl: string | null;
+  departmentName: string | null;
+  positionName: string | null;
+  employmentStatusName: string | null;
+  nationalityName: string | null;
+  dob: string | null;
   joiningDate: string;
   /** Next anniversary date `YYYY-MM-DD`. */
   anniversaryDate: string;
@@ -100,8 +106,14 @@ export function listWorkAnniversaryItems(
     id: string;
     emp_no: string;
     full_name: string;
+    photo_url?: string | null;
+    dob?: string | null;
     joining_date: string | null;
+    termination_date?: string | null;
     employment_status?: { name: string } | null;
+    department?: { name: string } | null;
+    position?: { name: string } | null;
+    nationality?: { name: string } | null;
   }[],
   leadDays: number = DEFAULT_ANNIVERSARY_LEAD_DAYS,
   asOf: Date = new Date(),
@@ -123,6 +135,12 @@ export function listWorkAnniversaryItems(
       staffId: member.id,
       empNo: member.emp_no,
       fullName: member.full_name,
+      photoUrl: member.photo_url?.trim() || null,
+      departmentName: member.department?.name ?? null,
+      positionName: member.position?.name ?? null,
+      employmentStatusName: member.employment_status?.name ?? null,
+      nationalityName: member.nationality?.name ?? null,
+      dob: isoDateOnly(member.dob),
       joiningDate,
       anniversaryDate: next.anniversaryDate,
       years: next.years,

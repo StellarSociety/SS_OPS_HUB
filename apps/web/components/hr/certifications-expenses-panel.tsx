@@ -6,6 +6,7 @@ import { Download, X } from "lucide-react";
 import { CertificationEmployeeDocumentsDialog } from "@/components/hr/certification-employee-documents-dialog";
 import { CertificationExpensesExportDialog } from "@/components/hr/certification-expenses-export-dialog";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { Button } from "@/components/ui/button";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import type {
@@ -314,13 +315,6 @@ export function CertificationsExpensesPanel({
 
                 <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">
                   {staffPopup.line.staff.map((person) => {
-                    const initials =
-                      (person.fullName ?? "?")
-                        .split(/\s+/)
-                        .filter(Boolean)
-                        .slice(0, 2)
-                        .map((p) => p[0]?.toUpperCase() ?? "")
-                        .join("") || "?";
                     const canOpen = employeesById.has(person.staffId);
                     return (
                       <li key={person.staffId}>
@@ -348,23 +342,19 @@ export function CertificationsExpensesPanel({
                               : undefined
                           }
                         >
-                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-black/10 bg-[#3D421F] text-[10px] font-medium text-white">
-                            {person.photoUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element -- staff photo URL from storage
-                              <img
-                                src={person.photoUrl}
-                                alt=""
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <span
-                                className="flex h-full w-full items-center justify-center"
-                                aria-hidden
-                              >
-                                {initials}
-                              </span>
-                            )}
-                          </div>
+                          <StaffPhotoThumbnail
+                            fullName={person.fullName}
+                            photoUrl={person.photoUrl}
+                            empNo={person.empNo}
+                            department={person.departmentName}
+                            position={person.positionName}
+                            employeeStatus={person.employmentStatusName}
+                            workingStatus={person.workingStatusName}
+                            nationality={person.nationalityName}
+                            dob={person.dob}
+                            joiningDate={person.joiningDate}
+                            terminationDate={person.terminationDate}
+                          />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-[#3D421F]">
                               {person.fullName}

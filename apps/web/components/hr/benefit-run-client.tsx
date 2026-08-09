@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { Button } from "@/components/ui/button";
 import {
   finalizeBenefitRun,
@@ -82,6 +83,7 @@ export type BenefitAllocationView = {
   staff_id: string;
   full_name: string | null;
   emp_no: string | null;
+  photo_url: string | null;
   department_name: string | null;
   position_name: string | null;
   amount: number;
@@ -995,6 +997,7 @@ export function BenefitRunClient({
       asph: number | null;
       tipOutPercent: number | null;
       asphKpiMet: boolean | null;
+      photoUrl: string | null;
       allocation: BenefitAllocationView | null;
     };
 
@@ -1036,6 +1039,7 @@ export function BenefitRunClient({
           typeof waiterMeta?.asphKpiMet === "boolean"
             ? waiterMeta.asphKpiMet
             : null,
+        photoUrl: alloc?.photo_url ?? null,
         allocation: alloc ?? null,
       };
     }
@@ -2073,53 +2077,57 @@ export function BenefitRunClient({
               ) : null}
             </div>
             {showAsphContributorColumns ? (
-              <div className="shrink-0 rounded-lg border border-black/10 bg-white px-3 py-2 shadow-sm">
+              <div className="w-full max-w-sm shrink-0 rounded-lg border border-black/10 bg-white px-3 py-2 shadow-sm sm:w-96">
                 <p className="text-xs font-medium uppercase tracking-wide text-black/45">
                   Month ASPH target
                 </p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  {canEditAllocations ? (
-                    <>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={asphThresholdDraft}
-                        disabled={pending}
-                        onChange={(e) => setAsphThresholdDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            saveAsphKpiThreshold();
+                <div className="mt-1.5 flex items-center gap-3">
+                  <p className="min-w-0 flex-1 text-[11px] leading-snug text-black/45">
+                    {forecastAsphKpiThreshold != null
+                      ? `Forecast default ${forecastAsphKpiThreshold.toFixed(2)}. Met ≥ target → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMet) || 0}% of sales; missed → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMissed) || 0}%.`
+                      : `No Sales Forecast ASPH for this month. Met → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMet) || 0}% / missed → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMissed) || 0}% of sales.`}
+                  </p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {canEditAllocations ? (
+                      <>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={asphThresholdDraft}
+                          disabled={pending}
+                          onChange={(e) =>
+                            setAsphThresholdDraft(e.target.value)
                           }
-                        }}
-                        className="h-8 w-24 rounded-md border border-black/10 bg-white px-2 text-sm tabular-nums text-[#3D421F] outline-none focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20"
-                        aria-label="ASPH KPI threshold for this month"
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        className="border border-black/10"
-                        disabled={pending}
-                        onClick={saveAsphKpiThreshold}
-                      >
-                        Apply
-                      </Button>
-                    </>
-                  ) : (
-                    <span className="text-sm tabular-nums font-medium text-[#3D421F]">
-                      {asphKpiThreshold != null
-                        ? asphKpiThreshold.toFixed(2)
-                        : "—"}
-                    </span>
-                  )}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              saveAsphKpiThreshold();
+                            }
+                          }}
+                          className="h-8 w-24 rounded-md border border-black/10 bg-white px-2 text-sm tabular-nums text-[#3D421F] outline-none focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20"
+                          aria-label="ASPH KPI threshold for this month"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="border border-black/10"
+                          disabled={pending}
+                          onClick={saveAsphKpiThreshold}
+                        >
+                          Apply
+                        </Button>
+                      </>
+                    ) : (
+                      <span className="text-sm tabular-nums font-medium text-[#3D421F]">
+                        {asphKpiThreshold != null
+                          ? asphKpiThreshold.toFixed(2)
+                          : "—"}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <p className="mt-1 text-[11px] leading-snug text-black/45">
-                  {forecastAsphKpiThreshold != null
-                    ? `Forecast default ${forecastAsphKpiThreshold.toFixed(2)}. Met ≥ target → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMet) || 0}% of sales; missed → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMissed) || 0}%.`
-                    : `No Sales Forecast ASPH for this month. Met → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMet) || 0}% / missed → ${Number(poolContributionRule?.waiterCcTipOutPctWhenKpiMissed) || 0}% of sales.`}
-                </p>
               </div>
             ) : null}
           </div>
@@ -2281,7 +2289,18 @@ export function BenefitRunClient({
                       className="hover:bg-[var(--venue-secondary,#F0F3DD)]/25"
                     >
                       <td className="px-3 py-2.5 tabular-nums text-black/60">
-                        {row.empNo ?? "—"}
+                        <div className="flex items-center gap-2">
+                          <StaffPhotoThumbnail
+                            fullName={row.name}
+                            photoUrl={row.photoUrl}
+                            size="sm"
+                            className="h-8 w-8 rounded-md text-[9px]"
+                            empNo={row.empNo}
+                            department={row.departmentName}
+                            position={row.position}
+                          />
+                          <span>{row.empNo ?? "—"}</span>
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 font-medium text-[#3D421F]">
                         {row.name}
@@ -2537,7 +2556,7 @@ export function BenefitRunClient({
             <div
               className={cn(
                 segmentedSubNavShellClass,
-                "w-fit max-w-full shrink-0",
+                "w-full max-w-sm shrink-0 sm:w-96",
               )}
               role="tablist"
               aria-label="Allocations view"

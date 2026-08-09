@@ -315,6 +315,14 @@ export async function loadCertificationsExpensesPage(
       fullName: string;
       certifiedAt: string;
       photoUrl: string | null;
+      departmentName: string | null;
+      positionName: string | null;
+      employmentStatusName: string | null;
+      workingStatusName: string | null;
+      nationalityName: string | null;
+      dob: string | null;
+      joiningDate: string | null;
+      terminationDate: string | null;
     }[];
   };
 
@@ -348,6 +356,14 @@ export async function loadCertificationsExpensesPage(
         fullName: s.full_name,
         certifiedAt,
         photoUrl: s.photo_url ?? null,
+        departmentName: s.department?.name ?? null,
+        positionName: s.position?.name ?? null,
+        employmentStatusName: s.employment_status?.name ?? null,
+        workingStatusName: s.working_status?.name ?? null,
+        nationalityName: s.nationality?.name ?? null,
+        dob: s.dob ?? null,
+        joiningDate: s.joining_date ?? null,
+        terminationDate: s.termination_date ?? null,
       };
 
       const existing = monthMap.get(cert.id);

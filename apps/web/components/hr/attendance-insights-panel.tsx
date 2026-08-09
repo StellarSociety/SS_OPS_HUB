@@ -24,10 +24,15 @@ type StaffLookup = {
   id: string;
   emp_no: string;
   full_name: string;
+  photo_url: string | null;
   department_id: string | null;
   department_name: string | null;
+  position_name: string | null;
   employment_status: string | null;
   working_status: string | null;
+  nationality_name: string | null;
+  dob: string | null;
+  joining_date: string | null;
   termination_date: string | null;
 };
 
@@ -53,10 +58,16 @@ type StaffInsightRow = {
   staffId: string;
   empNo: string;
   fullName: string;
+  photoUrl: string | null;
   departmentId: string | null;
   departmentName: string;
+  positionName: string | null;
   employmentStatus: string | null;
   workingStatus: string | null;
+  nationalityName: string | null;
+  dob: string | null;
+  joiningDate: string | null;
+  terminationDate: string | null;
   dayCount: number;
   completeDayCount: number;
   totalHours: number;
@@ -309,8 +320,10 @@ export function AttendanceInsightsPanel({
         staffId: staff.id,
         empNo: staff.emp_no,
         fullName: staff.full_name,
+        photoUrl: staff.photo_url,
         departmentId: staff.department_id,
         departmentName,
+        positionName: staff.position_name,
         employmentStatus: staff.employment_status,
         workingStatus: resolveWorkingStatus({
           workingStatus: staff.working_status,
@@ -321,6 +334,10 @@ export function AttendanceInsightsPanel({
           ),
           weekLabelCodes,
         }),
+        nationalityName: staff.nationality_name,
+        dob: staff.dob,
+        joiningDate: staff.joining_date,
+        terminationDate: staff.termination_date,
         dayCount,
         completeDayCount,
         totalHours: hoursByEmp.get(empKey)?.totalHours ?? 0,
@@ -388,9 +405,18 @@ export function AttendanceInsightsPanel({
         }
         return [
           {
+            staffId: row.staffId,
             empNo: row.empNo,
             fullName: row.fullName,
+            photoUrl: row.photoUrl,
             departmentName: row.departmentName,
+            positionName: row.positionName,
+            employmentStatusName: row.employmentStatus,
+            workingStatusName: row.workingStatus,
+            nationalityName: row.nationalityName,
+            dob: row.dob,
+            joiningDate: row.joiningDate,
+            terminationDate: row.terminationDate,
             dayCount: row.dayCount,
             completeDayCount: row.completeDayCount,
             punchCompletePct: row.punchCompletePct,
@@ -501,6 +527,8 @@ export function AttendanceInsightsPanel({
       <AttendanceInsightsPunchCharts
         staffRows={punchStaffRows}
         departmentRows={punchDepartmentRows}
+        payrollPeriodStartDay={payrollPeriodStartDay}
+        payrollPeriodEndDay={payrollPeriodEndDay}
       />
 
       <p className="text-sm text-black/50">

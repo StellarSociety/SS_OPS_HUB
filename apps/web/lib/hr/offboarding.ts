@@ -7,9 +7,12 @@ export type OffBoardingItem = {
   staffId: string;
   empNo: string;
   fullName: string;
+  photoUrl: string | null;
   departmentName: string | null;
   positionName: string | null;
   employmentStatusName: string | null;
+  nationalityName: string | null;
+  dob: string | null;
   joiningDate: string | null;
   terminationDate: string;
   /** Tenure label from joining → termination, e.g. `00 Y | 06 M | 12 D`. */
@@ -105,11 +108,14 @@ export function listOffBoardingItems(
     id: string;
     emp_no: string;
     full_name: string;
+    photo_url?: string | null;
+    dob?: string | null;
     joining_date: string | null;
     termination_date: string | null;
     department?: { name: string } | null;
     position?: { name: string } | null;
     employment_status?: { name: string } | null;
+    nationality?: { name: string } | null;
   }[],
 ): OffBoardingItem[] {
   const items: OffBoardingItem[] = [];
@@ -124,9 +130,12 @@ export function listOffBoardingItems(
       staffId: member.id,
       empNo: member.emp_no,
       fullName: member.full_name,
+      photoUrl: member.photo_url?.trim() || null,
       departmentName: member.department?.name ?? null,
       positionName: member.position?.name ?? null,
       employmentStatusName: member.employment_status?.name ?? null,
+      nationalityName: member.nationality?.name ?? null,
+      dob: isoDateOnly(member.dob),
       joiningDate,
       terminationDate,
       workedTime: computeWorkedTime(joiningDate, terminationDate),

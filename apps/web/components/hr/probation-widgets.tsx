@@ -1,5 +1,6 @@
 import { Clock } from "lucide-react";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { Card } from "@/components/ui/card";
 import { formatDateOnly } from "@/lib/hr/derived";
 import type { OnProbationItem } from "@/lib/hr/probation";
@@ -26,6 +27,25 @@ function remainingClass(remainingDays: number) {
 
 function remainingLabel(remainingDays: number): string {
   return `${remainingDays} day${remainingDays === 1 ? "" : "s"} remaining`;
+}
+
+function ProbationPhoto({ item }: { item: OnProbationItem }) {
+  return (
+    <StaffPhotoThumbnail
+      fullName={item.fullName}
+      photoUrl={item.photoUrl}
+      size="sm"
+      className="h-9 w-8 shrink-0 rounded-md"
+      empNo={item.empNo}
+      department={item.departmentName}
+      position={item.positionName}
+      employeeStatus={item.employmentStatusName}
+      nationality={item.nationalityName}
+      dob={item.dob}
+      joiningDate={item.joiningDate}
+      terminationDate={item.terminationDate}
+    />
+  );
 }
 
 function ProbationPersonHeader({ item }: { item: OnProbationItem }) {
@@ -78,11 +98,12 @@ export function ProbationWidgets({
               <li key={item.staffId}>
                 <div
                   className={cn(
-                    "flex items-center gap-2 rounded-md border px-2 py-1.5",
+                    "grid grid-cols-[2rem_minmax(0,1fr)_3.5rem] items-center gap-2 rounded-md border px-2 py-1.5",
                     remainingClass(item.remainingDays),
                   )}
                 >
-                  <div className="min-w-0 flex-1">
+                  <ProbationPhoto item={item} />
+                  <div className="min-w-0">
                     <span className="block truncate text-[11px] font-medium">
                       {item.fullName}{" "}
                       <span className="font-normal text-black/50">
@@ -99,11 +120,11 @@ export function ProbationWidgets({
                       Last day {formatDateOnly(item.legalEndDate)}
                     </span>
                   </div>
-                  <div className="shrink-0 text-right leading-none">
-                    <span className="block text-lg font-semibold tabular-nums">
+                  <div className="flex flex-col items-center justify-center text-center leading-none">
+                    <span className="min-w-[3ch] text-center text-lg font-semibold tabular-nums">
                       {item.remainingDays}
                     </span>
-                    <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-wide text-black/50">
+                    <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide text-black/50">
                       {item.remainingDays === 1 ? "day" : "days"}
                     </span>
                   </div>
@@ -145,52 +166,55 @@ export function ProbationWidgets({
             <li key={item.staffId}>
               <div
                 className={cn(
-                  "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs",
+                  "flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-xs",
                   remainingClass(item.remainingDays),
                 )}
               >
-                <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
-                  <ProbationPersonHeader item={item} />
-                  {roleParts.length > 0 ? (
-                    <span className="shrink-0 truncate text-black/55">
-                      {roleParts.join(" · ")}
+                <ProbationPhoto item={item} />
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
+                    <ProbationPersonHeader item={item} />
+                    {roleParts.length > 0 ? (
+                      <span className="shrink-0 truncate text-black/55">
+                        {roleParts.join(" · ")}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:gap-y-0.5">
+                    <span>
+                      Joined {formatDateOnly(item.commencementDate)}
                     </span>
-                  ) : null}
-                </div>
-                <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:gap-y-0.5">
-                  <span>
-                    Joined {formatDateOnly(item.commencementDate)}
-                  </span>
-                  <span className="hidden text-black/25 sm:inline" aria-hidden>
-                    ·
-                  </span>
-                  <span>{item.durationLabel}</span>
-                  <span className="hidden text-black/25 sm:inline" aria-hidden>
-                    ·
-                  </span>
-                  <span>
-                    Last day {formatDateOnly(item.legalEndDate)}
-                  </span>
-                  <span className="hidden text-black/25 sm:inline" aria-hidden>
-                    ·
-                  </span>
-                  <span className="font-medium text-amber-900/90">
-                    {remainingLabel(item.remainingDays)}
-                  </span>
-                  {item.calendarDaysElapsed != null ? (
-                    <>
-                      <span
-                        className="hidden text-black/25 sm:inline"
-                        aria-hidden
-                      >
-                        ·
-                      </span>
-                      <span>
-                        {item.calendarDaysElapsed} day
-                        {item.calendarDaysElapsed === 1 ? "" : "s"} elapsed
-                      </span>
-                    </>
-                  ) : null}
+                    <span className="hidden text-black/25 sm:inline" aria-hidden>
+                      ·
+                    </span>
+                    <span>{item.durationLabel}</span>
+                    <span className="hidden text-black/25 sm:inline" aria-hidden>
+                      ·
+                    </span>
+                    <span>
+                      Last day {formatDateOnly(item.legalEndDate)}
+                    </span>
+                    <span className="hidden text-black/25 sm:inline" aria-hidden>
+                      ·
+                    </span>
+                    <span className="font-medium text-amber-900/90">
+                      {remainingLabel(item.remainingDays)}
+                    </span>
+                    {item.calendarDaysElapsed != null ? (
+                      <>
+                        <span
+                          className="hidden text-black/25 sm:inline"
+                          aria-hidden
+                        >
+                          ·
+                        </span>
+                        <span>
+                          {item.calendarDaysElapsed} day
+                          {item.calendarDaysElapsed === 1 ? "" : "s"} elapsed
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </li>

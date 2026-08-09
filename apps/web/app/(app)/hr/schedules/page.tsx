@@ -130,12 +130,17 @@ export default async function SchedulesPage() {
       id: member.id,
       fullName: member.full_name,
       empNo: member.emp_no,
+      department: member.department?.name ?? null,
       position: member.position?.name ?? null,
       positionSortOrder: member.position?.sort_order ?? MISSING_POSITION_SORT,
+      employeeStatus: member.employment_status?.name ?? null,
       workingStatus:
         member.working_status?.name?.trim() || DEFAULT_WORKING_STATUS,
+      nationality: member.nationality?.name ?? null,
+      dob: member.dob?.trim() || null,
       joiningDate: member.joining_date?.trim() || null,
       terminationDate: member.termination_date?.trim() || null,
+      photoUrl: member.photo_url ?? null,
     });
   }
 

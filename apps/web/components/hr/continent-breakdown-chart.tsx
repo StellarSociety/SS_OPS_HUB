@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Earth, X } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { Card } from "@/components/ui/card";
 import type { HrContinentRow } from "@/lib/hr/overview";
 import { cn } from "@/lib/utils";
@@ -30,7 +31,7 @@ const FALLBACK_COLORS = [
   "#A3A89A",
 ];
 
-const PANEL_WIDTH = 256;
+const PANEL_WIDTH = 320;
 
 /** Darken a hex color toward black by `amount` (0–1). */
 function shadeHex(hex: string, amount: number): string {
@@ -63,12 +64,7 @@ type Slice = {
   count: number;
   percent: number;
   color: string;
-  staff: {
-    staffId: string;
-    empNo: string;
-    fullName: string;
-    country: string;
-  }[];
+  staff: HrContinentRow["staff"];
 };
 
 type OpenPanel = {
@@ -181,7 +177,7 @@ export function ContinentBreakdownChart({
             />
             <div
               className={cn(
-                "fixed max-h-[min(20rem,70vh)] w-64 overflow-hidden rounded-lg border border-black/10 bg-white shadow-xl transition-[opacity,transform] duration-200 ease-out",
+                "fixed max-h-[min(28rem,75vh)] w-80 overflow-hidden rounded-lg border border-black/10 bg-white shadow-xl transition-[opacity,transform] duration-200 ease-out",
                 panelVisible ? "opacity-100" : "opacity-0",
               )}
               style={{
@@ -214,22 +210,39 @@ export function ContinentBreakdownChart({
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <ul className="max-h-[min(16rem,55vh)] space-y-0.5 overflow-y-auto px-2 py-1.5">
+              <ul className="max-h-[min(22rem,60vh)] space-y-0.5 overflow-y-auto px-2 py-1.5">
                 {openPanel.slice.staff.map((person) => (
                   <li key={person.staffId}>
-                    <div className="flex items-baseline gap-1.5 rounded px-1.5 py-1 text-[11px]">
-                      <StaffDirectoryLink
-                        staffId={person.staffId}
+                    <div className="flex items-stretch gap-2 rounded px-1.5 py-1 text-[11px]">
+                      <StaffPhotoThumbnail
+                        fullName={person.fullName}
+                        photoUrl={person.photoUrl}
+                        size="sm"
+                        className="h-9 w-8 self-center rounded-md"
                         empNo={person.empNo}
-                        className="shrink-0 font-semibold"
-                        onClick={closePanel}
+                        department={person.departmentName}
+                        position={person.positionName}
+                        employeeStatus={person.employmentStatusName}
+                        workingStatus={person.workingStatusName}
+                        nationality={person.country}
+                        dob={person.dob}
+                        joiningDate={person.joiningDate}
+                        terminationDate={person.terminationDate}
                       />
-                      <span className="min-w-0 flex-1 truncate text-[#3D421F]">
-                        {person.fullName}
-                      </span>
-                      <span className="max-w-[5.5rem] shrink-0 truncate text-right text-black/45">
-                        {person.country}
-                      </span>
+                      <div className="flex min-w-0 flex-1 items-baseline gap-1.5 self-center">
+                        <StaffDirectoryLink
+                          staffId={person.staffId}
+                          empNo={person.empNo}
+                          className="shrink-0 font-semibold"
+                          onClick={closePanel}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[#3D421F]">
+                          {person.fullName}
+                        </span>
+                        <span className="max-w-[5.5rem] shrink-0 truncate text-right text-black/45">
+                          {person.country}
+                        </span>
+                      </div>
                     </div>
                   </li>
                 ))}

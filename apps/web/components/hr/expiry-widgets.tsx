@@ -1,5 +1,6 @@
 import { UpdatedDocsRequestSendButton } from "@/components/hr/updated-docs-request-send-button";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { formatDateOnly } from "@/lib/hr/derived";
@@ -68,11 +69,29 @@ export function ExpiryWidgets({
           <li key={`${item.staffId}-${item.field}`}>
             <div
               className={cn(
-                "flex items-center gap-1 rounded-md px-2.5 py-1.5",
+                "grid items-center gap-2 rounded-md px-2.5 py-1.5",
+                compact
+                  ? "grid-cols-[2rem_minmax(0,1fr)_6rem]"
+                  : "grid-cols-[2rem_minmax(0,1fr)_2rem_6rem]",
                 urgencyClass(item.daysUntil),
               )}
             >
-              <div className="min-w-0 flex-1 truncate text-xs">
+              <StaffPhotoThumbnail
+                fullName={item.fullName}
+                photoUrl={item.photoUrl}
+                size="sm"
+                className="h-9 w-8 shrink-0 rounded-md"
+                empNo={item.empNo}
+                department={item.departmentName}
+                position={item.positionName}
+                employeeStatus={item.employeeStatusName}
+                workingStatus={item.workingStatusName}
+                nationality={item.nationalityName}
+                dob={item.dob}
+                joiningDate={item.joiningDate}
+                terminationDate={item.terminationDate}
+              />
+              <div className="min-w-0 truncate text-xs">
                 <span className="font-medium">{item.fullName}</span>
                 <span className="mx-1 text-black/25" aria-hidden>
                   (
@@ -97,22 +116,24 @@ export function ExpiryWidgets({
                 </span>
               </div>
               {!compact ? (
-                <UpdatedDocsRequestSendButton
-                  staffId={item.staffId}
-                  fullName={item.fullName}
-                  empNo={item.empNo}
-                  expiry={{
-                    label: item.label,
-                    expiryDate: item.expiryDate,
-                    daysUntil: item.daysUntil,
-                  }}
-                />
+                <div className="flex items-center justify-center">
+                  <UpdatedDocsRequestSendButton
+                    staffId={item.staffId}
+                    fullName={item.fullName}
+                    empNo={item.empNo}
+                    expiry={{
+                      label: item.label,
+                      expiryDate: item.expiryDate,
+                      daysUntil: item.daysUntil,
+                    }}
+                  />
+                </div>
               ) : null}
-              <div className="shrink-0 text-center leading-none">
-                <span className="block text-lg font-semibold tabular-nums">
+              <div className="flex flex-col items-center justify-center text-center leading-none">
+                <span className="min-w-[3ch] text-center text-lg font-semibold tabular-nums">
                   {Math.abs(item.daysUntil)}
                 </span>
-                <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-wide text-black/50">
+                <span className="mt-0.5 text-[9px] font-medium uppercase tracking-wide text-black/50">
                   {daysCaption(item.daysUntil)}
                 </span>
               </div>

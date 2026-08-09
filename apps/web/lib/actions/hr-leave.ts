@@ -924,7 +924,12 @@ export async function getEmployeeLeaveBalances(input: {
     termination_date: string | null;
     probation_status: string | null;
     photo_url: string | null;
+    dob: string | null;
     department: { name: string } | null;
+    position: { name: string } | null;
+    employment_status: { name: string } | null;
+    working_status: { name: string } | null;
+    nationality: { name: string } | null;
   } | null;
   balances: HrLeaveBalance[];
   adjustments: HrLeaveBalanceAdjustment[];
@@ -955,7 +960,7 @@ export async function getEmployeeLeaveBalances(input: {
   const { data: staffRow, error: staffError } = await supabase
     .from("staff")
     .select(
-      "id, emp_no, full_name, joining_date, termination_date, probation_status, photo_url, department:departments(name)",
+      "id, emp_no, full_name, joining_date, termination_date, probation_status, photo_url, dob, department:departments(name), position:positions(name), employment_status:employment_statuses(name), working_status:working_statuses(name), nationality:nationalities(name)",
     )
     .eq("id", input.staffId)
     .eq("home_venue_id", venue.id)
@@ -1174,6 +1179,27 @@ export async function getEmployeeLeaveBalances(input: {
   const dept = staffRow.department as { name: string } | { name: string }[] | null;
   const department =
     Array.isArray(dept) ? dept[0] ?? null : dept;
+  const pos = staffRow.position as { name: string } | { name: string }[] | null;
+  const position = Array.isArray(pos) ? pos[0] ?? null : pos;
+  const empStatus = staffRow.employment_status as
+    | { name: string }
+    | { name: string }[]
+    | null;
+  const employment_status = Array.isArray(empStatus)
+    ? empStatus[0] ?? null
+    : empStatus;
+  const workStatus = staffRow.working_status as
+    | { name: string }
+    | { name: string }[]
+    | null;
+  const working_status = Array.isArray(workStatus)
+    ? workStatus[0] ?? null
+    : workStatus;
+  const nat = staffRow.nationality as
+    | { name: string }
+    | { name: string }[]
+    | null;
+  const nationality = Array.isArray(nat) ? nat[0] ?? null : nat;
 
   return {
     year,
@@ -1192,7 +1218,12 @@ export async function getEmployeeLeaveBalances(input: {
         ? String(staffRow.probation_status)
         : null,
       photo_url: staffRow.photo_url ? String(staffRow.photo_url) : null,
+      dob: staffRow.dob ? String(staffRow.dob) : null,
       department,
+      position,
+      employment_status,
+      working_status,
+      nationality,
     },
     balances: balancesWithRoster,
     adjustments,

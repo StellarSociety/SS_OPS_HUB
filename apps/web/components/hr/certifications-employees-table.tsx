@@ -849,6 +849,17 @@ export function CertificationsEmployeesTable({
                                   fullName={row.staff.full_name}
                                   photoUrl={row.staff.photo_url}
                                   size="fill"
+                                  empNo={row.staff.emp_no}
+                                  department={row.staff.department?.name}
+                                  position={row.staff.position?.name}
+                                  employeeStatus={
+                                    row.staff.employment_status?.name
+                                  }
+                                  workingStatus={row.staff.working_status?.name}
+                                  nationality={row.staff.nationality?.name}
+                                  dob={row.staff.dob}
+                                  joiningDate={row.staff.joining_date}
+                                  terminationDate={row.staff.termination_date}
                                 />
                                 <div className="min-w-0 flex-1">
                                   <div className="font-medium text-[#3D421F]">

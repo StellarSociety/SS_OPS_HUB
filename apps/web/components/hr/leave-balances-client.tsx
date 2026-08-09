@@ -26,7 +26,12 @@ type DetailPayload = {
     termination_date: string | null;
     probation_status: string | null;
     photo_url: string | null;
+    dob: string | null;
     department: { name: string } | null;
+    position: { name: string } | null;
+    employment_status: { name: string } | null;
+    working_status: { name: string } | null;
+    nationality: { name: string } | null;
   };
   balances: HrLeaveBalance[];
   adjustments: HrLeaveBalanceAdjustment[];

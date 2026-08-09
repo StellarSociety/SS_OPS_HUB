@@ -324,8 +324,14 @@ export type OnProbationItem = {
   staffId: string;
   empNo: string;
   fullName: string;
+  photoUrl: string | null;
   departmentName: string | null;
   positionName: string | null;
+  employmentStatusName: string | null;
+  nationalityName: string | null;
+  dob: string | null;
+  joiningDate: string | null;
+  terminationDate: string | null;
   commencementDate: string;
   durationLabel: string;
   legalEndDate: string;
@@ -373,6 +379,8 @@ export function listOnProbationItems(
     id: string;
     emp_no: string;
     full_name: string;
+    photo_url?: string | null;
+    dob?: string | null;
     joining_date: string | null;
     termination_date: string | null;
     probation_duration_value: number | null;
@@ -381,6 +389,7 @@ export function listOnProbationItems(
     department?: { name: string } | null;
     position?: { name: string } | null;
     employment_status?: { name: string } | null;
+    nationality?: { name: string } | null;
   }[],
 ): OnProbationItem[] {
   const items: OnProbationItem[] = [];
@@ -411,8 +420,14 @@ export function listOnProbationItems(
       staffId: member.id,
       empNo: member.emp_no,
       fullName: member.full_name,
+      photoUrl: member.photo_url?.trim() || null,
       departmentName: member.department?.name ?? null,
       positionName: member.position?.name ?? null,
+      employmentStatusName: member.employment_status?.name ?? null,
+      nationalityName: member.nationality?.name ?? null,
+      dob: member.dob?.trim().slice(0, 10) || null,
+      joiningDate: member.joining_date,
+      terminationDate: member.termination_date,
       commencementDate: calc.commencementDate,
       durationLabel: calc.durationLabel,
       legalEndDate: calc.legalEndDate,

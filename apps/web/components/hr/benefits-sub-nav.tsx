@@ -18,11 +18,6 @@ const TABS = [
     icon: HandCoins,
   },
   {
-    href: HR_BENEFITS_COLLECTIONS_HREF,
-    label: "Collections",
-    icon: PiggyBank,
-  },
-  {
     href: HR_BENEFITS_SERVICE_CHARGE_HREF,
     label: "Service Charge",
     icon: Percent,
@@ -31,6 +26,11 @@ const TABS = [
     href: HR_BENEFITS_FLIGHT_TICKET_HREF,
     label: "Flight Ticket",
     icon: Plane,
+  },
+  {
+    href: HR_BENEFITS_COLLECTIONS_HREF,
+    label: "Collections",
+    icon: PiggyBank,
   },
 ] as const;
 

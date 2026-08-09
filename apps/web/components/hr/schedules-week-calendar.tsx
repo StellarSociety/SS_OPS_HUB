@@ -12,6 +12,12 @@ import {
 import { Eraser, GripVertical, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { RosterLabelsDialog } from "@/components/hr/roster-labels-dialog";
 import { SchedulesWeekNav } from "@/components/hr/schedules-week-nav";
+import {
+  ShiftTemplateEditDialog,
+  createDraftShiftTemplate,
+} from "@/components/hr/shift-template-edit-dialog";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -223,7 +229,7 @@ export function SchedulesWeekCalendar({
   departmentLabel,
   staff,
   labels,
-  shiftTemplates = [],
+  shiftTemplates: shiftTemplatesProp = [],
   publicHolidayByDate,
   canEdit = false,
   layout = "flat",
@@ -238,6 +244,9 @@ export function SchedulesWeekCalendar({
   hideWeekNavigation = false,
 }: SchedulesWeekCalendarProps) {
   const sectionsMode = layout === "sections" && Boolean(departmentKey);
+  const [shiftTemplates, setShiftTemplates] = useState(shiftTemplatesProp);
+  const [editingShiftTemplate, setEditingShiftTemplate] =
+    useState<ShiftTemplate | null>(null);
   const [weekOffsetState, setWeekOffsetState] = useState(0);
   const weekOffset = weekOffsetProp ?? weekOffsetState;
   function setWeekOffset(next: number | ((current: number) => number)) {
@@ -246,6 +255,11 @@ export function SchedulesWeekCalendar({
     onWeekOffsetChange?.(value);
     if (weekOffsetProp === undefined) setWeekOffsetState(value);
   }
+
+  useEffect(() => {
+    setShiftTemplates(shiftTemplatesProp);
+  }, [shiftTemplatesProp]);
+
   const saveDraftsRef = useRef<() => Promise<boolean>>(async () => true);
   const seededWeekRef = useRef<string | null>(null);
   const [saved, setSaved] = useState<Record<string, ScheduleCellValue>>(() => {
@@ -1691,7 +1705,7 @@ export function SchedulesWeekCalendar({
           scope="row"
           className="sticky left-0 z-10 w-[240px] border-r border-black/10 bg-white/90 px-2 py-2.5 text-left font-medium text-[#3D421F] backdrop-blur-md"
         >
-          <div className="flex items-start gap-1">
+          <div className="flex items-stretch gap-1.5">
             {canDragStaff ? (
               <span
                 draggable
@@ -1721,24 +1735,41 @@ export function SchedulesWeekCalendar({
                   setSectionReorderTarget(null);
                   setStaffReorderTarget(null);
                 }}
-                className="mt-0.5 inline-flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-black/30 active:cursor-grabbing"
+                className="inline-flex w-4 shrink-0 cursor-grab items-center justify-center text-black/30 active:cursor-grabbing"
                 title="Drag to reorder within this section, or move to another"
                 aria-label={`Drag ${member.fullName} to reorder or move`}
               >
                 <GripVertical className="h-3.5 w-3.5" aria-hidden />
               </span>
             ) : sectionsMode ? (
-              <span className="inline-flex h-5 w-4 shrink-0" aria-hidden />
+              <span className="inline-flex w-4 shrink-0" aria-hidden />
             ) : null}
-            <span className="min-w-0 flex-1">
+            <StaffPhotoThumbnail
+              fullName={member.fullName}
+              photoUrl={member.photoUrl}
+              size="fill"
+              className="my-0.5 w-10"
+              empNo={member.empNo}
+              department={member.department}
+              position={member.position}
+              employeeStatus={member.employeeStatus}
+              workingStatus={resolvedWorkingStatus}
+              nationality={member.nationality}
+              dob={member.dob}
+              joiningDate={member.joiningDate}
+              terminationDate={member.terminationDate}
+            />
+            <span className="min-w-0 flex-1 self-center">
               <span className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate">{member.fullName}</span>
                 <WorkingStatusBadge status={resolvedWorkingStatus} />
               </span>
               <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-black/50">
-                <span className="shrink-0 tabular-nums text-black/40">
-                  {member.empNo}
-                </span>
+                <StaffDirectoryLink
+                  staffId={member.id}
+                  empNo={member.empNo}
+                  className="shrink-0 text-[11px] tabular-nums"
+                />
                 <span className="text-black/25" aria-hidden>
                   ·
                 </span>
@@ -2094,41 +2125,74 @@ export function SchedulesWeekCalendar({
           </div>
 
           <div className="min-w-0 flex-1 rounded-lg border border-black/10 bg-white/70 p-3 lg:max-w-md">
-            <div className="mb-2 min-w-0 space-y-1">
-              <p className="text-sm font-medium text-[#3D421F]">
-                Shift times
-                {selectedShiftCount > 0 ? (
-                  <span className="font-normal text-black/50">
-                    {" "}
-                    · {selectedShiftCount} Shift day
-                    {selectedShiftCount === 1 ? "" : "s"} selected
-                  </span>
-                ) : null}
-              </p>
-              <p className="text-xs text-black/50">
-                Select Shift days on the grid, then apply a time. Only Shift
-                cells are updated.
-              </p>
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <div className="min-w-0 space-y-1">
+                <p className="text-sm font-medium text-[#3D421F]">
+                  Shift times
+                  {selectedShiftCount > 0 ? (
+                    <span className="font-normal text-black/50">
+                      {" "}
+                      · {selectedShiftCount} Shift day
+                      {selectedShiftCount === 1 ? "" : "s"} selected
+                    </span>
+                  ) : null}
+                </p>
+                <p className="text-xs text-black/50">
+                  Select Shift days on the grid, then apply a time. Only Shift
+                  cells are updated.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={pending}
+                title="Add a new shift time"
+                onClick={() => {
+                  const nextOrder =
+                    shiftTemplates.reduce(
+                      (max, row) => Math.max(max, row.sortOrder),
+                      0,
+                    ) + 1;
+                  setEditingShiftTemplate(createDraftShiftTemplate(nextOrder));
+                }}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-dashed border-black/20 bg-white/80 px-2 py-1 text-[11px] font-medium text-[#3D421F] transition-colors hover:border-[var(--venue-primary)]/40 hover:bg-[var(--venue-primary)]/8 disabled:opacity-40"
+              >
+                <Plus className="h-3 w-3" aria-hidden />
+                Add shift
+              </button>
             </div>
 
             {shiftTemplates.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
-                {shiftTemplates.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    disabled={pending || selectedShiftCount === 0}
-                    title={`${template.name} · ${formatShiftRangeLabel(template.startTime, template.endTime)}`}
-                    onClick={() => applyShiftTime(template.id)}
-                    className="inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-semibold tracking-wide transition-opacity hover:opacity-90 disabled:opacity-40"
-                    style={scheduleDayLabelStyle(template)}
-                  >
-                    {formatShiftRangeLabel(
-                      template.startTime,
-                      template.endTime,
-                    )}
-                  </button>
-                ))}
+                {shiftTemplates.map((template) => {
+                  const applyDisabled = pending || selectedShiftCount === 0;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      aria-disabled={applyDisabled}
+                      title={`${template.name} · ${formatShiftRangeLabel(template.startTime, template.endTime)} · Right-click to edit`}
+                      onClick={() => {
+                        if (applyDisabled) return;
+                        applyShiftTime(template.id);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setEditingShiftTemplate(template);
+                      }}
+                      className={cn(
+                        "inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-semibold tracking-wide transition-opacity hover:opacity-90",
+                        applyDisabled && "opacity-40",
+                      )}
+                      style={scheduleDayLabelStyle(template)}
+                    >
+                      {formatShiftRangeLabel(
+                        template.startTime,
+                        template.endTime,
+                      )}
+                    </button>
+                  );
+                })}
                 <button
                   type="button"
                   disabled={pending || selectedShiftCount === 0}
@@ -2140,8 +2204,7 @@ export function SchedulesWeekCalendar({
               </div>
             ) : (
               <p className="text-xs text-black/45">
-                No shift times configured yet. Add them under HR Settings →
-                Attendance → Shift Templates.
+                No shift times configured yet.
               </p>
             )}
           </div>
@@ -2335,14 +2398,6 @@ export function SchedulesWeekCalendar({
               </tr>
             ) : sectionsMode ? (
               <>
-                {renderSectionHeaderRow(
-                  "Unassigned",
-                  null,
-                  unassignedStaff.length,
-                )}
-                {unassignedStaff.map((member) =>
-                  renderStaffRow(member, null),
-                )}
                 {sections.map((section) => {
                   const members = section.staffIds
                     .map((id) => staffById.get(id))
@@ -2362,6 +2417,14 @@ export function SchedulesWeekCalendar({
                     </Fragment>
                   );
                 })}
+                {renderSectionHeaderRow(
+                  "Unassigned",
+                  null,
+                  unassignedStaff.length,
+                )}
+                {unassignedStaff.map((member) =>
+                  renderStaffRow(member, null),
+                )}
               </>
             ) : (
               staff.map((member) => renderStaffRow(member, null))
@@ -2374,6 +2437,52 @@ export function SchedulesWeekCalendar({
         open={labelsDialogOpen}
         labels={labels}
         onClose={() => setLabelsDialogOpen(false)}
+      />
+      <ShiftTemplateEditDialog
+        open={Boolean(editingShiftTemplate)}
+        template={editingShiftTemplate}
+        onClose={() => setEditingShiftTemplate(null)}
+        onSaved={(next) => {
+          setShiftTemplates((current) => {
+            if (!next.isActive) {
+              return current.filter((row) => row.id !== next.id);
+            }
+            const withoutDraft = current.filter(
+              (row) =>
+                row.id !== next.id &&
+                !(
+                  editingShiftTemplate?.id.startsWith("new:") &&
+                  row.id === editingShiftTemplate.id
+                ),
+            );
+            const exists = withoutDraft.some((row) => row.id === next.id);
+            const updated = exists
+              ? withoutDraft.map((row) => (row.id === next.id ? next : row))
+              : [...withoutDraft, next];
+            return [...updated].sort(
+              (a, b) =>
+                a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+            );
+          });
+        }}
+        onDeleted={(id) => {
+          setShiftTemplates((current) =>
+            current.filter((row) => row.id !== id),
+          );
+        }}
+        onAddAnother={() => {
+          setShiftTemplates((current) => {
+            const nextOrder =
+              current.reduce(
+                (max, row) => Math.max(max, row.sortOrder),
+                0,
+              ) + 1;
+            queueMicrotask(() => {
+              setEditingShiftTemplate(createDraftShiftTemplate(nextOrder));
+            });
+            return current;
+          });
+        }}
       />
       {unsavedDialog}
     </div>

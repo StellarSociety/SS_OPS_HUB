@@ -484,6 +484,7 @@ export function OffboardingProcessForm({
       staffId: staff.id,
       empNo: staff.empNo,
       fullName: staff.fullName,
+      photoUrl: initialProcess?.photoUrl ?? null,
       departmentName: staff.departmentName,
       positionName: staff.positionName,
       employmentStatusId,

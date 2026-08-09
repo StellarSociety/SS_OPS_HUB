@@ -25,7 +25,7 @@ import {
 export default async function StaffInsightsPage() {
   const { supabase, venue } = await getHrPageContext();
 
-  // Flush due auto-sends so today's anniversaries don't wait only on cron.
+  // Flush due auto-sends so today's anniversaries are not waiting only on cron.
   await processDueWorkAnniversaryEmails({
     venueId: venue.id,
     limit: 25,

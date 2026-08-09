@@ -184,6 +184,8 @@ export default async function AttendanceValidationPage({
           publicHolidayByDate={publicHolidayByDate}
           canEditRoster={canEditRoster}
           initialStaffId={initialStaffId}
+          initialFromDate={payrollFrom}
+          initialToDate={payrollTo}
           scheduleVarianceMinutes={rules.scheduleVarianceMinutes}
           timezone={rules.timezone}
           payrollPeriodStartDay={payrollSettings.periodStartDay}

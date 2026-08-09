@@ -1,0 +1,28 @@
+---
+description: Popup/dialog windows must close on Escape
+globs: apps/web/components/**/*.{tsx,ts}
+alwaysApply: false
+---
+
+# Dialog Escape to close
+
+Modal popups and dialogs must close when the user presses **Escape**.
+
+## Pattern
+
+```tsx
+useEffect(() => {
+  if (!open) return;
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && !busy) onOpenChange(false);
+  };
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+}, [open, busy, onOpenChange]);
+```
+
+## Rules
+
+- Wire Escape on every new modal/`createPortal` dialog.
+- Skip close while a blocking busy state is active (upload, send, save) when dismissing would be unsafe.
+- Prefer matching existing dialogs (e.g. `assign-assets-to-staff-dialog.tsx`).

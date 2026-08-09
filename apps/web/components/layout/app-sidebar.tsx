@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
@@ -298,7 +305,8 @@ function activeCategoryKeys(
  * Renders a module's nav items. When the module defines `categories`, items are
  * grouped under their category label (matching the module shortcuts bar);
  * otherwise it falls back to a flat list using each item's `dividerAfter`.
- * Category sections collapse so only the active group stays open by default.
+ * Categories stay expanded when they fit; inactive groups auto-collapse only
+ * when the scroll parent would otherwise overflow (avoids a scrollbar).
  */
 function ModuleSidebarItems({
   moduleSidebar,
@@ -310,6 +318,7 @@ function ModuleSidebarItems({
   collapsed: boolean;
 }) {
   const categories = moduleSidebar.categories ?? [];
+  const fitAnchorRef = useRef<HTMLDivElement>(null);
 
   const itemByHref = useMemo(
     () => new Map(moduleSidebar.items.map((item) => [item.href, item])),
@@ -321,20 +330,30 @@ function ModuleSidebarItems({
     [categories, itemByHref, pathname],
   );
 
-  const [openKeys, setOpenKeys] = useState<Set<string>>(
-    () => new Set(routeActiveKeys),
+  /** True when fully expanded content does not fit the nav viewport. */
+  const [spaceTight, setSpaceTight] = useState(false);
+  /** Manual open/closed overrides; cleared when fit mode flips. */
+  const [userOverrides, setUserOverrides] = useState<Record<string, boolean>>(
+    {},
   );
+  const fullContentHeightRef = useRef(0);
+
+  useEffect(() => {
+    fullContentHeightRef.current = 0;
+    setSpaceTight(false);
+    setUserOverrides({});
+  }, [moduleSidebar.moduleKey]);
 
   useEffect(() => {
     if (routeActiveKeys.length === 0) {
       return;
     }
-    setOpenKeys((prev) => {
+    setUserOverrides((prev) => {
       let changed = false;
-      const next = new Set(prev);
+      const next = { ...prev };
       for (const key of routeActiveKeys) {
-        if (!next.has(key)) {
-          next.add(key);
+        if (next[key] === false) {
+          delete next[key];
           changed = true;
         }
       }
@@ -342,15 +361,78 @@ function ModuleSidebarItems({
     });
   }, [routeActiveKeys]);
 
-  const toggleCategory = (key: string) => {
-    setOpenKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
+  const defaultExpanded = (key: string) => {
+    if (!spaceTight) {
+      return true;
+    }
+    if (routeActiveKeys.includes(key)) {
+      return true;
+    }
+    if (routeActiveKeys.length === 0) {
+      return key === categories[0]?.key;
+    }
+    return false;
+  };
+
+  const isCategoryExpanded = (key: string) => {
+    if (collapsed) {
+      return true;
+    }
+    if (Object.hasOwn(userOverrides, key)) {
+      return userOverrides[key]!;
+    }
+    return defaultExpanded(key);
+  };
+
+  useLayoutEffect(() => {
+    if (collapsed || categories.length === 0) {
+      return;
+    }
+    const nav = fitAnchorRef.current?.closest("nav");
+    if (!nav) {
+      return;
+    }
+
+    const measure = () => {
+      const { scrollHeight, clientHeight } = nav;
+      if (!spaceTight) {
+        fullContentHeightRef.current = Math.max(
+          fullContentHeightRef.current,
+          scrollHeight,
+        );
+        if (scrollHeight > clientHeight + 2) {
+          setSpaceTight(true);
+          setUserOverrides({});
+        }
+        return;
       }
-      return next;
+      if (
+        fullContentHeightRef.current > 0 &&
+        fullContentHeightRef.current <= clientHeight
+      ) {
+        setSpaceTight(false);
+        setUserOverrides({});
+      }
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [
+    collapsed,
+    categories.length,
+    spaceTight,
+    pathname,
+    moduleSidebar.items.length,
+  ]);
+
+  const toggleCategory = (key: string) => {
+    setUserOverrides((prev) => {
+      const currently = Object.hasOwn(prev, key)
+        ? prev[key]!
+        : defaultExpanded(key);
+      return { ...prev, [key]: !currently };
     });
   };
 
@@ -407,10 +489,10 @@ function ModuleSidebarItems({
   };
 
   return (
-    <>
+    <div ref={fitAnchorRef} className="contents">
       {leadingItems.map((item) => renderItem(item.href))}
       {categories.map((category) => {
-        const expanded = collapsed || openKeys.has(category.key);
+        const expanded = isCategoryExpanded(category.key);
         return (
           <Fragment key={category.key}>
             {collapsed ? (
@@ -428,7 +510,7 @@ function ModuleSidebarItems({
           </Fragment>
         );
       })}
-    </>
+    </div>
   );
 }
 

@@ -20,7 +20,7 @@ const HR_EXPIRY_FIELDS = [
 ] as const;
 
 const STAFF_EXPIRY_SELECT =
-  "id, emp_no, full_name, home_venue_id, passport_expiry, eid_expiry, visa_expiry, contract_expiry, eresidence_expiry, medical_insurance_expiry_date, ohc_date, pic_date, basic_food_safety_date, fire_safety_date, first_aid_date";
+  "id, emp_no, full_name, photo_url, dob, joining_date, termination_date, home_venue_id, passport_expiry, eid_expiry, visa_expiry, contract_expiry, eresidence_expiry, medical_insurance_expiry_date, ohc_date, pic_date, basic_food_safety_date, fire_safety_date, first_aid_date, department:departments(name), position:positions(name), working_status:working_statuses(name), nationality:nationalities(name)";
 
 function formatDaysPhrase(daysUntil: number): string {
   if (daysUntil < 0) {
@@ -131,6 +131,15 @@ export function toHrExpiryWidgetItems(
     staffId: item.sourceId,
     empNo: item.secondaryLabel ?? "",
     fullName: item.displayName,
+    photoUrl: item.photoUrl ?? null,
+    departmentName: item.departmentName ?? null,
+    positionName: item.positionName ?? null,
+    employeeStatusName: item.employeeStatusName ?? null,
+    workingStatusName: item.workingStatusName ?? null,
+    nationalityName: item.nationalityName ?? null,
+    dob: item.dob ?? null,
+    joiningDate: item.joiningDate ?? null,
+    terminationDate: item.terminationDate ?? null,
     field: item.field,
     label: item.label,
     expiryDate: item.expiryDate,

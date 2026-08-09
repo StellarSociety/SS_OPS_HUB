@@ -36,6 +36,15 @@ export type ExpiryItem = {
   venueId: string;
   displayName: string;
   secondaryLabel?: string;
+  photoUrl?: string | null;
+  departmentName?: string | null;
+  positionName?: string | null;
+  employeeStatusName?: string | null;
+  workingStatusName?: string | null;
+  nationalityName?: string | null;
+  dob?: string | null;
+  joiningDate?: string | null;
+  terminationDate?: string | null;
   field: string;
   label: string;
   expiryDate: string;

@@ -17,6 +17,7 @@ import {
   OffboardingNoticeEmailRecordViewer,
 } from "@/components/hr/offboarding-notice-email-record";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
@@ -385,24 +386,45 @@ export function OffboardingProcessTable({
                           : undefined
                       }
                     >
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-[#3D421F]">
-                          {row.fullName}
-                          {archived ? (
-                            <span className="ml-2 inline-flex rounded-full bg-black/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/45">
-                              Archived
-                            </span>
-                          ) : null}
-                        </p>
-                        <div className="mt-0.5 text-xs text-black/45">
-                          <StaffDirectoryLink
-                            staffId={row.staffId}
+                      <td className="px-4 py-3 align-middle">
+                        <div className="flex items-stretch gap-3">
+                          <StaffPhotoThumbnail
+                            fullName={row.fullName}
+                            photoUrl={row.photoUrl}
+                            size="fill"
+                            className="min-h-14"
                             empNo={row.empNo}
-                            onClick={(e) => e.stopPropagation()}
+                            department={row.departmentName}
+                            position={row.positionName}
+                            employeeStatus={row.employmentStatusName}
+                            joiningDate={row.joiningDate}
+                            terminationDate={row.terminationDate}
                           />
-                          {row.departmentName
-                            ? ` · ${row.departmentName}`
-                            : ""}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-[#3D421F]">
+                              {row.fullName}
+                              {archived ? (
+                                <span className="ml-2 inline-flex rounded-full bg-black/5 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/45">
+                                  Archived
+                                </span>
+                              ) : null}
+                            </p>
+                            <div className="mt-0.5 text-xs text-black/45">
+                              <StaffDirectoryLink
+                                staffId={row.staffId}
+                                empNo={row.empNo}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              {row.departmentName
+                                ? ` · ${row.departmentName}`
+                                : ""}
+                            </div>
+                            {row.positionName ? (
+                              <div className="mt-0.5 text-xs text-black/45">
+                                {row.positionName}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-[#3D421F]">

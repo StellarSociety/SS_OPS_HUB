@@ -114,6 +114,8 @@ export type OffboardingProcess = {
   staffId: string;
   empNo: string;
   fullName: string;
+  /** Live from staff.photo_url — not stored on the process row. */
+  photoUrl: string | null;
   departmentName: string | null;
   positionName: string | null;
   employmentStatusId: string | null;

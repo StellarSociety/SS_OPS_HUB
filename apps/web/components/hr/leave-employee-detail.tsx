@@ -18,6 +18,7 @@ import {
 import { LeaveActivityDialog } from "@/components/hr/leave-activity-dialog";
 import { LeaveBalanceRing } from "@/components/hr/leave-balance-ring";
 import { LeaveCalendarDialog } from "@/components/hr/leave-calendar-dialog";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -128,7 +129,12 @@ type LeaveEmployeeDetailProps = {
     termination_date: string | null;
     probation_status: string | null;
     photo_url: string | null;
+    dob: string | null;
     department: { name: string } | null;
+    position: { name: string } | null;
+    employment_status: { name: string } | null;
+    working_status: { name: string } | null;
+    nationality: { name: string } | null;
   };
   balances: HrLeaveBalance[];
   adjustments: HrLeaveBalanceAdjustment[];
@@ -577,23 +583,21 @@ export function LeaveEmployeeDetail({
           </p>
         </div>
         <div className="shrink-0 self-center">
-          {staff.photo_url ? (
-            <div className="h-20 w-16 overflow-hidden rounded-lg border border-black/10 bg-black/[0.03] sm:h-24 sm:w-20">
-              {/* eslint-disable-next-line @next/next/no-img-element -- staff photo URL from storage */}
-              <img
-                src={staff.photo_url}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            </div>
-          ) : (
-            <div
-              className="flex h-20 w-16 items-center justify-center rounded-lg border border-dashed border-black/15 bg-black/[0.03] text-xs text-black/35 sm:h-24 sm:w-20"
-              aria-hidden
-            >
-              No photo
-            </div>
-          )}
+          <StaffPhotoThumbnail
+            fullName={staff.full_name}
+            photoUrl={staff.photo_url}
+            className="h-20 w-16 rounded-lg sm:h-24 sm:w-20"
+            size="fill"
+            empNo={staff.emp_no}
+            department={staff.department?.name}
+            position={staff.position?.name}
+            employeeStatus={staff.employment_status?.name}
+            workingStatus={staff.working_status?.name}
+            nationality={staff.nationality?.name}
+            dob={staff.dob}
+            joiningDate={staff.joining_date}
+            terminationDate={staff.termination_date}
+          />
         </div>
       </div>
 

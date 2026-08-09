@@ -92,6 +92,9 @@ type Props = {
   canEditRoster: boolean;
   /** Prefill department + employee from leave detail / deep links. */
   initialStaffId?: string | null;
+  /** Prefill day range (e.g. current payroll period) from deep links. */
+  initialFromDate?: string | null;
+  initialToDate?: string | null;
   /** Grace minutes between schedule and punches (default 40). */
   scheduleVarianceMinutes?: number;
   timezone?: string;
@@ -371,6 +374,8 @@ export function AttendanceApprovalsTable({
   publicHolidayByDate = {},
   canEditRoster,
   initialStaffId = null,
+  initialFromDate = null,
+  initialToDate = null,
   scheduleVarianceMinutes = DEFAULT_SCHEDULE_VARIANCE_MINUTES,
   timezone = DEFAULT_HR_ATTENDANCE_IMPORT_RULES.timezone,
   payrollPeriodStartDay = 25,
@@ -446,17 +451,35 @@ export function AttendanceApprovalsTable({
     if (!hydrated) return;
     const staffId = initialStaffId?.trim();
     if (!staffId) return;
-    if (appliedInitialStaffRef.current === staffId) return;
+    const from = initialFromDate?.trim() || "";
+    const to = initialToDate?.trim() || "";
+    const applyKey = `${staffId}|${from}|${to}`;
+    if (appliedInitialStaffRef.current === applyKey) return;
     const employee = employees.find((e) => e.id === staffId);
     if (!employee) return;
-    appliedInitialStaffRef.current = staffId;
+    appliedInitialStaffRef.current = applyKey;
+    const hasRange = Boolean(from && to && from <= to);
     patchFilters({
       empNo: employee.empNo,
       ...(employee.departmentId
         ? { departmentId: employee.departmentId }
         : {}),
+      ...(hasRange
+        ? {
+            dayStart: from,
+            dayEnd: to,
+            selectedWeekKeys: [],
+          }
+        : {}),
     });
-  }, [hydrated, initialStaffId, employees, patchFilters]);
+  }, [
+    hydrated,
+    initialStaffId,
+    initialFromDate,
+    initialToDate,
+    employees,
+    patchFilters,
+  ]);
 
   const labelsByCode = useMemo(() => {
     const map = new Map<string, ScheduleLabelOption>();

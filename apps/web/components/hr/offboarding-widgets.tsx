@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { UserMinus } from "lucide-react";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { formatDateOnly } from "@/lib/hr/derived";
@@ -54,6 +55,25 @@ function daysLabel(daysUntilTermination: number | null): string | null {
   }
   const ago = Math.abs(daysUntilTermination);
   return `${ago} day${ago === 1 ? "" : "s"} ago`;
+}
+
+function OffBoardingPhoto({ item }: { item: OffBoardingItem }) {
+  return (
+    <StaffPhotoThumbnail
+      fullName={item.fullName}
+      photoUrl={item.photoUrl}
+      size="fill"
+      className="my-0 w-7"
+      empNo={item.empNo}
+      department={item.departmentName}
+      position={item.positionName}
+      employeeStatus={item.employmentStatusName}
+      nationality={item.nationalityName}
+      dob={item.dob}
+      joiningDate={item.joiningDate}
+      terminationDate={item.terminationDate}
+    />
+  );
 }
 
 export function OffBoardingWidgets({
@@ -117,26 +137,29 @@ export function OffBoardingWidgets({
                       <li key={item.staffId}>
                         <div
                           className={cn(
-                            "flex flex-col gap-0.5 rounded-md border px-2 py-1 text-[11px]",
+                            "flex items-stretch gap-1.5 rounded-md border px-2 py-1 text-[11px]",
                             rowClass(item.daysUntilTermination),
                           )}
                         >
-                          <span className="truncate font-medium">
-                            {item.fullName}{" "}
-                            <span className="font-normal text-black/50">
-                              (
-                              <StaffDirectoryLink
-                                staffId={item.staffId}
-                                empNo={item.empNo}
-                                className="inline font-normal"
-                              />
-                              )
+                          <OffBoardingPhoto item={item} />
+                          <div className="flex min-w-0 flex-1 flex-col gap-0.5 self-center">
+                            <span className="truncate font-medium">
+                              {item.fullName}{" "}
+                              <span className="font-normal text-black/50">
+                                (
+                                <StaffDirectoryLink
+                                  staffId={item.staffId}
+                                  empNo={item.empNo}
+                                  className="inline font-normal"
+                                />
+                                )
+                              </span>
                             </span>
-                          </span>
-                          <span className="truncate text-black/60">
-                            Last day {formatDateOnly(item.terminationDate)}
-                            {remaining ? ` · ${remaining}` : null}
-                          </span>
+                            <span className="truncate text-black/60">
+                              Last day {formatDateOnly(item.terminationDate)}
+                              {remaining ? ` · ${remaining}` : null}
+                            </span>
+                          </div>
                         </div>
                       </li>
                     );
@@ -187,79 +210,82 @@ export function OffBoardingWidgets({
               <li key={item.staffId}>
                 <div
                   className={cn(
-                    "flex flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-xs",
+                    "flex items-stretch gap-2 rounded-md border px-2.5 py-1.5 text-xs",
                     rowClass(item.daysUntilTermination),
                   )}
                 >
-                  <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {item.fullName}{" "}
-                      <span className="font-normal text-black/50">
-                        (
-                        <StaffDirectoryLink
-                          staffId={item.staffId}
-                          empNo={item.empNo}
-                          className="inline font-normal"
-                        />
-                        )
+                  <OffBoardingPhoto item={item} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 self-center">
+                    <div className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2.5">
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {item.fullName}{" "}
+                        <span className="font-normal text-black/50">
+                          (
+                          <StaffDirectoryLink
+                            staffId={item.staffId}
+                            empNo={item.empNo}
+                            className="inline font-normal"
+                          />
+                          )
+                        </span>
                       </span>
-                    </span>
-                    {roleParts.length > 0 ? (
-                      <span className="shrink-0 truncate text-black/55">
-                        {roleParts.join(" · ")}
+                      {roleParts.length > 0 ? (
+                        <span className="shrink-0 truncate text-black/55">
+                          {roleParts.join(" · ")}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:gap-y-0.5">
+                      {item.joiningDate ? (
+                        <>
+                          <span>Joined {formatDateOnly(item.joiningDate)}</span>
+                          <span
+                            className="hidden text-black/25 sm:inline"
+                            aria-hidden
+                          >
+                            ·
+                          </span>
+                        </>
+                      ) : null}
+                      {item.workedTime ? (
+                        <>
+                          <span>{item.workedTime}</span>
+                          <span
+                            className="hidden text-black/25 sm:inline"
+                            aria-hidden
+                          >
+                            ·
+                          </span>
+                        </>
+                      ) : null}
+                      <span>
+                        Last day {formatDateOnly(item.terminationDate)}
                       </span>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-black/65 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:gap-y-0.5">
-                    {item.joiningDate ? (
-                      <>
-                        <span>Joined {formatDateOnly(item.joiningDate)}</span>
-                        <span
-                          className="hidden text-black/25 sm:inline"
-                          aria-hidden
-                        >
-                          ·
-                        </span>
-                      </>
-                    ) : null}
-                    {item.workedTime ? (
-                      <>
-                        <span>{item.workedTime}</span>
-                        <span
-                          className="hidden text-black/25 sm:inline"
-                          aria-hidden
-                        >
-                          ·
-                        </span>
-                      </>
-                    ) : null}
-                    <span>
-                      Last day {formatDateOnly(item.terminationDate)}
-                    </span>
-                    {item.employmentStatusName ? (
-                      <>
-                        <span
-                          className="hidden text-black/25 sm:inline"
-                          aria-hidden
-                        >
-                          ·
-                        </span>
-                        <span>{item.employmentStatusName}</span>
-                      </>
-                    ) : null}
-                    {remaining ? (
-                      <>
-                        <span
-                          className="hidden text-black/25 sm:inline"
-                          aria-hidden
-                        >
-                          ·
-                        </span>
-                        <span className="font-medium text-rose-900/90">
-                          {remaining}
-                        </span>
-                      </>
-                    ) : null}
+                      {item.employmentStatusName ? (
+                        <>
+                          <span
+                            className="hidden text-black/25 sm:inline"
+                            aria-hidden
+                          >
+                            ·
+                          </span>
+                          <span>{item.employmentStatusName}</span>
+                        </>
+                      ) : null}
+                      {remaining ? (
+                        <>
+                          <span
+                            className="hidden text-black/25 sm:inline"
+                            aria-hidden
+                          >
+                            ·
+                          </span>
+                          <span className="font-medium text-rose-900/90">
+                            {remaining}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </li>

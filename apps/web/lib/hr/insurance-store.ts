@@ -691,6 +691,14 @@ export async function loadInsuranceExpensesPage(
       photoUrl: string | null;
       reference: string;
       value: number;
+      departmentName: string | null;
+      positionName: string | null;
+      employmentStatusName: string | null;
+      workingStatusName: string | null;
+      nationalityName: string | null;
+      dob: string | null;
+      joiningDate: string | null;
+      terminationDate: string | null;
     }[];
   };
 
@@ -725,6 +733,14 @@ export async function loadInsuranceExpensesPage(
       photoUrl: params.staff.photo_url ?? null,
       reference: params.reference?.trim() || "",
       value: costs.gross,
+      departmentName: params.staff.department?.name ?? null,
+      positionName: params.staff.position?.name ?? null,
+      employmentStatusName: params.staff.employment_status?.name ?? null,
+      workingStatusName: params.staff.working_status?.name ?? null,
+      nationalityName: params.staff.nationality?.name ?? null,
+      dob: params.staff.dob ?? null,
+      joiningDate: params.staff.joining_date ?? null,
+      terminationDate: params.staff.termination_date ?? null,
     };
 
     const existing = monthMap.get(categoryKey);

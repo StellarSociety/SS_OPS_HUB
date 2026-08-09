@@ -57,10 +57,15 @@ export default async function AttendanceInsightsPage() {
       id: string;
       emp_no: string;
       full_name: string;
+      photo_url: string | null;
       department_id: string | null;
       department_name: string | null;
+      position_name: string | null;
       employment_status: string | null;
       working_status: string | null;
+      nationality_name: string | null;
+      dob: string | null;
+      joining_date: string | null;
       termination_date: string | null;
     }
   > = {};
@@ -77,10 +82,15 @@ export default async function AttendanceInsightsPage() {
       id: s.id,
       emp_no: s.emp_no,
       full_name: s.full_name,
+      photo_url: s.photo_url?.trim() || null,
       department_id: s.department_id,
       department_name: s.department?.name ?? null,
+      position_name: s.position?.name ?? null,
       employment_status: s.employment_status?.name ?? null,
       working_status: s.working_status?.name ?? null,
+      nationality_name: s.nationality?.name ?? null,
+      dob: s.dob ?? null,
+      joining_date: s.joining_date ?? null,
       termination_date: s.termination_date,
     };
   }

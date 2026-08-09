@@ -67,15 +67,22 @@ export type ScheduleStaffRow = {
   id: string;
   fullName: string;
   empNo: string;
+  department: string | null;
   position: string | null;
   /** Manual position sort from HR lookups settings. */
   positionSortOrder: number;
+  /** Employment status lookup name (e.g. ON Board). */
+  employeeStatus: string | null;
   /** Working Status lookup tag (defaults to Active). */
   workingStatus: string;
+  nationality: string | null;
+  dob: string | null;
   /** Employment start (`YYYY-MM-DD`); required to appear on any week. */
   joiningDate: string | null;
   /** Employment end (`YYYY-MM-DD`); null = still employed. */
   terminationDate: string | null;
+  /** Cropped staff photo URL from storage (nullable). */
+  photoUrl: string | null;
 };
 
 /** Editable day-cell label (stored in `schedule_day_labels`). */

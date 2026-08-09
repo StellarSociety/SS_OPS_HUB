@@ -156,6 +156,14 @@ export type InsuranceExpenseStaff = {
   photoUrl: string | null;
   reference: string;
   value: number;
+  departmentName?: string | null;
+  positionName?: string | null;
+  employmentStatusName?: string | null;
+  workingStatusName?: string | null;
+  nationalityName?: string | null;
+  dob?: string | null;
+  joiningDate?: string | null;
+  terminationDate?: string | null;
 };
 
 /** One insurance category’s expense subtotal within a month. */
@@ -474,6 +482,14 @@ export type VisaExpenseStaff = {
   photoUrl: string | null;
   reference: string;
   value: number;
+  departmentName?: string | null;
+  positionName?: string | null;
+  employmentStatusName?: string | null;
+  workingStatusName?: string | null;
+  nationalityName?: string | null;
+  dob?: string | null;
+  joiningDate?: string | null;
+  terminationDate?: string | null;
 };
 
 export type VisaExpenseLine = {
@@ -689,6 +705,14 @@ export type CertificationExpenseStaff = {
   fullName: string;
   certifiedAt: string;
   photoUrl: string | null;
+  departmentName?: string | null;
+  positionName?: string | null;
+  employmentStatusName?: string | null;
+  workingStatusName?: string | null;
+  nationalityName?: string | null;
+  dob?: string | null;
+  joiningDate?: string | null;
+  terminationDate?: string | null;
 };
 
 /** One certification type’s expense subtotal within a month. */
@@ -1084,6 +1108,15 @@ export type ExpiryItem = {
   staffId: string;
   empNo: string;
   fullName: string;
+  photoUrl: string | null;
+  departmentName: string | null;
+  positionName: string | null;
+  employeeStatusName: string | null;
+  workingStatusName: string | null;
+  nationalityName: string | null;
+  dob: string | null;
+  joiningDate: string | null;
+  terminationDate: string | null;
   field: string;
   label: string;
   expiryDate: string;

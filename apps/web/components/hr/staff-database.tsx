@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { StatusBadge } from "@/components/hr/status-badge";
 import {
   formatAed,
@@ -401,30 +402,23 @@ export function StaffDatabase({
         kind: "text",
         sortValue: () => 0,
         text: () => "",
-        render: (s) => {
-          const initials = (s.full_name ?? "?")
-            .split(/\s+/)
-            .filter(Boolean)
-            .slice(0, 2)
-            .map((p) => p[0]?.toUpperCase() ?? "")
-            .join("");
-          return (
-            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-black/10 bg-[#3D421F] text-[10px] font-medium text-white">
-              {s.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={s.photo_url}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center">
-                  {initials || "?"}
-                </span>
-              )}
-            </div>
-          );
-        },
+        render: (s) => (
+          <StaffPhotoThumbnail
+            fullName={s.full_name}
+            photoUrl={s.photo_url}
+            size="sm"
+            className="h-9 w-9 rounded-full"
+            empNo={s.emp_no}
+            department={s.department?.name}
+            position={s.position?.name}
+            employeeStatus={s.employment_status?.name}
+            workingStatus={s.working_status?.name}
+            nationality={s.nationality?.name}
+            dob={s.dob}
+            joiningDate={s.joining_date}
+            terminationDate={s.termination_date}
+          />
+        ),
       },
       {
         key: "company_accommodation",

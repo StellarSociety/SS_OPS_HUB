@@ -98,6 +98,14 @@ export function ShiftTemplatesEditor({ templates }: ShiftTemplatesEditorProps) {
                 setEditingId(null);
               }}
               onSaved={() => setEditingId(null)}
+              onDeleted={() => {
+                setOrder((current) =>
+                  current.filter((row) => row.id !== item.id),
+                );
+                setEditingId((current) =>
+                  current === item.id ? null : current,
+                );
+              }}
             />
           ))}
         </Reorder.Group>
@@ -125,12 +133,14 @@ function TemplateRow({
   onEdit,
   onCancelEdit,
   onSaved,
+  onDeleted,
 }: {
   item: DraftTemplate;
   editing: boolean;
   onEdit: () => void;
   onCancelEdit: () => void;
   onSaved: () => void;
+  onDeleted: () => void;
 }) {
   const controls = useDragControls();
   const formRef = useRef<HTMLFormElement>(null);
@@ -160,7 +170,8 @@ function TemplateRow({
     if (!form || !form.reportValidity()) return false;
     const formData = new FormData(form);
     try {
-      await upsertShiftTemplate(formData);
+      const result = await upsertShiftTemplate(formData);
+      if (!result.ok) return false;
       onSaved();
       return true;
     } catch {
@@ -208,8 +219,8 @@ function TemplateRow({
           if (!editing) return;
           const formData = new FormData(event.currentTarget);
           startSave(async () => {
-            await upsertShiftTemplate(formData);
-            onSaved();
+            const result = await upsertShiftTemplate(formData);
+            if (result.ok) onSaved();
           });
         }}
       >
@@ -355,8 +366,9 @@ function TemplateRow({
               ) {
                 return;
               }
-              startDelete(() => {
-                void deleteShiftTemplate(item.id);
+              startDelete(async () => {
+                const result = await deleteShiftTemplate(item.id);
+                if (result.ok) onDeleted();
               });
             }}
           >

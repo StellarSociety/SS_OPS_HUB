@@ -66,7 +66,7 @@ export default async function HrBenefitsServiceChargeRunPage({
   const { data: allocationRows } = await supabase
     .from("hr_benefit_allocations")
     .select(
-      "id, staff_id, amount, points, worked_days, status, meta, staff:staff_id(full_name, emp_no, department:departments(name), position:positions(name))",
+      "id, staff_id, amount, points, worked_days, status, meta, staff:staff_id(full_name, emp_no, photo_url, department:departments(name), position:positions(name))",
     )
     .eq("venue_id", venue.id)
     .eq("run_id", runId)
@@ -78,6 +78,7 @@ export default async function HrBenefitsServiceChargeRunPage({
         | {
             full_name?: string;
             emp_no?: string;
+            photo_url?: string | null;
             department?: { name?: string } | null;
             position?: { name?: string } | null;
           }
@@ -87,6 +88,7 @@ export default async function HrBenefitsServiceChargeRunPage({
         staff_id: row.staff_id as string,
         full_name: staff?.full_name ?? null,
         emp_no: staff?.emp_no ?? null,
+        photo_url: staff?.photo_url ?? null,
         department_name: staff?.department?.name ?? null,
         position_name: staff?.position?.name ?? null,
         amount: Number(row.amount) || 0,

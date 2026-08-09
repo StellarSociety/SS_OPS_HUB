@@ -1780,16 +1780,27 @@ export async function reorderScheduleDayLabels(
   revalidatePath("/hr/schedules", "page");
 }
 
-export async function upsertShiftTemplate(formData: FormData): Promise<void> {
+export async function upsertShiftTemplate(
+  formData: FormData,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const { user, venue, permissions } = await getAuthContext();
-  if (!canAdminLookups(permissions, venue.id)) return;
+  if (
+    !canAdminLookups(permissions, venue.id) &&
+    !canEditSchedules(permissions, venue.id)
+  ) {
+    return { ok: false, error: "You do not have permission to edit shift times." };
+  }
 
-  const id = (formData.get("id") as string | null) || null;
+  const rawId = ((formData.get("id") as string) || "").trim();
+  const id =
+    rawId && !rawId.startsWith("new:") ? rawId : null;
   const name = ((formData.get("name") as string) || "").trim();
   const abbreviation = ((formData.get("abbreviation") as string) || "").trim();
   const startTime = normalizeShiftTime(formData.get("start_time") as string);
   const endTime = normalizeShiftTime(formData.get("end_time") as string);
-  if (!name || !abbreviation) return;
+  if (!name || !abbreviation) {
+    return { ok: false, error: "Name and abbreviation are required." };
+  }
 
   const colors = deriveScheduleLabelColors(
     normalizeHexColor(formData.get("bg_color") as string, "#d1fae5"),
@@ -1814,17 +1825,32 @@ export async function upsertShiftTemplate(formData: FormData): Promise<void> {
   };
 
   const service = createServiceClient();
-  const { error } = id
-    ? await service
-        .from("hr_shift_templates")
-        .update(payload)
-        .eq("id", id)
-        .eq("venue_id", venue.id)
-    : await service.from("hr_shift_templates").insert(payload);
+  let savedId = id;
 
-  if (error) {
-    console.error("[hr] hr_shift_templates upsert failed:", error.message);
-    return;
+  if (id) {
+    const { error } = await service
+      .from("hr_shift_templates")
+      .update(payload)
+      .eq("id", id)
+      .eq("venue_id", venue.id);
+    if (error) {
+      console.error("[hr] hr_shift_templates upsert failed:", error.message);
+      return { ok: false, error: error.message };
+    }
+  } else {
+    const { data, error } = await service
+      .from("hr_shift_templates")
+      .insert(payload)
+      .select("id")
+      .single();
+    if (error || !data?.id) {
+      console.error(
+        "[hr] hr_shift_templates upsert failed:",
+        error?.message ?? "missing id",
+      );
+      return { ok: false, error: error?.message ?? "Could not create shift." };
+    }
+    savedId = data.id as string;
   }
 
   await writeAuditLog({
@@ -1832,19 +1858,27 @@ export async function upsertShiftTemplate(formData: FormData): Promise<void> {
     action: id ? "update" : "create",
     module_key: HR_MODULE_KEY,
     entity: "hr_shift_templates",
-    entity_id: id ?? name,
+    entity_id: savedId ?? name,
     venue_id: venue.id,
     after: payload,
   });
 
   revalidatePath("/hr/settings", "layout");
   revalidatePath("/hr/schedules", "page");
+  return { ok: true, id: savedId! };
 }
 
-export async function deleteShiftTemplate(id: string): Promise<void> {
+export async function deleteShiftTemplate(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const { user, venue, permissions } = await getAuthContext();
-  if (!canAdminLookups(permissions, venue.id)) return;
-  if (!id) return;
+  if (
+    !canAdminLookups(permissions, venue.id) &&
+    !canEditSchedules(permissions, venue.id)
+  ) {
+    return { ok: false, error: "You do not have permission to delete shift times." };
+  }
+  if (!id) return { ok: false, error: "Missing shift template id." };
 
   const service = createServiceClient();
   const { error } = await service
@@ -1855,7 +1889,7 @@ export async function deleteShiftTemplate(id: string): Promise<void> {
 
   if (error) {
     console.error("[hr] hr_shift_templates delete failed:", error.message);
-    return;
+    return { ok: false, error: error.message };
   }
 
   await writeAuditLog({
@@ -1869,6 +1903,7 @@ export async function deleteShiftTemplate(id: string): Promise<void> {
 
   revalidatePath("/hr/settings", "layout");
   revalidatePath("/hr/schedules", "page");
+  return { ok: true };
 }
 
 export async function reorderShiftTemplates(

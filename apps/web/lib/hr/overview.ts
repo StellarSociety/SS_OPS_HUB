@@ -17,6 +17,14 @@ export type HrContinentRow = HrBreakdownRow & {
     empNo: string;
     fullName: string;
     country: string;
+    photoUrl: string | null;
+    departmentName: string | null;
+    positionName: string | null;
+    employmentStatusName: string | null;
+    workingStatusName: string | null;
+    dob: string | null;
+    joiningDate: string | null;
+    terminationDate: string | null;
   }[];
 };
 
@@ -126,6 +134,14 @@ function tallyContinents(staff: StaffWithLookups[]): HrContinentRow[] {
         empNo: string;
         fullName: string;
         country: string;
+        photoUrl: string | null;
+        departmentName: string | null;
+        positionName: string | null;
+        employmentStatusName: string | null;
+        workingStatusName: string | null;
+        dob: string | null;
+        joiningDate: string | null;
+        terminationDate: string | null;
       }[];
     }
   >();
@@ -149,6 +165,14 @@ function tallyContinents(staff: StaffWithLookups[]): HrContinentRow[] {
       empNo: member.emp_no,
       fullName: member.full_name,
       country: nationality,
+      photoUrl: member.photo_url?.trim() || null,
+      departmentName: member.department?.name ?? null,
+      positionName: member.position?.name ?? null,
+      employmentStatusName: member.employment_status?.name ?? null,
+      workingStatusName: member.working_status?.name ?? null,
+      dob: member.dob?.trim().slice(0, 10) || null,
+      joiningDate: member.joining_date?.trim().slice(0, 10) || null,
+      terminationDate: member.termination_date?.trim().slice(0, 10) || null,
     });
   }
 

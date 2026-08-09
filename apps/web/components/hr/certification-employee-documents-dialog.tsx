@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-slot";
 import { StaffWorkDriveDocumentList } from "@/components/hr/staff-workdrive-document-list";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { Button } from "@/components/ui/button";
@@ -522,28 +523,21 @@ export function CertificationEmployeeDocumentsDialog({
       >
         <div className="flex items-start justify-between gap-3 border-b border-black/10 bg-white px-5 py-4">
           <div className="flex min-w-0 flex-1 items-stretch gap-3.5">
-            <div className="relative w-[5.25rem] shrink-0 self-stretch overflow-hidden rounded-xl border border-black/10 bg-[#3D421F] text-base font-medium text-white">
-              {staff.photo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element -- staff photo URL from storage
-                <img
-                  src={staff.photo_url}
-                  alt=""
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              ) : (
-                <span
-                  className="flex h-full min-h-[5rem] w-full items-center justify-center"
-                  aria-hidden
-                >
-                  {(staff.full_name ?? "?")
-                    .split(/\s+/)
-                    .filter(Boolean)
-                    .slice(0, 2)
-                    .map((p) => p[0]?.toUpperCase() ?? "")
-                    .join("") || "?"}
-                </span>
-              )}
-            </div>
+            <StaffPhotoThumbnail
+              fullName={staff.full_name}
+              photoUrl={staff.photo_url}
+              size="fill"
+              className="w-[5.25rem] self-stretch text-base"
+              empNo={staff.emp_no}
+              department={staff.department?.name}
+              position={staff.position?.name}
+              employeeStatus={staff.employment_status?.name}
+              workingStatus={staff.working_status?.name}
+              nationality={staff.nationality?.name}
+              dob={staff.dob}
+              joiningDate={staff.joining_date}
+              terminationDate={staff.termination_date}
+            />
             <div className="min-w-0 flex-1">
               <h2
                 id="cert-docs-dialog-title"

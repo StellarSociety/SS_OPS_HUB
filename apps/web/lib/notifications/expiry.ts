@@ -8,6 +8,46 @@ import type {
 } from "./types";
 import { severityForDaysUntil } from "./types";
 
+function relationName(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const name = (value as { name?: unknown }).name;
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+
+function optionalIsoDate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function staffDetailFields(item: ExpirySourceItem): Pick<
+  ExpiryItem,
+  | "photoUrl"
+  | "departmentName"
+  | "positionName"
+  | "employeeStatusName"
+  | "workingStatusName"
+  | "nationalityName"
+  | "dob"
+  | "joiningDate"
+  | "terminationDate"
+> {
+  return {
+    photoUrl:
+      typeof item.photo_url === "string" && item.photo_url.trim()
+        ? item.photo_url.trim()
+        : null,
+    departmentName: relationName(item.department),
+    positionName: relationName(item.position),
+    employeeStatusName: relationName(item.employment_status),
+    workingStatusName: relationName(item.working_status),
+    nationalityName: relationName(item.nationality),
+    dob: optionalIsoDate(item.dob),
+    joiningDate: optionalIsoDate(item.joining_date),
+    terminationDate: optionalIsoDate(item.termination_date),
+  };
+}
+
 export function computeExpiryItems(
   items: ExpirySourceItem[],
   expiryFields: ExpiryFieldConfig[],
@@ -40,6 +80,7 @@ export function computeExpiryItems(
         venueId: options.getVenueId(item),
         displayName: options.getDisplayName(item),
         secondaryLabel: options.getSecondaryLabel?.(item),
+        ...staffDetailFields(item),
         field: config.field,
         label: config.label,
         expiryDate,

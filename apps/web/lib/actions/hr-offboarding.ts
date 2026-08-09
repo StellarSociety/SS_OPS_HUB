@@ -196,9 +196,27 @@ function parseSettlement(raw: unknown): OffboardingSettlementPreview {
   };
 }
 
+async function staffPhotoById(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  staffIds: string[],
+): Promise<Map<string, string | null>> {
+  const ids = [...new Set(staffIds.filter(Boolean))];
+  const map = new Map<string, string | null>();
+  if (ids.length === 0) return map;
+  const { data } = await supabase
+    .from("staff")
+    .select("id, photo_url")
+    .in("id", ids);
+  for (const row of data ?? []) {
+    map.set(String(row.id), (row.photo_url as string | null) ?? null);
+  }
+  return map;
+}
+
 function rowToProcess(
   row: ProcessRow,
   noticeEmailRecords: OffboardingNoticeEmailDelivery[] = [],
+  photoUrl: string | null = null,
 ): OffboardingProcess {
   const kind = parseTerminationKind(row.termination_kind);
   return {
@@ -206,6 +224,7 @@ function rowToProcess(
     staffId: row.staff_id,
     empNo: row.emp_no ?? "",
     fullName: row.full_name ?? "",
+    photoUrl,
     departmentName: row.department_name,
     positionName: row.position_name,
     employmentStatusId: row.employment_status_id,
@@ -347,8 +366,16 @@ export async function listOffboardingProcesses(): Promise<{
 
   if (error) return { error: error.message, processes: [] };
 
+  const rows = (data ?? []) as ProcessRow[];
+  const photos = await staffPhotoById(
+    ctx.supabase,
+    rows.map((row) => row.staff_id),
+  );
+
   return {
-    processes: (data ?? []).map((row) => rowToProcess(row as ProcessRow)),
+    processes: rows.map((row) =>
+      rowToProcess(row, [], photos.get(row.staff_id) ?? null),
+    ),
   };
 }
 
@@ -376,13 +403,22 @@ export async function getOffboardingProcess(processId: string): Promise<{
   if (!data) return { process: null };
 
   const row = data as ProcessRow;
-  const noticeEmailRecords = await loadNoticeEmailsForProcess({
-    venueId: ctx.venue.id,
-    staffId: row.staff_id,
-    processId: row.id,
-  });
+  const [noticeEmailRecords, photos] = await Promise.all([
+    loadNoticeEmailsForProcess({
+      venueId: ctx.venue.id,
+      staffId: row.staff_id,
+      processId: row.id,
+    }),
+    staffPhotoById(ctx.supabase, [row.staff_id]),
+  ]);
 
-  return { process: rowToProcess(row, noticeEmailRecords) };
+  return {
+    process: rowToProcess(
+      row,
+      noticeEmailRecords,
+      photos.get(row.staff_id) ?? null,
+    ),
+  };
 }
 
 export async function upsertOffboardingProcessAction(
@@ -481,7 +517,11 @@ export async function upsertOffboardingProcessAction(
   });
 
   return {
-    process: rowToProcess(data as ProcessRow, noticeEmailRecords),
+    process: rowToProcess(
+      data as ProcessRow,
+      noticeEmailRecords,
+      processWithId.photoUrl ?? null,
+    ),
   };
 }
 
