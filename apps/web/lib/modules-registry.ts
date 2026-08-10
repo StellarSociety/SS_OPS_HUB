@@ -157,9 +157,10 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     label: "Accounting",
     iconKey: "landmark",
     category: "revenue",
-    status: "coming_soon",
+    href: "/accounting",
+    status: "live",
     description:
-      "Manage invoices, expenses, and financial records to keep the books accurate and up to date.",
+      "Double-entry ledger, AP/AR, banking, VAT, and financial reports for each legal entity.",
   },
   {
     key: "hr",

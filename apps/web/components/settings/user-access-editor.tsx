@@ -111,6 +111,7 @@ const FEATURE_ICONS: Record<string, LucideIcon> = {
   "gp_cos:food_cost": Utensils,
   "gp_cos:beverages_cost": Wine,
   "gp_cos:margins": ChartNoAxesCombined,
+  "accounting:overview": LayoutDashboard,
   "accounting:accounts": Landmark,
   "accounting:ledgers": BookOpen,
   "accounting:statements": FileChartColumn,

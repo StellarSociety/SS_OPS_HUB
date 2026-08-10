@@ -34,6 +34,7 @@ export const VENUE_APP_ROOTS = [
   "/modules",
   "/hr",
   "/sales",
+  "/accounting",
   "/settings",
   "/profile",
   "/user-guide",
@@ -116,6 +117,9 @@ export function canonicalToGlobalPublic(path: string): string {
   if (underRoot(path, "/sales/settings")) {
     return `${GLOBAL_BASE}/settings/sales${stripPrefix(path, "/sales/settings")}`;
   }
+  if (underRoot(path, "/accounting/settings")) {
+    return `${GLOBAL_BASE}/settings/accounting${stripPrefix(path, "/accounting/settings")}`;
+  }
   // Global-only pages already live under /global.
   if (underRoot(path, GLOBAL_BASE)) return path;
   // Everything else (profile, user-guide, developers, legal, ...).
@@ -189,6 +193,9 @@ export function globalPublicToCanonical(pathname: string): string {
   }
   if (underRoot(pathname, `${GLOBAL_BASE}/settings/sales`)) {
     return `/sales/settings${stripPrefix(pathname, `${GLOBAL_BASE}/settings/sales`)}`;
+  }
+  if (underRoot(pathname, `${GLOBAL_BASE}/settings/accounting`)) {
+    return `/accounting/settings${stripPrefix(pathname, `${GLOBAL_BASE}/settings/accounting`)}`;
   }
   // Global-only surfaces (/global/settings, /global/settings/apps,
   // /global/settings/branding, ...) render from their own physical routes.

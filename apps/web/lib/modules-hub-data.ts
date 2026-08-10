@@ -30,6 +30,7 @@ type VenueModuleRow = {
 const MODULE_SETTINGS_ROUTES: Record<string, string> = {
   sales: "/sales/settings",
   hr: "/hr/settings",
+  accounting: "/accounting/settings",
 };
 
 /** Standalone "Global Settings" tile shown at the bottom of the global Apps Hub. */

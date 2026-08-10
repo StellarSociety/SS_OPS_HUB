@@ -8,12 +8,14 @@ import {
   FileBarChart,
   GitCompareArrows,
   Gift,
+  Landmark,
   LayoutDashboard,
   LineChart,
   MessagesSquare,
   Percent,
   Receipt,
   ReceiptText,
+  FileText,
   Settings,
   Tag,
   Ticket,
@@ -221,6 +223,29 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     ],
     bottomItems: [
       { label: "Settings", href: "/sales/settings", icon: Settings },
+    ],
+  },
+  {
+    moduleKey: "accounting",
+    basePath: "/accounting",
+    label: "Accounting",
+    icon: Landmark,
+    items: [
+      {
+        label: "Overview",
+        href: "/accounting",
+        exact: true,
+        icon: LayoutDashboard,
+      },
+      {
+        label: "Invoices",
+        href: "/accounting/invoices",
+        activePathPrefix: "/accounting/invoices",
+        icon: FileText,
+      },
+    ],
+    bottomItems: [
+      { label: "Settings", href: "/accounting/settings", icon: Settings },
     ],
   },
 ];
