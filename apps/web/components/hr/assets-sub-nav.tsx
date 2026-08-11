@@ -7,8 +7,8 @@ import {
   ShieldCheck,
   Shirt,
 } from "lucide-react";
-import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { cn } from "@/lib/utils";
 
@@ -84,58 +84,44 @@ export function AssetsSubNav() {
   return (
     <nav
       aria-label="Staff compliance sections"
-      className="flex w-full flex-wrap items-center justify-center gap-x-[clamp(0.5rem,3vw,1.5rem)] gap-y-4"
+      className="overflow-hidden rounded-2xl border border-[var(--venue-primary)]/20 bg-[var(--venue-primary)]/10 px-3 py-3 shadow-inner"
     >
-      {TABS.map((tab) => {
-        const active = isTabActive(pathname, tab.id);
-        const Icon = tab.icon;
-        return (
-          <ScopedLink
-            key={tab.id}
-            href={active ? "/hr/assets" : tab.href}
-            aria-label={tab.label}
-            aria-current={active ? "page" : undefined}
-            title={tab.label}
-            className={cn(
-              "group flex w-[clamp(5.5rem,18vw,8rem)] flex-col items-center gap-2 rounded-2xl px-1 py-3 transition-colors",
-              active ? "text-[#3D421F]" : "text-[#8a8f7a] hover:text-[#3D421F]",
-            )}
-          >
-            <span
+      <div className="flex flex-wrap justify-center gap-x-5 gap-y-2">
+        {TABS.map((tab) => {
+          const active = isTabActive(pathname, tab.id);
+          const Icon = tab.icon;
+          return (
+            <ScopedLink
+              key={tab.id}
+              href={active ? "/hr/assets" : tab.href}
+              aria-label={tab.label}
+              aria-current={active ? "page" : undefined}
+              title={tab.label}
               className={cn(
-                "flex h-[4.25rem] w-[4.25rem] items-center justify-center rounded-2xl border transition-colors",
-                active
-                  ? "border-[var(--venue-primary)]/40 bg-[var(--venue-primary)]/15 shadow-sm ring-1 ring-[var(--venue-primary)]/15"
-                  : "border-[#e4e5da] bg-white group-hover:border-[#d5d7c8] group-hover:bg-[#fafaf6]",
+                "group flex w-[4.75rem] shrink-0 flex-col items-center gap-1 rounded-xl px-0.5 py-1.5 text-center transition-colors",
+                active && "bg-[var(--venue-primary)]/15",
               )}
             >
               <AnimatedSymbol>
                 <Icon
-                  className={cn(
-                    "h-9 w-9 transition-colors",
-                    active
-                      ? "text-[var(--venue-primary,#818a40)]"
-                      : "text-[#7a806c] group-hover:text-[var(--venue-primary,#818a40)]",
-                  )}
+                  className="h-12 w-12 shrink-0 text-[var(--venue-primary,#818a40)]"
                   strokeWidth={1.5}
                   absoluteStrokeWidth
                   aria-hidden
                 />
               </AnimatedSymbol>
-            </span>
-            <span
-              className={cn(
-                "text-center font-nav text-[11px] font-semibold uppercase tracking-[0.08em]",
-                active
-                  ? "text-[#3D421F]"
-                  : "text-[#8a8f7a] group-hover:text-[#3D421F]",
-              )}
-            >
-              {tab.label}
-            </span>
-          </ScopedLink>
-        );
-      })}
+              <span
+                className={cn(
+                  "line-clamp-2 w-full max-w-[4.75rem] text-[10px] font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]",
+                  "font-[system-ui,-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif]",
+                )}
+              >
+                {tab.label}
+              </span>
+            </ScopedLink>
+          );
+        })}
+      </div>
     </nav>
   );
 }

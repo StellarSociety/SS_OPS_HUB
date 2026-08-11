@@ -147,40 +147,51 @@ export function NotificationCenter({
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const supabase = createClient();
 
     async function refreshFromServer(opts?: { forceAlert?: boolean }) {
-      const result = await fetchNotifications({ venueId, isGlobalVenue });
-      if (cancelled) return;
+      // Avoid stacking polls when middleware/auth is slow (otherwise the
+      // browser aborts with an uncaught TypeError: Failed to fetch).
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const result = await fetchNotifications({ venueId, isGlobalVenue });
+        if (cancelled) return;
 
-      const next = result.notifications;
-      const newAlertIds: string[] = [];
-      for (const n of next) {
-        if (
-          !n.read_at &&
-          isAlert(n) &&
-          matchesVenue(n, venueId, isGlobalVenue) &&
-          !knownIdsRef.current.has(n.id)
-        ) {
-          newAlertIds.push(n.id);
-        }
-      }
-
-      knownIdsRef.current = new Set(next.map((n) => n.id));
-      setNotifications(next);
-      setUnreadCount(result.unreadCount);
-
-      if (newAlertIds.length > 0) {
-        for (const id of newAlertIds) snoozedIdsRef.current.delete(id);
-        setAlertOpen(true);
-      } else if (opts?.forceAlert) {
-        const alerts = next.filter(
-          (n) =>
+        const next = result.notifications;
+        const newAlertIds: string[] = [];
+        for (const n of next) {
+          if (
             !n.read_at &&
             isAlert(n) &&
-            !snoozedIdsRef.current.has(n.id),
-        );
-        if (alerts.length > 0) setAlertOpen(true);
+            matchesVenue(n, venueId, isGlobalVenue) &&
+            !knownIdsRef.current.has(n.id)
+          ) {
+            newAlertIds.push(n.id);
+          }
+        }
+
+        knownIdsRef.current = new Set(next.map((n) => n.id));
+        setNotifications(next);
+        setUnreadCount(result.unreadCount);
+
+        if (newAlertIds.length > 0) {
+          for (const id of newAlertIds) snoozedIdsRef.current.delete(id);
+          setAlertOpen(true);
+        } else if (opts?.forceAlert) {
+          const alerts = next.filter(
+            (n) =>
+              !n.read_at &&
+              isAlert(n) &&
+              !snoozedIdsRef.current.has(n.id),
+          );
+          if (alerts.length > 0) setAlertOpen(true);
+        }
+      } catch {
+        // Network / aborted server-action — keep last known notifications.
+      } finally {
+        inFlight = false;
       }
     }
 
