@@ -876,6 +876,7 @@ export async function loadUniformEmployeesPage(
 ) {
   const [
     pieces,
+    suppliers,
     staff,
     items,
     departments,
@@ -886,6 +887,7 @@ export async function loadUniformEmployeesPage(
     archives,
   ] = await Promise.all([
     listUniformPieces(supabase),
+    listUniformSuppliers(supabase),
     listAllStaff(supabase),
     listUniformStaffItems(supabase),
     listDepartments(supabase, venueId),
@@ -944,5 +946,5 @@ export async function loadUniformEmployeesPage(
     } satisfies UniformStaffSummaryRow;
   });
 
-  return { rows, pieces, staff, departments, positions, statuses };
+  return { rows, pieces, suppliers, staff, departments, positions, statuses };
 }

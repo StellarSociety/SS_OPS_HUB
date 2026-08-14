@@ -43,12 +43,14 @@ import type {
   UniformReplacementRow,
   UniformStaffItemRow,
   UniformStaffSummaryRow,
+  UniformSupplierRow,
 } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
 type UniformEmployeesTableProps = {
   rows: UniformStaffSummaryRow[];
   pieces: UniformPieceRow[];
+  suppliers: UniformSupplierRow[];
   staff: StaffWithLookups[];
   departments: Department[];
   positions: Position[];
@@ -64,6 +66,7 @@ const selectClass =
 export function UniformEmployeesTable({
   rows,
   pieces,
+  suppliers,
   staff,
   departments,
   positions,
@@ -662,6 +665,9 @@ export function UniformEmployeesTable({
         open={Boolean(assignStaff) && !editItem}
         staff={assignStaff}
         pieces={pieces}
+        suppliers={suppliers}
+        departments={departments}
+        positions={positions}
         onClose={() => setAssignStaff(null)}
         onSaved={refresh}
       />
@@ -670,6 +676,9 @@ export function UniformEmployeesTable({
         open={Boolean(editItem)}
         staff={editItem?.staff ?? null}
         pieces={pieces}
+        suppliers={suppliers}
+        departments={departments}
+        positions={positions}
         item={editItem?.item ?? null}
         onClose={() => setEditItem(null)}
         onSaved={refresh}

@@ -51,7 +51,13 @@ type UniformPieceDialogProps = {
   positions: Position[];
   onClose: () => void;
   /** Called after a successful save so the parent can refresh the list. */
-  onSaved?: () => void;
+  onSaved?: (created?: {
+    id: string;
+    name: string;
+    unitValue: number;
+  }) => void;
+  /** Use a higher z-index when opened on top of another modal. */
+  overlayClassName?: string;
 };
 
 function newKey(prefix: string) {
@@ -70,6 +76,7 @@ export function UniformPieceDialog({
   positions,
   onClose,
   onSaved,
+  overlayClassName,
 }: UniformPieceDialogProps) {
   const isEdit = Boolean(piece);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -327,7 +334,11 @@ export function UniformPieceDialog({
       // Close immediately after the fast DB save; photo upload is slower (WorkDrive).
       toast.saved(isEdit ? "Uniform piece updated." : "Uniform piece added.");
       onClose();
-      onSaved?.();
+      onSaved?.(
+        pieceId
+          ? { id: pieceId, name: payload.name, unitValue: payload.unitValue }
+          : undefined,
+      );
 
       if (pieceId && shouldSyncImage) {
         try {
@@ -359,7 +370,10 @@ export function UniformPieceDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[8vh] backdrop-blur-sm"
+      className={cn(
+        "fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[8vh] backdrop-blur-sm",
+        overlayClassName,
+      )}
       role="dialog"
       aria-modal="true"
       aria-label={isEdit ? "Edit uniform piece" : "Add uniform piece"}

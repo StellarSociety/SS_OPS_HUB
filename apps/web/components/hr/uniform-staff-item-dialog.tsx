@@ -1,21 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, Shirt, Trash2, X } from "lucide-react";
 import { DateInput } from "@/components/ui/date-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
+import { UniformPieceDialog } from "@/components/hr/uniform-piece-dialog";
 import {
   assignUniformsToStaff,
   updateUniformStaffItem,
 } from "@/lib/actions/hr-uniforms";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import type {
+  Department,
+  Position,
   StaffWithLookups,
   UniformPieceRow,
   UniformStaffItemRow,
+  UniformSupplierRow,
 } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
@@ -30,10 +34,19 @@ type LineDraft = {
   notes: string;
 };
 
+type CreatedPieceOption = {
+  id: string;
+  name: string;
+  unit_value: number;
+};
+
 type UniformStaffItemDialogProps = {
   open: boolean;
   staff: StaffWithLookups | null;
   pieces: UniformPieceRow[];
+  suppliers?: UniformSupplierRow[];
+  departments?: Department[];
+  positions?: Position[];
   item?: UniformStaffItemRow | null;
   onClose: () => void;
   onSaved?: () => void;
@@ -61,6 +74,9 @@ export function UniformStaffItemDialog({
   open,
   staff,
   pieces,
+  suppliers = [],
+  departments = [],
+  positions = [],
   item,
   onClose,
   onSaved,
@@ -68,9 +84,13 @@ export function UniformStaffItemDialog({
   const isEdit = Boolean(item);
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
   const [pending, setPending] = useState(false);
+  const [createPieceOpen, setCreatePieceOpen] = useState(false);
+  const [createdPieces, setCreatedPieces] = useState<CreatedPieceOption[]>([]);
 
   useEffect(() => {
     if (!open) return;
+    setCreatePieceOpen(false);
+    setCreatedPieces([]);
     if (item) {
       setLines([
         {
@@ -84,22 +104,34 @@ export function UniformStaffItemDialog({
       return;
     }
     setLines([emptyLine(pieces[0]?.id ?? "")]);
-  }, [open, item, pieces]);
+    // Reset drafts when the dialog opens, not when the catalog refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, item]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (createPieceOpen) return;
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, createPieceOpen]);
+
+  const selectablePieces = useMemo(() => {
+    const extras = createdPieces.filter(
+      (extra) => !pieces.some((piece) => piece.id === extra.id),
+    );
+    if (extras.length === 0) return pieces;
+    return [...pieces, ...extras];
+  }, [pieces, createdPieces]);
 
   const pieceById = useMemo(() => {
-    const map = new Map<string, UniformPieceRow>();
-    for (const piece of pieces) map.set(piece.id, piece);
+    const map = new Map<string, Pick<UniformPieceRow, "id" | "name" | "unit_value">>();
+    for (const piece of selectablePieces) map.set(piece.id, piece);
     return map;
-  }, [pieces]);
+  }, [selectablePieces]);
 
   const lineSubtotals = useMemo(
     () =>
@@ -124,6 +156,27 @@ export function UniformStaffItemDialog({
 
   function addLine() {
     setLines((rows) => [...rows, emptyLine()]);
+  }
+
+  function selectCreatedPiece(created: {
+    id: string;
+    name: string;
+    unitValue: number;
+  }) {
+    setCreatedPieces((rows) =>
+      rows.some((row) => row.id === created.id)
+        ? rows
+        : [...rows, { id: created.id, name: created.name, unit_value: created.unitValue }],
+    );
+    setLines((rows) => {
+      const empty = rows.find((row) => !row.pieceId);
+      if (empty) {
+        return rows.map((row) =>
+          row.key === empty.key ? { ...row, pieceId: created.id } : row,
+        );
+      }
+      return [...rows, emptyLine(created.id)];
+    });
   }
 
   function removeLine(key: string) {
@@ -196,12 +249,14 @@ export function UniformStaffItemDialog({
   }
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[8vh] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={isEdit ? "Edit uniform assignment" : "Assign uniform pieces"}
       onMouseDown={(e) => {
+        if (createPieceOpen) return;
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -281,6 +336,8 @@ export function UniformStaffItemDialog({
                     onChange={(value) =>
                       updateLine(lines[0]!.key, { providedAt: value })
                     }
+                    className="w-full"
+                    inputClassName="h-10"
                   />
                 </div>
               </div>
@@ -312,17 +369,29 @@ export function UniformStaffItemDialog({
                 <p className="text-sm text-black/55">
                   Add one or more uniform pieces for this employee.
                 </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0 text-[#3D421F]"
-                  onClick={addLine}
-                  disabled={pieces.length === 0}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add row
-                </Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0 text-[#3D421F]"
+                    onClick={() => setCreatePieceOpen(true)}
+                  >
+                    <Shirt className="h-4 w-4" />
+                    Create uniform
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0 text-[#3D421F]"
+                    onClick={addLine}
+                    disabled={selectablePieces.length === 0}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add row
+                  </Button>
+                </div>
               </div>
 
               <div className="overflow-x-auto rounded-lg border border-black/10 bg-white/70">
@@ -358,7 +427,7 @@ export function UniformStaffItemDialog({
                             aria-label={`Uniform piece row ${index + 1}`}
                           >
                             <option value="">Select piece</option>
-                            {pieces.map((piece) => (
+                            {selectablePieces.map((piece) => (
                               <option key={piece.id} value={piece.id}>
                                 {piece.name}
                                 {piece.unit_value > 0
@@ -387,6 +456,8 @@ export function UniformStaffItemDialog({
                             onChange={(value) =>
                               updateLine(line.key, { providedAt: value })
                             }
+                            className="w-full"
+                            inputClassName="h-9"
                           />
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums text-black/65">
@@ -445,7 +516,7 @@ export function UniformStaffItemDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={pending || pieces.length === 0}>
+            <Button type="submit" disabled={pending || selectablePieces.length === 0}>
               {pending
                 ? "Saving…"
                 : isEdit
@@ -458,5 +529,19 @@ export function UniformStaffItemDialog({
         </form>
       </div>
     </div>
+
+    <UniformPieceDialog
+      open={createPieceOpen}
+      suppliers={suppliers}
+      departments={departments}
+      positions={positions}
+      overlayClassName="z-[210]"
+      onClose={() => setCreatePieceOpen(false)}
+      onSaved={(created) => {
+        if (created) selectCreatedPiece(created);
+        onSaved?.();
+      }}
+    />
+    </>
   );
 }

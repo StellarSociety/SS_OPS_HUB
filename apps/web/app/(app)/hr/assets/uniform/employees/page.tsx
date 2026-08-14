@@ -12,6 +12,7 @@ export default async function UniformEmployeesPage() {
     <UniformEmployeesTable
       rows={data.rows}
       pieces={data.pieces}
+      suppliers={data.suppliers}
       staff={data.staff}
       departments={data.departments}
       positions={data.positions}
