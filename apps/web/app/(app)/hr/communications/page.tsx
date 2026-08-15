@@ -1,18 +1,8 @@
-import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { redirect } from "next/navigation";
 import { getHrPageContext } from "@/lib/hr/page-context";
+import { scopedHrefForVenue } from "@/lib/venue/scope-routing";
 
-/**
- * Placeholder page — the sidebar already linked here with no route behind it,
- * so requests fell through to /hr/[id].
- */
 export default async function HrCommunicationsPage() {
-  await getHrPageContext();
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <ModulePageTitle>Communications</ModulePageTitle>
-      </div>
-    </div>
-  );
+  const { venue } = await getHrPageContext();
+  redirect(scopedHrefForVenue(venue, "/hr/communications/acknowledgements"));
 }

@@ -5,6 +5,7 @@ import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatDateOnly } from "@/lib/hr/derived";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import { listWorkAnniversaryItems } from "@/lib/hr/work-anniversaries";
 import {
   DEFAULT_HR_WORK_ANNIVERSARY_EMAIL_SETTINGS,
@@ -52,6 +53,7 @@ export function mergeWorkAnniversaryEmailSettings(
     message:
       String(partial?.message ?? "").trim() ||
       DEFAULT_WORK_ANNIVERSARY_EMAIL_MESSAGE,
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 
@@ -257,12 +259,24 @@ export async function deliverWorkAnniversaryEmail(params: {
   let sentHtml = "";
 
   try {
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement: params.settings.requiresAcknowledgement,
+      venueId: params.venue.id,
+      staffId: params.staff.id,
+      staffName: params.staff.full_name ?? "Unknown",
+      empNo: params.staff.emp_no,
+      recipientEmail: composed.to,
+      emailKind: "work_anniversary",
+      emailKindLabel: "Work anniversary",
+      subject: composed.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
       venue: {
         ...params.venue,
         slug: params.venue.slug ?? "",
       },
+      acknowledgement,
     });
     sentHtml = html;
 

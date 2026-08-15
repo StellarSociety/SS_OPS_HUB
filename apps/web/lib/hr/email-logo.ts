@@ -14,6 +14,8 @@ import {
   wrapEmailBodyWithChrome,
 } from "@/lib/hr/email-chrome";
 import { emailTemplateBodyToHtml } from "@/lib/hr/email-message-format";
+import { buildAcknowledgementButtonHtml } from "@/lib/hr/acknowledgement";
+import { saveAcknowledgementSentEmailContent } from "@/lib/hr/acknowledgement-store";
 import type { HrEmailChromeSettings } from "@/lib/hr/types";
 import { loadSharp } from "@/lib/storage/convert-to-webp";
 import {
@@ -150,15 +152,35 @@ export async function buildHrTemplateEmailHtml(params: {
   venue: VenueEmailBrand;
   /** When set, use these chrome settings instead of loading from the venue. */
   chrome?: HrEmailChromeSettings;
+  /** Optional “Click here to verify” CTA appended after the message body. */
+  acknowledgement?: { url: string; buttonLabel: string; token?: string } | null;
 }): Promise<{
   html: string;
   inlineAttachments: SendAppEmailAttachment[];
 }> {
-  const bodyHtml = emailTemplateBodyToHtml(params.body);
+  let bodyHtml = emailTemplateBodyToHtml(params.body);
+  if (params.acknowledgement?.url) {
+    bodyHtml += buildAcknowledgementButtonHtml({
+      url: params.acknowledgement.url,
+      buttonLabel: params.acknowledgement.buttonLabel,
+    });
+  }
   const venueId = String(params.venue.id ?? "").trim();
 
+  async function finish(html: string, inlineAttachments: SendAppEmailAttachment[]) {
+    const token = String(params.acknowledgement?.token ?? "").trim();
+    if (token) {
+      await saveAcknowledgementSentEmailContent({
+        token,
+        bodyHtml: html,
+        bodyText: params.body,
+      });
+    }
+    return { html, inlineAttachments };
+  }
+
   if (!venueId) {
-    return { html: bodyHtml, inlineAttachments: [] };
+    return finish(bodyHtml, []);
   }
 
   const chrome =
@@ -170,7 +192,7 @@ export async function buildHrTemplateEmailHtml(params: {
     }));
 
   if (!chrome.enabled) {
-    return { html: bodyHtml, inlineAttachments: [] };
+    return finish(bodyHtml, []);
   }
 
   const socials = listConfiguredEmailChromeSocials(chrome);
@@ -224,12 +246,12 @@ export async function buildHrTemplateEmailHtml(params: {
     socials: footerSocials,
   });
 
-  return {
-    html: wrapEmailBodyWithChrome({
+  return finish(
+    wrapEmailBodyWithChrome({
       bodyHtml,
       headerHtml,
       footerHtml,
     }),
     inlineAttachments,
-  };
+  );
 }

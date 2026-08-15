@@ -98,8 +98,8 @@ export function AccessCredentialsBox({
         <CopyRow label="Password" value={credentials.password} />
       </div>
       <p className="text-[11px] text-emerald-700/80">
-        The password is shown only once here. Copy it now — you can reset it later
-        from this page.
+        Copy these credentials to share with the user. You can also view the
+        password later from this page under View password.
       </p>
     </div>
   );

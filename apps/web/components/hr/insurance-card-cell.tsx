@@ -13,8 +13,12 @@ import {
 import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-slot";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import { repairInsuranceCardDocumentName } from "@/lib/actions/hr-insurance";
 import { uploadStaffDocumentViaApi } from "@/lib/hr/workdrive/client-upload";
-import type { InsuranceEmployeeRow } from "@/lib/hr/types";
+import type {
+  InsuranceEmployeeRow,
+  StaffLinkedWorkDriveDocument,
+} from "@/lib/hr/types";
 
 function downloadUrlFor(workdriveFileId: string) {
   return `/api/hr/workdrive/download/${encodeURIComponent(workdriveFileId)}`;
@@ -25,6 +29,21 @@ function filePreviewKind(fileName: string): "pdf" | "image" | "unsupported" {
   if (ext === "pdf") return "pdf";
   if (["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) return "image";
   return "unsupported";
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Client-side display of Drive Setup name (strips legacy `_<uuid8>` suffix). */
+function displayInsuranceCardFileName(
+  fileName: string,
+  fileSlotId: string | null | undefined,
+): string {
+  const slot = String(fileSlotId ?? "").trim();
+  if (!UUID_RE.test(slot)) return fileName;
+  const prefix = slot.slice(0, 8);
+  const re = new RegExp(`_${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\.[^.]+)$`, "i");
+  return re.test(fileName) ? fileName.replace(re, "$1") : fileName;
 }
 
 type InsuranceCardCellProps = {
@@ -50,7 +69,7 @@ export function InsuranceCardCell({
           title={
             missing
               ? "Deleted from WorkDrive"
-              : `Preview ${row.document.fileName}`
+              : `Preview ${displayInsuranceCardFileName(row.document.fileName, row.document.fileSlotId)}`
           }
           aria-label={
             missing
@@ -80,10 +99,10 @@ export function InsuranceCardCell({
         </button>
         {previewOpen && !missing ? (
           <InsuranceCardPreviewDialog
-            fileName={row.document.fileName}
-            workdriveFileId={row.document.workdriveFileId}
-            permalink={row.document.permalink}
+            document={row.document}
+            expiryDate={row.expiryDate}
             onClose={() => setPreviewOpen(false)}
+            onRepaired={onUploaded}
           />
         ) : null}
       </>
@@ -132,27 +151,52 @@ export function InsuranceCardCell({
 }
 
 function InsuranceCardPreviewDialog({
-  fileName,
-  workdriveFileId,
-  permalink,
+  document: initialDocument,
+  expiryDate,
   onClose,
+  onRepaired,
 }: {
-  fileName: string;
-  workdriveFileId: string;
-  permalink: string | null;
+  document: StaffLinkedWorkDriveDocument;
+  expiryDate: string | null;
   onClose: () => void;
+  onRepaired?: () => void;
 }) {
   const titleId = useId();
   const [mounted, setMounted] = useState(false);
+  const [doc, setDoc] = useState(initialDocument);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const kind = useMemo(() => filePreviewKind(fileName), [fileName]);
-  const downloadUrl = downloadUrlFor(workdriveFileId);
+  const displayName = useMemo(
+    () => displayInsuranceCardFileName(doc.fileName, doc.fileSlotId),
+    [doc.fileName, doc.fileSlotId],
+  );
+  const kind = useMemo(() => filePreviewKind(doc.fileName), [doc.fileName]);
+  const downloadUrl = downloadUrlFor(doc.workdriveFileId);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await repairInsuranceCardDocumentName({
+        document: initialDocument,
+        expiryDate,
+      });
+      if (cancelled || !result.ok) return;
+      if (result.document.fileName !== initialDocument.fileName) {
+        setDoc(result.document);
+        onRepaired?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Repair once per opened document; ignore unstable parent callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDocument.id, initialDocument.fileName, expiryDate]);
 
   useEffect(() => {
     if (kind === "unsupported") {
@@ -217,7 +261,7 @@ function InsuranceCardPreviewDialog({
   if (!mounted || typeof document === "undefined") return null;
 
   function openExternal() {
-    const url = permalink?.trim() || downloadUrl;
+    const url = doc.permalink?.trim() || downloadUrl;
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
@@ -242,7 +286,7 @@ function InsuranceCardPreviewDialog({
               id={titleId}
               className="truncate font-nav text-base font-semibold text-[#3D421F]"
             >
-              {fileName}
+              {displayName}
             </h2>
             <p className="mt-0.5 text-xs text-black/45">Insurance card preview</p>
           </div>
@@ -282,12 +326,12 @@ function InsuranceCardPreviewDialog({
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={objectUrl}
-              alt={fileName}
+              alt={displayName}
               className="mx-auto max-h-[min(70vh,36rem)] max-w-full object-contain"
             />
           ) : kind === "pdf" && objectUrl ? (
             <iframe
-              title={fileName}
+              title={displayName}
               src={objectUrl}
               className="h-[min(70vh,36rem)] w-full rounded-md border border-black/10 bg-white"
             />

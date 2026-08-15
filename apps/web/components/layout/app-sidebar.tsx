@@ -40,6 +40,8 @@ import {
   type ModuleSidebarDef,
   type ModuleSidebarItem,
 } from "@/lib/module-sidebar";
+import { SettingsNavContextMenu } from "@/components/layout/settings-nav-context-menu";
+import { AppsHubContextMenu } from "@/components/layout/apps-hub-context-menu";
 import { VenueSelector } from "@/components/layout/venue-selector";
 import type { Venue } from "@/lib/types/database";
 
@@ -105,6 +107,7 @@ function SidebarLink({
   branded = false,
   compact = false,
   comingSoon = false,
+  hasPopup = false,
 }: {
   href: string;
   label: string;
@@ -115,6 +118,7 @@ function SidebarLink({
   branded?: boolean;
   compact?: boolean;
   comingSoon?: boolean;
+  hasPopup?: boolean;
 }) {
   const collapsedTitle = sublabel ? `${sublabel} ${label}` : label;
   const { triggerProps, tooltip } = useNavTooltip(
@@ -159,6 +163,7 @@ function SidebarLink({
       <Link
         href={href}
         aria-label={collapsed ? collapsedTitle : undefined}
+        aria-haspopup={hasPopup ? "menu" : undefined}
         {...triggerProps}
         className={cn(
           moduleBrandedNavLinkClass(active, { fullWidth: !collapsed }),
@@ -191,6 +196,7 @@ function SidebarLink({
     <Link
       href={href}
       aria-label={collapsed ? collapsedTitle : undefined}
+      aria-haspopup={hasPopup ? "menu" : undefined}
       {...triggerProps}
       className={cn(
         "relative flex items-center rounded-lg text-sm transition-colors",
@@ -228,12 +234,14 @@ function SidebarTopLink({
   icon: Icon,
   collapsed,
   className,
+  hasPopup = false,
 }: {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   collapsed: boolean;
   className?: string;
+  hasPopup?: boolean;
 }) {
   const { triggerProps, tooltip } = useNavTooltip(label, collapsed);
 
@@ -241,6 +249,7 @@ function SidebarTopLink({
     <Link
       href={href}
       aria-label={collapsed ? label : undefined}
+      aria-haspopup={hasPopup ? "menu" : undefined}
       {...triggerProps}
       className={cn(
         "relative flex items-center rounded-lg py-2 text-xs font-medium uppercase tracking-wide text-black/45 transition-colors hover:bg-black/5 hover:text-[#3D421F]",
@@ -598,13 +607,16 @@ export function AppSidebar({
               icon={LayoutDashboard}
               collapsed={collapsed}
             />
-            <SidebarTopLink
-              href="/modules"
-              label="Apps Hub"
-              icon={Store}
-              collapsed={collapsed}
-              className="mb-1"
-            />
+            <AppsHubContextMenu className="w-full">
+              <SidebarTopLink
+                href="/modules"
+                label="Apps Hub"
+                icon={Store}
+                collapsed={collapsed}
+                className="mb-1"
+                hasPopup
+              />
+            </AppsHubContextMenu>
             <SidebarDivider collapsed={collapsed} />
             {ModuleIcon ? (
               collapsed ? (
@@ -645,13 +657,16 @@ export function AppSidebar({
                 collapsed={collapsed}
               />
             ))}
-            <SidebarTopLink
-              href={appsHubItem.href}
-              label={appsHubItem.label}
-              icon={appsHubItem.icon}
-              collapsed={collapsed}
-              className="mb-1"
-            />
+            <AppsHubContextMenu className="w-full">
+              <SidebarTopLink
+                href={appsHubItem.href}
+                label={appsHubItem.label}
+                icon={appsHubItem.icon}
+                collapsed={collapsed}
+                className="mb-1"
+                hasPopup
+              />
+            </AppsHubContextMenu>
             <SidebarDivider collapsed={collapsed} />
             {appCategoryNavItems.map((item) => (
               <SidebarLink
@@ -674,41 +689,62 @@ export function AppSidebar({
         )}
       >
         {showSettings && venue.is_global ? (
-          <SidebarLink
-            href="/global/settings"
-            label="Settings"
-            sublabel="Global"
-            icon={Settings}
-            active={pathname.startsWith("/global/settings")}
-            collapsed={collapsed}
-            branded
-          />
+          <SettingsNavContextMenu
+            currentLabel="Global"
+            currentHref="/global/settings"
+            className="w-full"
+          >
+            <SidebarLink
+              href="/global/settings"
+              label="Settings"
+              sublabel="Global"
+              icon={Settings}
+              active={pathname.startsWith("/global/settings")}
+              collapsed={collapsed}
+              branded
+              hasPopup
+            />
+          </SettingsNavContextMenu>
         ) : null}
         {moduleSidebar?.bottomItems?.map((item) => {
           const Icon = item.icon ?? Settings;
           return (
-            <SidebarLink
+            <SettingsNavContextMenu
               key={item.href}
-              href={item.href}
-              label={item.label}
-              sublabel={moduleSidebar.label}
-              icon={Icon}
-              active={isModuleSidebarItemActive(pathname, item)}
-              collapsed={collapsed}
-              branded
-            />
+              currentLabel={moduleSidebar.label}
+              currentHref={item.href}
+              className="w-full"
+            >
+              <SidebarLink
+                href={item.href}
+                label={item.label}
+                sublabel={moduleSidebar.label}
+                icon={Icon}
+                active={isModuleSidebarItemActive(pathname, item)}
+                collapsed={collapsed}
+                branded
+                hasPopup
+              />
+            </SettingsNavContextMenu>
           );
         })}
         {!moduleSidebar && !venue.is_global ? (
-          <SidebarLink
-            href="/settings"
-            label="Settings"
-            sublabel="Venue"
-            icon={Settings}
-            active={pathname.startsWith("/settings")}
-            collapsed={collapsed}
-            branded
-          />
+          <SettingsNavContextMenu
+            currentLabel="Venue"
+            currentHref="/settings"
+            className="w-full"
+          >
+            <SidebarLink
+              href="/settings"
+              label="Settings"
+              sublabel="Venue"
+              icon={Settings}
+              active={pathname.startsWith("/settings")}
+              collapsed={collapsed}
+              branded
+              hasPopup
+            />
+          </SettingsNavContextMenu>
         ) : null}
         {(showSettings && venue.is_global) ||
         moduleSidebar?.bottomItems?.length ||

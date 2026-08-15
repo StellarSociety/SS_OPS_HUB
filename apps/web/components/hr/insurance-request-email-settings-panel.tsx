@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
 import { EmailStaffDocumentsPicker } from "@/components/hr/email-staff-documents-picker";
+import { RequiresAcknowledgementCheckbox } from "@/components/hr/requires-acknowledgement-checkbox";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -118,6 +119,10 @@ export function InsuranceRequestEmailSettingsPanel({
   const [renewRequireAttachments, setRenewRequireAttachments] = useState(
     settings.renewRequireAttachments !== false,
   );
+  const [requiresAcknowledgementIssue, setRequiresAcknowledgementIssue] =
+    useState(settings.requiresAcknowledgementIssue === true);
+  const [requiresAcknowledgementRenew, setRequiresAcknowledgementRenew] =
+    useState(settings.requiresAcknowledgementRenew === true);
   const [issueHelpOpen, setIssueHelpOpen] = useState(false);
   const [renewHelpOpen, setRenewHelpOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -135,6 +140,12 @@ export function InsuranceRequestEmailSettingsPanel({
     setRenewAttachDocuments(settings.renewAttachDocuments);
     setIssueRequireAttachments(settings.issueRequireAttachments !== false);
     setRenewRequireAttachments(settings.renewRequireAttachments !== false);
+    setRequiresAcknowledgementIssue(
+      settings.requiresAcknowledgementIssue === true,
+    );
+    setRequiresAcknowledgementRenew(
+      settings.requiresAcknowledgementRenew === true,
+    );
   }, [settings]);
 
   const watch = useMemo(
@@ -150,6 +161,8 @@ export function InsuranceRequestEmailSettingsPanel({
         renewAttachDocuments,
         issueRequireAttachments,
         renewRequireAttachments,
+        requiresAcknowledgementIssue,
+        requiresAcknowledgementRenew,
       }),
     [
       enabled,
@@ -162,6 +175,8 @@ export function InsuranceRequestEmailSettingsPanel({
       renewAttachDocuments,
       issueRequireAttachments,
       renewRequireAttachments,
+      requiresAcknowledgementIssue,
+      requiresAcknowledgementRenew,
     ],
   );
 
@@ -264,6 +279,12 @@ export function InsuranceRequestEmailSettingsPanel({
               Used when the request type is Issue (new policy).
             </p>
           </div>
+          <RequiresAcknowledgementCheckbox
+            checked={requiresAcknowledgementIssue}
+            onChange={setRequiresAcknowledgementIssue}
+            disabled={!enabled}
+            name="requires_acknowledgement_issue"
+          />
           <div className="space-y-1.5">
             <Label htmlFor="ins_req_issue_subject">Subject</Label>
             <Input
@@ -311,6 +332,12 @@ export function InsuranceRequestEmailSettingsPanel({
               Used when the request type is Renew (existing policy).
             </p>
           </div>
+          <RequiresAcknowledgementCheckbox
+            checked={requiresAcknowledgementRenew}
+            onChange={setRequiresAcknowledgementRenew}
+            disabled={!enabled}
+            name="requires_acknowledgement_renew"
+          />
           <div className="space-y-1.5">
             <Label htmlFor="ins_req_renew_subject">Subject</Label>
             <Input

@@ -307,6 +307,7 @@ export async function saveCertificationRequestEmailSettings(
       DEFAULT_HR_CERTIFICATION_REQUEST_EMAIL_SETTINGS.attachDocuments,
     ),
     requireAttachments: flagTrue(formData.get("attach_documents_require")),
+    requiresAcknowledgement: flagTrue(formData.get("requires_acknowledgement")),
   });
 
   try {

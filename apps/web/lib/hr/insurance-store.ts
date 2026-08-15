@@ -1065,5 +1065,7 @@ export function mergeInsuranceRequestEmailSettings(
       typeof partial?.renewRequireAttachments === "boolean"
         ? partial.renewRequireAttachments
         : base.renewRequireAttachments,
+    requiresAcknowledgementIssue: partial?.requiresAcknowledgementIssue === true,
+    requiresAcknowledgementRenew: partial?.requiresAcknowledgementRenew === true,
   };
 }

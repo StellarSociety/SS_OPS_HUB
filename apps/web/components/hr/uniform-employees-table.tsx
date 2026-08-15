@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type MouseEvent } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -144,6 +144,10 @@ export function UniformEmployeesTable({
       else next.add(staffId);
       return next;
     });
+  }
+
+  function stopRowToggle(event: MouseEvent) {
+    event.stopPropagation();
   }
 
   function handleDeleteItem(item: UniformStaffItemRow) {
@@ -331,12 +335,18 @@ export function UniformEmployeesTable({
                       {canManage ? <col className="w-[5.25rem]" /> : null}
                     </colgroup>
                     <tbody>
-                      <tr className="text-[#3D421F]">
+                      <tr
+                        className="cursor-pointer text-[#3D421F] transition-colors hover:bg-[var(--venue-secondary,#F0F3DD)]/40"
+                        onClick={() => toggleExpanded(row.staff.id)}
+                      >
                         <td className="px-4 py-3" colSpan={3}>
                           <div className="flex min-w-0 items-stretch gap-3">
                             <button
                               type="button"
-                              onClick={() => toggleExpanded(row.staff.id)}
+                              onClick={(event) => {
+                                stopRowToggle(event);
+                                toggleExpanded(row.staff.id);
+                              }}
                               className="shrink-0 self-center rounded-md p-1 text-black/45 hover:bg-black/5 hover:text-[#3D421F]"
                               aria-expanded={expanded}
                               aria-label={
@@ -351,31 +361,38 @@ export function UniformEmployeesTable({
                                 <ChevronRight className="h-4 w-4" />
                               )}
                             </button>
-                            <StaffPhotoThumbnail
-                              fullName={row.staff.full_name}
-                              photoUrl={row.staff.photo_url}
-                              size="fill"
-                              empNo={row.staff.emp_no}
-                              department={row.staff.department?.name}
-                              position={row.staff.position?.name}
-                              employeeStatus={
-                                row.staff.employment_status?.name
-                              }
-                              workingStatus={row.staff.working_status?.name}
-                              nationality={row.staff.nationality?.name}
-                              dob={row.staff.dob}
-                              joiningDate={row.staff.joining_date}
-                              terminationDate={row.staff.termination_date}
-                            />
+                            <div
+                              onClick={stopRowToggle}
+                              className="shrink-0 self-stretch"
+                            >
+                              <StaffPhotoThumbnail
+                                fullName={row.staff.full_name}
+                                photoUrl={row.staff.photo_url}
+                                size="fill"
+                                empNo={row.staff.emp_no}
+                                department={row.staff.department?.name}
+                                position={row.staff.position?.name}
+                                employeeStatus={
+                                  row.staff.employment_status?.name
+                                }
+                                workingStatus={row.staff.working_status?.name}
+                                nationality={row.staff.nationality?.name}
+                                dob={row.staff.dob}
+                                joiningDate={row.staff.joining_date}
+                                terminationDate={row.staff.termination_date}
+                              />
+                            </div>
                             <div className="min-w-0 flex-1">
                               <div className="font-medium text-[#3D421F]">
                                 {row.staff.full_name}
                               </div>
                               <div className="mt-0.5 text-xs text-black/45">
-                                <StaffDirectoryLink
-                                  staffId={row.staff.id}
-                                  empNo={row.staff.emp_no}
-                                />
+                                <span onClick={stopRowToggle}>
+                                  <StaffDirectoryLink
+                                    staffId={row.staff.id}
+                                    empNo={row.staff.emp_no}
+                                  />
+                                </span>
                                 {row.staff.position?.name
                                   ? ` · ${row.staff.position.name}`
                                   : ""}
@@ -399,7 +416,10 @@ export function UniformEmployeesTable({
                                 </span>
                               </div>
                             </div>
-                            <div className="flex w-[13.5rem] shrink-0 flex-col items-end justify-center gap-1">
+                            <div
+                              className="flex w-[13.5rem] shrink-0 flex-col items-end justify-center gap-1"
+                              onClick={stopRowToggle}
+                            >
                               {canManage ? (
                                 <div className="inline-flex flex-wrap items-center justify-end gap-2">
                                   <UniformTermsEmailSendButton
@@ -470,7 +490,10 @@ export function UniformEmployeesTable({
                             : "—"}
                         </td>
                         {canManage ? (
-                          <td className="w-[5.25rem] px-4 py-3">
+                          <td
+                            className="w-[5.25rem] px-4 py-3"
+                            onClick={stopRowToggle}
+                          >
                             <div className="flex items-center justify-end gap-0.5">
                               <button
                                 type="button"

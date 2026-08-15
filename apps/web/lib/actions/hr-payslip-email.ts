@@ -25,6 +25,7 @@ import { loadPayslipLetterheadForVenue } from "@/lib/hr/payslip-letterhead";
 import { loadPayslipPdfLogoServer } from "@/lib/hr/payslip-pdf-logo-server";
 import { dayFractionsFromSnapshot } from "@/lib/hr/payroll/wps";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import {
   createPayslipEmailTemplate,
@@ -67,6 +68,7 @@ function normalizeTemplates(
         name: String(row.name ?? "Template"),
         subject: String(row.subject ?? DEFAULT_PAYSLIP_EMAIL_SUBJECT),
         message: String(row.message ?? ""),
+        requiresAcknowledgement: row.requiresAcknowledgement === true,
       }),
     );
   }
@@ -707,18 +709,19 @@ export async function sendPayslipsEmail(
 
   const staffById = new Map<
     string,
-    { work_email: string | null; personal_email: string | null; full_name: string | null }
+    { work_email: string | null; personal_email: string | null; full_name: string | null; emp_no: string | null }
   >();
   if (staffIds.length > 0) {
     const { data: staffRows } = await service
       .from("staff")
-      .select("id, work_email, personal_email, full_name")
+      .select("id, work_email, personal_email, full_name, emp_no")
       .in("id", staffIds);
     for (const s of staffRows ?? []) {
       staffById.set(s.id as string, {
         work_email: (s.work_email as string | null) ?? null,
         personal_email: (s.personal_email as string | null) ?? null,
         full_name: (s.full_name as string | null) ?? null,
+        emp_no: (s.emp_no as string | null) ?? null,
       });
     }
   }
@@ -750,6 +753,7 @@ export async function sendPayslipsEmail(
       work_email: null,
       personal_email: null,
       full_name: null,
+      emp_no: null,
     };
     const to =
       draft?.to ||
@@ -810,9 +814,21 @@ export async function sendPayslipsEmail(
       draft?.subject ?? applyEmailPlaceholders(template.subject, vars);
     const bodyText =
       draft?.body ?? applyEmailPlaceholders(template.message, vars);
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement: template.requiresAcknowledgement === true,
+      venueId: venue.id,
+      staffId: row.staff_id as string,
+      staffName: fullName,
+      empNo: staff.emp_no,
+      recipientEmail: to,
+      emailKind: "payslip",
+      emailKindLabel: "Payslip",
+      subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: bodyText,
       venue,
+      acknowledgement,
     });
 
     const attachments: {

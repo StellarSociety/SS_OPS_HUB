@@ -13,6 +13,10 @@ import {
   resolveLoginEmail,
   staffInviteEmail,
 } from "@/lib/access/store";
+import {
+  readUserLoginPassword,
+  storeUserLoginPassword,
+} from "@/lib/access/password-vault";
 import type { PermissionGrantInput } from "@/lib/access/types";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -36,6 +40,7 @@ import {
 } from "@/lib/user/avatar-upload-constants";
 import { createClient } from "@/lib/supabase/server";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
+import { publicAppUrl } from "@/lib/public-app-url";
 
 const SETTINGS_PATHS = [
   "/settings",
@@ -53,19 +58,6 @@ function revalidateSettings() {
 
 function appUrl() {
   return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-}
-
-/**
- * Canonical, user-facing site URL for links we share with people (e.g. the
- * login URL in handed-over credentials). Prefers an explicit public site URL,
- * then Vercel's production URL, and only falls back to the local app URL.
- */
-function publicSiteUrl() {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (explicit) return explicit.replace(/\/$/, "");
-  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
-  return appUrl();
 }
 
 /**
@@ -211,6 +203,12 @@ async function createDirectAccount(params: {
     return { error: profileError.message };
   }
 
+  try {
+    await storeUserLoginPassword(userId, password);
+  } catch {
+    // Auth account exists; vault is best-effort for admin "View password".
+  }
+
   await writeAuditLog({
     actor_id: actor.id,
     action: "create",
@@ -230,7 +228,7 @@ async function createDirectAccount(params: {
   return {
     success: `Account created for ${email}.`,
     userId,
-    credentials: { email, password, loginUrl: `${publicSiteUrl()}/login` },
+    credentials: { email, password, loginUrl: `${publicAppUrl()}/login` },
   };
 }
 
@@ -669,6 +667,12 @@ export async function setUserPassword(userId: string, password: string) {
   });
   if (error) return { error: error.message };
 
+  try {
+    await storeUserLoginPassword(userId, password);
+  } catch {
+    // Auth password is set; vault is best-effort for admin "View password".
+  }
+
   if (!target.invite_accepted_at) {
     try {
       await service
@@ -695,8 +699,52 @@ export async function setUserPassword(userId: string, password: string) {
     credentials: {
       email: target.email,
       password,
-      loginUrl: `${publicSiteUrl()}/login`,
+      loginUrl: `${publicAppUrl()}/login`,
     },
+  };
+}
+
+/**
+ * Return the recoverable login password for an account (admin only).
+ * Only available when the password was set through the app (manual set,
+ * direct invite, or self-service reset) — never readable from Auth alone.
+ */
+export async function getUserPassword(userId: string) {
+  const { user: actor } = await requireAppAdmin();
+
+  const service = createServiceClient();
+  const target = await getUserById(service, userId);
+  if (!target) return { error: "User not found." };
+
+  let password: string | null = null;
+  try {
+    password = await readUserLoginPassword(userId);
+  } catch (err) {
+    return {
+      error:
+        err instanceof Error ? err.message : "Failed to read stored password.",
+    };
+  }
+
+  if (!password) {
+    return {
+      error:
+        "No recoverable password on file. Set one manually, then you can view it here.",
+    };
+  }
+
+  await writeAuditLog({
+    actor_id: actor.id,
+    action: "read",
+    module_key: "app",
+    entity: "password_view",
+    entity_id: userId,
+  });
+
+  return {
+    email: target.email,
+    password,
+    loginUrl: `${publicAppUrl()}/login`,
   };
 }
 

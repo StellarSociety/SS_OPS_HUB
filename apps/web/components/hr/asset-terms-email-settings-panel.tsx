@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
+import { RequiresAcknowledgementCheckbox } from "@/components/hr/requires-acknowledgement-checkbox";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -42,6 +43,9 @@ export function AssetTermsEmailSettingsPanel({
   const [fromEmail, setFromEmail] = useState(settings.fromEmail);
   const [subject, setSubject] = useState(settings.subject);
   const [message, setMessage] = useState(settings.message);
+  const [requiresAcknowledgement, setRequiresAcknowledgement] = useState(
+    settings.requiresAcknowledgement === true,
+  );
   const [messageHelpOpen, setMessageHelpOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -55,8 +59,9 @@ export function AssetTermsEmailSettingsPanel({
         fromEmail,
         subject,
         message,
+        requiresAcknowledgement,
       }),
-    [enabled, recipientField, fromEmail, subject, message],
+    [enabled, recipientField, fromEmail, subject, message, requiresAcknowledgement],
   );
 
   async function copyTemplateCode(code: string) {
@@ -123,6 +128,12 @@ export function AssetTermsEmailSettingsPanel({
           type="hidden"
           name="enabled"
           value={enabled ? "true" : "false"}
+        />
+
+        <RequiresAcknowledgementCheckbox
+          checked={requiresAcknowledgement}
+          onChange={setRequiresAcknowledgement}
+          disabled={!enabled}
         />
 
         <div className="grid gap-4 md:grid-cols-2">

@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { ModuleTile } from "@/components/modules/module-tile";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
+import { MaybeSettingsNavMenu } from "@/components/layout/settings-nav-context-menu";
 import { cn } from "@/lib/utils";
 
 const tileVariants = {
@@ -52,18 +53,20 @@ export function ModuleGrid({
           variants={tileVariants}
           className={cn(centered && "w-[5.75rem]")}
         >
-          <ModuleTile
-            label={mod.label}
-            iconKey={mod.iconKey}
-            status={mod.status}
-            href={mod.href}
-            clickable={mod.clickable}
-            blockedReason={mod.blockedReason}
-            selected={selectedKey === mod.key}
-            onSelect={
-              onSelectModule ? () => onSelectModule(mod) : undefined
-            }
-          />
+          <MaybeSettingsNavMenu href={mod.href}>
+            <ModuleTile
+              label={mod.label}
+              iconKey={mod.iconKey}
+              status={mod.status}
+              href={mod.href}
+              clickable={mod.clickable}
+              blockedReason={mod.blockedReason}
+              selected={selectedKey === mod.key}
+              onSelect={
+                onSelectModule ? () => onSelectModule(mod) : undefined
+              }
+            />
+          </MaybeSettingsNavMenu>
         </motion.div>
       ))}
     </motion.div>

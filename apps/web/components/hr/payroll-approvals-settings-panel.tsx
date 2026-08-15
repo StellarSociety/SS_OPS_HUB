@@ -4,6 +4,7 @@ import { ChevronDown, Plus, Star, Trash2 } from "lucide-react";
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useFormStatus } from "react-dom";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
+import { RequiresAcknowledgementCheckbox } from "@/components/hr/requires-acknowledgement-checkbox";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -622,6 +623,15 @@ export function PayrollApprovalsSettingsPanel({
                   disabled={!activeTemplate}
                   aria-label="Payroll email message"
                 />
+                {activeTemplate ? (
+                  <RequiresAcknowledgementCheckbox
+                    checked={activeTemplate.requiresAcknowledgement === true}
+                    onChange={(next) =>
+                      updateActiveTemplate({ requiresAcknowledgement: next })
+                    }
+                    includeHidden={false}
+                  />
+                ) : null}
               </div>
             </section>
 

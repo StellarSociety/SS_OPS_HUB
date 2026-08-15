@@ -174,6 +174,22 @@ export async function loadEmailTransportSettings(
   );
 }
 
+/** Address actually used when a send leaves From blank (Email config / Resend). */
+export function configuredFromEmail(settings: HrEmailTransportSettings): string {
+  return (
+    settings.smtp.fromEmail.trim() ||
+    settings.smtp.username.trim() ||
+    String(process.env.RESEND_FROM_EMAIL ?? "").trim()
+  );
+}
+
+export async function resolveVenueFromEmail(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<string> {
+  return configuredFromEmail(await loadEmailTransportSettings(supabase, venueId));
+}
+
 /**
  * When no venue is supplied (e.g. cron notifications), prefer the first venue
  * with a non-Resend transport and a saved password; otherwise Resend defaults.

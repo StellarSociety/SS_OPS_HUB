@@ -146,6 +146,7 @@ export async function saveUpdatedDocsRequestEmailSettings(
     fromEmail: String(formData.get("from_email") ?? ""),
     subject: String(formData.get("subject") ?? ""),
     message: String(formData.get("message") ?? ""),
+    requiresAcknowledgement: flagTrue(formData.get("requires_acknowledgement")),
   });
 
   try {

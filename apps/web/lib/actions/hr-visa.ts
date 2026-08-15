@@ -15,6 +15,7 @@ import {
 } from "@/lib/hr/email-staff-attachments";
 import { parseEmailStaffDocumentKeysFromForm } from "@/lib/hr/email-staff-documents";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import { canAdminLookups, canEditAssets, canEditStaff } from "@/lib/hr/permissions";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import {
@@ -1114,6 +1115,22 @@ export async function sendVisaRequestEmails(input: {
       };
     }
 
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement:
+        unit.requestType === "renew"
+          ? preview.settings.requiresAcknowledgementRenew === true
+          : unit.requestType === "cancel"
+            ? preview.settings.requiresAcknowledgementCancel === true
+            : preview.settings.requiresAcknowledgementIssue === true,
+      venueId: auth.venue.id,
+      staffId: unit.staffId,
+      staffName: unit.fullName,
+      empNo: unit.empNo,
+      recipientEmail: unit.to,
+      emailKind: `visa_${unit.requestType}`,
+      emailKindLabel: `Visa ${template.label}`,
+      subject: unit.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: unit.body,
       venue: {
@@ -1122,6 +1139,7 @@ export async function sendVisaRequestEmails(input: {
         slug: auth.venue.slug ?? "",
         logo_url: auth.venue.logo_url,
       },
+      acknowledgement,
     });
 
     const attachments = [...inlineAttachments, ...staffDocs.attachments];
@@ -1380,6 +1398,15 @@ export async function saveVisaRequestEmailSettings(
     ),
     cancelRequireAttachments: flagTrue(
       formData.get("cancel_attach_documents_require"),
+    ),
+    requiresAcknowledgementIssue: flagTrue(
+      formData.get("requires_acknowledgement_issue"),
+    ),
+    requiresAcknowledgementRenew: flagTrue(
+      formData.get("requires_acknowledgement_renew"),
+    ),
+    requiresAcknowledgementCancel: flagTrue(
+      formData.get("requires_acknowledgement_cancel"),
     ),
   });
 

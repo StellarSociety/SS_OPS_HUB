@@ -1141,5 +1141,8 @@ export function mergeVisaRequestEmailSettings(
       typeof partial?.cancelRequireAttachments === "boolean"
         ? partial.cancelRequireAttachments
         : base.cancelRequireAttachments,
+    requiresAcknowledgementIssue: partial?.requiresAcknowledgementIssue === true,
+    requiresAcknowledgementRenew: partial?.requiresAcknowledgementRenew === true,
+    requiresAcknowledgementCancel: partial?.requiresAcknowledgementCancel === true,
   };
 }

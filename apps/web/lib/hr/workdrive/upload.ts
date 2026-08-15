@@ -94,6 +94,26 @@ export function injectDocExpiryIntoFileName(
   return next !== fileName ? next : null;
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Older insurance/visa uploads wrongly appended `_<first 8 of record uuid>` to
+ * the Drive Setup file name. Strip that suffix when present.
+ */
+export function stripLinkedRecordIdSuffixFromFileName(
+  fileName: string,
+  fileSlotId: string | null | undefined,
+): string | null {
+  const slot = String(fileSlotId ?? "").trim();
+  if (!UUID_RE.test(slot)) return null;
+  const prefix = slot.slice(0, 8);
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`_${escaped}(\\.[^.]+)$`, "i");
+  if (!re.test(fileName)) return null;
+  return fileName.replace(re, "$1");
+}
+
 /** Staff date field used for `{doc_expiry}` for a doc kind / file part. */
 export type HrWorkDriveDocExpiryField =
   | "passport_expiry"
@@ -251,27 +271,41 @@ export async function uploadStaffDocumentToWorkDrive(
             fileNameTemplate: settings.fileNameTemplate,
           },
         ];
-  const slot =
+  // Insurance / visa uploads pass the HR record UUID as fileSlotId so the
+  // document can be linked. That id is not a Drive Setup slot — keep it for
+  // persistence, but name the file from the configured template (never append
+  // the UUID).
+  const configuredSlot =
     (input.fileSlotId
       ? slots.find((row) => row.id === input.fileSlotId)
-      : undefined) ??
-    (input.docKind === "medical_insurance" && input.fileSlotId
-      ? {
-          id: input.fileSlotId,
-          label: "Insurance card",
-          fileNameTemplate: `{doc_name}_{first_name}_{last_name}_{doc_expiry}_${input.fileSlotId.slice(0, 8)}`,
-        }
-      : undefined) ??
-    ((input.docKind === "eresidence_card" || input.docKind === "visa_noc") &&
-    input.fileSlotId
-      ? {
-          id: input.fileSlotId,
-          label:
-            input.docKind === "visa_noc" ? "Visa NOC" : "Residency card",
-          fileNameTemplate: `{doc_name}_{first_name}_{last_name}_{doc_expiry}_${input.fileSlotId.slice(0, 8)}`,
-        }
-      : undefined) ??
-    slots[0];
+      : undefined) ?? slots[0];
+  const linkRecordAsSlot =
+    !configuredSlot ||
+    !input.fileSlotId ||
+    configuredSlot.id === input.fileSlotId
+      ? null
+      : input.docKind === "medical_insurance" ||
+          input.docKind === "eresidence_card" ||
+          input.docKind === "visa_noc"
+        ? input.fileSlotId
+        : null;
+  const defaultNamingTemplate =
+    configuredSlot?.fileNameTemplate.trim() ||
+    settings.fileNameTemplate.trim() ||
+    `{doc_name}_{first_name}_{last_name}_{doc_expiry}`;
+  const slot = linkRecordAsSlot
+    ? {
+        id: linkRecordAsSlot,
+        label:
+          configuredSlot?.label ??
+          (input.docKind === "visa_noc"
+            ? "Visa NOC"
+            : input.docKind === "eresidence_card"
+              ? "Residency card"
+              : "Insurance card"),
+        fileNameTemplate: defaultNamingTemplate,
+      }
+    : configuredSlot;
   if (!slot) {
     throw new Error(
       `File part "${input.fileSlotId ?? "default"}" is not configured for "${input.docKind}".`,

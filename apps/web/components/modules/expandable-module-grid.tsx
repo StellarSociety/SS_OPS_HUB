@@ -14,6 +14,7 @@ import { LayoutGrid } from "lucide-react";
 import { ModuleTile } from "@/components/modules/module-tile";
 import { SubpageTile } from "@/components/modules/subpage-tile";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
+import { MaybeSettingsNavMenu } from "@/components/layout/settings-nav-context-menu";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import {
   getModuleSidebarByKey,
@@ -390,13 +391,15 @@ function SubpageRow({
         return (
           <Fragment key={item.href}>
             <div className="w-[4rem] shrink-0">
-              <SubpageTile
-                label={item.label}
-                href={item.href}
-                icon={Icon}
-                size="sm"
-                comingSoon={item.comingSoon || forceComingSoon}
-              />
+              <MaybeSettingsNavMenu href={item.comingSoon ? undefined : item.href}>
+                <SubpageTile
+                  label={item.label}
+                  href={item.href}
+                  icon={Icon}
+                  size="sm"
+                  comingSoon={item.comingSoon || forceComingSoon}
+                />
+              </MaybeSettingsNavMenu>
             </div>
             {item.dividerAfter ? <SubpageTileDivider /> : null}
           </Fragment>
@@ -471,20 +474,22 @@ export function ExpandableModuleGrid({
       >
         {modules.map((mod) => (
           <div key={mod.key} className={cn(centered && "w-[5.75rem]")}>
-            <ModuleTile
-              label={mod.label}
-              iconKey={mod.iconKey}
-              status={mod.status}
-              href={mod.href}
-              clickable={mod.clickable}
-              blockedReason={mod.blockedReason}
-              selected={selectedKey === mod.key}
-              onSelect={
-                canExpandModule(mod)
-                  ? () => handleSelectModule(mod)
-                  : undefined
-              }
-            />
+            <MaybeSettingsNavMenu href={mod.href}>
+              <ModuleTile
+                label={mod.label}
+                iconKey={mod.iconKey}
+                status={mod.status}
+                href={mod.href}
+                clickable={mod.clickable}
+                blockedReason={mod.blockedReason}
+                selected={selectedKey === mod.key}
+                onSelect={
+                  canExpandModule(mod)
+                    ? () => handleSelectModule(mod)
+                    : undefined
+                }
+              />
+            </MaybeSettingsNavMenu>
           </div>
         ))}
       </div>

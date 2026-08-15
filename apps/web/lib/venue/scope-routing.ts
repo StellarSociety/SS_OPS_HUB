@@ -50,6 +50,7 @@ const UNSCOPED_PREFIXES = [
   "/select-venue",
   "/auth",
   "/api",
+  "/acknowledge",
 ] as const;
 
 export function isUnscopedPath(path: string): boolean {

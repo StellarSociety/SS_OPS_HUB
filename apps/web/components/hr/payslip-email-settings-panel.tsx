@@ -4,6 +4,7 @@ import { ChevronDown, Plus, Star, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
+import { RequiresAcknowledgementCheckbox } from "@/components/hr/requires-acknowledgement-checkbox";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -436,6 +437,17 @@ export function PayslipEmailSettingsPanel({
             />
           </div>
         </section>
+
+        {activeTemplate ? (
+          <RequiresAcknowledgementCheckbox
+            checked={activeTemplate.requiresAcknowledgement === true}
+            onChange={(next) =>
+              updateActiveTemplate({ requiresAcknowledgement: next })
+            }
+            disabled={!enabled}
+            includeHidden={false}
+          />
+        ) : null}
 
         <label className="flex items-center gap-2 text-sm text-[#3D421F]">
           <input

@@ -5,6 +5,7 @@ import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import {
   DEFAULT_HR_ASSET_TERMS_EMAIL_SETTINGS,
   DEFAULT_ASSET_TERMS_EMAIL_MESSAGE,
@@ -41,6 +42,7 @@ export function mergeAssetTermsEmailSettings(
     message:
       String(partial?.message ?? "").trim() ||
       DEFAULT_ASSET_TERMS_EMAIL_MESSAGE,
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 
@@ -189,12 +191,24 @@ export async function deliverAssetTermsEmail(params: {
   const supabase = params.supabase ?? createServiceClient();
 
   try {
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement: params.settings.requiresAcknowledgement,
+      venueId: params.venue.id,
+      staffId: params.staff.id,
+      staffName: params.staff.full_name ?? "Unknown",
+      empNo: params.staff.emp_no,
+      recipientEmail: composed.to,
+      emailKind: "asset_terms",
+      emailKindLabel: "Asset T&Cs",
+      subject: composed.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
       venue: {
         ...params.venue,
         slug: params.venue.slug ?? "",
       },
+      acknowledgement,
     });
 
     const sendResult = await sendAppEmail(

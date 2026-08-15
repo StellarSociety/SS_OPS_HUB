@@ -5,6 +5,7 @@ import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatDateOnly } from "@/lib/hr/derived";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import {
   getMissingDetailLabels,
   type MissingDetailStaffInput,
@@ -50,6 +51,7 @@ export function mergeUpdatedDocsRequestEmailSettings(
     message:
       String(partial?.message ?? "").trim() ||
       DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_MESSAGE,
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 
@@ -235,12 +237,24 @@ export async function deliverUpdatedDocsRequestEmail(params: {
   let sentHtml = "";
 
   try {
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement: params.settings.requiresAcknowledgement,
+      venueId: params.venue.id,
+      staffId: params.staff.id,
+      staffName: params.staff.full_name ?? "Unknown",
+      empNo: params.staff.emp_no,
+      recipientEmail: composed.to,
+      emailKind: "updated_docs_request",
+      emailKindLabel: "Updated docs request",
+      subject: composed.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
       venue: {
         ...params.venue,
         slug: params.venue.slug ?? "",
       },
+      acknowledgement,
     });
     sentHtml = html;
 

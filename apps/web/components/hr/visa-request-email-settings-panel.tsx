@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
 import { EmailStaffDocumentsPicker } from "@/components/hr/email-staff-documents-picker";
+import { RequiresAcknowledgementCheckbox } from "@/components/hr/requires-acknowledgement-checkbox";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -126,6 +127,12 @@ export function VisaRequestEmailSettingsPanel({
   const [cancelRequireAttachments, setCancelRequireAttachments] = useState(
     settings.cancelRequireAttachments !== false,
   );
+  const [requiresAcknowledgementIssue, setRequiresAcknowledgementIssue] =
+    useState(settings.requiresAcknowledgementIssue === true);
+  const [requiresAcknowledgementRenew, setRequiresAcknowledgementRenew] =
+    useState(settings.requiresAcknowledgementRenew === true);
+  const [requiresAcknowledgementCancel, setRequiresAcknowledgementCancel] =
+    useState(settings.requiresAcknowledgementCancel === true);
   const [issueHelpOpen, setIssueHelpOpen] = useState(false);
   const [renewHelpOpen, setRenewHelpOpen] = useState(false);
   const [cancelHelpOpen, setCancelHelpOpen] = useState(false);
@@ -149,6 +156,15 @@ export function VisaRequestEmailSettingsPanel({
     setIssueRequireAttachments(settings.issueRequireAttachments !== false);
     setRenewRequireAttachments(settings.renewRequireAttachments !== false);
     setCancelRequireAttachments(settings.cancelRequireAttachments !== false);
+    setRequiresAcknowledgementIssue(
+      settings.requiresAcknowledgementIssue === true,
+    );
+    setRequiresAcknowledgementRenew(
+      settings.requiresAcknowledgementRenew === true,
+    );
+    setRequiresAcknowledgementCancel(
+      settings.requiresAcknowledgementCancel === true,
+    );
   }, [settings]);
 
   const watch = useMemo(
@@ -168,6 +184,9 @@ export function VisaRequestEmailSettingsPanel({
         issueRequireAttachments,
         renewRequireAttachments,
         cancelRequireAttachments,
+        requiresAcknowledgementIssue,
+        requiresAcknowledgementRenew,
+        requiresAcknowledgementCancel,
       }),
     [
       enabled,
@@ -184,6 +203,9 @@ export function VisaRequestEmailSettingsPanel({
       issueRequireAttachments,
       renewRequireAttachments,
       cancelRequireAttachments,
+      requiresAcknowledgementIssue,
+      requiresAcknowledgementRenew,
+      requiresAcknowledgementCancel,
     ],
   );
 
@@ -286,6 +308,12 @@ export function VisaRequestEmailSettingsPanel({
               Used when the request type is Issue (new residency visa).
             </p>
           </div>
+          <RequiresAcknowledgementCheckbox
+            checked={requiresAcknowledgementIssue}
+            onChange={setRequiresAcknowledgementIssue}
+            disabled={!enabled}
+            name="requires_acknowledgement_issue"
+          />
           <div className="space-y-1.5">
             <Label htmlFor="ins_req_issue_subject">Subject</Label>
             <Input
@@ -333,6 +361,12 @@ export function VisaRequestEmailSettingsPanel({
               Used when the request type is Renew (existing residency visa).
             </p>
           </div>
+          <RequiresAcknowledgementCheckbox
+            checked={requiresAcknowledgementRenew}
+            onChange={setRequiresAcknowledgementRenew}
+            disabled={!enabled}
+            name="requires_acknowledgement_renew"
+          />
           <div className="space-y-1.5">
             <Label htmlFor="ins_req_renew_subject">Subject</Label>
             <Input
@@ -383,6 +417,12 @@ export function VisaRequestEmailSettingsPanel({
               Cancelation.
             </p>
           </div>
+          <RequiresAcknowledgementCheckbox
+            checked={requiresAcknowledgementCancel}
+            onChange={setRequiresAcknowledgementCancel}
+            disabled={!enabled}
+            name="requires_acknowledgement_cancel"
+          />
           <div className="space-y-1.5">
             <Label htmlFor="visa_req_cancel_subject">Subject</Label>
             <Input

@@ -32,6 +32,8 @@ function normalizePayrollEmailTemplates(
           (row as PayrollEmailTemplate).subject ?? DEFAULT_PAYROLL_EMAIL_SUBJECT,
         ),
         message: String((row as PayrollEmailTemplate).message ?? ""),
+        requiresAcknowledgement:
+          (row as PayrollEmailTemplate).requiresAcknowledgement === true,
       }),
     );
   }

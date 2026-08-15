@@ -67,7 +67,7 @@ function auditKind(action: string): ActivityKind {
  */
 const USER_ENTITY_LABELS: Record<
   string,
-  Partial<Record<"create" | "update" | "delete", string>>
+  Partial<Record<"create" | "update" | "delete" | "read", string>>
 > = {
   user: {
     create: "Created user",
@@ -77,6 +77,7 @@ const USER_ENTITY_LABELS: Record<
   user_invite: { update: "Resent invitation" },
   password_reset: { update: "Sent password reset" },
   password_set: { update: "Set password" },
+  password_view: { read: "Viewed password" },
   profile: { update: "Updated user status" },
   profile_email: { update: "Changed login email" },
   profile_name: { update: "Changed name" },
@@ -118,7 +119,7 @@ function auditLabel(
   // User-management actions get friendly, entity-specific labels.
   if (isUserEntity(entity)) {
     const mapped = USER_ENTITY_LABELS[entity!]?.[
-      action as "create" | "update" | "delete"
+      action as "create" | "update" | "delete" | "read"
     ];
     if (mapped) {
       // Refine the "suspend" rows so the direction (suspend vs restore) reads clearly.

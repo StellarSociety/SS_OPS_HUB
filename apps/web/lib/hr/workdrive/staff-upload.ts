@@ -20,6 +20,7 @@ import { loadWorkDriveSettings } from "@/lib/hr/workdrive/settings";
 import {
   docExpiryFieldForKind,
   injectDocExpiryIntoFileName,
+  stripLinkedRecordIdSuffixFromFileName,
   uploadStaffDocumentToWorkDrive,
 } from "@/lib/hr/workdrive/upload";
 import {
@@ -292,8 +293,8 @@ export async function performStaffWorkDriveUpload(
 }
 
 /**
- * When a linked WorkDrive file was saved with an empty `[exp.- ]` placeholder,
- * rename it using the reference expiry and update stored metadata.
+ * When a linked WorkDrive file was saved with an empty `[exp.- ]` placeholder
+ * or a legacy `_<record-uuid-prefix>` suffix, rename it and update metadata.
  */
 export async function repairLinkedWorkDriveDocExpiryName(input: {
   venueId: string;
@@ -301,8 +302,14 @@ export async function repairLinkedWorkDriveDocExpiryName(input: {
   expiryDate: string | null | undefined;
 }): Promise<StaffLinkedWorkDriveDocument> {
   const expiryDate = isoDateOrNull(input.expiryDate);
-  const nextName = injectDocExpiryIntoFileName(input.doc.fileName, expiryDate);
-  if (!nextName || !expiryDate) return input.doc;
+  let nextName =
+    stripLinkedRecordIdSuffixFromFileName(
+      input.doc.fileName,
+      input.doc.fileSlotId,
+    ) ?? input.doc.fileName;
+  nextName =
+    injectDocExpiryIntoFileName(nextName, expiryDate) ?? nextName;
+  if (nextName === input.doc.fileName) return input.doc;
 
   try {
     const supabase = createServiceClient();

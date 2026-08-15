@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
 import { EmailStaffDocumentsPicker } from "@/components/hr/email-staff-documents-picker";
+import { RequiresAcknowledgementCheckbox } from "@/components/hr/requires-acknowledgement-checkbox";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -44,6 +45,9 @@ export function CertificationRequestEmailSettingsPanel({
   const [requireAttachments, setRequireAttachments] = useState(
     settings.requireAttachments !== false,
   );
+  const [requiresAcknowledgement, setRequiresAcknowledgement] = useState(
+    settings.requiresAcknowledgement === true,
+  );
   const [messageHelpOpen, setMessageHelpOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -56,6 +60,7 @@ export function CertificationRequestEmailSettingsPanel({
     setMessage(settings.message);
     setAttachDocuments(settings.attachDocuments);
     setRequireAttachments(settings.requireAttachments !== false);
+    setRequiresAcknowledgement(settings.requiresAcknowledgement === true);
   }, [settings]);
 
   const watch = useMemo(
@@ -67,8 +72,17 @@ export function CertificationRequestEmailSettingsPanel({
         message,
         attachDocuments,
         requireAttachments,
+        requiresAcknowledgement,
       }),
-    [enabled, fromEmail, subject, message, attachDocuments, requireAttachments],
+    [
+      enabled,
+      fromEmail,
+      subject,
+      message,
+      attachDocuments,
+      requireAttachments,
+      requiresAcknowledgement,
+    ],
   );
 
   async function copyTemplateCode(code: string) {
@@ -136,6 +150,12 @@ export function CertificationRequestEmailSettingsPanel({
           type="hidden"
           name="enabled"
           value={enabled ? "true" : "false"}
+        />
+
+        <RequiresAcknowledgementCheckbox
+          checked={requiresAcknowledgement}
+          onChange={setRequiresAcknowledgement}
+          disabled={!enabled}
         />
 
         <div className="space-y-1.5">

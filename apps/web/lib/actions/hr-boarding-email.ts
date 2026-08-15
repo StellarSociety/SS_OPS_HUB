@@ -27,6 +27,7 @@ import {
 } from "@/lib/hr/types";
 import type { OffboardingNoticeEmailDelivery } from "@/lib/hr/offboarding-process";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import { createServiceClient } from "@/lib/supabase/service";
 import { formatDateOnly } from "@/lib/hr/derived";
 
@@ -116,6 +117,7 @@ function normalizeTemplates(raw: unknown): BoardingEmailTemplate[] {
         subject: String(row.subject ?? ""),
         message: String(row.message ?? ""),
         toEmails: String(row.toEmails ?? ""),
+        requiresAcknowledgement: row.requiresAcknowledgement === true,
       }),
     );
   }
@@ -696,9 +698,21 @@ export async function sendBoardingNoticeEmail(input: {
     }
     const toEmail = toList.join(", ");
 
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement: ctx.template.requiresAcknowledgement === true,
+      venueId: ctx.auth.venue.id,
+      staffId: ctx.staff.id as string,
+      staffName: String(ctx.staff.full_name ?? "Unknown"),
+      empNo: (ctx.staff.emp_no as string | null) ?? null,
+      recipientEmail: toEmail,
+      emailKind: `boarding_${ctx.template.action}`,
+      emailKindLabel: ctx.template.name || "Off-boarding",
+      subject: ctx.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: ctx.message,
       venue: ctx.auth.venue,
+      acknowledgement,
     });
 
     const result = await sendAppEmail(

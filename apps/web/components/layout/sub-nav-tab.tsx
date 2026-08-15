@@ -7,6 +7,7 @@ import {
 } from "@/lib/sub-nav-ui";
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { MaybeSettingsNavMenu } from "@/components/layout/settings-nav-context-menu";
 import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 
 type SubNavTabProps = {
@@ -25,25 +26,27 @@ export function SubNavTab({
   variant = "segmented",
 }: SubNavTabProps) {
   return (
-    <ScopedLink
-      href={href}
-      className={
-        variant === "segmented"
-          ? segmentedSubNavLinkClass(active)
-          : pillSubNavLinkClass(active)
-      }
-    >
-      <AnimatedSymbol>
-        <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
-      </AnimatedSymbol>
-      <span
+    <MaybeSettingsNavMenu href={href}>
+      <ScopedLink
+        href={href}
         className={
-          variant === "segmented" ? "min-w-0 truncate text-center" : undefined
+          variant === "segmented"
+            ? segmentedSubNavLinkClass(active)
+            : pillSubNavLinkClass(active)
         }
       >
-        {label}
-      </span>
-      <NavigationPendingIndicator />
-    </ScopedLink>
+        <AnimatedSymbol>
+          <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
+        </AnimatedSymbol>
+        <span
+          className={
+            variant === "segmented" ? "min-w-0 truncate text-center" : undefined
+          }
+        >
+          {label}
+        </span>
+        <NavigationPendingIndicator />
+      </ScopedLink>
+    </MaybeSettingsNavMenu>
   );
 }

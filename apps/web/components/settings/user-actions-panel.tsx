@@ -3,11 +3,12 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useScopedHref } from "@/components/providers/venue-scope-provider";
-import { Ban, KeyRound, Mail, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
+import { Ban, Check, Copy, Eye, KeyRound, Mail, Pencil, RefreshCw, Send, Trash2 } from "lucide-react";
 import {
   changeUserEmail,
   changeUserName,
   deleteUser,
+  getUserPassword,
   resendUserInvite,
   resetUserPassword,
   setUserPassword,
@@ -110,6 +111,11 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
   const [settingPw, setSettingPw] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [viewingPw, setViewingPw] = useState(false);
+  const [viewedCredentials, setViewedCredentials] =
+    useState<Credentials | null>(null);
+  const [viewPwLoading, setViewPwLoading] = useState(false);
+  const [copiedPassword, setCopiedPassword] = useState(false);
 
   const status = inviteStatusOf(user);
   const suspended = user.status !== "active";
@@ -424,6 +430,36 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
         </Button>
         <Button
           type="button"
+          variant="secondary"
+          size="sm"
+          disabled={isPending || viewPwLoading}
+          onClick={() => {
+            setViewPwLoading(true);
+            startTransition(async () => {
+              const result = await getUserPassword(user.id);
+              setViewPwLoading(false);
+              if ("error" in result && result.error) {
+                toast.error(result.error);
+                return;
+              }
+              if (!("password" in result) || !result.password) {
+                toast.error("Password not available.");
+                return;
+              }
+              setViewedCredentials({
+                email: result.email,
+                password: result.password,
+                loginUrl: result.loginUrl,
+              });
+              setViewingPw(true);
+              setCopiedPassword(false);
+            });
+          }}
+        >
+          <Eye className="h-4 w-4" /> View password
+        </Button>
+        <Button
+          type="button"
           variant={suspended ? "default" : "ghost"}
           size="sm"
           disabled={isPending}
@@ -521,6 +557,84 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
 
       {credentials ? <AccessCredentialsBox credentials={credentials} /> : null}
       {inviteLink ? <InviteLinkBox link={inviteLink} /> : null}
+
+      {viewingPw && viewedCredentials ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setViewingPw(false);
+              setViewedCredentials(null);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="view-password-title"
+            className="w-full max-w-md rounded-xl border border-black/10 bg-white p-6 shadow-xl"
+          >
+            <h2
+              id="view-password-title"
+              className="font-serif text-xl text-[#3D421F]"
+            >
+              Current password
+            </h2>
+            <p className="mt-2 text-sm text-black/60">
+              Login password on file for{" "}
+              <span className="font-medium text-[#3D421F]">
+                {viewedCredentials.email}
+              </span>
+              .
+            </p>
+            <div className="mt-4 flex items-center gap-2">
+              <input
+                readOnly
+                value={viewedCredentials.password}
+                onFocus={(e) => e.currentTarget.select()}
+                className={`h-10 flex-1 rounded-md border border-black/10 bg-white px-3 font-mono text-sm text-[#3D421F] ${lightInput}`}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      viewedCredentials.password,
+                    );
+                    setCopiedPassword(true);
+                    setTimeout(() => setCopiedPassword(false), 2000);
+                  } catch {
+                    toast.error("Could not copy to clipboard.");
+                  }
+                }}
+              >
+                {copiedPassword ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                {copiedPassword ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setViewingPw(false);
+                  setViewedCredentials(null);
+                }}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

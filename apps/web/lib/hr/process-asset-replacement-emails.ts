@@ -5,6 +5,7 @@ import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatAed } from "@/lib/hr/derived";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import {
   DEFAULT_HR_ASSET_REPLACEMENT_EMAIL_SETTINGS,
   DEFAULT_ASSET_REPLACEMENT_EMAIL_MESSAGE,
@@ -40,6 +41,7 @@ export function mergeAssetReplacementEmailSettings(
     message:
       String(partial?.message ?? "").trim() ||
       DEFAULT_ASSET_REPLACEMENT_EMAIL_MESSAGE,
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 
@@ -184,12 +186,24 @@ export async function deliverAssetReplacementEmail(params: {
   let sentHtml = "";
 
   try {
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement: params.settings.requiresAcknowledgement,
+      venueId: params.venue.id,
+      staffId: params.staff.id,
+      staffName: params.staff.full_name ?? "Unknown",
+      empNo: params.staff.emp_no,
+      recipientEmail: composed.to,
+      emailKind: "asset_replacement",
+      emailKindLabel: "Asset replacement",
+      subject: composed.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
       venue: {
         ...params.venue,
         slug: params.venue.slug ?? "",
       },
+      acknowledgement,
     });
     sentHtml = html;
 

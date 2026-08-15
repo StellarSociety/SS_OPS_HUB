@@ -21,6 +21,7 @@ import {
   mergePayrollApprovalsSettings,
 } from "@/lib/hr/payroll/approvals-settings";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import {
   DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS,
   HR_MODULE_KEY,
@@ -666,9 +667,19 @@ export async function emailPayrollExport(
 
   const subject = applyEmailPlaceholders(activeTemplate.subject, vars);
   const bodyText = applyEmailPlaceholders(activeTemplate.message, vars);
+  const acknowledgement = await acknowledgementCtaForSend({
+    requiresAcknowledgement: activeTemplate.requiresAcknowledgement === true,
+    venueId: venue.id,
+    staffName: "Payroll package",
+    recipientEmail: emailCfg.toEmails[0] ?? null,
+    emailKind: "payroll_package",
+    emailKindLabel: "Payroll package",
+    subject,
+  });
   const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
     body: bodyText,
     venue,
+    acknowledgement,
   });
 
   try {

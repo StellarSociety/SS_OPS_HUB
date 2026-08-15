@@ -6,6 +6,7 @@ import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatDateOnly } from "@/lib/hr/derived";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import {
   inspectStaffEmailAttachments,
   loadStaffEmailAttachments,
@@ -63,6 +64,7 @@ export function mergeCertificationRequestEmailSettings(
       typeof partial?.requireAttachments === "boolean"
         ? partial.requireAttachments
         : base.requireAttachments,
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 
@@ -321,12 +323,24 @@ export async function deliverCertificationRequestEmail(params: {
   }
 
   try {
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement: params.settings.requiresAcknowledgement,
+      venueId: params.venue.id,
+      staffId: params.unit.staff.id,
+      staffName: params.unit.staff.full_name,
+      empNo: params.unit.staff.emp_no,
+      recipientEmail: composed.to,
+      emailKind: "certification_request",
+      emailKindLabel: "Certification request",
+      subject: composed.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: composed.body,
       venue: {
         ...params.venue,
         slug: params.venue.slug ?? "",
       },
+      acknowledgement,
     });
 
     const attachments: SendAppEmailAttachment[] = [

@@ -12,6 +12,7 @@ import {
 } from "@/lib/module-sidebar";
 import { NavigationPendingIndicator } from "@/components/layout/navigation-pending-indicator";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { MaybeSettingsNavMenu } from "@/components/layout/settings-nav-context-menu";
 import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
@@ -78,31 +79,33 @@ function ShortcutLink({
   const Icon = item.icon ?? fallbackIcon;
 
   return (
-    <ScopedLink href={item.href} className={shortcutBoxClass(active, branded, textOnly)}>
-      <AnimatedSymbol>
-        <Icon
-          className={cn(
-            textOnly
-              ? "h-4 w-4 shrink-0 text-black"
-              : branded
-                ? moduleBrandedNavIconClass(active)
-                : "h-3.5 w-3.5 shrink-0 opacity-80",
-          )}
-          aria-hidden
-        />
-      </AnimatedSymbol>
-      {sublabel ? (
-        <span className="min-w-0 leading-none">
-          <span className="block text-[9px] font-medium uppercase tracking-wide text-black/45">
-            {sublabel}
+    <MaybeSettingsNavMenu href={item.comingSoon ? undefined : item.href}>
+      <ScopedLink href={item.href} className={shortcutBoxClass(active, branded, textOnly)}>
+        <AnimatedSymbol>
+          <Icon
+            className={cn(
+              textOnly
+                ? "h-4 w-4 shrink-0 text-black"
+                : branded
+                  ? moduleBrandedNavIconClass(active)
+                  : "h-3.5 w-3.5 shrink-0 opacity-80",
+            )}
+            aria-hidden
+          />
+        </AnimatedSymbol>
+        {sublabel ? (
+          <span className="min-w-0 leading-none">
+            <span className="block text-[9px] font-medium uppercase tracking-wide text-black/45">
+              {sublabel}
+            </span>
+            <span className="mt-0.5 block">{item.label}</span>
           </span>
-          <span className="mt-0.5 block">{item.label}</span>
-        </span>
-      ) : (
-        <span className="whitespace-nowrap">{item.label}</span>
-      )}
-      <NavigationPendingIndicator />
-    </ScopedLink>
+        ) : (
+          <span className="whitespace-nowrap">{item.label}</span>
+        )}
+        <NavigationPendingIndicator />
+      </ScopedLink>
+    </MaybeSettingsNavMenu>
   );
 }
 

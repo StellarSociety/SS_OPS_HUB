@@ -3,8 +3,16 @@ import "server-only";
 import { writeAuditLog } from "@/lib/audit";
 import { recordOutboundStaffEmail } from "@/lib/email/record-staff-email";
 import { sendAppEmail } from "@/lib/email/transport";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
-import { HR_MODULE_KEY, parseBoardingEmailAction, parseBoardingTemplateToEmails } from "@/lib/hr/types";
+import { getHrVenueSetting } from "@/lib/hr/store";
+import {
+  HR_MODULE_KEY,
+  HR_SETTINGS_KEYS,
+  parseBoardingEmailAction,
+  parseBoardingTemplateToEmails,
+  type HrBoardingEmailSettings,
+} from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
 const SELECT =
@@ -88,11 +96,41 @@ export async function processDueScheduledBoardingEmails(options?: {
     try {
       const action = parseBoardingEmailAction(row.action);
 
-      const { data: venue } = await service
-        .from("venues")
-        .select("id, name, slug, logo_url, icon_url, favicon_url")
-        .eq("id", row.venue_id)
-        .maybeSingle();
+      const [{ data: venue }, { data: staff }, storedBoarding] =
+        await Promise.all([
+          service
+            .from("venues")
+            .select("id, name, slug, logo_url, icon_url, favicon_url")
+            .eq("id", row.venue_id)
+            .maybeSingle(),
+          service
+            .from("staff")
+            .select("id, full_name, emp_no")
+            .eq("id", row.staff_id)
+            .maybeSingle(),
+          getHrVenueSetting<Partial<HrBoardingEmailSettings>>(
+            service,
+            row.venue_id,
+            HR_SETTINGS_KEYS.boardingEmail,
+            {},
+          ),
+        ]);
+
+      const boardingTemplate = Array.isArray(storedBoarding.templates)
+        ? storedBoarding.templates.find((t) => t.id === row.template_id)
+        : null;
+      const acknowledgement = await acknowledgementCtaForSend({
+        requiresAcknowledgement:
+          boardingTemplate?.requiresAcknowledgement === true,
+        venueId: row.venue_id,
+        staffId: row.staff_id,
+        staffName: String(staff?.full_name ?? "Unknown"),
+        empNo: (staff?.emp_no as string | null) ?? null,
+        recipientEmail: row.to_email,
+        emailKind: `boarding_${action}`,
+        emailKindLabel: row.template_name || "Off-boarding",
+        subject: row.subject,
+      });
 
       const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
         body: row.message,
@@ -104,6 +142,7 @@ export async function processDueScheduledBoardingEmails(options?: {
           icon_url?: string | null;
           favicon_url?: string | null;
         } | null) ?? { id: row.venue_id, name: null, slug: "" },
+        acknowledgement,
       });
 
       const toList = parseBoardingTemplateToEmails(row.to_email);

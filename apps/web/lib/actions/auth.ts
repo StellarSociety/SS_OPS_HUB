@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { storeUserLoginPassword } from "@/lib/access/password-vault";
 import { writeAuditLog } from "@/lib/audit";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -151,6 +152,12 @@ export async function updatePassword(formData: FormData) {
       }
     } catch {
       // best-effort — column may not be migrated yet
+    }
+
+    try {
+      await storeUserLoginPassword(user.id, password);
+    } catch {
+      // best-effort — vault may not be migrated yet
     }
 
     await writeAuditLog({

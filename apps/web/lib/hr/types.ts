@@ -221,6 +221,8 @@ export type HrInsuranceRequestEmailSettings = {
   issueRequireAttachments: boolean;
   /** When true, Renew send fails if selected docs are missing. */
   renewRequireAttachments: boolean;
+  requiresAcknowledgementIssue: boolean;
+  requiresAcknowledgementRenew: boolean;
 };
 
 export const INSURANCE_REQUEST_EMAIL_TEMPLATE_CODES = [
@@ -326,6 +328,8 @@ export const DEFAULT_HR_INSURANCE_REQUEST_EMAIL_SETTINGS: HrInsuranceRequestEmai
     ],
     issueRequireAttachments: true,
     renewRequireAttachments: true,
+    requiresAcknowledgementIssue: false,
+    requiresAcknowledgementRenew: false,
   };
 
 /** Staff entry / visa module select values. */
@@ -530,6 +534,9 @@ export type HrVisaRequestEmailSettings = {
   issueRequireAttachments: boolean;
   renewRequireAttachments: boolean;
   cancelRequireAttachments: boolean;
+  requiresAcknowledgementIssue: boolean;
+  requiresAcknowledgementRenew: boolean;
+  requiresAcknowledgementCancel: boolean;
 };
 
 export const VISA_REQUEST_EMAIL_TEMPLATE_CODES = [
@@ -665,6 +672,9 @@ export const DEFAULT_HR_VISA_REQUEST_EMAIL_SETTINGS: HrVisaRequestEmailSettings 
     issueRequireAttachments: true,
     renewRequireAttachments: true,
     cancelRequireAttachments: true,
+    requiresAcknowledgementIssue: false,
+    requiresAcknowledgementRenew: false,
+    requiresAcknowledgementCancel: false,
   };
 
 /** Staff date columns used for mandatory hospitality certifications. */
@@ -1171,6 +1181,10 @@ export const HR_SETTINGS_KEYS = {
   benefitsServiceCharge: "benefits_service_charge",
   emailTransport: "email_transport",
   emailChrome: "email_chrome",
+  /** Shared employee acknowledgement landing-page copy. */
+  acknowledgementPage: "acknowledgement_page",
+  /** Automatic acknowledgement reminder schedule (days after original send). */
+  acknowledgementReminders: "acknowledgement_reminders",
   payslipEmail: "payslip_email",
   payslipLetterhead: "payslip_letterhead",
   boardingEmail: "boarding_email",
@@ -1533,6 +1547,7 @@ export type PayrollEmailTemplate = {
   name: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export type HrPayrollApprovalsSettings = {
@@ -2063,6 +2078,7 @@ export type PayslipEmailTemplate = {
   name: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export type HrPayslipEmailSettings = {
@@ -2148,6 +2164,7 @@ export function createPayslipEmailTemplate(
       String(partial?.subject ?? DEFAULT_PAYSLIP_EMAIL_SUBJECT).trim() ||
       DEFAULT_PAYSLIP_EMAIL_SUBJECT,
     message: String(partial?.message ?? DEFAULT_PAYSLIP_EMAIL_MESSAGE),
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 
@@ -2181,6 +2198,7 @@ export type HrWorkAnniversaryEmailSettings = {
   fromEmail: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export const WORK_ANNIVERSARY_EMAIL_TEMPLATE_CODES = [
@@ -2221,6 +2239,7 @@ export const DEFAULT_HR_WORK_ANNIVERSARY_EMAIL_SETTINGS: HrWorkAnniversaryEmailS
     fromEmail: "",
     subject: DEFAULT_WORK_ANNIVERSARY_EMAIL_SUBJECT,
     message: DEFAULT_WORK_ANNIVERSARY_EMAIL_MESSAGE,
+    requiresAcknowledgement: false,
   };
 
 // ---------------------------------------------------------------------------
@@ -2233,6 +2252,7 @@ export type HrUpdatedDocsRequestEmailSettings = {
   fromEmail: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export const UPDATED_DOCS_REQUEST_EMAIL_TEMPLATE_CODES = [
@@ -2285,6 +2305,7 @@ export const DEFAULT_HR_UPDATED_DOCS_REQUEST_EMAIL_SETTINGS: HrUpdatedDocsReques
     fromEmail: "",
     subject: DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_SUBJECT,
     message: DEFAULT_UPDATED_DOCS_REQUEST_EMAIL_MESSAGE,
+    requiresAcknowledgement: false,
   };
 
 // ---------------------------------------------------------------------------
@@ -2306,6 +2327,7 @@ export type HrCertificationRequestEmailSettings = {
   attachDocuments: HrEmailStaffDocumentKey[];
   /** When true, send fails if selected docs are missing. */
   requireAttachments: boolean;
+  requiresAcknowledgement: boolean;
 };
 
 export const CERTIFICATION_REQUEST_EMAIL_TEMPLATE_CODES = [
@@ -2374,6 +2396,7 @@ export const DEFAULT_HR_CERTIFICATION_REQUEST_EMAIL_SETTINGS: HrCertificationReq
       "emirates_id_back",
     ],
     requireAttachments: true,
+    requiresAcknowledgement: false,
   };
 
 // ---------------------------------------------------------------------------
@@ -2386,6 +2409,7 @@ export type HrUniformTermsEmailSettings = {
   fromEmail: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export const UNIFORM_TERMS_EMAIL_TEMPLATE_CODES = [
@@ -2434,6 +2458,7 @@ export const DEFAULT_HR_UNIFORM_TERMS_EMAIL_SETTINGS: HrUniformTermsEmailSetting
     fromEmail: "",
     subject: DEFAULT_UNIFORM_TERMS_EMAIL_SUBJECT,
     message: DEFAULT_UNIFORM_TERMS_EMAIL_MESSAGE,
+    requiresAcknowledgement: false,
   };
 
 // ---------------------------------------------------------------------------
@@ -2446,6 +2471,7 @@ export type HrUniformReplacementEmailSettings = {
   fromEmail: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export const UNIFORM_REPLACEMENT_EMAIL_TEMPLATE_CODES = [
@@ -2491,6 +2517,7 @@ export const DEFAULT_HR_UNIFORM_REPLACEMENT_EMAIL_SETTINGS: HrUniformReplacement
     fromEmail: "",
     subject: DEFAULT_UNIFORM_REPLACEMENT_EMAIL_SUBJECT,
     message: DEFAULT_UNIFORM_REPLACEMENT_EMAIL_MESSAGE,
+    requiresAcknowledgement: false,
   };
 
 // ---------------------------------------------------------------------------
@@ -2503,6 +2530,7 @@ export type HrAssetTermsEmailSettings = {
   fromEmail: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export const ASSET_TERMS_EMAIL_TEMPLATE_CODES = [
@@ -2550,6 +2578,7 @@ export const DEFAULT_HR_ASSET_TERMS_EMAIL_SETTINGS: HrAssetTermsEmailSettings = 
   fromEmail: "",
   subject: DEFAULT_ASSET_TERMS_EMAIL_SUBJECT,
   message: DEFAULT_ASSET_TERMS_EMAIL_MESSAGE,
+  requiresAcknowledgement: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -2562,6 +2591,7 @@ export type HrAssetReplacementEmailSettings = {
   fromEmail: string;
   subject: string;
   message: string;
+  requiresAcknowledgement: boolean;
 };
 
 export const ASSET_REPLACEMENT_EMAIL_TEMPLATE_CODES = [
@@ -2607,6 +2637,7 @@ export const DEFAULT_HR_ASSET_REPLACEMENT_EMAIL_SETTINGS: HrAssetReplacementEmai
     fromEmail: "",
     subject: DEFAULT_ASSET_REPLACEMENT_EMAIL_SUBJECT,
     message: DEFAULT_ASSET_REPLACEMENT_EMAIL_MESSAGE,
+    requiresAcknowledgement: false,
   };
 
 /** Footer disclaimer printed at the bottom of every payslip PDF. */
@@ -2756,6 +2787,7 @@ export type BoardingEmailTemplate = {
    * employee — e.g. accommodation management, visa, insurance, accounts.
    */
   toEmails: string;
+  requiresAcknowledgement: boolean;
 };
 
 export type HrBoardingEmailSettings = {
@@ -3151,6 +3183,7 @@ export function createBoardingEmailTemplate(
       String(partial?.subject ?? defaults.subject).trim() || defaults.subject,
     message: String(partial?.message ?? defaults.message),
     toEmails,
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 
@@ -3298,6 +3331,7 @@ export function createPayrollEmailTemplate(
       String(partial?.subject ?? DEFAULT_PAYROLL_EMAIL_SUBJECT).trim() ||
       DEFAULT_PAYROLL_EMAIL_SUBJECT,
     message: String(partial?.message ?? DEFAULT_PAYROLL_EMAIL_MESSAGE),
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
   };
 }
 

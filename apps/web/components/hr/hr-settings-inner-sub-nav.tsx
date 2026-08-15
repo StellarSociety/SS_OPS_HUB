@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BadgeCheck,
   Bell,
   BriefcaseBusiness,
   Building2,
@@ -43,6 +44,7 @@ import {
   HR_SETTINGS_ATTENDANCE_LEAVE_HREF,
   HR_SETTINGS_ATTENDANCE_SCHEDULES_HREF,
   HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF,
+  HR_SETTINGS_EMAILS_ACKNOWLEDGEMENTS_HREF,
   HR_SETTINGS_EMAILS_OTHER_ASSET_TERMS_HREF,
   HR_SETTINGS_EMAILS_OTHER_CERTIFICATION_REQUEST_HREF,
   HR_SETTINGS_EMAILS_OTHER_INSURANCE_REQUEST_HREF,
@@ -307,6 +309,11 @@ const EMAILS_TABS: Tab[] = [
     href: HR_SETTINGS_EMAILS_HEADER_FOOTER_HREF,
     label: "Header & Footer",
     icon: LayoutTemplate,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_ACKNOWLEDGEMENTS_HREF,
+    label: "Acknowledgements",
+    icon: BadgeCheck,
   },
   {
     href: HR_SETTINGS_EMAILS_PAY_HREF,

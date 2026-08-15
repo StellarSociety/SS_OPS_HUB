@@ -3,6 +3,7 @@
 import { ChevronDown, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
+import { RequiresAcknowledgementCheckbox } from "@/components/hr/requires-acknowledgement-checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -99,6 +100,7 @@ export function BoardingEmailTemplateDialog({
             parseBoardingTemplateToEmails(current.toEmails),
           )
         : "",
+      requiresAcknowledgement: current.requiresAcknowledgement === true,
     });
   }
 
@@ -216,6 +218,16 @@ export function BoardingEmailTemplateDialog({
               ) : null}
             </div>
           ) : null}
+
+          <RequiresAcknowledgementCheckbox
+            checked={draft.requiresAcknowledgement === true}
+            onChange={(next) =>
+              setDraft((prev) =>
+                prev ? { ...prev, requiresAcknowledgement: next } : prev,
+              )
+            }
+            includeHidden={false}
+          />
 
           <div className="space-y-1.5">
             <Label htmlFor="boarding_tpl_subject">Subject</Label>

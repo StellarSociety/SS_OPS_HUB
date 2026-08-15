@@ -11,6 +11,7 @@ import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import { loadStaffEmailAttachments } from "@/lib/hr/email-staff-attachments";
 import { parseEmailStaffDocumentKeysFromForm } from "@/lib/hr/email-staff-documents";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
+import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import {
   annotateInsuranceRecordsWithDocuments,
   listMedicalInsuranceDocs,
@@ -31,6 +32,7 @@ import {
   HR_SETTINGS_KEYS,
   type HrInsuranceRequestEmailSettings,
   type StaffInsuranceRecord,
+  type StaffLinkedWorkDriveDocument,
 } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -424,6 +426,33 @@ export async function listStaffInsuranceRecords(input: {
 
   const latest = pickLatestStaffInsuranceRecord(repaired);
   return { ok: true, records: repaired, latestId: latest?.id ?? null };
+}
+
+/** Rename a misnamed insurance card to match Drive Setup (strips legacy UUID suffix). */
+export async function repairInsuranceCardDocumentName(input: {
+  document: StaffLinkedWorkDriveDocument;
+  expiryDate?: string | null;
+}): Promise<
+  | { ok: true; document: StaffLinkedWorkDriveDocument }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id) &&
+    !canAdminLookups(auth.permissions, auth.venue.id)
+  ) {
+    return { ok: false, error: "No permission to repair insurance cards." };
+  }
+
+  const document = await repairLinkedWorkDriveDocExpiryName({
+    venueId: auth.venue.id,
+    doc: input.document,
+    expiryDate: input.expiryDate ?? null,
+  });
+  return { ok: true, document };
 }
 
 export async function addStaffInsuranceRecord(
@@ -1019,6 +1048,26 @@ export async function sendInsuranceRequestEmails(input: {
       };
     }
 
+    const acknowledgement = await acknowledgementCtaForSend({
+      requiresAcknowledgement:
+        unit.requestType === "renew"
+          ? preview.settings.requiresAcknowledgementRenew === true
+          : preview.settings.requiresAcknowledgementIssue === true,
+      venueId: auth.venue.id,
+      staffId: unit.staffId,
+      staffName: unit.fullName,
+      empNo: unit.empNo,
+      recipientEmail: unit.to,
+      emailKind:
+        unit.requestType === "renew"
+          ? "insurance_renew"
+          : "insurance_issue",
+      emailKindLabel:
+        unit.requestType === "renew"
+          ? "Insurance renew"
+          : "Insurance issue",
+      subject: unit.subject,
+    });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body: unit.body,
       venue: {
@@ -1027,6 +1076,7 @@ export async function sendInsuranceRequestEmails(input: {
         slug: auth.venue.slug ?? "",
         logo_url: auth.venue.logo_url,
       },
+      acknowledgement,
     });
 
     const attachments = [...inlineAttachments, ...staffDocs.attachments];
@@ -1239,6 +1289,12 @@ export async function saveInsuranceRequestEmailSettings(
     ),
     issueRequireAttachments: flagTrue(formData.get("issue_attach_documents_require")),
     renewRequireAttachments: flagTrue(formData.get("renew_attach_documents_require")),
+    requiresAcknowledgementIssue: flagTrue(
+      formData.get("requires_acknowledgement_issue"),
+    ),
+    requiresAcknowledgementRenew: flagTrue(
+      formData.get("requires_acknowledgement_renew"),
+    ),
   });
 
   try {

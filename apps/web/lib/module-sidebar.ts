@@ -126,7 +126,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: UserRoundSearch,
         comingSoon: true,
       },
-      { label: "Communications", href: "/hr/communications", icon: MessagesSquare },
+      { label: "Communications", href: "/hr/communications", icon: MessagesSquare, activePathPrefix: "/hr/communications" },
       { label: "ON-Boarding", href: "/hr/onboarding", icon: UserPlus },
       { label: "OFF-Boarding", href: "/hr/offboarding", icon: UserMinus },
     ],
