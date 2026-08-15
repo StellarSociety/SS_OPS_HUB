@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { employmentStatusSurfaceClass } from "@/lib/hr/employment-status";
 import type {
@@ -13,7 +14,11 @@ import type {
 import { cn } from "@/lib/utils";
 
 /** Statuses selected by default when the dialog opens. */
-const DEFAULT_STATUS_NAMES = new Set(["on board", "off board"]);
+const DEFAULT_STATUS_NAMES = new Set([
+  "on board",
+  "off board",
+  "off boarding",
+]);
 
 type StaffSearchDialogProps = {
   open: boolean;
@@ -279,26 +284,42 @@ export function StaffSearchDialog({
           <ul className="divide-y divide-black/5">
             {results.map((s) => (
               <li key={s.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(s)}
-                  className="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-[var(--venue-secondary)]/40"
-                >
-                  <span className="w-14 shrink-0 font-mono text-xs text-black/45">
-                    {s.emp_no}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-[#3D421F]">
-                      {s.full_name}
+                <div className="flex w-full items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-[var(--venue-secondary)]/40">
+                  <StaffPhotoThumbnail
+                    fullName={s.full_name}
+                    photoUrl={s.photo_url}
+                    size="sm"
+                    empNo={s.emp_no}
+                    department={s.department?.name}
+                    position={s.position?.name}
+                    employeeStatus={s.employment_status?.name}
+                    workingStatus={s.working_status?.name}
+                    nationality={s.nationality?.name}
+                    dob={s.dob}
+                    joiningDate={s.joining_date}
+                    terminationDate={s.termination_date}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onSelect(s)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  >
+                    <span className="w-14 shrink-0 font-mono text-xs text-black/45">
+                      {s.emp_no}
                     </span>
-                    <span className="block truncate text-xs text-black/50">
-                      {[s.department?.name, s.position?.name]
-                        .filter(Boolean)
-                        .join(" · ") || "—"}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-[#3D421F]">
+                        {s.full_name}
+                      </span>
+                      <span className="block truncate text-xs text-black/50">
+                        {[s.department?.name, s.position?.name]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </span>
                     </span>
-                  </span>
-                  <StatusBadge status={s.employment_status?.name} />
-                </button>
+                    <StatusBadge status={s.employment_status?.name} />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

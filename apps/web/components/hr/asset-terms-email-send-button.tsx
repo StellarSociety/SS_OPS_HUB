@@ -50,12 +50,14 @@ export function AssetTermsEmailSendButton({
   staffId,
   fullName,
   empNo,
+  sentCount = 0,
   disabled = false,
   className,
 }: {
   staffId: string;
   fullName: string;
   empNo?: string;
+  sentCount?: number;
   disabled?: boolean;
   className?: string;
 }) {
@@ -74,8 +76,13 @@ export function AssetTermsEmailSendButton({
     AssetTermsEmailSendRecord[] | null
   >(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [visibleSentCount, setVisibleSentCount] = useState(sentCount);
 
   const busy = pending || sendPhase === "sending";
+
+  useEffect(() => {
+    setVisibleSentCount(sentCount);
+  }, [sentCount]);
 
   useEffect(() => {
     if (sendPhase !== "sending") return;
@@ -180,6 +187,7 @@ export function AssetTermsEmailSendButton({
       setSentTo(result.to);
       setSendStepIndex(SEND_STEPS.length - 1);
       setSendPhase("success");
+      setVisibleSentCount((count) => count + 1);
       router.refresh();
     } catch (err) {
       setError(
@@ -220,11 +228,17 @@ export function AssetTermsEmailSendButton({
         title={
           disabled
             ? "Assign assets before sending T&Cs"
-            : sentTo
-              ? `Sent to ${sentTo}`
-              : `Email ${fullName} assets on hand & T&Cs`
+            : visibleSentCount > 0
+              ? `${visibleSentCount} T&Cs email${visibleSentCount === 1 ? "" : "s"} sent — email ${fullName} again`
+              : sentTo
+                ? `Sent to ${sentTo}`
+                : `Email ${fullName} assets on hand & T&Cs`
         }
-        aria-label={`Send asset T&Cs email to ${fullName}`}
+        aria-label={`Send asset T&Cs email to ${fullName}${
+          visibleSentCount > 0
+            ? `, ${visibleSentCount} previously sent`
+            : ""
+        }`}
         className={cn(
           "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold text-[var(--venue-primary,#6B7B3A)] transition hover:bg-[var(--venue-primary,#6B7B3A)]/15 disabled:cursor-not-allowed disabled:opacity-45",
           className,

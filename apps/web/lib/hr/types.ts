@@ -848,6 +848,7 @@ export type AssetStaffSummaryRow = {
   replacements?: AssetReplacementRow[];
   archived?: boolean;
   archived_at?: string | null;
+  terms_email_count?: number;
 };
 
 export type UniformProductStatus = "active" | "old";
@@ -933,6 +934,7 @@ export type UniformStaffSummaryRow = {
   /** Hidden from the default Uniform Employees list. */
   archived?: boolean;
   archived_at?: string | null;
+  terms_email_count?: number;
 };
 
 export type UniformReplacementDeductionApplication = {

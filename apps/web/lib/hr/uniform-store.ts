@@ -21,6 +21,7 @@ import {
   listPositions,
 } from "./store";
 import { listPendingPayrollDeductionsForVenue } from "./payroll/pending-deductions";
+import { createServiceClient } from "@/lib/supabase/service";
 
 type EntitlementDbRow = {
   id: string;
@@ -870,6 +871,34 @@ export async function archiveUniformStaffIfEmploymentOut(
   return true;
 }
 
+async function countUniformTermsEmailsByStaff(
+  venueId: string,
+): Promise<Map<string, number>> {
+  try {
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("audit_log")
+      .select("entity_id")
+      .eq("venue_id", venueId)
+      .eq("entity", "staff")
+      .eq("action", "uniform_terms_email.sent");
+    if (error) {
+      console.error("[hr] countUniformTermsEmailsByStaff:", error.message);
+      return new Map();
+    }
+    const counts = new Map<string, number>();
+    for (const row of data ?? []) {
+      const staffId = String(row.entity_id ?? "").trim();
+      if (!staffId) continue;
+      counts.set(staffId, (counts.get(staffId) ?? 0) + 1);
+    }
+    return counts;
+  } catch (error) {
+    console.error("[hr] countUniformTermsEmailsByStaff:", error);
+    return new Map();
+  }
+}
+
 export async function loadUniformEmployeesPage(
   supabase: SupabaseClient,
   venueId: string,
@@ -885,6 +914,7 @@ export async function loadUniformEmployeesPage(
     pending,
     replacements,
     archives,
+    termsEmailCounts,
   ] = await Promise.all([
     listUniformPieces(supabase),
     listUniformSuppliers(supabase),
@@ -898,6 +928,7 @@ export async function loadUniformEmployeesPage(
     }),
     listUniformReplacements(supabase, venueId),
     listUniformStaffArchives(supabase, venueId),
+    countUniformTermsEmailsByStaff(venueId),
   ]);
 
   const itemsByStaff = new Map<string, UniformStaffItemRow[]>();
@@ -943,6 +974,7 @@ export async function loadUniformEmployeesPage(
       replacements: replacementsByStaff.get(member.id) ?? [],
       archived: archivedAt != null || hiddenByOut,
       archived_at: archivedAt,
+      terms_email_count: termsEmailCounts.get(member.id) ?? 0,
     } satisfies UniformStaffSummaryRow;
   });
 

@@ -139,8 +139,15 @@ export async function saveAcknowledgementReminderSettings(
       return { ok: false, error: "No permission to save these settings." };
     }
 
-    const value = mergeAcknowledgementReminderSettings(input);
     const service = createServiceClient();
+    const current = await loadAcknowledgementReminderSettings(
+      service,
+      venue.id,
+    );
+    const value = mergeAcknowledgementReminderSettings({
+      ...current,
+      ...input,
+    });
     const { error } = await service.from("hr_venue_settings").upsert(
       {
         venue_id: venue.id,
@@ -163,6 +170,9 @@ export async function saveAcknowledgementReminderSettings(
     });
 
     revalidatePath("/hr/communications/acknowledgements", "layout");
+    revalidatePath("/hr/settings/emails", "layout");
+    revalidatePath("/hr/settings/emails/reminders", "page");
+    revalidatePath("/hr/settings/emails/acknowledgements", "page");
     return { ok: true, settings: value };
   } catch (e) {
     return {
@@ -284,8 +294,9 @@ export async function sendAcknowledgementReminder(
     }
 
     const service = createServiceClient();
-    const [page, fromEmail] = await Promise.all([
+    const [page, reminderSettings, fromEmail] = await Promise.all([
       loadAcknowledgementPageSettings(service, venue.id),
+      loadAcknowledgementReminderSettings(service, venue.id),
       resolveVenueFromEmail(service, venue.id),
     ]);
     const venueName = String(venue.name ?? "").trim();
@@ -293,12 +304,15 @@ export async function sendAcknowledgementReminder(
     const subject = acknowledgementReminderSubject(
       record.subject,
       reminderNumber,
+      reminderSettings,
     );
     const body = acknowledgementReminderBody({
       employeeName: record.staffName,
+      employeeEmail: to,
       subject: record.subject,
       venueName,
       reminderNumber,
+      settings: reminderSettings,
     });
     const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
       body,

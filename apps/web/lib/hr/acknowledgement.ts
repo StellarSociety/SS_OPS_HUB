@@ -105,13 +105,35 @@ export type HrAcknowledgementReminderSettings = {
   firstReminderDay: number;
   secondReminderDay: number;
   dailyAfterSecond: boolean;
+  subject: string;
+  body: string;
 };
+
+export const ACKNOWLEDGEMENT_REMINDER_TEMPLATE_CODES = [
+  { code: "{{EMPLOYEE_NAME}}", description: "Recipient full name" },
+  { code: "{{EMPLOYEE_EMAIL}}", description: "Recipient email address" },
+  { code: "{{SUBJECT}}", description: "Original email subject" },
+  { code: "{{VENUE_NAME}}", description: "Venue / company display name" },
+  { code: "{{REMINDER_LABEL}}", description: "1st Reminder, 2nd Reminder, …" },
+  { code: "{{REMINDER_NUMBER}}", description: "Reminder number (1, 2, 3, …)" },
+] as const;
 
 export const DEFAULT_HR_ACKNOWLEDGEMENT_REMINDER_SETTINGS: HrAcknowledgementReminderSettings =
   {
     firstReminderDay: 5,
     secondReminderDay: 7,
     dailyAfterSecond: true,
+    subject: "{{REMINDER_LABEL}}: please acknowledge — {{SUBJECT}}",
+    body: `Dear {{EMPLOYEE_NAME}},
+
+This is your {{REMINDER_LABEL}}. You have not yet responded to the acknowledgement request for:
+
+{{SUBJECT}}
+
+Acknowledgement is necessary and mandatory. Please open the button below and confirm that you have read and understood the message.
+
+Thank you,
+{{VENUE_NAME}}`,
   };
 
 function clampReminderDay(value: unknown, fallback: number): number {
@@ -138,6 +160,12 @@ export function mergeAcknowledgementReminderSettings(
     firstReminderDay,
     secondReminderDay,
     dailyAfterSecond: partial?.dailyAfterSecond !== false,
+    subject:
+      String(partial?.subject ?? "").trim() ||
+      DEFAULT_HR_ACKNOWLEDGEMENT_REMINDER_SETTINGS.subject,
+    body:
+      String(partial?.body ?? "").trim() ||
+      DEFAULT_HR_ACKNOWLEDGEMENT_REMINDER_SETTINGS.body,
   };
 }
 
@@ -177,6 +205,8 @@ export function applyAcknowledgementPlaceholders(
     employeeEmail?: string;
     subject?: string;
     venueName?: string;
+    reminderLabel?: string;
+    reminderNumber?: string | number;
   },
 ): string {
   const normalized: Record<string, string> = {
@@ -184,6 +214,8 @@ export function applyAcknowledgementPlaceholders(
     employee_email: String(vars.employeeEmail ?? "").trim(),
     subject: String(vars.subject ?? "").trim(),
     venue_name: String(vars.venueName ?? "").trim(),
+    reminder_label: String(vars.reminderLabel ?? "").trim(),
+    reminder_number: String(vars.reminderNumber ?? "").trim(),
   };
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
     return normalized[key.toLowerCase()] ?? "";
@@ -237,17 +269,42 @@ export function acknowledgementReminderLabel(count: number): string {
 export function acknowledgementReminderSubject(
   originalSubject: string,
   reminderNumber: number,
+  settings?: Partial<HrAcknowledgementReminderSettings> | null,
 ): string {
+  const merged = mergeAcknowledgementReminderSettings(settings);
   const subject = originalSubject.trim() || "(No subject)";
-  return `${acknowledgementReminderLabel(reminderNumber)}: please acknowledge — ${subject}`;
+  const resolved = applyAcknowledgementPlaceholders(merged.subject, {
+    subject,
+    reminderLabel: acknowledgementReminderLabel(reminderNumber),
+    reminderNumber,
+  })
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    resolved ||
+    `${acknowledgementReminderLabel(reminderNumber)}: please acknowledge — ${subject}`
+  );
 }
 
 export function acknowledgementReminderBody(params: {
   employeeName: string;
+  employeeEmail?: string;
   subject: string;
   venueName: string;
   reminderNumber: number;
+  settings?: Partial<HrAcknowledgementReminderSettings> | null;
 }): string {
+  const merged = mergeAcknowledgementReminderSettings(params.settings);
+  const resolved = applyAcknowledgementPlaceholders(merged.body, {
+    employeeName: params.employeeName.trim() || "Team member",
+    employeeEmail: params.employeeEmail,
+    subject: params.subject.trim() || "the message we sent you",
+    venueName: params.venueName,
+    reminderLabel: acknowledgementReminderLabel(params.reminderNumber),
+    reminderNumber: params.reminderNumber,
+  }).trim();
+  if (resolved) return resolved;
+
   const name = params.employeeName.trim() || "Team member";
   const subject = params.subject.trim() || "the message we sent you";
   const venue = params.venueName.trim();

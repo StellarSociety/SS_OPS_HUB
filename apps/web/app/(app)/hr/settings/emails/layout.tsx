@@ -10,7 +10,7 @@ export default function HrEmailsSettingsLayout({
     <div className="space-y-4">
       <HrSettingsSectionHeader
         title="Emails"
-        description="Default header and footer, acknowledgement page, PAY email (payroll package and payslips), and boarding delivery for this venue."
+        description="Default header and footer, acknowledgement page and reminder emails, PAY (payroll package and payslips), and boarding delivery for this venue."
       />
       <HrEmailsSettingsSubNav />
       {/* Full width on smaller viewports; ~2/3 of the window once there’s room. */}

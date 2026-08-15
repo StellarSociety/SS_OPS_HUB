@@ -3,7 +3,10 @@
 import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { AcknowledgementEmployeePreview } from "@/components/hr/acknowledgement-employee-view";
+import {
+  AcknowledgementEmailButtonPreview,
+  AcknowledgementEmployeePreview,
+} from "@/components/hr/acknowledgement-employee-view";
 import { EmailMessageEditor } from "@/components/hr/email-message-editor";
 import { GuardedSettingsForm } from "@/components/settings/guarded-settings-form";
 import { Button } from "@/components/ui/button";
@@ -106,24 +109,75 @@ export function AcknowledgementPageSettingsPanel({
     return result;
   }
 
-  return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-      <Card className="space-y-6 p-5">
-        <div>
-          <h2 className="font-serif text-lg text-[#3D421F]">
-            Acknowledgement page
-          </h2>
-          <p className="mt-1 text-sm text-black/55">
-            One shared page for every email that requires acknowledgement. Tick
-            “Requires acknowledgement” on a template to add the verify button.
-          </p>
-        </div>
+  const previewSettings = {
+    heading,
+    intro,
+    emailButtonLabel,
+    acknowledgeButtonLabel,
+    declineButtonLabel,
+    commentsPrompt,
+    submittedHeading,
+    submittedMessage,
+  };
 
-        <GuardedSettingsForm
-          action={handleSave}
-          className="space-y-6"
-          watch={watch}
-        >
+  return (
+    <GuardedSettingsForm
+      action={handleSave}
+      className="space-y-6"
+      watch={watch}
+    >
+      <input type="hidden" name="intro" value={intro} />
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+        <Card className="space-y-4 p-5">
+          <div>
+            <h2 className="font-serif text-lg text-[#3D421F]">Email button</h2>
+            <p className="mt-1 text-sm text-black/55">
+              Label on the verify button added to emails that require
+              acknowledgement.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ack_email_button">Email button</Label>
+            <Input
+              id="ack_email_button"
+              name="email_button_label"
+              value={emailButtonLabel}
+              onChange={(e) => setEmailButtonLabel(e.target.value)}
+              className="h-9"
+            />
+            <p className="text-[11px] text-black/45">
+              Use{" "}
+              <code className="rounded bg-[var(--venue-secondary,#F0F3DD)]/60 px-1 py-0.5 font-semibold text-[#3D421F]">
+                {"{{EMPLOYEE_NAME}}"}
+              </code>{" "}
+              to include the recipient’s name.
+            </p>
+          </div>
+        </Card>
+        <div className="xl:sticky xl:top-4 xl:self-start">
+          <AcknowledgementEmailButtonPreview
+            venueName={venueName}
+            venueLogoUrl={venueLogoUrl}
+            buttonLabel={emailButtonLabel}
+            employeeName="Alex Rivera"
+            employeeEmail="alex.rivera@example.com"
+            subject="Your payslip — August 2026 — Venue"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+        <Card className="space-y-6 p-5">
+          <div>
+            <h2 className="font-serif text-lg text-[#3D421F]">
+              Acknowledgement page
+            </h2>
+            <p className="mt-1 text-sm text-black/55">
+              The page the employee sees after they open the verify button.
+            </p>
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="ack_heading">Heading</Label>
             <Input
@@ -195,27 +249,9 @@ export function AcknowledgementPageSettingsPanel({
               onChange={setIntro}
               aria-label="Acknowledgement intro message"
             />
-            <input type="hidden" name="intro" value={intro} />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="ack_email_button">Email button</Label>
-              <Input
-                id="ack_email_button"
-                name="email_button_label"
-                value={emailButtonLabel}
-                onChange={(e) => setEmailButtonLabel(e.target.value)}
-                className="h-9"
-              />
-              <p className="text-[11px] text-black/45">
-                Use{" "}
-                <code className="rounded bg-[var(--venue-secondary,#F0F3DD)]/60 px-1 py-0.5 font-semibold text-[#3D421F]">
-                  {"{{EMPLOYEE_NAME}}"}
-                </code>{" "}
-                to include the recipient’s name.
-              </p>
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor="ack_comments_prompt">Comments prompt</Label>
               <Input
@@ -283,25 +319,16 @@ export function AcknowledgementPageSettingsPanel({
           <div className="flex justify-end pt-2">
             <SaveButton />
           </div>
-        </GuardedSettingsForm>
-      </Card>
+        </Card>
 
-      <div className="xl:sticky xl:top-4 xl:self-start">
-        <AcknowledgementEmployeePreview
-          venueName={venueName}
-          venueLogoUrl={venueLogoUrl}
-          settings={{
-            heading,
-            intro,
-            emailButtonLabel,
-            acknowledgeButtonLabel,
-            declineButtonLabel,
-            commentsPrompt,
-            submittedHeading,
-            submittedMessage,
-          }}
-        />
+        <div className="xl:sticky xl:top-4 xl:self-start">
+          <AcknowledgementEmployeePreview
+            venueName={venueName}
+            venueLogoUrl={venueLogoUrl}
+            settings={previewSettings}
+          />
+        </div>
       </div>
-    </div>
+    </GuardedSettingsForm>
   );
 }

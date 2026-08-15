@@ -104,7 +104,7 @@ export function WorkAnniversaryEmailSettingsPanel({
     <Card className="space-y-6 p-5">
       <div>
         <h2 className="font-serif text-lg text-[#3D421F]">
-          Work Anniversary email
+          Work Anniversary
         </h2>
         <p className="mt-1 text-sm text-black/55">
           Congratulation message sent from Staff Insights when celebrating years

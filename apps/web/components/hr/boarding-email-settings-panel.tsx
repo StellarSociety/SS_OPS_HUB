@@ -204,7 +204,7 @@ export function BoardingEmailSettingsPanel({
   return (
     <Card className="space-y-6 p-5">
       <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">Off-Boarding email</h2>
+        <h2 className="font-serif text-lg text-[#3D421F]">Off-Boarding</h2>
         <p className="mt-1 text-sm text-black/55">
           Templates grouped by offboarding checklist stage. Delivery uses
           Venue Settings → Email config.

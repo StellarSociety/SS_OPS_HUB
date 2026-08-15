@@ -3,11 +3,13 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import {
+  acknowledgementReminderLabel,
   applyAcknowledgementPlaceholders,
   resolveAcknowledgementButtonLabel,
   type HrAcknowledgementPageSettings,
   type HrEmailAcknowledgementStatus,
 } from "@/lib/hr/acknowledgement";
+import { emailTemplateBodyToSafeFragment } from "@/lib/hr/email-message-format";
 import { cn } from "@/lib/utils";
 
 export type AcknowledgementEmployeeViewProps = {
@@ -47,12 +49,14 @@ export function AcknowledgementEmployeeView({
   >(null);
   const [commentDraft, setCommentDraft] = useState("");
 
-  const intro = applyAcknowledgementPlaceholders(settings.intro, {
-    employeeName,
-    employeeEmail: employeeEmail ?? "",
-    subject,
-    venueName,
-  });
+  const introHtml = emailTemplateBodyToSafeFragment(
+    applyAcknowledgementPlaceholders(settings.intro, {
+      employeeName,
+      employeeEmail: employeeEmail ?? "",
+      subject,
+      venueName,
+    }),
+  );
   const isDone = status !== "pending";
   const showComments = decision === "not_acknowledged";
 
@@ -108,9 +112,14 @@ export function AcknowledgementEmployeeView({
               <h1 className="font-serif text-2xl text-[#3D421F]">
                 {settings.heading}
               </h1>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-black/65">
-                {intro}
-              </p>
+              {introHtml ? (
+                <div
+                  className="text-sm leading-relaxed text-black/65 [&_b]:font-semibold [&_i]:italic [&_u]:underline"
+                  dangerouslySetInnerHTML={{ __html: introHtml }}
+                />
+              ) : (
+                <p className="text-sm text-black/45">No intro message yet.</p>
+              )}
             </div>
 
             <div className="rounded-xl border border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/40 px-4 py-3">
@@ -215,17 +224,7 @@ export function AcknowledgementEmployeePreview({
   const [pending, startTransition] = useTransition();
 
   return (
-    <div className="space-y-6">
-      <AcknowledgementEmailButtonPreview
-        venueName={venueName}
-        venueLogoUrl={venueLogoUrl}
-        buttonLabel={settings.emailButtonLabel}
-        employeeName={employeeName}
-        employeeEmail={employeeEmail}
-        subject={subject}
-      />
-
-      <div className="space-y-3">
+    <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-black/45">
             Employee preview
@@ -260,12 +259,11 @@ export function AcknowledgementEmployeePreview({
             });
           }}
         />
-      </div>
     </div>
   );
 }
 
-function AcknowledgementEmailButtonPreview({
+export function AcknowledgementEmailButtonPreview({
   venueName,
   venueLogoUrl,
   buttonLabel,
@@ -320,6 +318,95 @@ function AcknowledgementEmailButtonPreview({
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-black/65">
             {`Dear ${employeeName},\n\nThis is a sample of the email they receive. The verify button is added at the bottom when acknowledgement is required.`}
           </p>
+          <div className="flex justify-center pt-2 pb-1">
+            <span
+              aria-hidden
+              className="inline-block cursor-default rounded-lg px-[22px] py-3 text-center text-sm font-bold leading-tight text-white"
+              style={{ backgroundColor: "var(--venue-primary, #818a40)" }}
+            >
+              {label}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function AcknowledgementReminderEmailPreview({
+  venueName,
+  venueLogoUrl,
+  subjectTemplate,
+  bodyTemplate,
+  buttonLabel,
+  employeeName = "Alex Rivera",
+  employeeEmail = "alex.rivera@example.com",
+  originalSubject = "Your payslip — August 2026 — Venue",
+  reminderNumber = 1,
+}: {
+  venueName: string;
+  venueLogoUrl?: string | null;
+  subjectTemplate: string;
+  bodyTemplate: string;
+  buttonLabel: string;
+  employeeName?: string;
+  employeeEmail?: string;
+  originalSubject?: string;
+  reminderNumber?: number;
+}) {
+  const vars = {
+    employeeName,
+    employeeEmail,
+    subject: originalSubject,
+    venueName,
+    reminderLabel: acknowledgementReminderLabel(reminderNumber),
+    reminderNumber,
+  };
+  const subject =
+    applyAcknowledgementPlaceholders(subjectTemplate, vars)
+      .replace(/\s+/g, " ")
+      .trim() || "(No subject)";
+  const bodyHtml = emailTemplateBodyToSafeFragment(
+    applyAcknowledgementPlaceholders(bodyTemplate, vars),
+  );
+  const label = resolveAcknowledgementButtonLabel(buttonLabel, vars);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+        Reminder email preview
+      </p>
+      <div className="mx-auto w-full max-w-[520px] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-sm">
+        <div
+          className="flex items-center justify-center px-6 py-5"
+          style={{ backgroundColor: "var(--venue-secondary, #F0F3DD)" }}
+        >
+          {venueLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={venueLogoUrl}
+              alt={venueName}
+              className="h-10 w-auto max-w-[200px] object-contain"
+            />
+          ) : (
+            <p className="font-serif text-base text-[#3D421F]">{venueName}</p>
+          )}
+        </div>
+        <div className="border-b border-black/8 px-6 py-2.5">
+          <p className="truncate text-[11px] text-black/45">
+            Subject:{" "}
+            <span className="font-medium text-[#3D421F]">{subject}</span>
+          </p>
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          {bodyHtml ? (
+            <div
+              className="text-sm leading-relaxed text-black/65 [&_a]:text-[var(--venue-primary,#6B7B3A)] [&_a]:underline"
+              dangerouslySetInnerHTML={{ __html: bodyHtml }}
+            />
+          ) : (
+            <p className="text-sm text-black/45">No email body yet.</p>
+          )}
           <div className="flex justify-center pt-2 pb-1">
             <span
               aria-hidden

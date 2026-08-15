@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   Tags,
   UserCheck,
+  UserPlus,
   UserRound,
   Users,
   VenusAndMars,
@@ -56,6 +57,7 @@ import {
   HR_SETTINGS_EMAILS_PAY_HREF,
   HR_SETTINGS_EMAILS_PAYROLL_HREF,
   HR_SETTINGS_EMAILS_PAYSLIPS_HREF,
+  HR_SETTINGS_EMAILS_ONBOARDING_HREF,
   HR_SETTINGS_EMAILS_BOARDING_HREF,
   HR_SETTINGS_NOTIFICATIONS_HREF,
   HR_SETTINGS_PAY_ADJUSTMENTS_HREF,
@@ -317,17 +319,22 @@ const EMAILS_TABS: Tab[] = [
   },
   {
     href: HR_SETTINGS_EMAILS_PAY_HREF,
-    label: "PAY email",
+    label: "PAY",
     icon: Wallet,
   },
   {
+    href: HR_SETTINGS_EMAILS_ONBOARDING_HREF,
+    label: "On-Boarding",
+    icon: UserPlus,
+  },
+  {
     href: HR_SETTINGS_EMAILS_BOARDING_HREF,
-    label: "Off-Boarding email",
+    label: "Off-Boarding",
     icon: UserRound,
   },
   {
     href: HR_SETTINGS_EMAILS_OTHER_HREF,
-    label: "Other Template emails",
+    label: "Other Templates",
     icon: Mails,
   },
 ];
@@ -348,7 +355,7 @@ const EMAILS_PAY_TABS: Tab[] = [
 const EMAILS_OTHER_TABS: Tab[] = [
   {
     href: HR_SETTINGS_EMAILS_OTHER_WORK_ANNIVERSARY_HREF,
-    label: "Work Anniversary email",
+    label: "Work Anniversary",
     icon: PartyPopper,
   },
   {
@@ -537,12 +544,12 @@ export function HrEmailsSettingsSubNav() {
     <div className="space-y-3">
       <InnerSubNav tabs={EMAILS_TABS} ariaLabel="Email settings" />
       {onPayEmail ? (
-        <InnerSubNav tabs={EMAILS_PAY_TABS} ariaLabel="PAY email settings" />
+        <InnerSubNav tabs={EMAILS_PAY_TABS} ariaLabel="PAY settings" />
       ) : null}
       {onOtherTemplates ? (
         <InnerSubNav
           tabs={EMAILS_OTHER_TABS}
-          ariaLabel="Other template email settings"
+          ariaLabel="Other template settings"
         />
       ) : null}
     </div>

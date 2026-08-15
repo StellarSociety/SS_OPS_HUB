@@ -60,6 +60,42 @@ type UniformEmployeesTableProps = {
 
 type ArchiveFilter = "active" | "hidden" | "all";
 
+function ActionCountBadge({
+  count,
+  title,
+  ariaLabel,
+  onClick,
+}: {
+  count: number;
+  title?: string;
+  ariaLabel?: string;
+  onClick?: () => void;
+}) {
+  if (count <= 0) {
+    return <span className="inline-flex w-7 shrink-0" aria-hidden />;
+  }
+  const className =
+    "inline-flex min-w-6 items-center justify-center rounded-full bg-[var(--venue-primary,#6B7B3A)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-white transition hover:opacity-90";
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        aria-label={ariaLabel}
+        className={className}
+      >
+        {count}
+      </button>
+    );
+  }
+  return (
+    <span title={title} className={className}>
+      {count}
+    </span>
+  );
+}
+
 const selectClass =
   "h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20";
 
@@ -363,7 +399,7 @@ export function UniformEmployeesTable({
                             </button>
                             <div
                               onClick={stopRowToggle}
-                              className="shrink-0 self-stretch"
+                              className="flex shrink-0 self-stretch"
                             >
                               <StaffPhotoThumbnail
                                 fullName={row.staff.full_name}
@@ -417,47 +453,49 @@ export function UniformEmployeesTable({
                               </div>
                             </div>
                             <div
-                              className="flex w-[13.5rem] shrink-0 flex-col items-end justify-center gap-1"
+                              className="flex shrink-0 flex-col items-end justify-center gap-1"
                               onClick={stopRowToggle}
                             >
                               {canManage ? (
-                                <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                                <div className="grid w-[16.5rem] grid-cols-[minmax(0,1fr)_2rem_6.25rem_2rem] items-center justify-items-start gap-x-1">
                                   <UniformTermsEmailSendButton
                                     staffId={row.staff.id}
                                     fullName={row.staff.full_name}
                                     empNo={row.staff.emp_no}
+                                    sentCount={row.terms_email_count ?? 0}
                                     disabled={row.items.length === 0}
+                                    className="justify-self-end"
                                   />
-                                  <div className="inline-flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => setReplaceStaff(row.staff)}
-                                      disabled={row.items.length === 0}
-                                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold text-[var(--venue-primary,#6B7B3A)] transition hover:bg-[var(--venue-primary,#6B7B3A)]/15 disabled:cursor-not-allowed disabled:opacity-40"
-                                      title="Initiate uniform replacement"
-                                      aria-label={`Replace uniforms for ${row.staff.full_name}`}
-                                    >
-                                      <RefreshCw className="h-5 w-5" />
-                                      Replace
-                                    </button>
-                                    {(row.replacements?.length ?? 0) > 0 ? (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setQueriesStaff({
-                                            staff: row.staff,
-                                            replacements:
-                                              row.replacements ?? [],
-                                          })
-                                        }
-                                        className="inline-flex min-w-6 items-center justify-center rounded-full bg-[var(--venue-primary,#6B7B3A)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-white transition hover:opacity-90"
-                                        title="View replacement queries"
-                                        aria-label={`${row.replacements?.length ?? 0} replacement queries for ${row.staff.full_name}`}
-                                      >
-                                        {row.replacements?.length ?? 0}
-                                      </button>
-                                    ) : null}
-                                  </div>
+                                  <ActionCountBadge
+                                    count={row.terms_email_count ?? 0}
+                                    title={
+                                      (row.terms_email_count ?? 0) > 0
+                                        ? `${row.terms_email_count} T&Cs email${row.terms_email_count === 1 ? "" : "s"} sent`
+                                        : undefined
+                                    }
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setReplaceStaff(row.staff)}
+                                    disabled={row.items.length === 0}
+                                    className="inline-flex items-center justify-self-start gap-1.5 rounded-md px-2 py-1 text-sm font-semibold text-[var(--venue-primary,#6B7B3A)] transition hover:bg-[var(--venue-primary,#6B7B3A)]/15 disabled:cursor-not-allowed disabled:opacity-40"
+                                    title="Initiate uniform replacement"
+                                    aria-label={`Replace uniforms for ${row.staff.full_name}`}
+                                  >
+                                    <RefreshCw className="h-5 w-5" />
+                                    Replace
+                                  </button>
+                                  <ActionCountBadge
+                                    count={row.replacements?.length ?? 0}
+                                    title="View replacement queries"
+                                    ariaLabel={`${row.replacements?.length ?? 0} replacement queries for ${row.staff.full_name}`}
+                                    onClick={() =>
+                                      setQueriesStaff({
+                                        staff: row.staff,
+                                        replacements: row.replacements ?? [],
+                                      })
+                                    }
+                                  />
                                 </div>
                               ) : (row.replacements?.length ?? 0) > 0 ? (
                                 <button

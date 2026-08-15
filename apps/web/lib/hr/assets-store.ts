@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/service";
 import {
   assetTypesForCatalog,
   filterAssetsForCatalog,
@@ -262,6 +263,34 @@ export async function listAssetStaffArchives(
   return map;
 }
 
+async function countAssetTermsEmailsByStaff(
+  venueId: string,
+): Promise<Map<string, number>> {
+  try {
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("audit_log")
+      .select("entity_id")
+      .eq("venue_id", venueId)
+      .eq("entity", "staff")
+      .eq("action", "asset_terms_email.sent");
+    if (error) {
+      console.error("[hr] countAssetTermsEmailsByStaff:", error.message);
+      return new Map();
+    }
+    const counts = new Map<string, number>();
+    for (const row of data ?? []) {
+      const staffId = String(row.entity_id ?? "").trim();
+      if (!staffId) continue;
+      counts.set(staffId, (counts.get(staffId) ?? 0) + 1);
+    }
+    return counts;
+  } catch (error) {
+    console.error("[hr] countAssetTermsEmailsByStaff:", error);
+    return new Map();
+  }
+}
+
 export async function loadAssetsEmployeesPage(
   supabase: SupabaseClient,
   venueId: string,
@@ -279,14 +308,16 @@ export async function loadAssetsEmployeesPage(
   const uniformType = findUniformAssetType(allTypes);
   const uniformTypeId = uniformType?.id ?? null;
 
-  const [items, pending, replacements, archives] = await Promise.all([
-    listAssetStaffItems(supabase, { uniformTypeId }),
-    listPendingPayrollDeductionsForVenue(supabase, venueId, {
-      status: "pending",
-    }),
-    listAssetReplacements(supabase, venueId),
-    listAssetStaffArchives(supabase, venueId),
-  ]);
+  const [items, pending, replacements, archives, termsEmailCounts] =
+    await Promise.all([
+      listAssetStaffItems(supabase, { uniformTypeId }),
+      listPendingPayrollDeductionsForVenue(supabase, venueId, {
+        status: "pending",
+      }),
+      listAssetReplacements(supabase, venueId),
+      listAssetStaffArchives(supabase, venueId),
+      countAssetTermsEmailsByStaff(venueId),
+    ]);
 
   const itemsByStaff = new Map<string, AssetStaffItemRow[]>();
   for (const item of items) {
@@ -337,6 +368,7 @@ export async function loadAssetsEmployeesPage(
       replacements: replacementsByStaff.get(member.id) ?? [],
       archived: archivedAt != null || hiddenByOut,
       archived_at: archivedAt,
+      terms_email_count: termsEmailCounts.get(member.id) ?? 0,
     } satisfies AssetStaffSummaryRow;
   });
 
