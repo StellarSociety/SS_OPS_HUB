@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import {
   ExternalLink,
   Eye,
+  FileText,
   FileWarning,
   Loader2,
   Upload,
@@ -18,7 +19,11 @@ import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-s
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { uploadStaffDocumentViaApi } from "@/lib/hr/workdrive/client-upload";
-import type { HrWorkDriveDocKind, VisaEmployeeRow } from "@/lib/hr/types";
+import {
+  resolveDirectoryVisaStatus,
+  type HrWorkDriveDocKind,
+  type VisaEmployeeRow,
+} from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 
 function downloadUrlFor(item: StaffWorkDriveDocumentListItem) {
@@ -57,7 +62,10 @@ export function canShowVisaCancelationAction(row: {
   cancelDate?: string | null;
   isCanceled?: boolean;
 }): boolean {
-  const status = row.visaStatus || row.staff.visa_status || null;
+  const status = resolveDirectoryVisaStatus(
+    row.staff.visa_status,
+    row.visaStatus,
+  );
   if (isSelfOwnedVisaStatus(status)) return false;
   if (isProvidedVisaStatus(status)) return true;
   // After cancelation, status becomes Visa Canceled — still allow edit.
@@ -69,7 +77,10 @@ export function canShowVisaIssueAction(row: {
   visaStatus?: string | null;
   staff: { visa_status?: string | null };
 }): boolean {
-  const status = row.visaStatus || row.staff.visa_status || null;
+  const status = resolveDirectoryVisaStatus(
+    row.staff.visa_status,
+    row.visaStatus,
+  );
   return isSelfOwnedVisaStatus(status);
 }
 
@@ -273,7 +284,10 @@ export function VisaNocFileCell({
   canManage,
   onUploaded,
 }: VisaNocFileCellProps) {
-  const status = row.visaStatus || row.staff.visa_status || null;
+  const status = resolveDirectoryVisaStatus(
+    row.staff.visa_status,
+    row.visaStatus,
+  );
   return (
     <VisaDocFileCell
       row={row}
@@ -286,6 +300,98 @@ export function VisaNocFileCell({
       previewTitle="Visa NOC"
       missingToast="No Visa NOC found on WorkDrive."
     />
+  );
+}
+
+/** Red = cancelation letter on file; amber = not uploaded. Opens the in-app preview. */
+export function VisaCancelationFileMark({ row }: { row: VisaEmployeeRow }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewItem, setPreviewItem] =
+    useState<StaffWorkDriveDocumentListItem | null>(null);
+
+  const hasFile = row.hasCancelationDocument;
+
+  async function openPreview() {
+    if (loadingPreview) return;
+    setLoadingPreview(true);
+    try {
+      const result = await listStaffWorkDriveDocs({
+        staffId: row.staff.id,
+        docKind: "visa_cancelation",
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      const item = result.items[0] ?? null;
+      if (!item) {
+        toast.error("No visa cancelation file found on WorkDrive.");
+        return;
+      }
+      if (item.isMissing) {
+        toast.error("This file was deleted from WorkDrive.");
+        return;
+      }
+      setPreviewItem(item);
+      setPreviewOpen(true);
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
+  return (
+    <>
+      <span
+        className="inline-flex shrink-0"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          title={
+            hasFile
+              ? "Preview visa cancelation file"
+              : "Visa cancelation file not uploaded — click to preview"
+          }
+          aria-label={
+            hasFile
+              ? `Preview visa cancelation for ${row.staff.full_name}`
+              : `Visa cancelation not uploaded for ${row.staff.full_name}`
+          }
+          disabled={loadingPreview}
+          onClick={() => {
+            void openPreview();
+          }}
+          className={cn(
+            "inline-flex h-7 w-7 items-center justify-center rounded-md border transition",
+            hasFile
+              ? "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100"
+              : "border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300 hover:bg-amber-100",
+            "disabled:opacity-50",
+          )}
+        >
+          {loadingPreview ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : hasFile ? (
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <FileWarning className="h-3.5 w-3.5" aria-hidden />
+          )}
+        </button>
+      </span>
+
+      {previewOpen && previewItem ? (
+        <DocPreviewDialog
+          item={previewItem}
+          title="Visa cancelation"
+          onClose={() => {
+            setPreviewOpen(false);
+            setPreviewItem(null);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

@@ -1,9 +1,10 @@
 "use client";
 
 import {
-  BadgeCheck,
+  Check,
   GraduationCap,
   IdCard,
+  Mail,
   Package,
   ShieldCheck,
   Shirt,
@@ -136,12 +137,22 @@ export function AssetsSubNav() {
             className="inline-flex items-center justify-center rounded-xl p-1.5 text-[#3D421F] transition-colors hover:bg-[var(--venue-primary)]/15"
           >
             <AnimatedSymbol>
-              <BadgeCheck
-                className="h-12 w-12 shrink-0 text-[var(--venue-primary,#818a40)]"
-                strokeWidth={1.5}
-                absoluteStrokeWidth
-                aria-hidden
-              />
+              <span className="relative inline-flex h-12 w-12 shrink-0 text-[var(--venue-primary,#818a40)]">
+                <Mail
+                  className="h-12 w-12"
+                  strokeWidth={1.5}
+                  absoluteStrokeWidth
+                  aria-hidden
+                />
+                <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--venue-secondary,#F0F3DD)]">
+                  <Check
+                    className="h-6 w-6"
+                    strokeWidth={2.75}
+                    absoluteStrokeWidth
+                    aria-hidden
+                  />
+                </span>
+              </span>
             </AnimatedSymbol>
           </ScopedLink>
         </div>

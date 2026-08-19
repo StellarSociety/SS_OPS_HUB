@@ -18,6 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { AnnualLeaveCalculationCard } from "@/components/hr/annual-leave-calculation-card";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { DateInput } from "@/components/ui/date-input";
@@ -35,7 +36,9 @@ import {
   suggestEmploymentStatusName,
 } from "@/lib/hr/employment-status";
 import {
+  formatLeaveDays,
   scheduleLeaveDisplayName,
+  type AnnualLeaveCalculationBreakdown,
   type LeaveCalendarStatus,
   type ScheduledLeaveLabelStyle,
   type ScheduledLeaveRange,
@@ -45,6 +48,8 @@ import {
   OffboardingNoticeEmailRecordViewer,
 } from "@/components/hr/offboarding-notice-email-record";
 import { OffboardingNoticeEmailDialog } from "@/components/hr/offboarding-notice-email-dialog";
+import { VisaCancelationEmailStatus } from "@/components/hr/visa-cancelation-email-status";
+import { VisaCancelationPanel } from "@/components/hr/visa-cancelation-panel";
 import {
   listBoardingNoticeEmails,
   cancelScheduledBoardingNoticeEmail,
@@ -136,6 +141,7 @@ type LeaveSnapshot = {
   phUsed: number;
   scheduledLeaves: ScheduledLeaveRange[];
   scheduleLabels: ScheduledLeaveLabelStyle[];
+  annualLeaveCalculation: AnnualLeaveCalculationBreakdown | null;
 };
 
 type OffboardingProcessFormProps = {
@@ -274,6 +280,7 @@ export function OffboardingProcessForm({
         phUsed: result.phUsed,
         scheduledLeaves: result.scheduledLeaves,
         scheduleLabels: result.scheduleLabels,
+        annualLeaveCalculation: result.annualLeaveCalculation,
       });
     });
 
@@ -678,6 +685,8 @@ export function OffboardingProcessForm({
                         : isChecklistStepDone(step);
                   const itemDone = step.items.filter((i) => i.done).length;
                   const showTimestamps = TIMESTAMPED_STEPS.has(meta.id);
+                  const visaItem = step.items.find((row) => row.id === "visa");
+                  const visaDoneStamp = formatDoneAt(visaItem?.doneAt ?? null);
 
                   return (
                     <li
@@ -925,31 +934,31 @@ export function OffboardingProcessForm({
                           ) : null}
 
                           {meta.id === "benefits_cancel" ? (
-                            <StageEmailActions
-                              description="Send cancellation requests for visa and insurance where applicable."
-                              actions={[
-                                {
-                                  action: "cancel_visa",
-                                  label: "Email cancel visa",
-                                },
-                                {
-                                  action: "cancel_insurance",
-                                  label: "Email cancel insurance",
-                                },
-                              ]}
-                              records={noticeEmailRecords}
-                              canSend={
-                                Boolean(notificationDate) &&
-                                Boolean(terminationDate)
+                            <VisaCancelationPanel
+                              staffId={staff.id}
+                              empNo={staff.empNo}
+                              fullName={staff.fullName}
+                              dateInputId="ob-visa-cancel-date"
+                              done={Boolean(visaItem?.done)}
+                              doneLabel={
+                                showTimestamps && visaDoneStamp
+                                  ? `Done ${visaDoneStamp}`
+                                  : null
                               }
-                              onCompose={(action) => {
-                                setEditingComposeDraftId(null);
-                                setComposeAction(action);
-                              }}
-                              onOpenRecord={(id) =>
-                                setViewingNoticeEmailId(id)
+                              onDoneChange={() =>
+                                setChecklist((prev) =>
+                                  toggleChecklistItem(prev, meta.id, "visa"),
+                                )
                               }
-                            />
+                            >
+                              <VisaCancelationEmailStatus
+                                staffId={staff.id}
+                                canSend={
+                                  Boolean(notificationDate) &&
+                                  Boolean(terminationDate)
+                                }
+                              />
+                            </VisaCancelationPanel>
                           ) : null}
 
                           {meta.id === "final_payment" ? (
@@ -1000,10 +1009,18 @@ export function OffboardingProcessForm({
                             />
                           ) : null}
 
-                          {step.items.length > 0 ? (
+                          {step.items.filter((row) =>
+                            meta.id === "benefits_cancel"
+                              ? row.id !== "visa"
+                              : true,
+                          ).length > 0 ? (
                             <ChecklistItems
                               stepId={meta.id}
-                              items={step.items}
+                              items={
+                                meta.id === "benefits_cancel"
+                                  ? step.items.filter((row) => row.id !== "visa")
+                                  : step.items
+                              }
                               showTimestamps={showTimestamps}
                               disabled={stepDisabled}
                               onToggle={(itemId) =>
@@ -1594,6 +1611,14 @@ function SettlementStepFields({
           </div>
         )}
 
+        {leave?.annualLeaveCalculation ? (
+          <div className="mt-4">
+            <AnnualLeaveCalculationCard
+              calculation={leave.annualLeaveCalculation}
+            />
+          </div>
+        ) : null}
+
         <div className="mt-4 border-t border-black/5 pt-3">
           <button
             type="button"
@@ -1901,6 +1926,7 @@ function ChecklistItems({
 function StageEmailActions({
   description,
   actions,
+  recordActions = [],
   records,
   canSend,
   onCompose,
@@ -1908,19 +1934,26 @@ function StageEmailActions({
 }: {
   description: string;
   actions: Array<{ action: OffboardingNoticeEmailAction; label: string }>;
+  /** Extra actions whose records are listed without a compose button. */
+  recordActions?: OffboardingNoticeEmailAction[];
   records: OffboardingNoticeEmailDelivery[];
   canSend: boolean;
   onCompose: (action: OffboardingNoticeEmailAction) => void;
   onOpenRecord: (id: string) => void;
 }) {
-  const actionSet = new Set(actions.map((row) => row.action));
+  const actionSet = new Set([
+    ...actions.map((row) => row.action),
+    ...recordActions,
+  ]);
   const matching = [...records]
     .filter((row) => actionSet.has(row.action))
     .reverse();
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-black/55">{description}</p>
+      {description ? (
+        <p className="text-sm text-black/55">{description}</p>
+      ) : null}
       {actions.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {actions.map((row) => (
@@ -1960,9 +1993,7 @@ function StageEmailActions({
 }
 
 function formatDays(n: number): string {
-  return (Math.round(n * 10) / 10).toLocaleString("en-AE", {
-    maximumFractionDigits: 1,
-  });
+  return formatLeaveDays(n);
 }
 
 function todayIsoLocal(asOf: Date = new Date()): string {

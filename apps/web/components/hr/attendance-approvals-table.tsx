@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { CircleHelp, FileText } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
+import { CircleHelp, ChevronDown, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import { usePersistedHrAttendanceValidationFilters } from "@/components/hr/use-persisted-hr-filters";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
+import { StatusBadge } from "@/components/hr/status-badge";
+import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -23,7 +27,11 @@ import {
   ATTENDANCE_APPROVED_STATUS,
   attendanceDayRequiresApproval,
 } from "@/lib/hr/attendance-approval";
-import { computeWorkedTime } from "@/lib/hr/derived";
+import { computeEmploymentDuration, computeWorkTime } from "@/lib/hr/derived";
+import {
+  formatLeaveDays,
+  liveLeaveBalanceTriple,
+} from "@/lib/hr/leave";
 import { exportAttendanceValidationPdf } from "@/lib/hr/attendance-validation-pdf";
 import {
   DEFAULT_SCHEDULE_VARIANCE_MINUTES,
@@ -34,10 +42,15 @@ import {
   calendarDateKeyInTimezone,
   formatIsoDateShort,
   isStaffEmployedOnWorkDate,
+  rosterLabelKeepsShiftTimes,
   scheduleDayLabelStyle,
 } from "@/lib/hr/schedules";
 import { DEFAULT_HR_ATTENDANCE_IMPORT_RULES } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
+import {
+  isOffBoardingForWeek,
+  resolveWorkingStatus,
+} from "@/lib/hr/working-status";
 
 export type AttendanceApprovalRow = {
   id: string | null;
@@ -68,6 +81,12 @@ type EmployeeOption = {
   positionName?: string | null;
   joiningDate?: string | null;
   terminationDate?: string | null;
+  photoUrl?: string | null;
+  employmentStatus?: string | null;
+  workingStatus?: string | null;
+  nationality?: string | null;
+  dob?: string | null;
+  todayRosterLabel?: string | null;
 };
 
 /** Staged roster edit: a label code, or null to clear the saved roster day. */
@@ -123,16 +142,279 @@ const ROSTER_ACTION_GROUPS: Array<{
   id: RosterActionGroupId;
   label: string;
 }> = [
-  { id: "duty", label: "Duty" },
-  { id: "paid", label: "Paid leave" },
-  { id: "unpaid", label: "Unpaid" },
+  { id: "duty", label: "Paid Working" },
+  { id: "paid", label: "Paid Leave" },
+  { id: "unpaid", label: "Unpaid Leave" },
 ];
+
+function AttendanceTableColgroup() {
+  return (
+    <colgroup>
+      <col className="w-[5.5rem]" />
+      <col className="w-[4.5rem]" />
+      <col className="w-[7rem]" />
+      <col className="w-[5rem]" />
+      <col className="w-[5.5rem]" />
+      <col className="w-[7rem]" />
+      <col className="w-[10rem]" />
+      <col />
+      <col className="w-[3.25rem]" />
+    </colgroup>
+  );
+}
+
+const ACTION_CHIP_SIZING =
+  "inline-flex h-7 min-w-[2.5rem] items-center justify-center rounded-md border px-2 text-[11px] font-semibold uppercase tracking-wide";
+
+/** Invisible chips so a header label is as wide as its button group. */
+function ActionGroupWidthSizer({ codes }: { codes: string[] }) {
+  return (
+    <div className="h-0 overflow-hidden whitespace-nowrap" aria-hidden>
+      <div className="flex items-center gap-1.5">
+        {codes.map((code) => (
+          <span key={code} className={ACTION_CHIP_SIZING}>
+            {code}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function resolveSelectedRosterAction(
+  row: AttendanceApprovalRow,
+  draft: RosterDraft | undefined,
+  hasDraft: boolean,
+  actions: RosterActionDef[],
+): RosterActionDef | null {
+  if (hasDraft) {
+    if (draft == null) return null;
+    return actions.find((action) => action.code === draft) ?? null;
+  }
+  return (
+    actions.find((action) => rosterMatchesAction(row.rosterLabel, action)) ??
+    null
+  );
+}
+
+function RosterActionDropdown({
+  groups,
+  labelsByCode,
+  selectedAction,
+  isPublicHoliday,
+  disabled,
+  onSelect,
+  onClear,
+}: {
+  groups: Array<{
+    id: string;
+    label: string;
+    actions: RosterActionDef[];
+  }>;
+  labelsByCode: Map<string, ScheduleLabelOption>;
+  selectedAction: RosterActionDef | null;
+  isPublicHoliday: boolean;
+  disabled: boolean;
+  onSelect: (code: ValidationRosterLabelCode) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPos, setPanelPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  const selectedLabel = selectedAction
+    ? labelsByCode.get(selectedAction.rosterCode)
+    : undefined;
+
+  function updatePanelPos() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.max(rect.width, 220);
+    const left = Math.min(
+      Math.max(8, rect.left),
+      window.innerWidth - width - 8,
+    );
+    setPanelPos({ top: rect.bottom + 4, left, width });
+  }
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelPos(null);
+      return;
+    }
+    updatePanelPos();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        triggerRef.current?.contains(target) ||
+        panelRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    function onReposition() {
+      updatePanelPos();
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  }, [open]);
+
+  return (
+    <div className="min-w-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={
+          selectedAction
+            ? `Selected action ${selectedAction.code}`
+            : "Select Action"
+        }
+        onClick={() => {
+          if (disabled) return;
+          setOpen((value) => !value);
+        }}
+        className={cn(
+          "inline-flex h-7 w-full min-w-[8.5rem] max-w-[14rem] items-center justify-between gap-2 rounded-md border px-2 text-[11px] font-semibold tracking-wide transition-opacity hover:opacity-90 disabled:opacity-45",
+          selectedAction ? "uppercase" : "font-medium",
+        )}
+        style={
+          selectedLabel
+            ? scheduleDayLabelStyle(selectedLabel)
+            : selectedAction
+              ? {
+                  backgroundColor: "#f5f5f5",
+                  color: "#404040",
+                  borderColor: "#d4d4d4",
+                }
+              : {
+                  backgroundColor: "#ffffff",
+                  color: "rgba(0,0,0,0.55)",
+                  borderColor: "rgba(0,0,0,0.15)",
+                }
+        }
+      >
+        <span className="min-w-0 truncate">
+          {selectedAction ? selectedAction.code : "Select Action"}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      </button>
+      {open && panelPos
+        ? createPortal(
+            <div
+              ref={panelRef}
+              className="fixed z-[250] overflow-hidden rounded-md border border-black/10 bg-white py-1 shadow-lg"
+              style={{
+                top: panelPos.top,
+                left: panelPos.left,
+                width: panelPos.width,
+              }}
+            >
+              <ul role="listbox" className="max-h-72 overflow-y-auto">
+                <li>
+                  <button
+                    type="button"
+                    className="flex w-full items-center px-2.5 py-1.5 text-left text-xs text-black/50 hover:bg-black/[0.04]"
+                    onClick={() => {
+                      onClear();
+                      setOpen(false);
+                    }}
+                  >
+                    Select Action
+                  </button>
+                </li>
+                {groups.map((group) => (
+                  <li key={group.id} className="border-t border-black/5 pt-1">
+                    <p className="px-2.5 pb-0.5 pt-1 text-[10px] font-medium uppercase tracking-wide text-black/40">
+                      {group.label}
+                    </p>
+                    <ul>
+                      {group.actions.map((action) => {
+                        const label = labelsByCode.get(action.rosterCode);
+                        const phReplOnHoliday =
+                          action.code === "PH-REPL" && isPublicHoliday;
+                        const isSelected = selectedAction?.code === action.code;
+                        return (
+                          <li key={action.code}>
+                            <button
+                              type="button"
+                              disabled={phReplOnHoliday}
+                              title={
+                                phReplOnHoliday
+                                  ? "Calendar public holiday — use OFF or SH instead"
+                                  : (label?.name ?? action.fallbackTitle)
+                              }
+                              onClick={() => {
+                                if (phReplOnHoliday) return;
+                                if (!isSelected) onSelect(action.code);
+                                setOpen(false);
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-black/[0.04] disabled:opacity-40",
+                                isSelected && "bg-black/[0.04]",
+                              )}
+                            >
+                              <span
+                                className={ACTION_CHIP_SIZING}
+                                style={
+                                  label
+                                    ? scheduleDayLabelStyle(label)
+                                    : {
+                                        backgroundColor: "#f5f5f5",
+                                        color: "#404040",
+                                        borderColor: "#d4d4d4",
+                                      }
+                                }
+                              >
+                                {action.code}
+                              </span>
+                              <span className="min-w-0 truncate text-xs text-[#3D421F]">
+                                {label?.name ?? action.fallbackTitle}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
 
 /**
  * Validation actions in three groups:
- * 1. Duty — SH / OFF / PH-REPL
- * 2. Paid leave — AL / SL / ML / PL / BL
- * 3. Unpaid — UPL / ABS
+ * 1. Paid Working — SH / OFF / PH-REPL
+ * 2. Paid Leave — AL / SL / ML / PL / BL
+ * 3. Unpaid Leave — UPL / ABS
  *
  * Calendar PH (holiday taken) is not a button: OFF on a public-holiday date
  * auto-saves as PH. Working SH on a public holiday accrues PH-REPL credit.
@@ -182,7 +464,13 @@ const ROSTER_ACTION_DEFS: RosterActionDef[] = [
     fallbackTitle: "Unpaid leave",
     group: "unpaid",
   },
-  { code: "ABS", rosterCode: "ABS", fallbackTitle: "Absence", group: "unpaid" },
+  {
+    code: "ABS",
+    rosterCode: "ABS",
+    fallbackTitle:
+      "Absence — keeps scheduled times (expected to work, did not attend)",
+    group: "unpaid",
+  },
 ];
 
 /** True when the saved roster label matches this action (incl. legacy LP → AL). */
@@ -286,6 +574,14 @@ function issueAfterRosterLabel(
   return null;
 }
 
+function formatScheduleRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string | null {
+  if (!start || !end) return null;
+  return `${start} – ${end}`;
+}
+
 function rosterCodeForAction(code: ValidationRosterLabelCode): string {
   return code === "SH" ? "SHIFT" : code;
 }
@@ -339,6 +635,134 @@ function selectionKey(
   return null;
 }
 
+function LeaveBalanceTriple({
+  title,
+  loading,
+  eligible,
+  left,
+  taken,
+  className,
+}: {
+  title: string;
+  loading: boolean;
+  eligible: number | null;
+  left: number | null;
+  taken: number | null;
+  className?: string;
+}) {
+  const missing = eligible == null || left == null || taken == null;
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 flex-col items-center gap-0.5 text-center",
+        className,
+      )}
+    >
+      <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+        {title}
+      </span>
+      {loading ? (
+        <span className="text-sm font-medium text-[#3D421F]">…</span>
+      ) : missing ? (
+        <span className="text-sm font-medium text-[#3D421F]">—</span>
+      ) : (
+        <div
+          className="grid min-w-0 grid-cols-[1fr_auto_1fr_auto_1fr] items-end gap-x-1"
+          title={`Eligible ${formatLeaveDays(eligible)} · Left ${formatLeaveDays(left)} · Taken ${formatLeaveDays(taken)}`}
+        >
+          <LeaveTripleStat label="Eligible" value={eligible} tone="muted" />
+          <span className="mb-px text-[11px] text-black/25" aria-hidden>
+            |
+          </span>
+          <LeaveTripleStat label="Left" value={left} tone="accent" />
+          <span className="mb-px text-[11px] text-black/25" aria-hidden>
+            |
+          </span>
+          <LeaveTripleStat label="Taken" value={taken} tone="ink" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeaveTripleStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "muted" | "accent" | "ink";
+}) {
+  return (
+    <div className="min-w-0 text-center">
+      <p
+        className={cn(
+          "text-[9px] font-medium uppercase tracking-wide",
+          tone === "muted" && "text-black/40",
+          tone === "accent" && "text-[var(--venue-primary,#818a40)]",
+          tone === "ink" && "text-[#3D421F]/70",
+        )}
+      >
+        {label}
+      </p>
+      <p
+        className={cn(
+          "text-sm font-medium tabular-nums leading-tight",
+          tone === "muted" && "text-black/55",
+          tone === "accent" && "text-[var(--venue-primary,#818a40)]",
+          tone === "ink" && "text-[#3D421F]",
+        )}
+      >
+        {formatLeaveDays(value)}
+      </p>
+    </div>
+  );
+}
+
+function TenureMetrics({
+  employmentDuration,
+  workTime,
+  workTimeLoading,
+  className,
+}: {
+  employmentDuration: string | null;
+  workTime: string | null;
+  workTimeLoading: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex min-w-0 flex-1 items-stretch", className)}>
+      <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 text-center">
+        <span
+          className="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-black/45"
+          title="Calendar time from joining until today (or termination)"
+        >
+          Employment duration
+        </span>
+        <span className="whitespace-nowrap text-sm font-medium tabular-nums text-[#3D421F]">
+          {employmentDuration ?? "—"}
+        </span>
+      </div>
+      <div
+        className="mx-2 hidden w-px shrink-0 self-stretch bg-black/10 sm:block"
+        aria-hidden
+      />
+      <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 text-center">
+        <span
+          className="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-black/45"
+          title="Employment duration minus unpaid leave (UPL) and unauthorised absence (ABS)"
+        >
+          Work time
+        </span>
+        <span className="whitespace-nowrap text-sm font-medium tabular-nums text-[#3D421F]">
+          {workTimeLoading ? "…" : (workTime ?? "—")}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function emptyRowForDay(opts: {
   staffId: string | null;
   workDate: string;
@@ -363,6 +787,49 @@ function emptyRowForDay(opts: {
     attendanceStatus: null,
     approvalStatus: null,
     issue: null,
+  };
+}
+
+function localRowAfterRosterChange(
+  existing: AttendanceApprovalRow | undefined,
+  change: {
+    staffId: string;
+    empNo: string;
+    workDate: string;
+    labelCode: ValidationRosterLabelCode | null;
+  },
+  person: EmployeeOption | undefined,
+): AttendanceApprovalRow {
+  const keepTimes =
+    change.labelCode != null &&
+    rosterLabelKeepsShiftTimes(rosterCodeForAction(change.labelCode));
+  const start = keepTimes ? (existing?.scheduleStartTime ?? null) : null;
+  const end = keepTimes ? (existing?.scheduleEndTime ?? null) : null;
+  return {
+    ...(existing ??
+      emptyRowForDay({
+        staffId: change.staffId,
+        workDate: change.workDate,
+        empNo: change.empNo,
+        fullName: person?.fullName ?? change.empNo,
+        departmentId: person?.departmentId ?? null,
+      })),
+    staffId: change.staffId,
+    rosterLabel:
+      change.labelCode == null ? null : rosterCodeForAction(change.labelCode),
+    scheduleTime: keepTimes
+      ? (existing?.scheduleTime ?? formatScheduleRange(start, end))
+      : null,
+    scheduleStartTime: start,
+    scheduleEndTime: end,
+    issue:
+      change.labelCode == null
+        ? null
+        : issueAfterRosterLabel(
+            change.labelCode,
+            existing?.clockIn ?? null,
+            existing?.clockOut ?? null,
+          ),
   };
 }
 
@@ -410,10 +877,20 @@ export function AttendanceApprovalsTable({
   const [actionError, setActionError] = useState<string | null>(null);
   const [loadingRange, setLoadingRange] = useState(false);
   const [leaveSnapshot, setLeaveSnapshot] = useState<{
-    alBalance: number;
-    phBalance: number;
+    year: number;
+    alEligible: number;
+    alLeft: number;
+    alTaken: number;
+    alScheduled: number;
+    phEligible: number;
+    phLeft: number;
+    phTaken: number;
+    phScheduled: number;
+    unpaidLeaveDays: number;
+    days: { workDate: string; labelCode: string }[];
   } | null>(null);
   const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveRefreshKey, setLeaveRefreshKey] = useState(0);
   const appliedInitialStaffRef = useRef<string | null>(null);
 
   const hasWeekFilter = selectedWeekKeys.length > 0;
@@ -525,25 +1002,47 @@ export function AttendanceApprovalsTable({
     return pool
       .map((employee) => ({
         value: employee.empNo,
-        label: `${employee.fullName} (${employee.empNo})`,
+        label: `${employee.empNo} · ${employee.fullName}`,
       }))
-      .sort((a, b) => a.label.localeCompare(b.label));
+      .sort((a, b) =>
+        a.value.localeCompare(b.value, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
   }, [employees, departmentId]);
+
+  const employeesByEmpNo = useMemo(
+    () => employeeOptions.map((option) => option.value),
+    [employeeOptions],
+  );
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.empNo === empNo),
     [employees, empNo],
   );
 
-  const workedTime = useMemo(
+  const employmentDuration = useMemo(
     () =>
       selectedEmployee
-        ? computeWorkedTime(
+        ? computeEmploymentDuration(
             selectedEmployee.joiningDate,
             selectedEmployee.terminationDate,
           )
         : null,
     [selectedEmployee],
+  );
+
+  const workTime = useMemo(
+    () =>
+      selectedEmployee
+        ? computeWorkTime(
+            selectedEmployee.joiningDate,
+            selectedEmployee.terminationDate,
+            leaveSnapshot?.unpaidLeaveDays ?? 0,
+          )
+        : null,
+    [selectedEmployee, leaveSnapshot?.unpaidLeaveDays],
   );
 
   useEffect(() => {
@@ -566,15 +1065,24 @@ export function AttendanceApprovalsTable({
         return;
       }
       setLeaveSnapshot({
-        alBalance: result.alBalance,
-        phBalance: result.phBalance,
+        year: result.year,
+        alEligible: result.alAvail,
+        alLeft: result.alBalance,
+        alTaken: result.alUsed,
+        alScheduled: result.alScheduled,
+        phEligible: result.phAvail,
+        phLeft: result.phBalance,
+        phTaken: result.phUsed,
+        phScheduled: result.phScheduled,
+        unpaidLeaveDays: result.unpaidLeaveDays,
+        days: result.days,
       });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedEmployee?.id]);
+  }, [selectedEmployee?.id, leaveRefreshKey]);
 
   const ready = Boolean(empNo && (hasWeekFilter || hasDayRange));
 
@@ -660,10 +1168,13 @@ export function AttendanceApprovalsTable({
         };
       }
 
+      const keepTimes = rosterLabelKeepsShiftTimes(rosterCodeForAction(draft));
       return {
         ...base,
         rosterLabel: rosterCodeForAction(draft),
-        scheduleTime: null,
+        scheduleTime: keepTimes ? base.scheduleTime : null,
+        scheduleStartTime: keepTimes ? base.scheduleStartTime : null,
+        scheduleEndTime: keepTimes ? base.scheduleEndTime : null,
         issue: issueAfterRosterLabel(draft, base.clockIn, base.clockOut),
       };
     });
@@ -676,17 +1187,80 @@ export function AttendanceApprovalsTable({
     drafts,
   ]);
 
+  const liveLeave = useMemo(() => {
+    if (!leaveSnapshot) return null;
+    const empKey = empNo.trim().toLowerCase();
+    const overlay: { workDate: string; labelCode: string | null }[] = [];
+    for (const row of local) {
+      if (row.empNo.trim().toLowerCase() !== empKey) continue;
+      overlay.push({ workDate: row.workDate, labelCode: row.rosterLabel });
+    }
+    for (const row of filtered) {
+      overlay.push({ workDate: row.workDate, labelCode: row.rosterLabel });
+    }
+    return liveLeaveBalanceTriple({
+      snapshot: leaveSnapshot,
+      overlay,
+      holidayDates: Object.keys(publicHolidayByDate),
+    });
+  }, [leaveSnapshot, local, filtered, empNo, publicHolidayByDate]);
+
+  const rosterTotals = useMemo(() => {
+    const counts = new Map<ValidationRosterLabelCode, number>();
+    for (const action of rosterActions) {
+      counts.set(action.code, 0);
+    }
+    let hours = 0;
+    for (const row of filtered) {
+      for (const action of rosterActions) {
+        if (rosterMatchesAction(row.rosterLabel, action)) {
+          counts.set(action.code, (counts.get(action.code) ?? 0) + 1);
+          break;
+        }
+      }
+      if (row.totalHours != null && Number.isFinite(Number(row.totalHours))) {
+        hours += Number(row.totalHours);
+      }
+    }
+    return { counts, hours };
+  }, [filtered, rosterActions]);
+
+  const todayKey = useMemo(
+    () => calendarDateKeyInTimezone(new Date().toISOString(), timezone),
+    [timezone],
+  );
+
+  const resolvedWorkingStatus = useMemo(() => {
+    if (!selectedEmployee) return null;
+    const sorted = [...selectedDates].sort();
+    const from = sorted[0];
+    const to = sorted[sorted.length - 1];
+    const todayRow = todayKey
+      ? filtered.find((row) => row.workDate === todayKey)
+      : undefined;
+    return resolveWorkingStatus({
+      workingStatus: selectedEmployee.workingStatus,
+      isOffBoarding: Boolean(
+        from &&
+          to &&
+          isOffBoardingForWeek(selectedEmployee.terminationDate, from, to),
+      ),
+      currentLabelCode:
+        todayRow?.rosterLabel?.trim() ||
+        selectedEmployee.todayRosterLabel ||
+        null,
+      weekLabelCodes: filtered
+        .map((row) => row.rosterLabel)
+        .filter((code): code is string => Boolean(code?.trim())),
+    });
+  }, [selectedEmployee, selectedDates, filtered, todayKey]);
+
   const varianceOpts = useMemo(
     () => ({
       varianceMinutes: scheduleVarianceMinutes,
       timezone,
     }),
     [scheduleVarianceMinutes, timezone],
-  );
-
-  const todayKey = useMemo(
-    () => calendarDateKeyInTimezone(new Date().toISOString(), timezone),
-    [timezone],
   );
 
   const selectableKeys = useMemo(
@@ -846,46 +1420,21 @@ export function AttendanceApprovalsTable({
 
           for (const change of changes) {
             const key = draftKey(change.empNo, change.workDate);
-            const existing = byKey.get(key);
-            const person = staffByEmp.get(change.empNo.trim().toLowerCase());
-            byKey.set(key, {
-              ...(existing ??
-                emptyRowForDay({
-                  staffId: change.staffId,
-                  workDate: change.workDate,
-                  empNo: change.empNo,
-                  fullName: person?.fullName ?? change.empNo,
-                  departmentId: person?.departmentId ?? null,
-                })),
-              staffId: change.staffId,
-              rosterLabel:
-                change.labelCode == null
-                  ? null
-                  : rosterCodeForAction(change.labelCode),
-              scheduleTime: null,
-              scheduleStartTime:
-                change.labelCode == null
-                  ? null
-                  : (existing?.scheduleStartTime ?? null),
-              scheduleEndTime:
-                change.labelCode == null
-                  ? null
-                  : (existing?.scheduleEndTime ?? null),
-              issue:
-                change.labelCode == null
-                  ? null
-                  : issueAfterRosterLabel(
-                      change.labelCode,
-                      existing?.clockIn ?? null,
-                      existing?.clockOut ?? null,
-                    ),
-            });
+            byKey.set(
+              key,
+              localRowAfterRosterChange(
+                byKey.get(key),
+                change,
+                staffByEmp.get(change.empNo.trim().toLowerCase()),
+              ),
+            );
           }
 
           return [...byKey.values()];
         });
 
         setDrafts({});
+        setLeaveRefreshKey((n) => n + 1);
       } catch (err) {
         // Save often succeeded on the server; Next then failed refreshing RSC.
         // Keep the staged edits applied locally so the UI matches the DB.
@@ -897,44 +1446,19 @@ export function AttendanceApprovalsTable({
             );
             for (const change of changes) {
               const key = draftKey(change.empNo, change.workDate);
-              const existing = byKey.get(key);
-              const person = staffByEmp.get(change.empNo.trim().toLowerCase());
-              byKey.set(key, {
-                ...(existing ??
-                  emptyRowForDay({
-                    staffId: change.staffId,
-                    workDate: change.workDate,
-                    empNo: change.empNo,
-                    fullName: person?.fullName ?? change.empNo,
-                    departmentId: person?.departmentId ?? null,
-                  })),
-                staffId: change.staffId,
-                rosterLabel:
-                  change.labelCode == null
-                    ? null
-                    : rosterCodeForAction(change.labelCode),
-                scheduleTime: null,
-                scheduleStartTime:
-                  change.labelCode == null
-                    ? null
-                    : (existing?.scheduleStartTime ?? null),
-                scheduleEndTime:
-                  change.labelCode == null
-                    ? null
-                    : (existing?.scheduleEndTime ?? null),
-                issue:
-                  change.labelCode == null
-                    ? null
-                    : issueAfterRosterLabel(
-                        change.labelCode,
-                        existing?.clockIn ?? null,
-                        existing?.clockOut ?? null,
-                      ),
-              });
+              byKey.set(
+                key,
+                localRowAfterRosterChange(
+                  byKey.get(key),
+                  change,
+                  staffByEmp.get(change.empNo.trim().toLowerCase()),
+                ),
+              );
             }
             return [...byKey.values()];
           });
           setDrafts({});
+          setLeaveRefreshKey((n) => n + 1);
           setActionError(null);
           return;
         }
@@ -1066,6 +1590,27 @@ export function AttendanceApprovalsTable({
         ? { departmentId: employee.departmentId }
         : {}),
     });
+    setSelectedIds(new Set());
+    setActionError(null);
+  }
+
+  function stepEmployee(direction: -1 | 1) {
+    const list = employeesByEmpNo;
+    if (list.length === 0) return;
+    const currentIndex = list.indexOf(empNo);
+    const nextIndex =
+      currentIndex < 0
+        ? direction === 1
+          ? 0
+          : list.length - 1
+        : (currentIndex + direction + list.length) % list.length;
+    const next = list[nextIndex];
+    if (!next || next === empNo) return;
+    if (departmentId) {
+      onEmployeeChange(next);
+      return;
+    }
+    patchFilters({ empNo: next });
     setSelectedIds(new Set());
     setActionError(null);
   }
@@ -1252,6 +1797,7 @@ export function AttendanceApprovalsTable({
         ) : null}
       </div>
 
+      <div className="w-full border-b border-black/15 pb-3">
       <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-0.5">
         <div className="flex min-w-[10rem] w-[12rem] shrink-0 flex-col gap-1">
           <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
@@ -1274,8 +1820,30 @@ export function AttendanceApprovalsTable({
             onChange={onEmployeeChange}
             options={employeeOptions}
             placeholder="Select employee"
-            searchPlaceholder="Search name or emp no…"
+            searchPlaceholder="Search emp no or name…"
           />
+        </div>
+        <div className="flex h-10 shrink-0 items-center gap-1 self-end">
+          <button
+            type="button"
+            title="Previous employee"
+            aria-label="Previous employee by employee number"
+            disabled={employeesByEmpNo.length === 0}
+            onClick={() => stepEmployee(-1)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-[var(--venue-secondary,#F0F3DD)]/40 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            title="Next employee"
+            aria-label="Next employee by employee number"
+            disabled={employeesByEmpNo.length === 0}
+            onClick={() => stepEmployee(1)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-[var(--venue-secondary,#F0F3DD)]/40 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </button>
         </div>
         <div
           className={cn(
@@ -1337,10 +1905,29 @@ export function AttendanceApprovalsTable({
           />
         </div>
       </div>
+      </div>
 
-      {selectedEmployee ? (
+      {selectedEmployee && !ready ? (
         <div className="flex flex-wrap items-stretch gap-0 overflow-hidden rounded-lg border border-black/10 bg-white/70">
-          <div className="flex min-w-[7rem] flex-col gap-0.5 px-3.5 py-2.5">
+          <StaffPhotoThumbnail
+            fullName={selectedEmployee.fullName}
+            photoUrl={selectedEmployee.photoUrl}
+            size="fill"
+            className="ml-[6px] rounded-none border-0"
+            empNo={selectedEmployee.empNo}
+            department={
+              departments.find((d) => d.id === selectedEmployee.departmentId)
+                ?.name ?? null
+            }
+            position={selectedEmployee.positionName}
+            employeeStatus={selectedEmployee.employmentStatus}
+            workingStatus={resolvedWorkingStatus}
+            nationality={selectedEmployee.nationality}
+            dob={selectedEmployee.dob}
+            joiningDate={selectedEmployee.joiningDate}
+            terminationDate={selectedEmployee.terminationDate}
+          />
+          <div className="flex min-w-[7rem] flex-col items-center gap-0.5 px-3.5 py-2.5 text-center">
             <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
               Emp no
             </span>
@@ -1355,7 +1942,7 @@ export function AttendanceApprovalsTable({
             className="hidden w-px self-stretch bg-black/10 sm:block"
             aria-hidden
           />
-          <div className="flex min-w-[6rem] flex-col gap-0.5 px-3.5 py-2.5">
+          <div className="flex min-w-[6rem] flex-col items-center gap-0.5 px-3.5 py-2.5 text-center">
             <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
               Leave
             </span>
@@ -1373,46 +1960,56 @@ export function AttendanceApprovalsTable({
             className="hidden w-px self-stretch bg-black/10 sm:block"
             aria-hidden
           />
-          <div className="flex min-w-[10rem] flex-1 flex-col gap-0.5 px-3.5 py-2.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-              Work time
+          <div className="flex min-w-[8rem] flex-col items-center gap-0.5 px-3.5 py-2.5 text-center">
+            <span className="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-black/45">
+              Employment status
             </span>
-            <span className="text-sm font-medium tabular-nums text-[#3D421F]">
-              {workedTime ?? "—"}
-            </span>
+            <StatusBadge status={selectedEmployee.employmentStatus} />
           </div>
           <div
             className="hidden w-px self-stretch bg-black/10 sm:block"
             aria-hidden
           />
-          <div className="flex min-w-[8rem] flex-1 flex-col gap-0.5 px-3.5 py-2.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-              APL remaining
+          <div className="flex min-w-[8rem] flex-col items-center gap-0.5 px-3.5 py-2.5 text-center">
+            <span className="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-black/45">
+              Working status
             </span>
-            <span className="text-sm font-medium tabular-nums text-[#3D421F]">
-              {leaveLoading
-                ? "…"
-                : leaveSnapshot
-                  ? `${Math.round(leaveSnapshot.alBalance)} days`
-                  : "—"}
-            </span>
+            <WorkingStatusBadge status={resolvedWorkingStatus} />
           </div>
           <div
             className="hidden w-px self-stretch bg-black/10 sm:block"
             aria-hidden
           />
-          <div className="flex min-w-[8rem] flex-1 flex-col gap-0.5 px-3.5 py-2.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-              PH remaining
-            </span>
-            <span className="text-sm font-medium tabular-nums text-[#3D421F]">
-              {leaveLoading
-                ? "…"
-                : leaveSnapshot
-                  ? `${Math.round(leaveSnapshot.phBalance)} days`
-                  : "—"}
-            </span>
-          </div>
+          <TenureMetrics
+            employmentDuration={employmentDuration}
+            workTime={workTime}
+            workTimeLoading={leaveLoading}
+            className="min-w-[16rem] px-3.5 py-2.5"
+          />
+          <div
+            className="hidden w-px self-stretch bg-black/10 sm:block"
+            aria-hidden
+          />
+          <LeaveBalanceTriple
+            title="APL"
+            loading={leaveLoading}
+            eligible={liveLeave?.alEligible ?? null}
+            left={liveLeave?.alLeft ?? null}
+            taken={liveLeave?.alTaken ?? null}
+            className="min-w-[10rem] px-3.5 py-2.5"
+          />
+          <div
+            className="hidden w-px self-stretch bg-black/10 sm:block"
+            aria-hidden
+          />
+          <LeaveBalanceTriple
+            title="PH"
+            loading={leaveLoading}
+            eligible={liveLeave?.phEligible ?? null}
+            left={liveLeave?.phLeft ?? null}
+            taken={liveLeave?.phTaken ?? null}
+            className="min-w-[10rem] px-3.5 py-2.5"
+          />
         </div>
       ) : null}
 
@@ -1433,14 +2030,137 @@ export function AttendanceApprovalsTable({
       ) : (
         <div
           className={cn(
-            "w-full min-w-0 rounded-xl border border-black/10 bg-white/70",
+            "w-full min-w-0 space-y-3",
             loadingRange && "opacity-60",
           )}
           aria-busy={loadingRange}
         >
-          <table className="w-full table-fixed text-left text-sm">
-            <thead className="sticky top-0 z-10 border-b border-black/10 bg-white/95 text-xs uppercase tracking-wide text-black/45 backdrop-blur-sm">
-              <tr>
+          {selectedEmployee ? (
+            <div className="overflow-hidden rounded-xl border border-black/10 bg-white/70">
+              <table className="w-full table-fixed text-left text-sm">
+                <AttendanceTableColgroup />
+                <thead>
+                  <tr className="bg-white/70 text-center text-sm font-normal normal-case tracking-normal text-[#3D421F]">
+                  <th colSpan={3} className="p-0 font-normal">
+                    <div className="flex h-full min-w-0 items-stretch">
+                      <StaffPhotoThumbnail
+                        fullName={selectedEmployee.fullName}
+                        photoUrl={selectedEmployee.photoUrl}
+                        size="fill"
+                        className="ml-[6px] rounded-none border-0"
+                        empNo={selectedEmployee.empNo}
+                        department={
+                          departments.find(
+                            (d) => d.id === selectedEmployee.departmentId,
+                          )?.name ?? null
+                        }
+                        position={selectedEmployee.positionName}
+                        employeeStatus={selectedEmployee.employmentStatus}
+                        workingStatus={resolvedWorkingStatus}
+                        nationality={selectedEmployee.nationality}
+                        dob={selectedEmployee.dob}
+                        joiningDate={selectedEmployee.joiningDate}
+                        terminationDate={selectedEmployee.terminationDate}
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-3 py-2.5 text-center">
+                        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+                          Emp no
+                        </span>
+                        <StaffDirectoryLink
+                          staffId={selectedEmployee.id}
+                          empNo={selectedEmployee.empNo}
+                          title="Open staff directory details"
+                          className="w-fit text-sm font-medium tabular-nums"
+                        />
+                      </div>
+                      <div
+                        className="hidden w-px self-stretch bg-black/10 sm:block"
+                        aria-hidden
+                      />
+                      <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-3 py-2.5 text-center">
+                        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+                          Leave
+                        </span>
+                        <Link
+                          href={`/hr/attendance/leave/balances?staffId=${encodeURIComponent(selectedEmployee.id)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open leave management for this employee"
+                          className="w-fit text-sm font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 transition hover:underline"
+                        >
+                          View
+                        </Link>
+                      </div>
+                    </div>
+                  </th>
+                  <th
+                    colSpan={2}
+                    className="border-x border-black/10 px-3 py-2.5 font-normal align-top"
+                  >
+                    <div className="flex flex-col items-center gap-0.5 text-center">
+                      <span className="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-black/45">
+                        Employment status
+                      </span>
+                      <StatusBadge
+                        status={selectedEmployee.employmentStatus}
+                      />
+                    </div>
+                  </th>
+                  <th
+                    colSpan={1}
+                    className="border-x border-black/10 px-3 py-2.5 font-normal align-top"
+                  >
+                    <div className="flex flex-col items-center gap-0.5 text-center">
+                      <span className="whitespace-nowrap text-[11px] font-medium uppercase tracking-wide text-black/45">
+                        Working status
+                      </span>
+                      <WorkingStatusBadge status={resolvedWorkingStatus} />
+                    </div>
+                  </th>
+                  <th colSpan={3} className="p-0 font-normal align-top">
+                    <div className="flex h-full min-w-0 items-stretch">
+                      <TenureMetrics
+                        employmentDuration={employmentDuration}
+                        workTime={workTime}
+                        workTimeLoading={leaveLoading}
+                        className="min-w-[14rem] flex-[1.35] px-3 py-2.5"
+                      />
+                      <div
+                        className="hidden w-px shrink-0 self-stretch bg-black/10 sm:block"
+                        aria-hidden
+                      />
+                      <LeaveBalanceTriple
+                        title="APL"
+                        loading={leaveLoading}
+                        eligible={liveLeave?.alEligible ?? null}
+                        left={liveLeave?.alLeft ?? null}
+                        taken={liveLeave?.alTaken ?? null}
+                        className="px-3 py-2.5"
+                      />
+                      <div
+                        className="hidden w-px shrink-0 self-stretch bg-black/10 sm:block"
+                        aria-hidden
+                      />
+                      <LeaveBalanceTriple
+                        title="PH"
+                        loading={leaveLoading}
+                        eligible={liveLeave?.phEligible ?? null}
+                        left={liveLeave?.phLeft ?? null}
+                        taken={liveLeave?.phTaken ?? null}
+                        className="px-3 py-2.5"
+                      />
+                    </div>
+                  </th>
+                </tr>
+                </thead>
+              </table>
+            </div>
+          ) : null}
+          <div className="@container overflow-hidden rounded-xl border border-black/10 bg-white/70">
+            <table className="w-full table-fixed text-left text-sm">
+              <AttendanceTableColgroup />
+              <thead className="border-b border-black/10">
+              <tr className="sticky top-0 z-10 bg-white/95 text-xs uppercase tracking-wide text-black/45 backdrop-blur-sm">
                 <th className="w-[5.5rem] whitespace-nowrap px-3 py-2.5 font-medium">
                   Date
                 </th>
@@ -1456,14 +2176,37 @@ export function AttendanceApprovalsTable({
                 <th className="w-[5.5rem] whitespace-nowrap bg-black/[0.07] px-3 py-2.5 font-medium">
                   Clock out
                 </th>
-                <th className="w-[4rem] whitespace-nowrap px-3 py-2.5 font-medium">
+                <th className="w-[7rem] whitespace-nowrap px-3 py-2.5 font-medium">
                   Hours
                 </th>
                 <th className="w-[10rem] px-3 py-2.5 font-medium">
                   Issue
                 </th>
                 <th className="px-3 py-2.5 font-medium">
-                  Actions
+                  <span className="normal-case tracking-normal @min-[72rem]:hidden">
+                    Actions
+                  </span>
+                  <div className="hidden flex-wrap items-center gap-x-2 gap-y-1.5 normal-case tracking-normal @min-[72rem]:flex">
+                    {rosterActionGroups.map((group, groupIndex) => (
+                      <div
+                        key={group.id}
+                        className="flex items-center gap-1.5"
+                      >
+                        {groupIndex > 0 ? (
+                          <span
+                            className="mx-0.5 hidden h-4 w-px shrink-0 self-center bg-black/15 sm:block"
+                            aria-hidden
+                          />
+                        ) : null}
+                        <div className="w-max">
+                          <span className="block text-left">{group.label}</span>
+                          <ActionGroupWidthSizer
+                            codes={group.actions.map((action) => action.code)}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </th>
                 <th className="w-[3.25rem] whitespace-nowrap px-3 py-2.5 text-center font-medium">
                   <span className="sr-only">Select</span>
@@ -1537,6 +2280,12 @@ export function AttendanceApprovalsTable({
                   canEditRoster &&
                   Boolean(staffId) &&
                   (savedRosterLabel != null || draft === null);
+                const selectedAction = resolveSelectedRosterAction(
+                  row,
+                  draft,
+                  hasDraft,
+                  rosterActionGroups.flatMap((group) => group.actions),
+                );
                 return (
                   <tr
                     key={`${row.empNo}-${row.workDate}`}
@@ -1647,7 +2396,9 @@ export function AttendanceApprovalsTable({
                             ) : null}
                           </div>
                         ) : (
-                          rosterActionGroups.map((group, groupIndex) => (
+                          <>
+                            <div className="hidden flex-wrap items-center gap-x-2 gap-y-1.5 @min-[72rem]:flex">
+                          {rosterActionGroups.map((group, groupIndex) => (
                             <div
                               key={group.id}
                               className="flex flex-wrap items-center gap-1.5"
@@ -1739,7 +2490,24 @@ export function AttendanceApprovalsTable({
                                 })}
                               </div>
                             </div>
-                          ))
+                          ))}
+                            </div>
+                            <div className="min-w-0 @min-[72rem]:hidden">
+                              <RosterActionDropdown
+                                groups={rosterActionGroups}
+                                labelsByCode={labelsByCode}
+                                selectedAction={selectedAction}
+                                isPublicHoliday={isPublicHoliday}
+                                disabled={pending}
+                                onSelect={(code) => stageAction(row, code)}
+                                onClear={() => {
+                                  if (selectedAction) {
+                                    stageAction(row, selectedAction.code);
+                                  }
+                                }}
+                              />
+                            </div>
+                          </>
                         )}
                         {hasDraft ? (
                           <span
@@ -1793,7 +2561,84 @@ export function AttendanceApprovalsTable({
                 );
               })}
             </tbody>
+            {filtered.length > 0 ? (
+              <tfoot>
+                <tr className="border-t border-neutral-800 bg-neutral-700 text-sm text-white [&>td]:bg-neutral-700">
+                  <td className="whitespace-nowrap px-3 py-2.5 font-medium">
+                    Total
+                  </td>
+                  <td className="px-3 py-2.5 text-white/45">—</td>
+                  <td className="px-3 py-2.5 text-white/45">—</td>
+                  <td className="px-3 py-2.5 text-white/45">
+                    —
+                  </td>
+                  <td className="px-3 py-2.5 text-white/45">
+                    —
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2.5 font-medium tabular-nums">
+                    {formatHoursAsTime(rosterTotals.hours)}
+                  </td>
+                  <td className="px-3 py-2.5 text-white/45">—</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                      {rosterActionGroups.map((group, groupIndex) => (
+                        <div
+                          key={group.id}
+                          className="flex flex-wrap items-center gap-1.5"
+                        >
+                          {groupIndex > 0 ? (
+                            <span
+                              className="mx-0.5 hidden h-6 w-px shrink-0 self-center bg-black/15 sm:block"
+                              aria-hidden
+                            />
+                          ) : null}
+                          <div
+                            className="flex flex-wrap items-center gap-1.5"
+                            role="group"
+                            aria-label={`${group.label} totals`}
+                          >
+                            {group.actions.map((action) => {
+                              const count =
+                                rosterTotals.counts.get(action.code) ?? 0;
+                              const label = labelsByCode.get(action.rosterCode);
+                              return (
+                                <span
+                                  key={action.code}
+                                  title={`${action.code}: ${count}`}
+                                  className={cn(
+                                    ACTION_CHIP_SIZING,
+                                    "relative shrink-0",
+                                  )}
+                                  style={
+                                    label
+                                      ? scheduleDayLabelStyle(label)
+                                      : {
+                                          backgroundColor: "#f5f5f5",
+                                          color: "#404040",
+                                          borderColor: "#d4d4d4",
+                                        }
+                                  }
+                                >
+                                  <span className="invisible" aria-hidden>
+                                    {action.code}
+                                  </span>
+                                  <span className="absolute inset-0 flex items-center justify-center tabular-nums">
+                                    {count}
+                                  </span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5" />
+                </tr>
+              </tfoot>
+            ) : null}
           </table>
+          </div>
         </div>
       )}
     </div>

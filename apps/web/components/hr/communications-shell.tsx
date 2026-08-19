@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck } from "lucide-react";
+import { MailCheck } from "lucide-react";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
@@ -10,7 +10,7 @@ const TABS = [
   {
     href: "/hr/communications/acknowledgements",
     label: "Acknowledgements",
-    icon: BadgeCheck,
+    icon: MailCheck,
   },
 ] as const;
 

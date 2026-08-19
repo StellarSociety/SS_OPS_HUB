@@ -110,12 +110,12 @@ export default async function StaffDetailPage({
         Back to directory
       </Link>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <ModulePageTitle>{staff.full_name}</ModulePageTitle>
-          <p className="mt-1 font-mono text-sm text-black/50">{staff.emp_no}</p>
+      <div>
+        <ModulePageTitle>{staff.full_name}</ModulePageTitle>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <p className="font-mono text-sm text-black/50">{staff.emp_no}</p>
+          <StatusBadge status={staff.employment_status?.name} />
         </div>
-        <StatusBadge status={staff.employment_status?.name} />
       </div>
 
       <StaffDetailView

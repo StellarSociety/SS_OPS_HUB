@@ -5,7 +5,10 @@ import { writeAuditLog } from "@/lib/audit";
 import type { ActionAuthContext } from "@/lib/auth/action-context";
 import { loadStaffInsuranceHistory } from "@/lib/hr/insurance-store";
 import { canEditAssets, canEditStaff } from "@/lib/hr/permissions";
-import { loadStaffVisaHistory } from "@/lib/hr/visa-store";
+import {
+  loadStaffVisaHistory,
+  pickLatestStaffVisaRecord,
+} from "@/lib/hr/visa-store";
 import {
   credentialsFromSettings,
   ensureAccessToken,
@@ -43,6 +46,7 @@ export const staffWorkDriveDocKindSchema = z.enum([
   "ohc",
   "medical_insurance",
   "visa_noc",
+  "visa_cancelation",
   "training_certificates",
   "others",
 ]);
@@ -84,6 +88,16 @@ async function resolveExpiryFromLinkedRecord(
   fileSlotId: string | undefined,
 ): Promise<string | null> {
   const slot = String(fileSlotId ?? "").trim();
+
+  if (docKind === "visa_cancelation") {
+    const records = await loadStaffVisaHistory(supabase, venueId, staffId);
+    const match =
+      slot && slot !== "default"
+        ? records.find((record) => record.id === slot)
+        : pickLatestStaffVisaRecord(records);
+    return match?.cancelDate ?? match?.expiryDate ?? null;
+  }
+
   if (!slot || slot === "default") return null;
 
   if (docKind === "eresidence_card" || docKind === "visa_noc") {
@@ -219,7 +233,7 @@ export async function performStaffWorkDriveUpload(
       bytes: input.bytes,
       originalFileName: input.originalFileName,
       contentType: input.contentType || "application/octet-stream",
-      overrideNameExist: input.overrideNameExist === true,
+      overrideNameExist: input.overrideNameExist !== false,
     });
 
     try {

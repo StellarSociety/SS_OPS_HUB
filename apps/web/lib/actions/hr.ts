@@ -64,6 +64,7 @@ import {
   isWorkDateBeforeJoining,
   normalizeShiftTime,
   postTerminationBlockMessage,
+  rosterLabelKeepsShiftTimes,
   shiftSpansMidnight,
   type ScheduleDepartmentKey,
   type ScheduleWeekSection,
@@ -398,6 +399,32 @@ async function updateStaffInner(
     .eq("id", staffId);
 
   if (error) return { error: error.message };
+
+  const visaStatusChanged =
+    "visa_status" in updates &&
+    (updates.visa_status ?? null) !== (before.visa_status ?? null);
+  const visaExpiryChanged =
+    "visa_expiry" in updates &&
+    (updates.visa_expiry ?? null) !== (before.visa_expiry ?? null);
+  if (visaStatusChanged || visaExpiryChanged) {
+    const { syncLatestVisaRecordFromStaff } = await import(
+      "@/lib/hr/visa-store"
+    );
+    const synced = await syncLatestVisaRecordFromStaff(service, venue.id, staffId, {
+      visa_status:
+        "visa_status" in updates
+          ? ((updates.visa_status as string | null) ?? null)
+          : ((before.visa_status as string | null) ?? null),
+      visa_expiry:
+        "visa_expiry" in updates
+          ? ((updates.visa_expiry as string | null) ?? null)
+          : ((before.visa_expiry as string | null) ?? null),
+    });
+    if (!synced.ok) {
+      console.error("[hr] sync visa history from staff:", synced.error);
+    }
+    revalidatePath("/hr/assets/visa", "layout");
+  }
 
   const nextStatusId =
     (typeof updates.employment_status_id === "string"
@@ -751,6 +778,25 @@ async function createStaffInner(formData: FormData) {
     .single();
 
   if (error) return { error: error.message };
+
+  if (payload.visa_status || payload.visa_expiry) {
+    const { syncLatestVisaRecordFromStaff } = await import(
+      "@/lib/hr/visa-store"
+    );
+    const synced = await syncLatestVisaRecordFromStaff(
+      service,
+      venue.id,
+      created.id as string,
+      {
+        visa_status: payload.visa_status,
+        visa_expiry: payload.visa_expiry,
+      },
+    );
+    if (!synced.ok) {
+      console.error("[hr] sync visa history from staff create:", synced.error);
+    }
+    revalidatePath("/hr/assets/visa", "layout");
+  }
 
   await writeAuditLog({
     actor_id: user.id,
@@ -1535,6 +1581,37 @@ async function saveScheduleDayChangesInner(params: {
   const toClear = changes.filter((change) => change.labelCode === null);
   const toUpsert = changes.filter((change) => change.labelCode !== null);
 
+  // ABS always keeps the planned window. SHIFT keeps it when the caller
+  // omitted shiftTemplateId (Validation) rather than sending an explicit null
+  // (calendar clear-times).
+  const needsExistingTemplates = toUpsert.some((change) => {
+    const code = (change.labelCode ?? "").trim().toUpperCase();
+    if (code === "ABS") return true;
+    if (code === "SHIFT" && change.shiftTemplateId === undefined) return true;
+    return false;
+  });
+  const existingTemplateByKey = new Map<string, string | null>();
+  if (needsExistingTemplates) {
+    const upsertStaffIds = [...new Set(toUpsert.map((c) => c.staffId))];
+    const upsertDates = [...new Set(toUpsert.map((c) => c.workDate))];
+    const { data: existingDays, error: existingError } = await service
+      .from("hr_schedule_days")
+      .select("staff_id, work_date, shift_template_id")
+      .eq("venue_id", venue.id)
+      .in("staff_id", upsertStaffIds)
+      .in("work_date", upsertDates);
+    if (existingError) {
+      console.error("[hr] existing schedule lookup:", existingError.message);
+    } else {
+      for (const row of existingDays ?? []) {
+        existingTemplateByKey.set(
+          `${row.staff_id as string}::${String(row.work_date).slice(0, 10)}`,
+          (row.shift_template_id as string | null) ?? null,
+        );
+      }
+    }
+  }
+
   // Batch clears per staff (one delete per person, not per cell).
   if (toClear.length > 0) {
     const datesByStaff = new Map<string, string[]>();
@@ -1624,9 +1701,23 @@ async function saveScheduleDayChangesInner(params: {
         return { error: "One or more staff members are missing Employee ID." };
       }
 
-      let shiftTemplateId =
-        code === "SHIFT" ? (change.shiftTemplateId ?? null) : null;
-      if (shiftTemplateId && !knownTemplateIds.has(shiftTemplateId)) {
+      const existingTemplate =
+        existingTemplateByKey.get(`${change.staffId}::${change.workDate}`) ??
+        null;
+      let shiftTemplateId: string | null = null;
+      if (code === "SHIFT") {
+        shiftTemplateId =
+          change.shiftTemplateId !== undefined
+            ? (change.shiftTemplateId ?? null)
+            : existingTemplate;
+      } else if (rosterLabelKeepsShiftTimes(code)) {
+        // ABS: keep the planned work window even when the client sends null.
+        shiftTemplateId = change.shiftTemplateId ?? existingTemplate;
+      }
+      if (
+        change.shiftTemplateId &&
+        !knownTemplateIds.has(change.shiftTemplateId)
+      ) {
         return { error: "Unknown shift template." };
       }
 

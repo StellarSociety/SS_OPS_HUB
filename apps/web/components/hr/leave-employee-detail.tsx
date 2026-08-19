@@ -15,10 +15,14 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { AnnualLeaveCalculationCard } from "@/components/hr/annual-leave-calculation-card";
 import { LeaveActivityDialog } from "@/components/hr/leave-activity-dialog";
 import { LeaveBalanceRing } from "@/components/hr/leave-balance-ring";
 import { LeaveCalendarDialog } from "@/components/hr/leave-calendar-dialog";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
+import { StatusBadge } from "@/components/hr/status-badge";
+import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -35,7 +39,9 @@ import {
   availableBalance,
   canCarryForwardLeaveCode,
   findLeaveType,
+  formatLeaveDays,
   isUsageOnlyLeaveCode,
+  roundDays,
   leaveCalendarStatusLabel,
   leaveTypeDisplayName,
   scheduleLeaveDisplayName,
@@ -43,6 +49,7 @@ import {
   type LeaveCalendarStatus,
   type ScheduledLeaveLabelStyle,
   type ScheduledLeaveRange,
+  type AnnualLeaveCalculationBreakdown,
 } from "@/lib/hr/leave";
 import type {
   HrLeaveBalance,
@@ -140,6 +147,7 @@ type LeaveEmployeeDetailProps = {
   adjustments: HrLeaveBalanceAdjustment[];
   scheduledLeaves: ScheduledLeaveRange[];
   scheduleLabels: ScheduledLeaveLabelStyle[];
+  annualLeaveCalculation?: AnnualLeaveCalculationBreakdown | null;
   canManage: boolean;
   onBack: () => void;
 };
@@ -221,6 +229,7 @@ function scheduledRangeToEvent(
 
 function ringMetrics(
   bal: HrLeaveBalance | undefined,
+  code?: string,
 ): { available: number; used: number; total: number } {
   const available = bal ? availableBalance(bal) : 0;
   const used = bal?.used ?? 0;
@@ -229,6 +238,13 @@ function ringMetrics(
   const entitled = bal?.entitled ?? 0;
   // Prefer the working pool; fall back to statutory entitled when pool is empty.
   const total = pool > 0 ? pool : Math.max(entitled, available + used);
+  if (code === "AL") {
+    return {
+      available: roundDays(available),
+      used: roundDays(used),
+      total: roundDays(total),
+    };
+  }
   return { available, used, total };
 }
 
@@ -245,7 +261,7 @@ function renderRingSlots(
       const bal = byCode.get(code);
       const type = findLeaveType(policy, code);
       if (!bal && !type?.active) return null;
-      const { available, used, total } = ringMetrics(bal);
+      const { available, used, total } = ringMetrics(bal, code);
       return (
         <LeaveBalanceRing
           key={code}
@@ -262,7 +278,7 @@ function renderRingSlots(
     const stageRows = group.stages.map((code) => {
       const bal = byCode.get(code);
       const type = findLeaveType(policy, code);
-      const metrics = ringMetrics(bal);
+      const metrics = ringMetrics(bal, code);
       return { code, bal, type, ...metrics };
     });
     const anyActive = stageRows.some(
@@ -284,7 +300,7 @@ function renderRingSlots(
         used={used}
         total={total > 0 ? total : undefined}
         expanded={isOpen}
-        hint="Click for stages"
+        hint="View pay stages"
         onClick={() => onOpenGroup(group.id)}
       />
     );
@@ -299,6 +315,7 @@ export function LeaveEmployeeDetail({
   adjustments,
   scheduledLeaves,
   scheduleLabels,
+  annualLeaveCalculation = null,
   canManage,
   onBack,
 }: LeaveEmployeeDetailProps) {
@@ -315,6 +332,7 @@ export function LeaveEmployeeDetail({
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [showOtherLeave, setShowOtherLeave] = useState(false);
   const [showOtherAllowances, setShowOtherAllowances] = useState(false);
+  const [showManualAdjustment, setShowManualAdjustment] = useState(false);
   const [scheduleActionPending, startScheduleAction] = useTransition();
   const [editingLeave, setEditingLeave] = useState<LeaveCalendarEvent | null>(
     null,
@@ -439,7 +457,7 @@ export function LeaveEmployeeDetail({
     ? popupGroup.stages.map((code) => {
         const bal = byCode.get(code);
         const type = findLeaveType(policy, code);
-        const metrics = ringMetrics(bal);
+        const metrics = ringMetrics(bal, code);
         return { code, type, ...metrics };
       })
     : [];
@@ -545,15 +563,30 @@ export function LeaveEmployeeDetail({
         Back to all employees
       </button>
 
-      <div className="flex items-stretch gap-4 rounded-xl border border-black/10 bg-white p-4 shadow-sm sm:gap-5 sm:p-5">
+      <div className="flex items-start gap-4 rounded-xl border border-black/10 bg-white p-4 shadow-sm sm:gap-5 sm:p-5">
+        <div className="shrink-0">
+          <StaffPhotoThumbnail
+            fullName={staff.full_name}
+            photoUrl={staff.photo_url}
+            className="h-20 w-16 rounded-lg border-0 sm:h-24 sm:w-20"
+            size="fill"
+            empNo={staff.emp_no}
+            department={staff.department?.name}
+            position={staff.position?.name}
+            employeeStatus={staff.employment_status?.name}
+            workingStatus={staff.working_status?.name}
+            nationality={staff.nationality?.name}
+            dob={staff.dob}
+            joiningDate={staff.joining_date}
+            terminationDate={staff.termination_date}
+          />
+        </div>
         <div className="min-w-0 flex-1">
           <h2 className="font-serif text-2xl text-[#3D421F]">
             {staff.full_name}
           </h2>
           <p className="mt-1.5 text-sm leading-relaxed text-black/55">
-            <span className="font-mono text-xs text-black/45">
-              {staff.emp_no}
-            </span>
+            <StaffDirectoryLink staffId={staff.id} empNo={staff.emp_no} />
             {staff.department?.name ? (
               <>
                 <span className="mx-1.5 text-black/25">·</span>
@@ -581,34 +614,60 @@ export function LeaveEmployeeDetail({
             <span className="mx-1.5 text-black/25">·</span>
             Year {year}
           </p>
-        </div>
-        <div className="shrink-0 self-center">
-          <StaffPhotoThumbnail
-            fullName={staff.full_name}
-            photoUrl={staff.photo_url}
-            className="h-20 w-16 rounded-lg sm:h-24 sm:w-20"
-            size="fill"
-            empNo={staff.emp_no}
-            department={staff.department?.name}
-            position={staff.position?.name}
-            employeeStatus={staff.employment_status?.name}
-            workingStatus={staff.working_status?.name}
-            nationality={staff.nationality?.name}
-            dob={staff.dob}
-            joiningDate={staff.joining_date}
-            terminationDate={staff.termination_date}
-          />
+          {staff.employment_status?.name || staff.working_status?.name ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {staff.employment_status?.name ? (
+                <StatusBadge status={staff.employment_status.name} />
+              ) : null}
+              {staff.working_status?.name ? (
+                <WorkingStatusBadge status={staff.working_status.name} />
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
+      {annualLeaveCalculation ? (
+        <AnnualLeaveCalculationCard calculation={annualLeaveCalculation} />
+      ) : null}
+
       <section>
-        <h3 className="font-serif text-lg text-[#3D421F]">Current balances</h3>
-        <p className="mt-1 text-sm text-black/55">
-          Thick ring = entitlement. Amber = days taken, green = days left.
-          Click sick or maternity for pay stages.
-        </p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="font-serif text-lg text-[#3D421F]">
+              Current balances
+            </h3>
+            <p className="mt-1 text-sm text-black/55">
+              Remaining days in olive, days already taken in dark. Click sick or
+              maternity for pay stages.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] font-semibold uppercase tracking-wider">
+            <span className="inline-flex items-center gap-1.5 text-black/45">
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-[var(--venue-secondary,#F0F3DD)] ring-1 ring-black/15"
+                aria-hidden
+              />
+              Eligible
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[var(--venue-primary,#818a40)]">
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-[var(--venue-primary,#818a40)]"
+                aria-hidden
+              />
+              Left
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[#3D421F]">
+              <span
+                className="inline-block h-2 w-2 rounded-full bg-[#3D421F]"
+                aria-hidden
+              />
+              Taken
+            </span>
+          </div>
+        </div>
         <div className="mt-4 space-y-6">
-          <div className="flex flex-wrap justify-center gap-6">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {renderRingSlots(
               PRIMARY_RING_SLOTS,
               byCode,
@@ -640,7 +699,7 @@ export function LeaveEmployeeDetail({
               </button>
             </div>
             {showOtherLeave ? (
-              <div className="flex flex-wrap justify-center gap-6 border-t border-black/10 pt-6">
+              <div className="grid grid-cols-1 gap-3 border-t border-black/10 pt-6 sm:grid-cols-2 xl:grid-cols-4">
                 {renderRingSlots(
                   SECONDARY_RING_SLOTS,
                   byCode,
@@ -696,7 +755,7 @@ export function LeaveEmployeeDetail({
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
+              <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {popupStages.map((row) => (
                   <LeaveBalanceRing
                     key={row.code}
@@ -755,13 +814,13 @@ export function LeaveEmployeeDetail({
                 <th className="px-3 py-2 font-medium">Type</th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Statutory total for this leave year from adjusted service days (calendar days minus approved UPL, ÷ 30). Under 1 year: day-based mid-band (termination always pro-rata). From 1 year: full annual days (e.g. 30)."
+                  title="Statutory AL for this leave year from qualifying service (calendar days minus unpaid leave, ÷ 30). ≤6 months: 0. >6 and <12 months: months × 2. ≥12 months: 30 per completed year + pro-rata incomplete year."
                 >
                   Entitled
                 </th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Amount earned so far toward the entitled total. Under 1 adjusted year this matches Entitled; after 1 year it grows month by month in the leave year (e.g. 2.5/month toward 30)."
+                  title="Amount earned so far toward this year’s statutory entitlement. Matches Entitled: unpaid leave reduces qualifying service first, then the band is applied."
                 >
                   Accrued
                 </th>
@@ -880,18 +939,31 @@ export function LeaveEmployeeDetail({
       </section>
 
       {canManage ? (
-        <Card className="p-5">
+        <section>
+          <button
+            type="button"
+            aria-expanded={showManualAdjustment}
+            onClick={() => setShowManualAdjustment((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40"
+          >
+            <h3 className="font-serif text-lg text-[#3D421F]">
+              Manual adjustment
+            </h3>
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 shrink-0 text-black/45 transition-transform",
+                showManualAdjustment && "rotate-180",
+              )}
+            />
+          </button>
+          {showManualAdjustment ? (
+            <Card className="mt-3 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="font-serif text-lg text-[#3D421F]">
-                Manual adjustment
-              </h3>
-              <p className="mt-1 text-sm text-black/55">
-                Adjust the mid-year correction counter, or override carried-over
-                days from last year (AL and Public Holiday only). A reason is
-                required and kept in the audit history.
-              </p>
-            </div>
+            <p className="max-w-2xl text-sm text-black/55">
+              Adjust the mid-year correction counter, or override carried-over
+              days from last year (AL and Public Holiday only). A reason is
+              required and kept in the audit history.
+            </p>
             {adjustBalance && adjustAvailable != null ? (
               <div className="rounded-lg border border-black/10 bg-white px-3 py-2 text-right">
                 <p className="text-[11px] uppercase tracking-wide text-black/45">
@@ -1221,7 +1293,9 @@ export function LeaveEmployeeDetail({
               </ul>
             </div>
           ) : null}
-        </Card>
+            </Card>
+          ) : null}
+        </section>
       ) : null}
 
       <section>
@@ -1459,7 +1533,7 @@ export function LeaveEmployeeDetail({
 }
 
 function fmt(n: number): string {
-  return String(Math.round(Number(n) || 0));
+  return formatLeaveDays(n);
 }
 
 function formatAdjustmentWhen(iso: string): string {

@@ -191,20 +191,24 @@ export type InsuranceExpenseMonth = {
 
 /** WorkDrive staff docs that can be attached to provider request emails. */
 export type HrEmailStaffDocumentKey =
+  | "profile_photo"
   | "passport"
   | "emirates_id_front"
   | "emirates_id_back"
-  | "eresidence_card"
-  | "medical_insurance"
-  | "ohc"
   | "bank"
   | "offer_letter"
   | "contract"
   | "addendums"
+  | "eresidence_card"
+  | "ohc"
+  | "medical_insurance"
   | "training_pic"
   | "training_basic_food_safety"
   | "training_fire_safety"
-  | "training_first_aid";
+  | "training_first_aid"
+  | "visa_noc"
+  | "visa_cancelation"
+  | "others";
 
 export type HrInsuranceRequestEmailSettings = {
   enabled: boolean;
@@ -365,6 +369,20 @@ export function normalizeVisaStatusLabel(
   return LEGACY_VISA_STATUS_MAP[trimmed] ?? trimmed;
 }
 
+/**
+ * Directory `staff.visa_status` is the canonical label shown across HR.
+ * The visa-history record is a fallback when the staff column is empty.
+ */
+export function resolveDirectoryVisaStatus(
+  staffStatus: string | null | undefined,
+  recordStatus: string | null | undefined,
+): string | null {
+  return (
+    normalizeVisaStatusLabel(staffStatus) ||
+    normalizeVisaStatusLabel(recordStatus)
+  );
+}
+
 export type VisaComplianceStatus =
   | "missing"
   | "valid"
@@ -474,6 +492,8 @@ export type VisaEmployeeRow = {
   providerEmail: string | null;
   hasNocDocument: boolean;
   hasResidenceDocument: boolean;
+  /** True when a WorkDrive visa cancelation letter is on file. */
+  hasCancelationDocument: boolean;
   /** Latest visa reference id — used to link quick uploads to the current entry. */
   latestRecordId: string | null;
 };
@@ -1260,11 +1280,10 @@ export type HrLeaveAnnualPolicy = {
   /** Monthly accrual after 1 year (typically annualDaysAfterYear / 12). */
   monthlyAccrualAfterYear: number;
   /**
-   * How partial months count toward AL before 1 year of adjusted service
-   * (calendar days minus approved unpaid leave, measured in 30-day months).
-   * - full_months: floor(adjustedDays / 30) * daysPerMonthBeforeYear
-   * - pro_rata: adjustedDays / 30 * daysPerMonthBeforeYear (roundDays)
-   * Employees with a termination date always use pro_rata (capped at that date).
+   * Historical setting. Statutory AL always uses exact 30-day months
+   * (qualifyingDays / 30 × rate) without flooring months first, so the
+   * entitlement never falls below the UAE minimum. Kept so existing venue
+   * policy JSON continues to load.
    */
   partialMonthMethod: HrLeavePartialMonthMethod;
   /** Entitlement counted in calendar days (not only working days). */
@@ -1740,6 +1759,7 @@ export type HrWorkDriveDocKind =
   | "medical_insurance"
   | "training_certificates"
   | "visa_noc"
+  | "visa_cancelation"
   | "others";
 
 /**
@@ -1880,6 +1900,13 @@ export const DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS: HrWorkDriveDocSubfolder[] = [
     label: "VisaNOC",
     active: true,
     fileSlots: [defaultDocFileSlot("VisaNOC")],
+  },
+  {
+    kind: "visa_cancelation",
+    folderName: "Visa Cancelation",
+    label: "VisaCancelation",
+    active: true,
+    fileSlots: [defaultDocFileSlot("VisaCancelation")],
   },
   {
     kind: "training_certificates",

@@ -26,11 +26,12 @@ import {
   compareEmploymentStatusNames,
   EMPLOYMENT_STATUS_NAMES,
 } from "@/lib/hr/employment-status";
-import type {
-  EmployeeLeaveSummary,
-  LeaveUsageDayEntry,
-  LeaveUsageKind,
-  PhReplacementCreditEntry,
+import {
+  formatLeaveDays,
+  type EmployeeLeaveSummary,
+  type LeaveUsageDayEntry,
+  type LeaveUsageKind,
+  type PhReplacementCreditEntry,
 } from "@/lib/hr/leave";
 import { cn } from "@/lib/utils";
 
@@ -1176,5 +1177,5 @@ function UsageLink({
 }
 
 function fmt(n: number): string {
-  return String(Math.round(Number(n) || 0));
+  return formatLeaveDays(n);
 }

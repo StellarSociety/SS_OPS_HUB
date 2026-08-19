@@ -389,9 +389,10 @@ function StaffPhotoLightbox({
 
       <motion.div
         className={cn(
-          "pointer-events-none fixed z-[301] overflow-hidden rounded-2xl border border-white/10 px-4 py-3 shadow-xl backdrop-blur-sm",
+          "pointer-events-auto fixed z-[301] overflow-hidden rounded-2xl border border-white/10 px-4 py-3 shadow-xl backdrop-blur-sm",
           LIGHTBOX_DETAILS_BG,
         )}
+        onClick={(event) => event.stopPropagation()}
         initial={{
           opacity: 0,
           top: origin.top + origin.height + 4,

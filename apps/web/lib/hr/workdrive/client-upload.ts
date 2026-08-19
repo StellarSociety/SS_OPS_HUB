@@ -59,9 +59,12 @@ export function uploadStaffDocumentViaApi(input: {
           payload &&
           typeof payload === "object" &&
           "error" in payload &&
-          typeof (payload as { error: unknown }).error === "string"
+          typeof (payload as { error: unknown }).error === "string" &&
+          (payload as { error: string }).error.trim()
             ? (payload as { error: string }).error
-            : `Upload failed (${xhr.status}).`;
+            : xhr.status === 413
+              ? "This file is too large to upload. Compress it or use a smaller PDF/photo."
+              : `Upload failed (${xhr.status}).`;
         resolve({ ok: false, error });
         return;
       }

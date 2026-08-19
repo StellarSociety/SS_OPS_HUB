@@ -3,11 +3,19 @@
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import {
   availableBalance,
+  buildAnnualLeaveCalculation,
+  countApprovedUnpaidLeaveDays,
   currentLeaveYear,
+  endOfLeaveYear,
   groupScheduledLeaveRanges,
+  isoDateOnly,
   isScheduleLeaveLabel,
+  mergeLeavePolicy,
   normalizeScheduleLeaveCode,
   overlayBalanceUsageFromSchedule,
+  resolveAnnualLeaveEvalDate,
+  seedEntitlementForType,
+  type AnnualLeaveCalculationBreakdown,
   type ScheduledLeaveLabelStyle,
   type ScheduledLeaveRange,
 } from "@/lib/hr/leave";
@@ -32,10 +40,11 @@ import {
   withFallbackScheduleLabelIds,
   type ScheduleDayLabel,
 } from "@/lib/hr/schedules";
-import { listScheduleDayLabels, listStaffScheduleDays } from "@/lib/hr/store";
+import { getHrVenueSetting, listScheduleDayLabels, listStaffScheduleDays } from "@/lib/hr/store";
 import {
   DEFAULT_HR_LEAVE_POLICY_SETTINGS,
   HR_MODULE_KEY,
+  HR_SETTINGS_KEYS,
   type HrLeaveBalance,
 } from "@/lib/hr/types";
 import { createClient } from "@/lib/supabase/server";
@@ -421,6 +430,77 @@ export async function getOffboardingProcess(processId: string): Promise<{
   };
 }
 
+export type StaffEmploymentPathLifecycle = {
+  visaCancelDate: string | null;
+  offboarding: {
+    kind: OffboardingTerminationKind;
+    notificationDate: string | null;
+    lastWorkingDay: string | null;
+  } | null;
+};
+
+/** Resignation / termination / visa cancelation dates for the employment path. */
+export async function getStaffEmploymentPathLifecycle(
+  staffId: string,
+): Promise<
+  | { ok: true; lifecycle: StaffEmploymentPathLifecycle }
+  | { ok: false; error: string }
+> {
+  const ctx = await getActionAuthContext();
+  if ("error" in ctx) return { ok: false, error: ctx.error };
+  if (!canViewStaff(ctx.permissions, ctx.venue.id)) {
+    return { ok: false, error: "You do not have permission to view this path." };
+  }
+
+  const id = String(staffId ?? "").trim();
+  if (!id) return { ok: false, error: "Missing staff id." };
+
+  const service = createServiceClient();
+  const { loadStaffVisaHistory } = await import("@/lib/hr/visa-store");
+
+  const [{ data, error }, history] = await Promise.all([
+    ctx.supabase
+      .from("hr_offboarding_processes")
+      .select(
+        "termination_kind, notification_date, termination_date, status, started_at, archived_at",
+      )
+      .eq("venue_id", ctx.venue.id)
+      .eq("staff_id", id)
+      .neq("status", "cancelled")
+      .order("started_at", { ascending: false })
+      .limit(8),
+    loadStaffVisaHistory(service, ctx.venue.id, id),
+  ]);
+
+  if (error) return { ok: false, error: error.message };
+
+  const rows = (data ?? []) as Array<{
+    termination_kind: string;
+    notification_date: string | null;
+    termination_date: string | null;
+    archived_at: string | null;
+  }>;
+  const preferred =
+    rows.find((row) => !row.archived_at) ?? rows[0] ?? null;
+
+  const visaCancelDate =
+    history.find((row) => row.cancelDate)?.cancelDate ?? null;
+
+  return {
+    ok: true,
+    lifecycle: {
+      visaCancelDate,
+      offboarding: preferred
+        ? {
+            kind: parseTerminationKind(preferred.termination_kind),
+            notificationDate: asDateOnlyOrNull(preferred.notification_date),
+            lastWorkingDay: asDateOnlyOrNull(preferred.termination_date),
+          }
+        : null,
+    },
+  };
+}
+
 export async function upsertOffboardingProcessAction(
   process: OffboardingProcess,
 ): Promise<{ error?: string; process?: OffboardingProcess }> {
@@ -726,8 +806,13 @@ export async function getOffboardingLeaveSnapshot(input: {
   alScheduled: number;
   phAvail: number;
   phUsed: number;
+  phScheduled: number;
+  /** Unique UPL + ABS roster days from joining through the eval/termination date. */
+  unpaidLeaveDays: number;
+  days: { workDate: string; labelCode: string }[];
   scheduledLeaves: ScheduledLeaveRange[];
   scheduleLabels: ScheduledLeaveLabelStyle[];
+  annualLeaveCalculation: AnnualLeaveCalculationBreakdown | null;
 }> {
   const year = input.leaveYear ?? currentLeaveYear();
   const empty = {
@@ -739,8 +824,12 @@ export async function getOffboardingLeaveSnapshot(input: {
     alScheduled: 0,
     phAvail: 0,
     phUsed: 0,
+    phScheduled: 0,
+    unpaidLeaveDays: 0,
+    days: [] as { workDate: string; labelCode: string }[],
     scheduledLeaves: [] as ScheduledLeaveRange[],
     scheduleLabels: [] as ScheduledLeaveLabelStyle[],
+    annualLeaveCalculation: null as AnnualLeaveCalculationBreakdown | null,
   };
 
   const supabase = await createClient();
@@ -780,12 +869,11 @@ export async function getOffboardingLeaveSnapshot(input: {
         staffIds: [input.staffId],
         fromDate,
         toDate,
-        labelCodes: ["AL", "LP", "PH-REPL", "PHRL", "UPL", "SL", "ABS"],
       }),
       listScheduleDayLabels(supabase),
       supabase
         .from("staff")
-        .select("termination_date")
+        .select("joining_date, termination_date")
         .eq("id", input.staffId)
         .eq("home_venue_id", venue.id)
         .maybeSingle(),
@@ -795,9 +883,64 @@ export async function getOffboardingLeaveSnapshot(input: {
     return { ...empty, error: balancesResult.error.message };
   }
 
+  const joiningDate = staffResult.data?.joining_date
+    ? String(staffResult.data.joining_date).slice(0, 10)
+    : null;
   const terminationDate = staffResult.data?.termination_date
     ? String(staffResult.data.termination_date).slice(0, 10)
     : null;
+  const evalDate = resolveAnnualLeaveEvalDate(
+    year,
+    new Date(),
+    terminationDate,
+  );
+  const evalIso = isoDateOnly(evalDate);
+
+  const storedPolicy = await getHrVenueSetting(
+    supabase,
+    venue.id,
+    HR_SETTINGS_KEYS.leavePolicy,
+    {},
+  );
+  const policy = mergeLeavePolicy(storedPolicy);
+
+  let unpaidLeaveDates: string[] = [];
+  let absenceDates: string[] = [];
+  if (joiningDate && /^\d{4}-\d{2}-\d{2}$/.test(joiningDate)) {
+    const unpaidScheduleDays = await listStaffScheduleDays(service, venue.id, {
+      staffIds: [input.staffId],
+      fromDate: joiningDate,
+      toDate: evalIso,
+      labelCodes: ["UPL", "ABS"],
+    });
+    for (const day of unpaidScheduleDays) {
+      const date = String(day.work_date).slice(0, 10);
+      const code = String(day.label_code).trim().toUpperCase();
+      if (code === "UPL") unpaidLeaveDates.push(date);
+      if (code === "ABS") absenceDates.push(date);
+    }
+  }
+  const approvedUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: evalIso,
+    unpaidLeaveDates,
+  });
+  const absenceDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: evalIso,
+    unpaidLeaveDates: absenceDates,
+  });
+  const priorPeriodUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: isoDateOnly(endOfLeaveYear(year - 1)),
+    unpaidLeaveDates,
+  });
+  const priorPeriodAbsenceDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: isoDateOnly(endOfLeaveYear(year - 1)),
+    unpaidLeaveDates: absenceDates,
+  });
+  const unpaidLeaveDays = approvedUnpaidLeaveDays;
 
   const employmentScheduleDays = scheduleDays.filter((d) => {
     const date = String(d.work_date).slice(0, 10);
@@ -812,14 +955,26 @@ export async function getOffboardingLeaveSnapshot(input: {
     work_date: String(d.work_date).slice(0, 10),
   }));
 
-  const balances = (balancesResult.data ?? []).map((r) =>
-    normalizeBalance(r as Record<string, unknown>),
-  );
+  const alSeed = seedEntitlementForType("AL", joiningDate, year, policy, {
+    terminationDate,
+    approvedUnpaidLeaveDays,
+    absenceDays,
+    priorPeriodUnpaidLeaveDays,
+    priorPeriodAbsenceDays,
+  });
+
+  const balances = (balancesResult.data ?? []).map((r) => {
+    const bal = normalizeBalance(r as Record<string, unknown>);
+    if (bal.leave_type_code === "AL") {
+      return { ...bal, entitled: alSeed.entitled, accrued: alSeed.accrued };
+    }
+    return bal;
+  });
 
   const overlaid = overlayBalanceUsageFromSchedule({
     balances,
     scheduleDays: employmentScheduleRefs,
-    policy: DEFAULT_HR_LEAVE_POLICY_SETTINGS,
+    policy,
     leaveYear: year,
     staffId: input.staffId,
     venueId: venue.id,
@@ -858,6 +1013,23 @@ export async function getOffboardingLeaveSnapshot(input: {
     approvalStatus: "scheduled" as const,
   }));
 
+  const annualLeaveCalculation = buildAnnualLeaveCalculation({
+    joiningDate,
+    leaveYear: year,
+    annual: policy.annual,
+    terminationDate,
+    approvedUnpaidLeaveDays,
+    absenceDays,
+    priorPeriodUnpaidLeaveDays,
+    priorPeriodAbsenceDays,
+    annualLeaveTaken: al?.used ?? 0,
+    previousCarryForward: al?.carried_forward ?? 0,
+    adjusted: al?.adjusted ?? 0,
+    scheduled: al?.scheduled ?? 0,
+    pending: al?.pending ?? 0,
+    expired: al?.expired ?? 0,
+  });
+
   return {
     year,
     alBalance: al ? availableBalance(al) : 0,
@@ -867,8 +1039,15 @@ export async function getOffboardingLeaveSnapshot(input: {
     alScheduled: al?.scheduled ?? 0,
     phAvail: workingPool(ph),
     phUsed: ph?.used ?? 0,
+    phScheduled: ph?.scheduled ?? 0,
+    unpaidLeaveDays,
+    days: employmentScheduleDays.map((d) => ({
+      workDate: String(d.work_date).slice(0, 10),
+      labelCode: String(d.label_code),
+    })),
     scheduledLeaves,
     scheduleLabels,
+    annualLeaveCalculation,
   };
 }
 

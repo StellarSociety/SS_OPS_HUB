@@ -98,6 +98,7 @@ function CertDocsSection({
   onSlotChange,
   onUpload,
   onDeleted,
+  onRenamed,
 }: {
   cell: StaffCertificationCell;
   label: string;
@@ -114,6 +115,10 @@ function CertDocsSection({
   onSlotChange: (next: SlotState) => void;
   onUpload: () => void;
   onDeleted: (documentId: string) => void;
+  onRenamed: (
+    documentId: string,
+    next: { fileName: string; path: string | null },
+  ) => void;
 }) {
   const timing = deriveCertTiming(
     certifiedAt,
@@ -266,6 +271,7 @@ function CertDocsSection({
             readOnly={!canManage}
             className="mt-0"
             onDeleted={onDeleted}
+            onRenamed={onRenamed}
           />
           {!docsLoading && docs.length === 0 ? (
             <p className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-4 text-center text-[11px] text-black/40">
@@ -614,6 +620,18 @@ export function CertificationEmployeeDocumentsDialog({
                 setDocsByKind((prev) => ({
                   ohc: prev.ohc.filter((d) => d.id !== documentId),
                   training: prev.training.filter((d) => d.id !== documentId),
+                }));
+              }}
+              onRenamed={(documentId, next) => {
+                const patch = (rows: StaffWorkDriveDocumentListItem[]) =>
+                  rows.map((row) =>
+                    row.id === documentId
+                      ? { ...row, fileName: next.fileName, path: next.path }
+                      : row,
+                  );
+                setDocsByKind((prev) => ({
+                  ohc: patch(prev.ohc),
+                  training: patch(prev.training),
                 }));
               }}
             />

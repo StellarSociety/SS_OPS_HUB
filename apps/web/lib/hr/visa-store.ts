@@ -253,7 +253,7 @@ export function buildVisaEmployeeRow(
   staff: StaffWithLookups,
   providers: VisaProProvider[],
   latest: StaffVisaRecord | null,
-  docs: { hasResidence: boolean; hasNoc: boolean },
+  docs: { hasResidence: boolean; hasNoc: boolean; hasCancelation?: boolean },
   opts?: {
     /** Map of penalty id → remaining payroll deduction amount (null = not queued). */
     employeePenaltyRemainingById?: Map<string, number | null>;
@@ -271,8 +271,8 @@ export function buildVisaEmployeeRow(
     isoDate(latest?.expiryDate) ?? isoDate(staff.visa_expiry);
   const cancelDate = isoDate(latest?.cancelDate);
   const visaStatus =
-    normalizeVisaStatusLabel(latest?.visaStatus) ||
-    normalizeVisaStatusLabel(staff.visa_status);
+    normalizeVisaStatusLabel(staff.visa_status) ||
+    normalizeVisaStatusLabel(latest?.visaStatus);
   const valueSpend =
     latest?.valueSpend != null
       ? money(latest.valueSpend)
@@ -339,6 +339,7 @@ export function buildVisaEmployeeRow(
     providerEmail: defaultProvider?.contact_email ?? null,
     hasNocDocument: docs.hasNoc,
     hasResidenceDocument: docs.hasResidence,
+    hasCancelationDocument: Boolean(docs.hasCancelation),
     latestRecordId: latest?.id ?? null,
   };
 }
@@ -397,6 +398,7 @@ async function listVisaDocs(
 ): Promise<{
   residence: Set<string>;
   noc: Set<string>;
+  cancelation: Set<string>;
   residenceSlotsByStaff: Map<string, Set<string>>;
   nocSlotsByStaff: Map<string, Set<string>>;
   residenceDocsBySlotByStaff: Map<string, Map<string, VisaDocumentMeta>>;
@@ -406,6 +408,7 @@ async function listVisaDocs(
 }> {
   const residence = new Set<string>();
   const noc = new Set<string>();
+  const cancelation = new Set<string>();
   const residenceSlotsByStaff = new Map<string, Set<string>>();
   const nocSlotsByStaff = new Map<string, Set<string>>();
   const residenceDocsBySlotByStaff = new Map<
@@ -419,6 +422,7 @@ async function listVisaDocs(
     return {
       residence,
       noc,
+      cancelation,
       residenceSlotsByStaff,
       nocSlotsByStaff,
       residenceDocsBySlotByStaff,
@@ -435,13 +439,14 @@ async function listVisaDocs(
     )
     .eq("venue_id", venueId)
     .in("staff_id", staffIds)
-    .in("doc_kind", ["eresidence_card", "visa_noc"])
+    .in("doc_kind", ["eresidence_card", "visa_noc", "visa_cancelation"])
     .order("uploaded_at", { ascending: false });
   if (error) {
     console.error("[hr] listVisaDocs:", error.message);
     return {
       residence,
       noc,
+      cancelation,
       residenceSlotsByStaff,
       nocSlotsByStaff,
       residenceDocsBySlotByStaff,
@@ -501,10 +506,18 @@ async function listVisaDocs(
         }
       }
     }
+    if (row.doc_kind === "visa_cancelation") {
+      const fileId = String(row.workdrive_file_id ?? "").trim();
+      const missing = Boolean(String(row.missing_at ?? "").trim());
+      if (fileId && !missing) {
+        cancelation.add(staffId);
+      }
+    }
   }
   return {
     residence,
     noc,
+    cancelation,
     residenceSlotsByStaff,
     nocSlotsByStaff,
     residenceDocsBySlotByStaff,
@@ -636,6 +649,53 @@ export async function saveStaffVisaHistory(
   );
   if (error) return { ok: false, error: error.message };
   return { ok: true };
+}
+
+/** Mirror staff directory visa fields onto the latest issuance record. */
+export async function syncLatestVisaRecordFromStaff(
+  supabase: SupabaseClient,
+  venueId: string,
+  staffId: string,
+  staff: {
+    visa_status?: string | null;
+    visa_expiry?: string | null;
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const visaStatus = normalizeVisaStatusLabel(staff.visa_status) ?? "";
+  const expiryDate = isoDate(staff.visa_expiry);
+  const existing = await loadStaffVisaHistory(supabase, venueId, staffId);
+
+  if (existing.length === 0) {
+    if (!visaStatus && !expiryDate) return { ok: true };
+    const seeded: StaffVisaRecord = {
+      id: crypto.randomUUID(),
+      visaNumber: "",
+      issueDate: null,
+      expiryDate,
+      valueSpend: null,
+      cancelationSpend: null,
+      penalties: [],
+      visaStatus,
+      disputeReference: "",
+      disputeComments: "",
+      cancelDate: null,
+      comments: "",
+      createdAt: new Date().toISOString(),
+      createdBy: null,
+    };
+    return saveStaffVisaHistory(supabase, venueId, staffId, [seeded]);
+  }
+
+  const latest = pickLatestStaffVisaRecord(existing);
+  if (!latest) return { ok: true };
+  if (latest.visaStatus === visaStatus && latest.expiryDate === expiryDate) {
+    return { ok: true };
+  }
+
+  const next = existing.map((row) =>
+    row.id === latest.id ? { ...row, visaStatus, expiryDate } : row,
+  );
+  return saveStaffVisaHistory(supabase, venueId, staffId, next);
 }
 
 /** Mirror the latest issuance onto staff columns used across HR. */
@@ -787,6 +847,7 @@ export async function loadVisaEmployeesPage(
     buildVisaEmployeeRow(s, providers, latestByStaff.get(s.id) ?? null, {
       hasResidence: docs.residence.has(s.id),
       hasNoc: docs.noc.has(s.id),
+      hasCancelation: docs.cancelation.has(s.id),
     }, {
       employeePenaltyRemainingById,
     }),

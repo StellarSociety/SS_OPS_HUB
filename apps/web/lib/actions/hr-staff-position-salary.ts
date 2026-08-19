@@ -178,6 +178,25 @@ function revalidateStaffPaths(staffId: string) {
   revalidatePath("/hr/staff/entry");
 }
 
+async function syncVisaHistoryFromStaffFields(
+  service: ReturnType<typeof createServiceClient>,
+  venueId: string,
+  staffId: string,
+  staff: { visa_status?: string | null; visa_expiry?: string | null },
+) {
+  const { syncLatestVisaRecordFromStaff } = await import("@/lib/hr/visa-store");
+  const synced = await syncLatestVisaRecordFromStaff(
+    service,
+    venueId,
+    staffId,
+    staff,
+  );
+  if (!synced.ok) {
+    console.error("[hr] sync visa history from path change:", synced.error);
+  }
+  revalidatePath("/hr/assets/visa", "layout");
+}
+
 export async function listStaffPositionSalaryChanges(
   staffId: string,
 ): Promise<
@@ -493,6 +512,13 @@ export async function createStaffPositionSalaryChange(
     return { ok: false, error: updateError.message };
   }
 
+  if (applyVisa) {
+    await syncVisaHistoryFromStaffFields(service, venue.id, staffId, {
+      visa_status: toVisaStatus,
+      visa_expiry: toVisaExpiry,
+    });
+  }
+
   await writeAuditLog({
     actor_id: user.id,
     action: "update",
@@ -780,6 +806,12 @@ export async function updateStaffPositionSalaryChange(
         .eq("id", staffId)
         .eq("home_venue_id", venue.id);
       if (staffError) return { ok: false, error: staffError.message };
+      if (applyVisa) {
+        await syncVisaHistoryFromStaffFields(service, venue.id, staffId, {
+          visa_status: toVisaStatus,
+          visa_expiry: toVisaExpiry,
+        });
+      }
     }
   }
 

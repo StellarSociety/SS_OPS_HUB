@@ -34,7 +34,7 @@ export type UploadStaffDocInput = {
   bytes: Buffer;
   originalFileName: string;
   contentType: string;
-  /** Replace same-named file when true. Default false. */
+  /** Replace same-named file when true. Default true for staff documents. */
   overrideNameExist?: boolean;
 };
 
@@ -81,8 +81,8 @@ export function formatDocExpiryDdMmYy(
 }
 
 /**
- * Fill an empty `[exp.- ]` / `[exp.-]` placeholder in a WorkDrive file name.
- * Returns null when no change is needed.
+ * Fill an empty `[exp.- ]` placeholder, or update an existing `[exp.dd-mm-yy]`
+ * date, in a WorkDrive file name. Returns null when no change is needed.
  */
 export function injectDocExpiryIntoFileName(
   fileName: string,
@@ -90,7 +90,16 @@ export function injectDocExpiryIntoFileName(
 ): string | null {
   const formatted = formatDocExpiryDdMmYy(isoExpiry);
   if (!formatted) return null;
-  const next = fileName.replace(/\[exp\.\-\s*\]/gi, `[exp.- ${formatted}]`);
+  const filled = fileName.replace(/\[exp\.\-\s*\]/gi, `[exp.- ${formatted}]`);
+  if (filled !== fileName) return filled;
+  const next = fileName.replace(
+    /\[exp\.(\s*:\s*|\-\s*)?\d{1,2}-\d{1,2}-\d{2,4}\]/gi,
+    (match) => {
+      if (/\[exp\.:/i.test(match)) return `[exp.: ${formatted}]`;
+      if (/\[exp\.\-/i.test(match)) return `[exp.- ${formatted}]`;
+      return `[exp.${formatted}]`;
+    },
+  );
   return next !== fileName ? next : null;
 }
 
@@ -114,59 +123,10 @@ export function stripLinkedRecordIdSuffixFromFileName(
   return fileName.replace(re, "$1");
 }
 
-/** Staff date field used for `{doc_expiry}` for a doc kind / file part. */
-export type HrWorkDriveDocExpiryField =
-  | "passport_expiry"
-  | "eid_expiry"
-  | "visa_expiry"
-  | "contract_expiry"
-  | "eresidence_expiry"
-  | "medical_insurance_expiry_date"
-  | "ohc_date"
-  | "pic_date"
-  | "basic_food_safety_date"
-  | "fire_safety_date"
-  | "first_aid_date";
-
-/** Expiry field on staff for a given WorkDrive document kind / file part. */
-export function docExpiryFieldForKind(
-  kind: HrWorkDriveDocKind,
-  fileSlotId?: string | null,
-): HrWorkDriveDocExpiryField | null {
-  if (kind === "training_certificates") {
-    switch (String(fileSlotId ?? "").trim()) {
-      case "pic":
-        return "pic_date";
-      case "basic_food_safety":
-        return "basic_food_safety_date";
-      case "fire_safety":
-        return "fire_safety_date";
-      case "first_aid":
-        return "first_aid_date";
-      default:
-        return "pic_date";
-    }
-  }
-
-  switch (kind) {
-    case "passport":
-      return "passport_expiry";
-    case "emirates_id":
-      return "eid_expiry";
-    case "contract":
-      return "contract_expiry";
-    case "eresidence_card":
-      return "eresidence_expiry";
-    case "medical_insurance":
-      return "medical_insurance_expiry_date";
-    case "visa_noc":
-      return "visa_expiry";
-    case "ohc":
-      return "ohc_date";
-    default:
-      return null;
-  }
-}
+export {
+  docExpiryFieldForKind,
+  type HrWorkDriveDocExpiryField,
+} from "@/lib/hr/workdrive/doc-expiry";
 
 export function renderWorkDriveTemplate(
   template: string,
@@ -286,7 +246,8 @@ export async function uploadStaffDocumentToWorkDrive(
       ? null
       : input.docKind === "medical_insurance" ||
           input.docKind === "eresidence_card" ||
-          input.docKind === "visa_noc"
+          input.docKind === "visa_noc" ||
+          input.docKind === "visa_cancelation"
         ? input.fileSlotId
         : null;
   const defaultNamingTemplate =
@@ -300,9 +261,11 @@ export async function uploadStaffDocumentToWorkDrive(
           configuredSlot?.label ??
           (input.docKind === "visa_noc"
             ? "Visa NOC"
-            : input.docKind === "eresidence_card"
-              ? "Residency card"
-              : "Insurance card"),
+            : input.docKind === "visa_cancelation"
+              ? "Visa cancelation"
+              : input.docKind === "eresidence_card"
+                ? "Residency card"
+                : "Insurance card"),
         fileNameTemplate: defaultNamingTemplate,
       }
     : configuredSlot;
@@ -387,8 +350,7 @@ export async function uploadStaffDocumentToWorkDrive(
     fileName,
     bytes: input.bytes,
     contentType: input.contentType || "application/octet-stream",
-    overrideNameExist:
-      input.overrideNameExist === true || atEmployeeRoot,
+    overrideNameExist: input.overrideNameExist !== false,
   });
 
   const storedName = uploaded.name || "";

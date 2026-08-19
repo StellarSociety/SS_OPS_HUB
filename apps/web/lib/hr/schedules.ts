@@ -120,6 +120,18 @@ export type ScheduleCellValue = {
   shiftTemplateId: string | null;
 };
 
+/**
+ * SHIFT and ABS keep the assigned shift times. ABS is a no-show on a planned
+ * work window — the roster still records when the employee was supposed to
+ * attend.
+ */
+export function rosterLabelKeepsShiftTimes(
+  labelCode: string | null | undefined,
+): boolean {
+  const code = (labelCode ?? "").trim().toUpperCase();
+  return code === "SHIFT" || code === "ABS";
+}
+
 export const DEFAULT_SHIFT_TEMPLATES: Omit<ShiftTemplate, "id">[] = [
   {
     name: "11AM – 10PM",
@@ -672,8 +684,9 @@ export function scheduleDaysToCellMap(
     if (!knownCodes.has(code)) continue;
     next[scheduleCellKey(day.staff_id, day.work_date)] = {
       labelCode: code,
-      shiftTemplateId:
-        code === "SHIFT" ? (day.shift_template_id ?? null) : null,
+      shiftTemplateId: rosterLabelKeepsShiftTimes(code)
+        ? (day.shift_template_id ?? null)
+        : null,
     };
   }
   return next;

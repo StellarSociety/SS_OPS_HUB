@@ -318,7 +318,23 @@ export async function deleteUniformPiece(input: z.infer<typeof pieceIdSchema>) {
 
   if (countError) throw new Error(countError.message);
   if ((count ?? 0) > 0) {
-    throw new Error("Remove employee assignments before deleting this uniform piece.");
+    throw new Error(
+      "This uniform piece is assigned to employees and cannot be deleted. Return the pieces first.",
+    );
+  }
+
+  const { count: replacementCount, error: replacementError } = await service
+    .from("hr_uniform_replacements")
+    .select("id", { count: "exact", head: true })
+    .eq("piece_id", parsed.pieceId);
+
+  if (replacementError && !/does not exist|schema cache/i.test(replacementError.message)) {
+    throw new Error(replacementError.message);
+  }
+  if ((replacementCount ?? 0) > 0) {
+    throw new Error(
+      "This uniform piece has replacement history and cannot be deleted.",
+    );
   }
 
   const { error } = await service

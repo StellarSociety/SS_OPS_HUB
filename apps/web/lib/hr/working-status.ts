@@ -4,6 +4,7 @@ import { DEFAULT_HR_LEAVE_POLICY_SETTINGS } from "@/lib/hr/types";
 export const WORKING_STATUS = {
   active: "Active",
   paidLeave: "Paid Leave",
+  annualLeave: "Annual Leave",
   unpaidLeave: "Unpaid Leave",
   offBoarding: "OFF-Boarding",
 } as const;
@@ -20,6 +21,11 @@ export type ResolveWorkingStatusInput = {
   paidDays?: number;
   /** Payroll: unpaid days in period. */
   unpaidDays?: number;
+  /**
+   * Roster label for today (or the current day in the visible range).
+   * Used when staff status is still Active but they are on leave now.
+   */
+  currentLabelCode?: string | null;
   /** Schedule: roster label codes for employed days in the visible week. */
   weekLabelCodes?: string[];
 };
@@ -87,8 +93,32 @@ export function inferWorkingStatusFromWeekLabels(
     return WORKING_STATUS.unpaidLeave;
   }
   if (!hasDuty && hasPaidLeave && !hasUnpaidLeave) {
+    const paidCodes = codes
+      .map((raw) => normalizeScheduleLeaveCode(raw.trim().toUpperCase()))
+      .filter((code) => rosterLabelBucket(code) === "paid_leave");
+    if (
+      paidCodes.length > 0 &&
+      paidCodes.every((code) => code === "AL")
+    ) {
+      return WORKING_STATUS.annualLeave;
+    }
     return WORKING_STATUS.paidLeave;
   }
+  return null;
+}
+
+/** Map a single roster label to a working-status badge (null = still Active). */
+export function workingStatusFromRosterCode(
+  code: string | null | undefined,
+): WorkingStatusLabel | null {
+  const raw = code?.trim();
+  if (!raw) return null;
+  const normalized = normalizeScheduleLeaveCode(raw.toUpperCase());
+  const bucket = rosterLabelBucket(raw);
+  if (bucket === "empty" || bucket === "duty") return null;
+  if (normalized === "AL") return WORKING_STATUS.annualLeave;
+  if (bucket === "unpaid_leave") return WORKING_STATUS.unpaidLeave;
+  if (bucket === "paid_leave") return WORKING_STATUS.paidLeave;
   return null;
 }
 
@@ -106,7 +136,8 @@ export function isOffBoardingForWeek(
 
 /**
  * Resolve the working status badge label for payroll, schedules, and exports.
- * Prefers explicit staff working status, then off-boarding, then period/week inference.
+ * Prefers off-boarding, then explicit staff status, then today's roster
+ * (e.g. AL → Annual Leave), then period/week inference.
  */
 export function resolveWorkingStatus(
   input: ResolveWorkingStatusInput,
@@ -117,6 +148,9 @@ export function resolveWorkingStatus(
   if (status && status !== WORKING_STATUS.active) {
     return status as WorkingStatusLabel;
   }
+
+  const fromToday = workingStatusFromRosterCode(input.currentLabelCode);
+  if (fromToday) return fromToday;
 
   if (
     input.paidDays != null &&

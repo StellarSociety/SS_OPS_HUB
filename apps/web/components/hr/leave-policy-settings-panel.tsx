@@ -268,39 +268,29 @@ export function LeavePolicySettingsPanel({
 
           <Section
             title="Annual leave"
-            description="Statutory accrual. Defaults match UAE private-sector rules. Approved unpaid leave (UPL) days are excluded from the service period used for AL."
+            description="Statutory accrual under UAE Federal Decree-Law No. 33 of 2021 Arts. 29 and 33. Approved unpaid leave (UPL) is excluded from the qualifying service period before entitlement is calculated — it is never deducted from the leave balance."
           >
             <div className="mb-4 rounded-lg border border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/40 px-4 py-3">
-              <Label htmlFor="annual_partial_month_method">
-                Partial months (before 1 year of service)
-              </Label>
-              <p className="mt-1 text-xs text-black/55">
-                Controls how incomplete months count toward AL for staff with
-                under 12 months of adjusted service (calendar days minus
-                approved unpaid leave). Employees with a termination date
-                always use day-based pro-rata through that last day:
-                adjusted days ÷ 30 × days per month before year.
+              <p className="text-sm font-medium text-[#3D421F]">
+                Qualifying service (30-day months)
               </p>
-              <select
-                id="annual_partial_month_method"
+              <p className="mt-1 text-xs text-black/55">
+                Statutory AL uses exact 30-day months (qualifying days ÷ 30 ×
+                rate) without flooring months, so the result never falls below
+                the UAE minimum. Unpaid leave reduces the service period before
+                entitlement is calculated. Company rates above 2 days/month or
+                30 days/year are applied when configured.
+              </p>
+              <input
+                type="hidden"
                 name="annual_partial_month_method"
-                defaultValue={
-                  settings.annual.partialMonthMethod ?? "full_months"
-                }
-                className={cn(lightSelectClass, "mt-2 max-w-md")}
-              >
-                <option value="full_months">
-                  Full months only (e.g. floor(270 ÷ 30) × 2 = 18)
-                </option>
-                <option value="pro_rata">
-                  Pro-rata days (e.g. 229 ÷ 30 × 2 = 15.27)
-                </option>
-              </select>
+                value="pro_rata"
+              />
             </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field
                 label="No entitlement through (months)"
-                hint="Adjusted service months (excl. approved UPL) with 0 statutory AL."
+                hint="Qualifying service months (excl. approved UPL) with 0 statutory AL. Statutory maximum is 6."
               >
                 <Input
                   name="annual_zero_entitlement_months"

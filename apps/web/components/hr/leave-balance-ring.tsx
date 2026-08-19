@@ -1,3 +1,4 @@
+import { formatLeaveDays } from "@/lib/hr/leave";
 import { cn } from "@/lib/utils";
 
 type LeaveBalanceRingProps = {
@@ -17,9 +18,12 @@ type LeaveBalanceRingProps = {
   expanded?: boolean;
 };
 
+const TAKEN = "#3D421F";
+const LEFT = "var(--venue-primary, #818a40)";
+const TRACK = "var(--venue-secondary, #F0F3DD)";
+
 /**
- * Donut comparing entitlement (eligible) vs taken vs remaining.
- * Thick track = full allowance; coloured arcs = taken + left.
+ * Leave-type card: remaining days first, then a stacked taken/left bar.
  */
 export function LeaveBalanceRing({
   label,
@@ -27,7 +31,6 @@ export function LeaveBalanceRing({
   available,
   used,
   total,
-  size = 128,
   className,
   hint,
   onClick,
@@ -47,155 +50,109 @@ export function LeaveBalanceRing({
     Math.max(0, safeAvailable / denom),
   );
   const otherRatio = Math.max(0, 1 - usedRatio - leftRatio);
-
-  const stroke = 16;
-  const radius = (size - stroke) / 2;
-  const cx = size / 2;
-  const cy = size / 2;
-  const circumference = 2 * Math.PI * radius;
-
-  const usedLen = circumference * usedRatio;
-  const leftLen = circumference * leftRatio;
-  const otherLen = circumference * otherRatio;
+  const depleted = safeAvailable <= 0 && eligible > 0;
 
   const body = (
     <>
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg
-          width={size}
-          height={size}
-          viewBox={`0 0 ${size} ${size}`}
-          className="-rotate-90"
-          aria-hidden
-        >
-          {/* Full allowance track */}
-          <circle
-            cx={cx}
-            cy={cy}
-            r={radius}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            className="text-black/[0.08]"
-          />
-          {/* Taken */}
-          {usedLen > 0 ? (
-            <circle
-              cx={cx}
-              cy={cy}
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={stroke}
-              strokeLinecap="butt"
-              strokeDasharray={`${usedLen} ${circumference - usedLen}`}
-              strokeDashoffset={0}
-              className="text-[#a16207] transition-[stroke-dasharray] duration-500"
-            />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {code ? (
+            <p className="inline-flex rounded-md bg-[#3D421F] px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide text-[var(--venue-secondary,#F0F3DD)]">
+              {code}
+            </p>
           ) : null}
-          {/* Remaining / left */}
-          {leftLen > 0 ? (
-            <circle
-              cx={cx}
-              cy={cy}
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={stroke}
-              strokeLinecap="butt"
-              strokeDasharray={`${leftLen} ${circumference - leftLen}`}
-              strokeDashoffset={-usedLen}
-              className="text-[var(--venue-primary,#818a40)] transition-[stroke-dasharray,stroke-dashoffset] duration-500"
-            />
-          ) : null}
-          {/* Held / other (scheduled, pending, expired) */}
-          {otherLen > 0.5 ? (
-            <circle
-              cx={cx}
-              cy={cy}
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={stroke}
-              strokeLinecap="butt"
-              strokeDasharray={`${otherLen} ${circumference - otherLen}`}
-              strokeDashoffset={-(usedLen + leftLen)}
-              className="text-black/25 transition-[stroke-dasharray,stroke-dashoffset] duration-500"
-            />
-          ) : null}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center px-2">
-          <span className="font-serif text-2xl leading-none tabular-nums text-[#3D421F]">
+          <p className="mt-1.5 text-sm font-semibold leading-snug text-[#3D421F]">
+            {label}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p
+            className={cn(
+              "text-[2rem] font-semibold leading-none tabular-nums tracking-tight",
+              depleted
+                ? "text-[#3D421F]/55"
+                : "text-[var(--venue-primary,#818a40)]",
+            )}
+          >
             {formatDays(safeAvailable)}
-          </span>
-          <span className="mt-0.5 text-[10px] uppercase tracking-wide text-black/45">
-            left
-          </span>
-          <span className="mt-1 text-[11px] tabular-nums text-black/50">
-            of {formatDays(eligible)}
-          </span>
+          </p>
+          <p
+            className={cn(
+              "mt-1 text-[11px] font-semibold uppercase tracking-wider",
+              depleted
+                ? "text-[#3D421F]/45"
+                : "text-[var(--venue-primary,#818a40)]",
+            )}
+          >
+            days left
+          </p>
         </div>
       </div>
 
-      <div className="w-full max-w-[11rem]">
-        {code ? (
-          <p className="font-mono text-[11px] text-black/45">{code}</p>
-        ) : null}
-        <p className="text-sm font-medium leading-snug text-[#3D421F]">
-          {label}
-        </p>
-        <dl className="mt-2 space-y-1 text-left text-xs">
-          <div className="flex items-center justify-between gap-2">
-            <dt className="flex items-center gap-1.5 text-black/55">
-              <span
-                className="inline-block h-2 w-2 rounded-full bg-black/15"
-                aria-hidden
-              />
-              Eligible
-            </dt>
-            <dd className="tabular-nums font-medium text-[#3D421F]">
-              {formatDays(eligible)}
-            </dd>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <dt className="flex items-center gap-1.5 text-black/55">
-              <span
-                className="inline-block h-2 w-2 rounded-full bg-[#a16207]"
-                aria-hidden
-              />
-              Taken
-            </dt>
-            <dd className="tabular-nums font-medium text-[#3D421F]">
-              {formatDays(safeUsed)}
-            </dd>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <dt className="flex items-center gap-1.5 text-black/55">
-              <span
-                className="inline-block h-2 w-2 rounded-full bg-[var(--venue-primary,#818a40)]"
-                aria-hidden
-              />
-              Left
-            </dt>
-            <dd className="tabular-nums font-medium text-[#3D421F]">
-              {formatDays(safeAvailable)}
-            </dd>
-          </div>
-        </dl>
-        {hint ? (
-          <p className="mt-2 text-center text-[11px] text-[var(--venue-primary,#818a40)]">
-            {hint}
-          </p>
-        ) : null}
+      <div
+        className="mt-4 h-2.5 w-full overflow-hidden rounded-full"
+        style={{ backgroundColor: TRACK }}
+        role="img"
+        aria-label={`${formatDays(safeUsed)} taken, ${formatDays(safeAvailable)} left of ${formatDays(eligible)} eligible`}
+      >
+        <div className="flex h-full w-full">
+          {usedRatio > 0 ? (
+            <div
+              className="h-full min-w-0"
+              style={{ width: `${usedRatio * 100}%`, backgroundColor: TAKEN }}
+            />
+          ) : null}
+          {leftRatio > 0 ? (
+            <div
+              className="h-full min-w-0"
+              style={{ width: `${leftRatio * 100}%`, backgroundColor: LEFT }}
+            />
+          ) : null}
+          {otherRatio > 0.004 ? (
+            <div
+              className="h-full min-w-0 bg-[#3D421F]/25"
+              style={{ width: `${otherRatio * 100}%` }}
+            />
+          ) : null}
+        </div>
       </div>
+
+      <dl className="mt-3 grid grid-cols-3 gap-2 text-left">
+        <Stat
+          swatch={TRACK}
+          swatchBorder
+          label="Eligible"
+          value={formatDays(eligible)}
+          tone="muted"
+        />
+        <Stat
+          swatch={LEFT}
+          label="Left"
+          value={formatDays(safeAvailable)}
+          tone="accent"
+        />
+        <Stat
+          swatch={TAKEN}
+          label="Taken"
+          value={formatDays(safeUsed)}
+          tone="ink"
+        />
+      </dl>
+
+      {hint ? (
+        <p className="mt-3 text-[12px] font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 group-hover:underline">
+          {hint}
+        </p>
+      ) : null}
     </>
   );
 
   const shellClass = cn(
-    "flex w-[11.5rem] flex-col items-center gap-3 text-center",
+    "group w-full rounded-xl border border-black/10 bg-white p-4 text-left shadow-sm",
     onClick &&
-      "rounded-xl p-2 transition-colors hover:bg-black/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40",
-    expanded && "bg-black/[0.03]",
+      "cursor-pointer transition hover:border-[var(--venue-primary,#818a40)]/40 hover:bg-[var(--venue-secondary,#F0F3DD)]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40",
+    expanded &&
+      "border-[var(--venue-primary,#818a40)]/50 bg-[var(--venue-secondary,#F0F3DD)]/50",
     className,
   );
 
@@ -215,6 +172,53 @@ export function LeaveBalanceRing({
   return <div className={shellClass}>{body}</div>;
 }
 
+function Stat({
+  swatch,
+  swatchBorder,
+  label,
+  value,
+  tone,
+}: {
+  swatch: string;
+  swatchBorder?: boolean;
+  label: string;
+  value: string;
+  tone: "ink" | "accent" | "muted";
+}) {
+  return (
+    <div className="min-w-0">
+      <dt
+        className={cn(
+          "flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider",
+          tone === "ink" && "text-[#3D421F]",
+          tone === "accent" && "text-[var(--venue-primary,#818a40)]",
+          tone === "muted" && "text-black/45",
+        )}
+      >
+        <span
+          className={cn(
+            "inline-block h-2 w-2 shrink-0 rounded-full",
+            swatchBorder && "ring-1 ring-black/15",
+          )}
+          style={{ backgroundColor: swatch }}
+          aria-hidden
+        />
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          "mt-0.5 text-base font-semibold tabular-nums",
+          tone === "ink" && "text-[#3D421F]",
+          tone === "accent" && "text-[var(--venue-primary,#818a40)]",
+          tone === "muted" && "text-black/55",
+        )}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 function formatDays(n: number): string {
-  return String(Math.round(Number(n) || 0));
+  return formatLeaveDays(n);
 }

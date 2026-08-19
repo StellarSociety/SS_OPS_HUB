@@ -48,6 +48,7 @@ export default async function LeaveBalancesPage({ searchParams }: PageProps) {
         scheduleLabels: result.scheduleLabels,
         policy: result.policy,
         year: result.year,
+        annualLeaveCalculation: result.annualLeaveCalculation,
       };
     }
   }

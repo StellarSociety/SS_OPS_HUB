@@ -27,6 +27,7 @@ import {
   getStaffWorkDriveDocumentById,
   listStaffWorkDriveDocuments,
   reconcileStaffWorkDriveDocumentsPresence,
+  updateStaffWorkDriveDocumentFileName,
 } from "@/lib/hr/workdrive/documents";
 import {
   emptyWorkDriveConnection,
@@ -74,6 +75,31 @@ function sanitizeWorkDriveFileName(name: string): string {
     .trim();
 }
 
+function workDriveFileExtension(fileName: string): string {
+  const base = fileName.split(/[/\\]/).pop() ?? fileName;
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0 || dot === base.length - 1) return "";
+  return base.slice(dot);
+}
+
+function withPreservedExtension(nextName: string, previousName: string): string {
+  const prevExt = workDriveFileExtension(previousName);
+  if (!prevExt) return nextName;
+  if (workDriveFileExtension(nextName)) return nextName;
+  return `${nextName}${prevExt}`;
+}
+
+function replaceWorkDrivePathFileName(
+  path: string | null,
+  fileName: string,
+): string | null {
+  const raw = String(path ?? "").trim();
+  if (!raw) return path;
+  const parts = raw.split("/");
+  parts[parts.length - 1] = fileName;
+  return parts.join("/");
+}
+
 const regionSchema = z.enum([
   "com",
   "eu",
@@ -97,6 +123,7 @@ const docKindSchema = z.enum([
   "ohc",
   "medical_insurance",
   "visa_noc",
+  "visa_cancelation",
   "training_certificates",
   "others",
 ]);
@@ -660,6 +687,30 @@ export async function getWorkDriveSettings(): Promise<HrWorkDrivePublicSettings>
   }
   const settings = await loadWorkDriveSettings(auth.supabase, auth.venue.id);
   return toPublic(settings);
+}
+
+export type StaffDocUploadFilePart = {
+  id: string;
+  label: string;
+};
+
+/** Drive Setup file parts per document kind — used by staff entry upload slots. */
+export async function getStaffDocUploadSlots(): Promise<
+  Record<string, StaffDocUploadFilePart[]>
+> {
+  const settings = await getWorkDriveSettings();
+  const result: Record<string, StaffDocUploadFilePart[]> = {};
+  for (const row of settings.docSubfolders) {
+    const slots = (row.fileSlots ?? [])
+      .map((slot) => ({
+        id: String(slot.id ?? "").trim(),
+        label: String(slot.label ?? "").trim() || "File",
+      }))
+      .filter((slot) => slot.id);
+    result[row.kind] =
+      slots.length > 0 ? slots : [{ id: "default", label: "File" }];
+  }
+  return result;
 }
 
 /** Save OAuth / enable fields for one connection (keeps folders). */
@@ -1658,6 +1709,110 @@ export async function deleteStaffWorkDriveDoc(input: {
           : error instanceof Error
             ? error.message
             : "Delete failed.",
+    };
+  }
+}
+
+export async function renameStaffWorkDriveDoc(input: {
+  documentId: string;
+  fileName: string;
+}): Promise<
+  | { ok: true; fileName: string; path: string | null }
+  | { ok: false; error: string }
+> {
+  const auth = await getAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
+  ) {
+    return { ok: false, error: "No permission to rename staff documents." };
+  }
+
+  const documentId = String(input.documentId ?? "").trim();
+  if (!documentId) return { ok: false, error: "Missing document id." };
+
+  const service = createServiceClient();
+  try {
+    const existing = await getStaffWorkDriveDocumentById(
+      service,
+      auth.venue.id,
+      documentId,
+    );
+    if (!existing) {
+      return { ok: false, error: "Document not found." };
+    }
+    if (existing.missing_at) {
+      return {
+        ok: false,
+        error: "This file was deleted from WorkDrive and cannot be renamed.",
+      };
+    }
+
+    const nextName = withPreservedExtension(
+      sanitizeWorkDriveFileName(String(input.fileName ?? "")),
+      existing.file_name,
+    );
+    if (!nextName) {
+      return { ok: false, error: "Enter a file name." };
+    }
+    if (nextName.length > 200) {
+      return { ok: false, error: "File name is too long." };
+    }
+
+    const nextPath = replaceWorkDrivePathFileName(existing.path, nextName);
+    if (nextName === existing.file_name) {
+      return { ok: true, fileName: nextName, path: nextPath };
+    }
+
+    const settings = await loadWorkDriveSettings(service, auth.venue.id);
+    const credentials = credentialsFromSettings(settings);
+    const { accessToken, apiDomain } = await ensureAccessToken(
+      auth.venue.id,
+      credentials,
+    );
+
+    await renameFile(apiDomain, accessToken, existing.workdrive_file_id, nextName);
+    await updateStaffWorkDriveDocumentFileName(
+      service,
+      auth.venue.id,
+      documentId,
+      nextName,
+      nextPath,
+    );
+
+    await writeAuditLog({
+      actor_id: auth.user.id,
+      action: "update",
+      module_key: HR_MODULE_KEY,
+      entity: "workdrive_staff_document",
+      entity_id: existing.workdrive_file_id,
+      venue_id: auth.venue.id,
+      before: {
+        staffId: existing.staff_id,
+        docKind: existing.doc_kind,
+        fileName: existing.file_name,
+        path: existing.path,
+      },
+      after: {
+        staffId: existing.staff_id,
+        docKind: existing.doc_kind,
+        fileName: nextName,
+        path: nextPath,
+      },
+    });
+
+    return { ok: true, fileName: nextName, path: nextPath };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof WorkDriveApiError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Rename failed.",
     };
   }
 }

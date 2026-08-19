@@ -27,14 +27,10 @@ export function computeWorkedMonths(
   return parts.years * 12 + parts.months;
 }
 
-/** Calendar years / months / days from joining → termination (or today). */
-export function computeWorkedParts(
-  joiningDate: string | null | undefined,
-  terminationDate?: string | null,
+function diffYmd(
+  start: Date,
+  end: Date,
 ): { years: number; months: number; days: number } | null {
-  const start = toDate(joiningDate);
-  if (!start) return null;
-  const end = toDate(terminationDate) ?? new Date();
   if (end < start) return null;
 
   let years = end.getFullYear() - start.getFullYear();
@@ -54,18 +50,66 @@ export function computeWorkedParts(
   return { years, months, days };
 }
 
+/** Calendar years / months / days from joining → termination (or today). */
+export function computeWorkedParts(
+  joiningDate: string | null | undefined,
+  terminationDate?: string | null,
+): { years: number; months: number; days: number } | null {
+  const start = toDate(joiningDate);
+  if (!start) return null;
+  const end = toDate(terminationDate) ?? new Date();
+  return diffYmd(start, end);
+}
+
 /** Format: `02 Y | 03 M | 05 D` (zero-padded). */
+export function formatWorkedParts(
+  parts: { years: number; months: number; days: number },
+): string {
+  const y = String(parts.years).padStart(2, "0");
+  const m = String(parts.months).padStart(2, "0");
+  const d = String(parts.days).padStart(2, "0");
+  return `${y} Y | ${m} M | ${d} D`;
+}
+
+/** Calendar tenure from joining → termination (or today). */
 export function computeWorkedTime(
   joiningDate: string | null | undefined,
   terminationDate?: string | null,
 ): string | null {
   const parts = computeWorkedParts(joiningDate, terminationDate);
   if (!parts) return null;
+  return formatWorkedParts(parts);
+}
 
-  const y = String(parts.years).padStart(2, "0");
-  const m = String(parts.months).padStart(2, "0");
-  const d = String(parts.days).padStart(2, "0");
-  return `${y} Y | ${m} M | ${d} D`;
+/** Calendar tenure from joining, including unpaid leave days. */
+export function computeEmploymentDuration(
+  joiningDate: string | null | undefined,
+  terminationDate?: string | null,
+): string | null {
+  return computeWorkedTime(joiningDate, terminationDate);
+}
+
+/**
+ * Time actually worked: employment duration minus unpaid leave days
+ * (UPL / ABS). Paid leave still counts as work time.
+ */
+export function computeWorkTime(
+  joiningDate: string | null | undefined,
+  terminationDate?: string | null,
+  unpaidLeaveDays = 0,
+): string | null {
+  const start = toDate(joiningDate);
+  if (!start) return null;
+  const end = toDate(terminationDate) ?? new Date();
+  const unpaid = Math.max(0, Math.floor(Number(unpaidLeaveDays) || 0));
+  const adjusted = new Date(
+    end.getFullYear(),
+    end.getMonth(),
+    end.getDate() - unpaid,
+  );
+  const parts = diffYmd(start, adjusted);
+  if (!parts) return formatWorkedParts({ years: 0, months: 0, days: 0 });
+  return formatWorkedParts(parts);
 }
 
 export function computeVacationBalance(

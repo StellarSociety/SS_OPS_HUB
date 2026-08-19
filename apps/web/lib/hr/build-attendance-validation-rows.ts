@@ -8,7 +8,10 @@ import {
   DEFAULT_SCHEDULE_VARIANCE_MINUTES,
   measureShiftPunchVariance,
 } from "@/lib/hr/schedule-variance";
-import { calendarDateKeyInTimezone } from "@/lib/hr/schedules";
+import {
+  calendarDateKeyInTimezone,
+  rosterLabelKeepsShiftTimes,
+} from "@/lib/hr/schedules";
 import {
   getHrVenueSetting,
   listAttendanceDays,
@@ -145,7 +148,7 @@ export async function buildAttendanceValidationRows(
     scheduleStartTime: string | null;
     scheduleEndTime: string | null;
   } {
-    if (labelCode !== "SHIFT" || !shiftTemplateId) {
+    if (!rosterLabelKeepsShiftTimes(labelCode) || !shiftTemplateId) {
       return {
         scheduleTime: null,
         scheduleStartTime: null,
@@ -185,8 +188,6 @@ export async function buildAttendanceValidationRows(
   for (const day of days) {
     const empKey = day.emp_no.trim().toLowerCase();
     if (empFilter && empKey !== empFilter) continue;
-    // Future days: show roster/schedule only — do not attach punches or issues.
-    if (isFutureWorkDate(day.work_date)) continue;
     const key = `${empKey}::${day.work_date}`;
     const planned = rosterByKey.get(key);
     const person = staffByEmp.get(empKey);
@@ -194,30 +195,35 @@ export async function buildAttendanceValidationRows(
       planned?.label_code,
       planned?.shift_template_id,
     );
+    const future = isFutureWorkDate(day.work_date);
     let issue: string | null = null;
 
-    if (planned?.label_code === "SHIFT" && day.status !== "complete") {
-      issue = "Scheduled shift with incomplete attendance";
-    } else if (
-      planned &&
-      planned.label_code !== "SHIFT" &&
-      (day.clock_in || day.clock_out)
-    ) {
-      issue = `Punches on roster day “${planned.label_code}”`;
-    } else if (!planned && (day.clock_in || day.clock_out)) {
-      issue = "Attendance with no roster day";
-    } else if (day.status === "missing_clock_out") {
-      issue = "Missing clock out";
-    } else if (day.status === "missing_clock_in") {
-      issue = "Missing clock in";
-    } else if (planned?.label_code === "SHIFT") {
-      issue = shiftVarianceIssue(
-        day.work_date,
-        schedule.scheduleStartTime,
-        schedule.scheduleEndTime,
-        day.clock_in,
-        day.clock_out,
-      );
+    // Future days: keep approval (leave already signed off) but hide punches
+    // and punch issues — those are not meaningful until the work date.
+    if (!future) {
+      if (planned?.label_code === "SHIFT" && day.status !== "complete") {
+        issue = "Scheduled shift with incomplete attendance";
+      } else if (
+        planned &&
+        planned.label_code !== "SHIFT" &&
+        (day.clock_in || day.clock_out)
+      ) {
+        issue = `Punches on roster day “${planned.label_code}”`;
+      } else if (!planned && (day.clock_in || day.clock_out)) {
+        issue = "Attendance with no roster day";
+      } else if (day.status === "missing_clock_out") {
+        issue = "Missing clock out";
+      } else if (day.status === "missing_clock_in") {
+        issue = "Missing clock in";
+      } else if (planned?.label_code === "SHIFT") {
+        issue = shiftVarianceIssue(
+          day.work_date,
+          schedule.scheduleStartTime,
+          schedule.scheduleEndTime,
+          day.clock_in,
+          day.clock_out,
+        );
+      }
     }
 
     rowsByKey.set(key, {
@@ -231,10 +237,10 @@ export async function buildAttendanceValidationRows(
       scheduleTime: schedule.scheduleTime,
       scheduleStartTime: schedule.scheduleStartTime,
       scheduleEndTime: schedule.scheduleEndTime,
-      clockIn: day.clock_in,
-      clockOut: day.clock_out,
-      totalHours: day.total_hours,
-      attendanceStatus: day.status,
+      clockIn: future ? null : day.clock_in,
+      clockOut: future ? null : day.clock_out,
+      totalHours: future ? null : day.total_hours,
+      attendanceStatus: future ? null : day.status,
       approvalStatus: day.approval_status,
       issue,
     });
@@ -289,6 +295,13 @@ export type ValidationEmployeeOption = {
   positionName: string | null;
   joiningDate: string | null;
   terminationDate: string | null;
+  photoUrl: string | null;
+  employmentStatus: string | null;
+  workingStatus: string | null;
+  nationality: string | null;
+  dob: string | null;
+  /** Roster label on today's date, when scheduled. */
+  todayRosterLabel: string | null;
 };
 
 function isoDateOnly(value: string | null | undefined): string | null {
@@ -298,6 +311,7 @@ function isoDateOnly(value: string | null | undefined): string | null {
 
 export function validationEmployeeOptions(
   staff: Awaited<ReturnType<typeof listStaffForVenue>>,
+  todayRosterByStaffId?: Record<string, string>,
 ): ValidationEmployeeOption[] {
   return staff
     .filter((s) => isValidationEligibleStatus(s.employment_status?.name))
@@ -309,6 +323,12 @@ export function validationEmployeeOptions(
       positionName: s.position?.name?.trim() || null,
       joiningDate: isoDateOnly(s.joining_date),
       terminationDate: isoDateOnly(s.termination_date),
+      photoUrl: s.photo_url?.trim() || null,
+      employmentStatus: s.employment_status?.name?.trim() || null,
+      workingStatus: s.working_status?.name?.trim() || null,
+      nationality: s.nationality?.name?.trim() || null,
+      dob: isoDateOnly(s.dob),
+      todayRosterLabel: todayRosterByStaffId?.[s.id]?.trim() || null,
     }));
 }
 
@@ -350,6 +370,12 @@ export function approvalsCheckScope(
       positionName: s.position?.name?.trim() || null,
       joiningDate,
       terminationDate,
+      photoUrl: s.photo_url?.trim() || null,
+      employmentStatus: s.employment_status?.name?.trim() || null,
+      workingStatus: s.working_status?.name?.trim() || null,
+      nationality: s.nationality?.name?.trim() || null,
+      dob: isoDateOnly(s.dob),
+      todayRosterLabel: null,
     });
   }
 

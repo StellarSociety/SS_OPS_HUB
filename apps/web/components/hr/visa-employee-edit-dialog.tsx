@@ -20,6 +20,7 @@ import {
 import { StaffDocumentUploadSlot } from "@/components/hr/staff-document-upload-slot";
 import { StaffWorkDriveDocumentList } from "@/components/hr/staff-workdrive-document-list";
 import { Button } from "@/components/ui/button";
+import { VisaCancelationFileField } from "@/components/hr/visa-cancelation-file-field";
 import { DateInput } from "@/components/ui/date-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1229,6 +1230,14 @@ export function VisaEmployeeEditDialog({
                   </div>
                   <span aria-hidden className={moneyTrailClass} />
                 </div>
+                <VisaCancelationFileField
+                  staffId={activeRow.staff.id}
+                  empNo={activeRow.staff.emp_no}
+                  fullName={activeRow.staff.full_name}
+                  fileSlotId={editingRecordId || activeRow.latestRecordId}
+                  docExpiry={cancelDate}
+                  readOnly={busy}
+                />
               </div>
             ) : null}
 
@@ -1477,6 +1486,10 @@ export function VisaEmployeeEditDialog({
                         void reloadRecords(activeRow.staff.id);
                         onSaved();
                       }}
+                      onRenamed={() => {
+                        void reloadRecords(activeRow.staff.id);
+                        onSaved();
+                      }}
                     />
                   ) : (
                     <p className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-4 text-center text-[11px] text-black/40">
@@ -1518,6 +1531,10 @@ export function VisaEmployeeEditDialog({
                         items={[toWorkDriveListItem(existingNoc)]}
                         className="mt-0"
                         onDeleted={() => {
+                          void reloadRecords(activeRow.staff.id);
+                          onSaved();
+                        }}
+                        onRenamed={() => {
                           void reloadRecords(activeRow.staff.id);
                           onSaved();
                         }}

@@ -7,6 +7,7 @@ import {
   allocateSickLeaveScheduleDays,
   availableBalance,
   BALANCE_TRACKED_CODES,
+  buildAnnualLeaveCalculation,
   buildEmployeeLeaveSummary,
   canCarryForwardLeaveCode,
   carryForwardAmount,
@@ -33,6 +34,7 @@ import {
   scheduleLeaveDisplayName,
   seedEntitlementForType,
   splitAnnualLeaveScheduleDays,
+  type AnnualLeaveCalculationBreakdown,
   type EmployeeLeaveSummary,
   type LeaveCalendarEvent,
   type LeaveUsageDayEntry,
@@ -102,9 +104,10 @@ function toNumber(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Whole leave days — never persist/display fractional day balances. */
+/** Leave-day quantities — persist/display to 2 decimal places (UAE AL pro-rata). */
 function toDays(v: unknown): number {
-  return Math.round(toNumber(v));
+  const n = toNumber(v);
+  return Math.round(n * 100) / 100;
 }
 
 function normalizeBalance(row: Record<string, unknown>): HrLeaveBalance {
@@ -362,8 +365,9 @@ export async function ensureLeaveBalancesForYear(
     }
   }
 
-  // Approved UPL days (Validation) excluded from AL service period.
+  // UPL and ABS roster days excluded from AL qualifying service.
   const unpaidDatesByStaff = new Map<string, string[]>();
+  const absenceDatesByStaff = new Map<string, string[]>();
   const approvedDatesByStaff = new Map<string, Set<string>>();
   if (staff.length > 0) {
     const joinDates = staff
@@ -383,18 +387,25 @@ export async function ensureLeaveBalancesForYear(
         ? toDateCandidates.reduce((a, b) => (a > b ? a : b))
         : `${year}-12-31`;
 
-    const uplScheduleDays = await listStaffScheduleDays(service, venue.id, {
+    const exclusionScheduleDays = await listStaffScheduleDays(service, venue.id, {
       staffIds: staff.map((s) => s.id),
       fromDate,
       toDate,
-      labelCodes: ["UPL"],
+      labelCodes: ["UPL", "ABS"],
     });
 
-    for (const day of uplScheduleDays) {
+    for (const day of exclusionScheduleDays) {
       const date = String(day.work_date).slice(0, 10);
-      const list = unpaidDatesByStaff.get(day.staff_id) ?? [];
-      list.push(date);
-      unpaidDatesByStaff.set(day.staff_id, list);
+      const code = String(day.label_code).trim().toUpperCase();
+      if (code === "ABS") {
+        const list = absenceDatesByStaff.get(day.staff_id) ?? [];
+        list.push(date);
+        absenceDatesByStaff.set(day.staff_id, list);
+      } else {
+        const list = unpaidDatesByStaff.get(day.staff_id) ?? [];
+        list.push(date);
+        unpaidDatesByStaff.set(day.staff_id, list);
+      }
     }
 
     // Only need approval flags for dates that are actually UPL on the roster.
@@ -508,6 +519,7 @@ export async function ensureLeaveBalancesForYear(
       member.termination_date,
     );
     const unpaidLeaveDates = unpaidDatesByStaff.get(member.id) ?? [];
+    const absenceDates = absenceDatesByStaff.get(member.id) ?? [];
     const approvedDates =
       approvedDatesByStaff.get(member.id) ?? new Set<string>();
     const approvedUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
@@ -515,6 +527,11 @@ export async function ensureLeaveBalancesForYear(
       asOfDate: isoDateOnly(evalDate),
       unpaidLeaveDates,
       approvedDates,
+    });
+    const absenceDays = countApprovedUnpaidLeaveDays({
+      joiningDate: member.joining_date,
+      asOfDate: isoDateOnly(evalDate),
+      unpaidLeaveDates: absenceDates,
     });
     const priorYearEvalDate = resolveAnnualLeaveEvalDate(
       year - 1,
@@ -527,6 +544,11 @@ export async function ensureLeaveBalancesForYear(
       unpaidLeaveDates,
       approvedDates,
     });
+    const priorPeriodAbsenceDays = countApprovedUnpaidLeaveDays({
+      joiningDate: member.joining_date,
+      asOfDate: isoDateOnly(priorYearEvalDate),
+      unpaidLeaveDates: absenceDates,
+    });
     for (const code of BALANCE_TRACKED_CODES) {
       const seed = seedEntitlementForType(
         code,
@@ -538,6 +560,10 @@ export async function ensureLeaveBalancesForYear(
           phReplacementCredits: phCredits,
           terminationDate: member.termination_date,
           approvedUnpaidLeaveDays,
+          absenceDays,
+          priorPeriodUnpaidLeaveDays:
+            code === "AL" ? priorYearApprovedUnpaidLeaveDays : 0,
+          priorPeriodAbsenceDays: code === "AL" ? priorPeriodAbsenceDays : 0,
         },
       );
       const openingCarry = canCarryForwardLeaveCode(code)
@@ -550,6 +576,7 @@ export async function ensureLeaveBalancesForYear(
             terminationDate: member.termination_date,
             approvedUnpaidLeaveDays:
               code === "AL" ? priorYearApprovedUnpaidLeaveDays : 0,
+            absenceDays: code === "AL" ? priorPeriodAbsenceDays : 0,
           })
         : 0;
       const key = `${member.id}:${code}`;
@@ -935,6 +962,7 @@ export async function getEmployeeLeaveBalances(input: {
   adjustments: HrLeaveBalanceAdjustment[];
   scheduledLeaves: ScheduledLeaveRange[];
   scheduleLabels: ScheduledLeaveLabelStyle[];
+  annualLeaveCalculation: AnnualLeaveCalculationBreakdown | null;
 }> {
   const { supabase, venue, permissions } = await getAuthContext();
   const year = input.leaveYear ?? currentLeaveYear();
@@ -950,6 +978,7 @@ export async function getEmployeeLeaveBalances(input: {
       adjustments: [],
       scheduledLeaves: [],
       scheduleLabels: [],
+      annualLeaveCalculation: null,
     };
   }
 
@@ -976,6 +1005,7 @@ export async function getEmployeeLeaveBalances(input: {
       adjustments: [],
       scheduledLeaves: [],
       scheduleLabels: [],
+      annualLeaveCalculation: null,
     };
   }
 
@@ -997,6 +1027,7 @@ export async function getEmployeeLeaveBalances(input: {
       adjustments: [],
       scheduledLeaves: [],
       scheduleLabels: [],
+      annualLeaveCalculation: null,
     };
   }
 
@@ -1176,6 +1207,82 @@ export async function getEmployeeLeaveBalances(input: {
     }),
   });
 
+  const joiningDate = staffRow.joining_date
+    ? String(staffRow.joining_date).slice(0, 10)
+    : null;
+  const evalDate = resolveAnnualLeaveEvalDate(
+    year,
+    new Date(),
+    terminationDate,
+  );
+  const evalIso = isoDateOnly(evalDate);
+  const uplFrom = joiningDate && /^\d{4}-\d{2}-\d{2}$/.test(joiningDate)
+    ? joiningDate
+    : evalIso;
+  const uplDays = await listStaffScheduleDays(service, venue.id, {
+    staffIds: [input.staffId],
+    fromDate: uplFrom,
+    toDate: evalIso,
+    labelCodes: ["UPL", "ABS"],
+  });
+  const unpaidLeaveDates: string[] = [];
+  const absenceDates: string[] = [];
+  for (const day of uplDays) {
+    const date = String(day.work_date).slice(0, 10);
+    const code = String(day.label_code).trim().toUpperCase();
+    if (code === "ABS") absenceDates.push(date);
+    else unpaidLeaveDates.push(date);
+  }
+  const approvedUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: evalIso,
+    unpaidLeaveDates,
+  });
+  const absenceDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: evalIso,
+    unpaidLeaveDates: absenceDates,
+  });
+  const priorPeriodUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: isoDateOnly(endOfLeaveYear(year - 1)),
+    unpaidLeaveDates,
+  });
+  const priorPeriodAbsenceDays = countApprovedUnpaidLeaveDays({
+    joiningDate,
+    asOfDate: isoDateOnly(endOfLeaveYear(year - 1)),
+    unpaidLeaveDates: absenceDates,
+  });
+  const alSeed = seedEntitlementForType("AL", joiningDate, year, policy, {
+    terminationDate,
+    approvedUnpaidLeaveDays,
+    absenceDays,
+    priorPeriodUnpaidLeaveDays,
+    priorPeriodAbsenceDays,
+  });
+  const balancesLive = balancesWithRoster.map((b) =>
+    b.leave_type_code === "AL"
+      ? { ...b, entitled: alSeed.entitled, accrued: alSeed.accrued }
+      : b,
+  );
+  const alLive = balancesLive.find((b) => b.leave_type_code === "AL");
+  const annualLeaveCalculation = buildAnnualLeaveCalculation({
+    joiningDate,
+    leaveYear: year,
+    annual: policy.annual,
+    terminationDate,
+    approvedUnpaidLeaveDays,
+    absenceDays,
+    priorPeriodUnpaidLeaveDays,
+    priorPeriodAbsenceDays,
+    annualLeaveTaken: alLive?.used ?? 0,
+    previousCarryForward: alLive?.carried_forward ?? 0,
+    adjusted: alLive?.adjusted ?? 0,
+    scheduled: alLive?.scheduled ?? 0,
+    pending: alLive?.pending ?? 0,
+    expired: alLive?.expired ?? 0,
+  });
+
   const dept = staffRow.department as { name: string } | { name: string }[] | null;
   const department =
     Array.isArray(dept) ? dept[0] ?? null : dept;
@@ -1225,10 +1332,11 @@ export async function getEmployeeLeaveBalances(input: {
       working_status,
       nationality,
     },
-    balances: balancesWithRoster,
+    balances: balancesLive,
     adjustments,
     scheduledLeaves,
     scheduleLabels,
+    annualLeaveCalculation,
   };
 }
 

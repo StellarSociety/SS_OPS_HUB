@@ -1,20 +1,34 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, useTransition } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  useTransition,
+  type ComponentType,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   ExternalLink,
   Eye,
   FolderOpen,
   Loader2,
+  Pencil,
   Trash2,
   X,
 } from "lucide-react";
 import {
   deleteStaffWorkDriveDoc,
+  renameStaffWorkDriveDoc,
   resolveWorkDriveFolderLink,
   type StaffWorkDriveDocumentListItem,
 } from "@/lib/actions/hr-workdrive";
+import {
+  RightClickMenu,
+  rightClickMenuItemClass,
+} from "@/components/layout/right-click-menu";
+import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
@@ -47,23 +61,45 @@ type StaffWorkDriveDocumentListProps = {
   items: StaffWorkDriveDocumentListItem[];
   readOnly?: boolean;
   onDeleted?: (documentId: string) => void;
+  onRenamed?: (
+    documentId: string,
+    next: { fileName: string; path: string | null },
+  ) => void;
   className?: string;
 };
 
 export function StaffWorkDriveDocumentList({
   items,
-  readOnly: _readOnly = false,
+  readOnly = false,
   onDeleted,
+  onRenamed,
   className,
 }: StaffWorkDriveDocumentListProps) {
   const [pending, startTransition] = useTransition();
   const [deleteTarget, setDeleteTarget] =
     useState<StaffWorkDriveDocumentListItem | null>(null);
+  const [renameTarget, setRenameTarget] =
+    useState<StaffWorkDriveDocumentListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [previewTarget, setPreviewTarget] =
     useState<StaffWorkDriveDocumentListItem | null>(null);
+  const [nameOverrides, setNameOverrides] = useState<
+    Record<string, { fileName: string; path: string | null }>
+  >({});
 
-  if (items.length === 0) return null;
+  const visibleItems = useMemo(
+    () =>
+      items.map((item) => {
+        const override = nameOverrides[item.id];
+        return override
+          ? { ...item, fileName: override.fileName, path: override.path }
+          : item;
+      }),
+    [items, nameOverrides],
+  );
+
+  if (visibleItems.length === 0) return null;
 
   function openFile(item: StaffWorkDriveDocumentListItem) {
     if (item.isMissing) {
@@ -92,13 +128,23 @@ export function StaffWorkDriveDocumentList({
   }
 
   function requestDelete(item: StaffWorkDriveDocumentListItem) {
-    if (deleting) return;
+    if (deleting || readOnly) return;
     setDeleteTarget(item);
+  }
+
+  function requestRename(item: StaffWorkDriveDocumentListItem) {
+    if (renaming || readOnly || item.isMissing) return;
+    setRenameTarget(item);
   }
 
   function closeDeleteDialog() {
     if (deleting) return;
     setDeleteTarget(null);
+  }
+
+  function closeRenameDialog() {
+    if (renaming) return;
+    setRenameTarget(null);
   }
 
   async function confirmDelete() {
@@ -122,21 +168,114 @@ export function StaffWorkDriveDocumentList({
     }
   }
 
+  async function confirmRename(fileName: string) {
+    if (!renameTarget || renaming) return;
+    setRenaming(true);
+    try {
+      const result = await renameStaffWorkDriveDoc({
+        documentId: renameTarget.id,
+        fileName,
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setNameOverrides((prev) => ({
+        ...prev,
+        [renameTarget.id]: {
+          fileName: result.fileName,
+          path: result.path,
+        },
+      }));
+      onRenamed?.(renameTarget.id, {
+        fileName: result.fileName,
+        path: result.path,
+      });
+      toast.saved("File renamed");
+      setRenameTarget(null);
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  const busy = pending || deleting || renaming;
+
   return (
     <>
       <ul className={cn("space-y-1.5", className)}>
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const missing = item.isMissing;
           return (
             <li
               key={item.id}
               className={cn(
-                "rounded-lg border bg-white/70 px-2.5 py-2",
+                "overflow-hidden rounded-lg border bg-white/70",
                 missing
                   ? "border-amber-300/80 bg-amber-50/50"
                   : "border-black/8",
               )}
             >
+              <RightClickMenu
+                className="px-2.5 py-2"
+                ariaLabel={`Actions for ${item.fileName}`}
+                menuClassName="w-60"
+                renderMenu={(close) => (
+                  <>
+                    <FileMenuItem
+                      icon={Eye}
+                      disabled={busy || missing}
+                      onSelect={() => {
+                        close();
+                        setPreviewTarget(item);
+                      }}
+                    >
+                      Preview
+                    </FileMenuItem>
+                    <FileMenuItem
+                      icon={ExternalLink}
+                      disabled={busy || missing}
+                      onSelect={() => {
+                        close();
+                        openFile(item);
+                      }}
+                    >
+                      Open in new tab
+                    </FileMenuItem>
+                    <FileMenuItem
+                      icon={FolderOpen}
+                      disabled={busy || !item.folderId}
+                      onSelect={() => {
+                        close();
+                        openFolder(item);
+                      }}
+                    >
+                      Open folder location
+                    </FileMenuItem>
+                    <FileMenuItem
+                      icon={Pencil}
+                      disabled={busy || missing || readOnly}
+                      onSelect={() => {
+                        close();
+                        requestRename(item);
+                      }}
+                    >
+                      Change file name
+                    </FileMenuItem>
+                    <div className="my-1 border-t border-black/5" />
+                    <FileMenuItem
+                      icon={Trash2}
+                      disabled={busy || readOnly}
+                      destructive
+                      onSelect={() => {
+                        close();
+                        requestDelete(item);
+                      }}
+                    >
+                      {missing ? "Remove from hub" : "Delete from WorkDrive"}
+                    </FileMenuItem>
+                  </>
+                )}
+              >
               <div className="flex items-start gap-2">
                 {missing ? (
                   <div className="min-w-0 flex-1">
@@ -196,7 +335,7 @@ export function StaffWorkDriveDocumentList({
                         : "Preview"
                     }
                     aria-label={`Preview ${item.fileName}`}
-                    disabled={pending || deleting || missing}
+                    disabled={busy || missing}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -214,7 +353,7 @@ export function StaffWorkDriveDocumentList({
                         : "Open in new tab"
                     }
                     aria-label={`Open ${item.fileName} in new tab`}
-                    disabled={pending || deleting || missing}
+                    disabled={busy || missing}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -228,7 +367,7 @@ export function StaffWorkDriveDocumentList({
                     type="button"
                     title="Open folder location"
                     aria-label={`Open folder for ${item.fileName}`}
-                    disabled={pending || deleting || !item.folderId}
+                    disabled={busy || !item.folderId}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -248,7 +387,7 @@ export function StaffWorkDriveDocumentList({
                         ? `Remove ${item.fileName} from hub`
                         : `Delete ${item.fileName}`
                     }
-                    disabled={pending || deleting}
+                    disabled={busy || readOnly}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -260,6 +399,7 @@ export function StaffWorkDriveDocumentList({
                   </button>
                 </div>
               </div>
+              </RightClickMenu>
             </li>
           );
         })}
@@ -282,7 +422,52 @@ export function StaffWorkDriveDocumentList({
           onConfirm={() => void confirmDelete()}
         />
       ) : null}
+
+      {renameTarget ? (
+        <RenameWorkDriveDocDialog
+          fileName={renameTarget.fileName}
+          busy={renaming}
+          onClose={closeRenameDialog}
+          onConfirm={(next) => void confirmRename(next)}
+        />
+      ) : null}
     </>
+  );
+}
+
+function FileMenuItem({
+  icon: Icon,
+  children,
+  onSelect,
+  disabled,
+  destructive,
+}: {
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  children: string;
+  onSelect: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      className={cn(
+        rightClickMenuItemClass,
+        destructive &&
+          "text-red-700 hover:bg-red-50 hover:text-red-800 focus:bg-red-50 focus:text-red-800",
+        disabled &&
+          "cursor-default text-black/30 hover:bg-transparent hover:text-black/30 focus:bg-transparent focus:text-black/30",
+      )}
+      onClick={() => {
+        if (disabled) return;
+        onSelect();
+      }}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1 leading-snug">{children}</span>
+    </button>
   );
 }
 
@@ -616,6 +801,134 @@ function DeleteWorkDriveDocDialog({
           </button>
         </div>
       </div>
+    </div>,
+    document.body,
+  );
+}
+
+function RenameWorkDriveDocDialog({
+  fileName,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  fileName: string;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (fileName: string) => void;
+}) {
+  const titleId = useId();
+  const inputId = useId();
+  const [mounted, setMounted] = useState(false);
+  const [value, setValue] = useState(fileName);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
+
+  const trimmed = value.trim();
+  const canSave = trimmed.length > 0 && !busy;
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      role="presentation"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        aria-label="Close"
+        disabled={busy}
+        onClick={onClose}
+      />
+      <form
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative z-10 w-full max-w-md overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!canSave) return;
+          onConfirm(trimmed);
+        }}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-black/45">
+              WorkDrive file
+            </p>
+            <h2
+              id={titleId}
+              className="mt-0.5 font-serif text-lg text-[#3D421F]"
+            >
+              Change file name
+            </h2>
+          </div>
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-black/45 transition hover:bg-black/5 hover:text-[#3D421F] disabled:opacity-50"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close dialog"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-5 py-4">
+          <label htmlFor={inputId} className="block text-sm text-black/65">
+            File name
+          </label>
+          <Input
+            id={inputId}
+            value={value}
+            disabled={busy}
+            autoFocus
+            maxLength={200}
+            className="h-10"
+            onFocus={(e) => {
+              const v = e.currentTarget.value;
+              const dot = v.lastIndexOf(".");
+              e.currentTarget.setSelectionRange(0, dot > 0 ? dot : v.length);
+            }}
+            onChange={(e) => setValue(e.target.value)}
+          />
+          <p className="text-[11px] text-black/45">
+            This renames the file in Zoho WorkDrive and on this staff record.
+            Leave the extension as-is unless you mean to change it.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-black/10 bg-[#faf9f6] px-5 py-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+            className="inline-flex h-9 items-center justify-center rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] transition hover:bg-black/[0.03] disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!canSave}
+            className="inline-flex h-9 items-center justify-center rounded-md bg-[#3D421F] px-3 text-sm font-semibold text-white transition hover:bg-[#2f3318] disabled:opacity-50"
+          >
+            {busy ? "Renaming…" : "Save name"}
+          </button>
+        </div>
+      </form>
     </div>,
     document.body,
   );

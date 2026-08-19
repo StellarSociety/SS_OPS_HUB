@@ -6,19 +6,18 @@
  *   where working_pool = accrued (AL / PH-REPL), or entitled when accrued is 0
  *   (allowance types: SL, ML, PL, BL, STL, HL).
  *
- * Annual leave eligibility is always based on adjusted service days (never
- * calendar months between joining and eval/termination):
- *   1. calendarServiceDays = inclusive days joining → evalDate
- *   2. evalDate = termination date when set, else today, capped at leave-year end
- *   3. adjustedServiceDays = calendarServiceDays − approvedUPLDays
- *   4. adjustedServiceMonths = adjustedServiceDays ÷ 30
- *   5. bands on adjustedServiceMonths:
+ * Annual leave (Federal Decree-Law No. 33 of 2021 Arts. 29 & 33):
+ *   1. calendarServiceDays = termination/eval date − joining date (elapsed days)
+ *   2. qualifyingServiceDays = calendarServiceDays − unpaid leave − absence days
+ *      Unpaid leave reduces the service period, never the leave balance directly.
+ *   3. qualifyingServiceMonths = qualifyingServiceDays ÷ 30 (full precision)
+ *   4. Statutory bands on qualifyingServiceMonths:
  *      ≤6 → 0
- *      >6 and <12 → full_months: floor(days/30)×daysPerMonthBeforeYear
- *                   pro_rata: (days/30)×daysPerMonthBeforeYear
- *      ≥12 → annualDaysAfterYear (default 30); current-year accrual =
- *            months elapsed in leave year × monthlyAccrualAfterYear (2.5), cap 30
- *   6. termination always forces mid-band pro_rata (roundDays), capped at term date
+ *      >6 and <12 → months × daysPerMonthBeforeYear (default 2; do not floor months)
+ *      ≥12 → 30 days per completed year + pro-rata for the incomplete year
+ *   5. Calendar-year entitled/accrued = current-year increment of that statutory
+ *      amount (careerNow − career at previous 31 Dec), so carry-forward still works.
+ *   6. Round only the final displayed/persisted entitlement (2 decimal days).
  * - Unused AL / PH-REPL may carry into the next year (capped by
  *   annual.carryForwardMaxDays); HR can override carried_forward per employee.
  */
@@ -567,7 +566,81 @@ export function completedServiceYears(
   return Math.floor(completedServiceMonths(joiningDate, asOf) / 12);
 }
 
-/** Inclusive calendar days of service from joining through `asOf` (local dates). */
+/** UAE / company 30-day service month for AL qualifying service. */
+export const SERVICE_DAYS_PER_MONTH = 30;
+
+/** Statutory floors (UAE Federal Decree-Law No. 33 of 2021 Art. 29). */
+export const STATUTORY_ZERO_ENTITLEMENT_MONTHS = 6;
+export const STATUTORY_DAYS_PER_MONTH_BEFORE_YEAR = 2;
+export const STATUTORY_ANNUAL_DAYS_AFTER_YEAR = 30;
+
+/** Decimal places for persisted / displayed leave-day quantities. */
+export const LEAVE_DAY_DISPLAY_DECIMALS = 2;
+
+/**
+ * Round leave-day quantities for display and persistence only.
+ * Internal service/entitlement math must stay at full precision until this step.
+ */
+export function roundLeaveDays(
+  n: number,
+  decimals = LEAVE_DAY_DISPLAY_DECIMALS,
+): number {
+  if (!Number.isFinite(n)) return 0;
+  const factor = 10 ** Math.max(0, decimals);
+  return Math.round(n * factor) / factor;
+}
+
+/** Format leave days for HR UI (whole numbers without trailing zeros). */
+export function formatLeaveDays(n: number): string {
+  const rounded = roundLeaveDays(n);
+  return new Intl.NumberFormat("en-AE", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: LEAVE_DAY_DISPLAY_DECIMALS,
+  }).format(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/** Format 30-day service months without rounding the value used in the formula. */
+export function formatServiceMonths(months: number): string {
+  if (!Number.isFinite(months)) return "0";
+  return new Intl.NumberFormat("en-AE", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+  }).format(months);
+}
+
+/**
+ * Company policy may exceed the statutory minimum, never undercut it.
+ * A shorter zero-entitlement period is more generous (leave starts earlier).
+ */
+export function effectiveAnnualLeavePolicy(
+  annual: HrLeaveAnnualPolicy,
+): HrLeaveAnnualPolicy {
+  const annualDaysAfterYear = Math.max(
+    annual.annualDaysAfterYear,
+    STATUTORY_ANNUAL_DAYS_AFTER_YEAR,
+  );
+  return {
+    ...annual,
+    zeroEntitlementMonths: Math.min(
+      annual.zeroEntitlementMonths,
+      STATUTORY_ZERO_ENTITLEMENT_MONTHS,
+    ),
+    daysPerMonthBeforeYear: Math.max(
+      annual.daysPerMonthBeforeYear,
+      STATUTORY_DAYS_PER_MONTH_BEFORE_YEAR,
+    ),
+    annualDaysAfterYear,
+    monthlyAccrualAfterYear: Math.max(
+      annual.monthlyAccrualAfterYear,
+      annualDaysAfterYear / 12,
+    ),
+  };
+}
+
+/**
+ * Elapsed calendar days of employment: eval/termination date − joining date.
+ * Matches `terminationDate - joiningDate` (not an inclusive date count).
+ */
 export function calendarServiceDays(
   joiningDate: string | null | undefined,
   asOf: Date = new Date(),
@@ -575,66 +648,165 @@ export function calendarServiceDays(
   if (!joiningDate?.trim()) return 0;
   const start = parseIsoDate(joiningDate);
   if (!start || start > asOf) return 0;
-  return countInclusiveDays(toIsoDateLocal(start), toIsoDateLocal(asOf));
+  const inclusive = countInclusiveDays(
+    toIsoDateLocal(start),
+    toIsoDateLocal(asOf),
+  );
+  return Math.max(0, inclusive - 1);
 }
 
 /**
- * Service days used for AL after excluding approved unpaid leave (UPL).
- * adjustedServiceDays = calendarServiceDays − approvedUnpaidLeaveDays
+ * Service days used for AL after excluding unpaid leave and unauthorised absence.
+ * qualifyingServiceDays = calendar − UPL − ABS (≥ 0)
  */
 export function adjustedServiceDays(
   joiningDate: string | null | undefined,
   asOf: Date = new Date(),
   approvedUnpaidLeaveDays = 0,
+  absenceDays = 0,
 ): number {
   const calendar = calendarServiceDays(joiningDate, asOf);
-  const unpaid = Math.max(0, Math.floor(Number(approvedUnpaidLeaveDays) || 0));
-  return Math.max(0, calendar - unpaid);
+  const unpaid = Math.max(0, Number(approvedUnpaidLeaveDays) || 0);
+  const absence = Math.max(0, Number(absenceDays) || 0);
+  return Math.max(0, calendar - unpaid - absence);
 }
 
-/** 30-day months from adjusted service days (for banding / day-based pro-rata). */
+/** Alias for adjustedServiceDays (UAE qualifying service). */
+export function qualifyingServiceDays(
+  joiningDate: string | null | undefined,
+  asOf: Date = new Date(),
+  approvedUnpaidLeaveDays = 0,
+  absenceDays = 0,
+): number {
+  return adjustedServiceDays(
+    joiningDate,
+    asOf,
+    approvedUnpaidLeaveDays,
+    absenceDays,
+  );
+}
+
+/** 30-day months from qualifying service days — full precision, never floored. */
 export function adjustedServiceMonths(adjustedDays: number): number {
-  return Math.max(0, adjustedDays) / 30;
+  return Math.max(0, adjustedDays) / SERVICE_DAYS_PER_MONTH;
+}
+
+export function qualifyingServiceMonths(adjustedDays: number): number {
+  return adjustedServiceMonths(adjustedDays);
+}
+
+export type AnnualLeaveBand = "none" | "mid" | "full";
+
+export type StatutoryAnnualLeaveResult = {
+  band: AnnualLeaveBand;
+  /** Full-precision entitlement; do not round until display/persist. */
+  entitlement: number;
+  completedYears: number;
+  remainingMonths: number;
+  rateLabel: string;
+  ratePerMonth: number;
+};
+
+/**
+ * Statutory AL from qualifying service months (UAE Art. 29).
+ * Does not floor months before applying the rate.
+ */
+export function computeStatutoryAnnualLeaveFromQualifyingMonths(
+  months: number,
+  annual: HrLeaveAnnualPolicy = DEFAULT_HR_LEAVE_POLICY_SETTINGS.annual,
+): StatutoryAnnualLeaveResult {
+  const policy = effectiveAnnualLeavePolicy(annual);
+  const qualifyingMonths = Math.max(0, months);
+
+  if (qualifyingMonths <= policy.zeroEntitlementMonths) {
+    return {
+      band: "none",
+      entitlement: 0,
+      completedYears: 0,
+      remainingMonths: qualifyingMonths,
+      rateLabel: `0 days (≤ ${policy.zeroEntitlementMonths} months qualifying service)`,
+      ratePerMonth: 0,
+    };
+  }
+
+  if (qualifyingMonths < 12) {
+    return {
+      band: "mid",
+      entitlement: qualifyingMonths * policy.daysPerMonthBeforeYear,
+      completedYears: 0,
+      remainingMonths: qualifyingMonths,
+      rateLabel: `${policy.daysPerMonthBeforeYear} days per month of qualifying service`,
+      ratePerMonth: policy.daysPerMonthBeforeYear,
+    };
+  }
+
+  const completedYears = Math.floor(qualifyingMonths / 12);
+  const remainingMonths = qualifyingMonths - completedYears * 12;
+  const entitlement =
+    completedYears * policy.annualDaysAfterYear +
+    remainingMonths * policy.monthlyAccrualAfterYear;
+
+  return {
+    band: "full",
+    entitlement,
+    completedYears,
+    remainingMonths,
+    rateLabel: `${policy.annualDaysAfterYear} days per completed year + ${policy.monthlyAccrualAfterYear} days/month of incomplete year`,
+    ratePerMonth: policy.monthlyAccrualAfterYear,
+  };
+}
+
+/** Career statutory AL from joining through `asOf`, after excluding UPL and ABS. */
+export function computeStatutoryAnnualLeaveEntitlement(
+  joiningDate: string | null | undefined,
+  asOf: Date,
+  annual: HrLeaveAnnualPolicy = DEFAULT_HR_LEAVE_POLICY_SETTINGS.annual,
+  approvedUnpaidLeaveDays = 0,
+  absenceDays = 0,
+): StatutoryAnnualLeaveResult {
+  const days = qualifyingServiceDays(
+    joiningDate,
+    asOf,
+    approvedUnpaidLeaveDays,
+    absenceDays,
+  );
+  return computeStatutoryAnnualLeaveFromQualifyingMonths(
+    qualifyingServiceMonths(days),
+    annual,
+  );
 }
 
 /**
- * Mid-band AL (> zeroEntitlementMonths and < 12 adjusted months).
- * Always day-based on adjustedServiceDays (never calendar months).
- * Termination always forces pro_rata regardless of policy partialMonthMethod.
+ * Mid-band AL (> zeroEntitlementMonths and < 12 qualifying months).
+ * Uses exact qualifying months × rate (never floors months; never deducts UPL
+ * from the leave balance). `forceProRata` is kept for callers; both paths
+ * now use the statutory full-precision formula.
  */
 export function computeMidBandAnnualLeave(
   adjustedDays: number,
   annual: HrLeaveAnnualPolicy,
-  options?: { forceProRata?: boolean },
+  _options?: { forceProRata?: boolean },
 ): number {
-  const days = Math.max(0, adjustedDays);
-  const months = adjustedServiceMonths(days);
-  if (months <= annual.zeroEntitlementMonths) return 0;
-  if (months >= 12) return annual.annualDaysAfterYear;
-
-  const method = options?.forceProRata
-    ? "pro_rata"
-    : normalizePartialMonthMethod(annual.partialMonthMethod);
-
-  // eligibleAL = (adjustedServiceDays ÷ 30) × daysPerMonthBeforeYear  (pro_rata)
-  //            | floor(adjustedServiceDays ÷ 30) × daysPerMonthBeforeYear (full_months)
-  if (method === "pro_rata") {
-    return roundDays((days / 30) * annual.daysPerMonthBeforeYear);
-  }
-
-  return roundDays(Math.floor(days / 30) * annual.daysPerMonthBeforeYear);
+  const result = computeStatutoryAnnualLeaveFromQualifyingMonths(
+    adjustedServiceMonths(adjustedDays),
+    annual,
+  );
+  return result.entitlement;
 }
 
 /**
- * Count approved UPL roster days inside [joiningDate, asOfDate] (inclusive).
- * A day counts only when it is labelled UPL and present in `approvedDates`
- * (Validation → Approve Attendance).
+ * Count unique UPL roster days inside [joiningDate, asOfDate] (inclusive of
+ * both dates for the leave itself). Roster UPL is treated as approved unpaid
+ * leave that reduces qualifying service. Attendance-validation approval is
+ * not required — gating UPL on Validation was causing calendar months × 2
+ * (e.g. 22 days) instead of excluding unpaid leave from service first.
  */
 export function countApprovedUnpaidLeaveDays(input: {
   joiningDate: string | null | undefined;
   asOfDate: string;
   unpaidLeaveDates: Iterable<string>;
-  approvedDates: ReadonlySet<string>;
+  /** Ignored; kept so existing call sites compile. */
+  approvedDates?: ReadonlySet<string>;
 }): number {
   const join = input.joiningDate?.trim()?.slice(0, 10) ?? "";
   const asOf = input.asOfDate.slice(0, 10);
@@ -649,7 +821,6 @@ export function countApprovedUnpaidLeaveDays(input: {
     const date = String(raw).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
     if (date < join || date > asOf) continue;
-    if (!input.approvedDates.has(date)) continue;
     if (seen.has(date)) continue;
     seen.add(date);
     n += 1;
@@ -658,25 +829,99 @@ export function countApprovedUnpaidLeaveDays(input: {
 }
 
 export type AnnualLeaveCalcOptions = {
+  /** Approved UPL days from joining through the eval/termination date. */
   approvedUnpaidLeaveDays?: number;
+  /** Unauthorised absence (ABS) days from joining through eval/termination. */
+  absenceDays?: number;
+  /** Approved UPL days from joining through 31 Dec of the previous leave year. */
+  priorPeriodUnpaidLeaveDays?: number;
+  /** ABS days from joining through 31 Dec of the previous leave year. */
+  priorPeriodAbsenceDays?: number;
+};
+
+export type AnnualLeaveCalculationBreakdown = {
+  joiningDate: string | null;
+  asOfDate: string;
+  terminationDate: string | null;
+  calendarServiceDays: number;
+  unpaidLeaveDays: number;
+  absenceDays: number;
+  qualifyingServiceDays: number;
+  qualifyingServiceMonths: number;
+  band: AnnualLeaveBand;
+  rateLabel: string;
+  completedYears: number;
+  remainingMonths: number;
+  /** Statutory AL for all qualifying service (full precision). */
+  careerGrossEntitlement: number;
+  /** Current leave-year increment (full precision). */
+  grossAnnualLeaveEntitlement: number;
+  /** Nearest whole day — used on leave balances. */
+  roundedGrossAnnualLeaveEntitlement: number;
+  annualLeaveAlreadyTaken: number;
+  previousCarryForwardBalance: number;
+  adjusted: number;
+  scheduled: number;
+  pending: number;
+  expired: number;
+  finalAnnualLeaveBalance: number;
+  /** Nearest whole day of the payable remainder. */
+  roundedFinalAnnualLeaveBalance: number;
 };
 
 /**
- * Statutory annual-leave entitlement (days) for a calendar leave year.
- *
- * Eligibility is always based on adjusted service days, never calendar months
- * between joining and eval/termination:
- *   adjustedServiceDays = calendarServiceDays − approvedUPLDays
- *   adjustedServiceMonths = adjustedServiceDays ÷ 30
- *
- * Bands (on adjustedServiceMonths):
- *   ≤ zeroEntitlementMonths (default 6) → 0
- *   > 6 and < 12 → mid-band (full_months or pro_rata on adjusted days)
- *   ≥ 12 → annualDaysAfterYear (default 30)
- *
- * Eval date: termination date when set, else today, capped at leave-year end.
- * Termination always forces mid-band pro_rata:
- *   eligibleAL = roundDays(adjustedServiceDays ÷ 30 × daysPerMonthBeforeYear)
+ * Calendar-year increment of statutory AL (careerNow − career at prior 31 Dec).
+ * Full precision — round with roundLeaveDays when persisting or displaying.
+ */
+export function computeAnnualLeaveYearIncrement(
+  joiningDate: string | null | undefined,
+  leaveYear: number,
+  annual: HrLeaveAnnualPolicy = DEFAULT_HR_LEAVE_POLICY_SETTINGS.annual,
+  asOf: Date = new Date(),
+  terminationDate?: string | null,
+  options?: AnnualLeaveCalcOptions,
+): number {
+  const evalDate = resolveAnnualLeaveEvalDate(
+    leaveYear,
+    asOf,
+    terminationDate,
+  );
+  const yearStart = startOfLeaveYear(leaveYear);
+  if (evalDate < yearStart) return 0;
+
+  const unpaidNow = Math.max(0, options?.approvedUnpaidLeaveDays ?? 0);
+  const absenceNow = Math.max(0, options?.absenceDays ?? 0);
+  const careerNow = computeStatutoryAnnualLeaveEntitlement(
+    joiningDate,
+    evalDate,
+    annual,
+    unpaidNow,
+    absenceNow,
+  ).entitlement;
+
+  const priorEnd = endOfLeaveYear(leaveYear - 1);
+  const join = joiningDate?.trim() ? parseIsoDate(joiningDate) : null;
+  if (!join || join > priorEnd) return Math.max(0, careerNow);
+
+  const unpaidPrior = Math.max(
+    0,
+    options?.priorPeriodUnpaidLeaveDays ?? 0,
+  );
+  const absencePrior = Math.max(0, options?.priorPeriodAbsenceDays ?? 0);
+  const careerPrior = computeStatutoryAnnualLeaveEntitlement(
+    joiningDate,
+    priorEnd,
+    annual,
+    unpaidPrior,
+    absencePrior,
+  ).entitlement;
+
+  return Math.max(0, careerNow - careerPrior);
+}
+
+/**
+ * Statutory annual-leave entitlement (days) for a calendar leave year —
+ * the increment of career statutory AL that falls in `leaveYear`.
  */
 export function computeAnnualLeaveEntitlement(
   joiningDate: string | null | undefined,
@@ -686,30 +931,19 @@ export function computeAnnualLeaveEntitlement(
   terminationDate?: string | null,
   options?: AnnualLeaveCalcOptions,
 ): number {
-  const evalDate = resolveAnnualLeaveEvalDate(
+  return computeAnnualLeaveYearIncrement(
+    joiningDate,
     leaveYear,
+    annual,
     asOf,
     terminationDate,
+    options,
   );
-  const unpaid = Math.max(0, options?.approvedUnpaidLeaveDays ?? 0);
-  const adjustedDays = adjustedServiceDays(joiningDate, evalDate, unpaid);
-  const months = adjustedServiceMonths(adjustedDays);
-
-  // Banding uses adjusted service only (UPL already deducted).
-  if (months <= annual.zeroEntitlementMonths) return 0;
-  if (months >= 12) return annual.annualDaysAfterYear;
-
-  return computeMidBandAnnualLeave(adjustedDays, annual, {
-    forceProRata: Boolean(terminationDate?.trim()),
-  });
 }
 
 /**
- * Accrued AL within a calendar year for display / seeding.
- * Under 12 adjusted months: accrued = entitlement (same day-based figure).
- * At/after 12 adjusted months: months elapsed in the leave year ×
- * monthlyAccrualAfterYear (default 2.5), capped at entitlement (default 30).
- * Banding / under-1-year amounts still use adjusted service (UPL excluded).
+ * Accrued AL within a calendar year. Same as the year increment: unpaid leave
+ * is excluded from qualifying service first, then the statutory band is applied.
  */
 export function computeAnnualLeaveAccrued(
   joiningDate: string | null | undefined,
@@ -719,7 +953,7 @@ export function computeAnnualLeaveAccrued(
   terminationDate?: string | null,
   options?: AnnualLeaveCalcOptions,
 ): number {
-  const entitlement = computeAnnualLeaveEntitlement(
+  return computeAnnualLeaveYearIncrement(
     joiningDate,
     leaveYear,
     annual,
@@ -727,39 +961,102 @@ export function computeAnnualLeaveAccrued(
     terminationDate,
     options,
   );
-  if (entitlement <= 0) return 0;
+}
 
+/**
+ * Auditable AL calculation: qualifying service first, then entitlement,
+ * then carry-forward, then leave already taken. Unpaid leave is never
+ * subtracted from the leave balance.
+ */
+export function buildAnnualLeaveCalculation(input: {
+  joiningDate: string | null | undefined;
+  leaveYear: number;
+  annual?: HrLeaveAnnualPolicy;
+  asOf?: Date;
+  terminationDate?: string | null;
+  approvedUnpaidLeaveDays?: number;
+  absenceDays?: number;
+  priorPeriodUnpaidLeaveDays?: number;
+  priorPeriodAbsenceDays?: number;
+  annualLeaveTaken?: number;
+  previousCarryForward?: number;
+  adjusted?: number;
+  scheduled?: number;
+  pending?: number;
+  expired?: number;
+}): AnnualLeaveCalculationBreakdown {
+  const annual = input.annual ?? DEFAULT_HR_LEAVE_POLICY_SETTINGS.annual;
   const evalDate = resolveAnnualLeaveEvalDate(
-    leaveYear,
-    asOf,
-    terminationDate,
+    input.leaveYear,
+    input.asOf ?? new Date(),
+    input.terminationDate,
   );
-  const unpaid = Math.max(0, options?.approvedUnpaidLeaveDays ?? 0);
-  const adjustedDays = adjustedServiceDays(joiningDate, evalDate, unpaid);
-  const months = adjustedServiceMonths(adjustedDays);
+  const unpaidNow = Math.max(0, input.approvedUnpaidLeaveDays ?? 0);
+  const absenceNow = Math.max(0, input.absenceDays ?? 0);
+  const service = {
+    calendarServiceDays: calendarServiceDays(input.joiningDate, evalDate),
+    unpaidLeaveDays: unpaidNow,
+    absenceDays: absenceNow,
+    qualifyingServiceDays: qualifyingServiceDays(
+      input.joiningDate,
+      evalDate,
+      unpaidNow,
+      absenceNow,
+    ),
+  };
+  const months = qualifyingServiceMonths(service.qualifyingServiceDays);
+  const career = computeStatutoryAnnualLeaveFromQualifyingMonths(months, annual);
+  const yearGross = computeAnnualLeaveYearIncrement(
+    input.joiningDate,
+    input.leaveYear,
+    annual,
+    input.asOf ?? new Date(),
+    input.terminationDate,
+    {
+      approvedUnpaidLeaveDays: unpaidNow,
+      absenceDays: absenceNow,
+      priorPeriodUnpaidLeaveDays: input.priorPeriodUnpaidLeaveDays ?? 0,
+      priorPeriodAbsenceDays: input.priorPeriodAbsenceDays ?? 0,
+    },
+  );
+  const taken = Math.max(0, input.annualLeaveTaken ?? 0);
+  const carry = input.previousCarryForward ?? 0;
+  const adjusted = input.adjusted ?? 0;
+  const scheduled = Math.max(0, input.scheduled ?? 0);
+  const pending = Math.max(0, input.pending ?? 0);
+  const expired = Math.max(0, input.expired ?? 0);
+  const finalAnnualLeaveBalance =
+    yearGross + carry + adjusted - taken - scheduled - pending - expired;
+  const roundedGross = roundDays(yearGross);
+  const roundedFinal = roundDays(
+    roundedGross + carry + adjusted - taken - scheduled - pending - expired,
+  );
 
-  // Same corrected eligible value for mid-band / termination settlement.
-  if (months < 12) {
-    return entitlement;
-  }
-
-  const yearStart = startOfLeaveYear(leaveYear);
-  const join = joiningDate?.trim() ? parseIsoDate(joiningDate) : null;
-  const accrualStart = join && join > yearStart ? join : yearStart;
-  const method = resolvePartialMonthMethod(annual, terminationDate);
-  const monthsFromYearStart =
-    method === "pro_rata"
-      ? Math.max(
-          0,
-          serviceMonthsForAccrual(
-            toIsoDateLocal(accrualStart),
-            evalDate,
-            "pro_rata",
-          ),
-        )
-      : monthsBetween(accrualStart, evalDate);
-  const accrued = monthsFromYearStart * annual.monthlyAccrualAfterYear;
-  return Math.min(entitlement, Math.max(0, roundDays(accrued)));
+  return {
+    joiningDate: input.joiningDate?.trim()?.slice(0, 10) || null,
+    asOfDate: toIsoDateLocal(evalDate),
+    terminationDate: input.terminationDate?.trim()?.slice(0, 10) || null,
+    calendarServiceDays: service.calendarServiceDays,
+    unpaidLeaveDays: service.unpaidLeaveDays,
+    absenceDays: service.absenceDays,
+    qualifyingServiceDays: service.qualifyingServiceDays,
+    qualifyingServiceMonths: months,
+    band: career.band,
+    rateLabel: career.rateLabel,
+    completedYears: career.completedYears,
+    remainingMonths: career.remainingMonths,
+    careerGrossEntitlement: career.entitlement,
+    grossAnnualLeaveEntitlement: yearGross,
+    roundedGrossAnnualLeaveEntitlement: roundedGross,
+    annualLeaveAlreadyTaken: taken,
+    previousCarryForwardBalance: carry,
+    adjusted,
+    scheduled,
+    pending,
+    expired,
+    finalAnnualLeaveBalance,
+    roundedFinalAnnualLeaveBalance: roundedFinal,
+  };
 }
 
 export function availableBalance(
@@ -782,7 +1079,7 @@ export function availableBalance(
       ? num(row.accrued)
       : num(row.entitled);
 
-  return roundDays(
+  return roundLeaveDays(
     workingPool +
       num(row.carried_forward) +
       num(row.adjusted) -
@@ -814,12 +1111,18 @@ export function seedEntitlementForType(
   options?: {
     onProbation?: boolean;
     asOf?: Date;
-    /** Cap AL calc at this date and force day-based pro-rata (mid-band). */
+    /** Cap AL calc at this date. */
     terminationDate?: string | null;
     /** Days earned by working on public holidays (PH-REPL). */
     phReplacementCredits?: number;
-    /** Approved UPL days excluded from AL service period. */
+    /** Approved UPL days excluded from AL service period (through eval). */
     approvedUnpaidLeaveDays?: number;
+    /** Unauthorised absence (ABS) days excluded from AL service (through eval). */
+    absenceDays?: number;
+    /** Approved UPL days through 31 Dec of the previous leave year. */
+    priorPeriodUnpaidLeaveDays?: number;
+    /** ABS days through 31 Dec of the previous leave year. */
+    priorPeriodAbsenceDays?: number;
   },
 ): { entitled: number; accrued: number } {
   const asOf = options?.asOf ?? new Date();
@@ -828,11 +1131,14 @@ export function seedEntitlementForType(
   const terminationDate = options?.terminationDate ?? null;
   const alOptions: AnnualLeaveCalcOptions = {
     approvedUnpaidLeaveDays: options?.approvedUnpaidLeaveDays ?? 0,
+    absenceDays: options?.absenceDays ?? 0,
+    priorPeriodUnpaidLeaveDays: options?.priorPeriodUnpaidLeaveDays ?? 0,
+    priorPeriodAbsenceDays: options?.priorPeriodAbsenceDays ?? 0,
   };
 
   switch (code) {
     case "AL": {
-      const entitled = computeAnnualLeaveEntitlement(
+      const increment = computeAnnualLeaveYearIncrement(
         joiningDate,
         leaveYear,
         policy.annual,
@@ -840,15 +1146,8 @@ export function seedEntitlementForType(
         terminationDate,
         alOptions,
       );
-      const accrued = computeAnnualLeaveAccrued(
-        joiningDate,
-        leaveYear,
-        policy.annual,
-        asOf,
-        terminationDate,
-        alOptions,
-      );
-      return { entitled, accrued };
+      const days = roundDays(increment);
+      return { entitled: days, accrued: days };
     }
     case "SL-FP": {
       if (options?.onProbation && sick.unpaidDuringProbation) {
@@ -973,7 +1272,7 @@ export function carryForwardAmount(
 ): number {
   if (available <= 0) return 0;
   if (annual.carryForwardMaxDays <= 0) return 0;
-  return roundDays(Math.min(available, annual.carryForwardMaxDays));
+  return roundLeaveDays(Math.min(available, annual.carryForwardMaxDays));
 }
 
 /**
@@ -1001,6 +1300,8 @@ export function computeOpeningCarryForward(input: {
   terminationDate?: string | null;
   /** Approved UPL days through prior-year eval (excludes from AL service). */
   approvedUnpaidLeaveDays?: number;
+  /** ABS days through prior-year eval (excludes from AL service). */
+  absenceDays?: number;
 }): number {
   if (!canCarryForwardLeaveCode(input.code)) return 0;
 
@@ -1017,7 +1318,10 @@ export function computeOpeningCarryForward(input: {
       input.policy.annual,
       endOfLeaveYear(priorYear),
       input.terminationDate,
-      { approvedUnpaidLeaveDays: input.approvedUnpaidLeaveDays ?? 0 },
+      {
+        approvedUnpaidLeaveDays: input.approvedUnpaidLeaveDays ?? 0,
+        absenceDays: input.absenceDays ?? 0,
+      },
     );
   }
 
@@ -1084,21 +1388,12 @@ function parseIsoDate(value: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function monthsBetween(from: Date, to: Date): number {
-  if (to < from) return 0;
-  let months =
-    (to.getFullYear() - from.getFullYear()) * 12 +
-    (to.getMonth() - from.getMonth());
-  if (to.getDate() < from.getDate()) months -= 1;
-  return Math.max(0, months);
-}
-
 function num(v: number | null | undefined): number {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Round leave-day quantities to whole days (nearest; half rounds toward +∞). */
+/** Round usage counts to whole days (roster days). Prefer roundLeaveDays for AL. */
 export function roundDays(n: number): number {
   return Math.round(n);
 }
@@ -1144,7 +1439,7 @@ function workingPool(
     | undefined,
 ): number {
   if (!row) return 0;
-  return roundDays(
+  return roundLeaveDays(
     num(row.accrued) + num(row.carried_forward) + num(row.adjusted),
   );
 }
@@ -1561,11 +1856,11 @@ export function buildEmployeeLeaveSummary(
   const alScheduled = hasSchedule
     ? alSplit.scheduledDates.length
     : num(al?.scheduled);
-  const alAvail = workingPool(al);
+  const alAvail = roundDays(workingPool(al));
   const alBalance = hasSchedule
     ? roundDays(alAvail - alUsed - alScheduled)
     : al
-      ? availableBalance(al)
+      ? roundDays(availableBalance(al))
       : 0;
 
   const sickAlloc = allocateSickLeaveScheduleDays(scheduleDays, policy.sick);
@@ -1607,6 +1902,105 @@ export function buildEmployeeLeaveSummary(
     phAvail,
     phUsed,
     phBalance,
+  };
+}
+
+export type LeaveBalanceTriple = {
+  alEligible: number;
+  alLeft: number;
+  alTaken: number;
+  phEligible: number;
+  phLeft: number;
+  phTaken: number;
+};
+
+export type LeaveBalanceTripleSnapshot = LeaveBalanceTriple & {
+  year: number;
+  alScheduled: number;
+  phScheduled: number;
+  days: Array<{ workDate: string; labelCode: string }>;
+};
+
+function leaveYearUsageCounts(
+  days: Array<{ workDate: string; labelCode: string }>,
+  year: number,
+  holidayDates: Iterable<string>,
+  asOf: Date,
+) {
+  const refs = days
+    .filter((d) => d.workDate.startsWith(`${year}-`))
+    .map((d) => ({
+      work_date: d.workDate,
+      label_code: d.labelCode,
+    }));
+  const al = splitAnnualLeaveScheduleDays(refs, asOf);
+  const ph = splitLeaveScheduleDaysByCode(refs, "PH-REPL", asOf);
+  return {
+    alTaken: al.usedDates.length,
+    alScheduled: al.scheduledDates.length,
+    phTaken: ph.usedDates.length,
+    phScheduled: ph.scheduledDates.length,
+    phCredits: countPhReplacementCredits({
+      holidayDates,
+      scheduleDays: refs,
+    }),
+  };
+}
+
+/**
+ * Recompute APL / PH eligible-left-taken after overlaying live roster labels
+ * (Validation drafts and unsaved/saved day patches) onto a year snapshot.
+ */
+export function liveLeaveBalanceTriple(input: {
+  snapshot: LeaveBalanceTripleSnapshot;
+  overlay: Array<{ workDate: string; labelCode: string | null }>;
+  holidayDates: Iterable<string>;
+  asOf?: Date;
+}): LeaveBalanceTriple {
+  const asOf = input.asOf ?? new Date();
+  const year = input.snapshot.year;
+  const merged = new Map<string, string>();
+  for (const day of input.snapshot.days) {
+    merged.set(day.workDate, day.labelCode);
+  }
+  for (const day of input.overlay) {
+    const date = day.workDate.slice(0, 10);
+    if (!date.startsWith(`${year}-`)) continue;
+    if (!day.labelCode?.trim()) merged.delete(date);
+    else merged.set(date, day.labelCode);
+  }
+
+  const mergedDays = [...merged.entries()].map(([workDate, labelCode]) => ({
+    workDate,
+    labelCode,
+  }));
+  const base = leaveYearUsageCounts(
+    input.snapshot.days,
+    year,
+    input.holidayDates,
+    asOf,
+  );
+  const live = leaveYearUsageCounts(
+    mergedDays,
+    year,
+    input.holidayDates,
+    asOf,
+  );
+  const dAlTaken = live.alTaken - base.alTaken;
+  const dAlScheduled = live.alScheduled - base.alScheduled;
+  const dPhTaken = live.phTaken - base.phTaken;
+  const dPhScheduled = live.phScheduled - base.phScheduled;
+  const dPhCredits = live.phCredits - base.phCredits;
+
+  return {
+    alEligible: roundDays(input.snapshot.alEligible),
+    alTaken: roundDays(input.snapshot.alTaken + dAlTaken),
+    alLeft: roundDays(input.snapshot.alLeft - dAlTaken - dAlScheduled),
+    phEligible: roundDays(input.snapshot.phEligible + dPhCredits),
+    phTaken: roundDays(input.snapshot.phTaken + dPhTaken),
+    phLeft: roundDays(
+      input.snapshot.phLeft + dPhCredits - dPhTaken - dPhScheduled,
+    ),
   };
 }
 

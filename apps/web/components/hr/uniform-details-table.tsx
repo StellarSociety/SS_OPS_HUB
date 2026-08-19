@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Loader2, Pencil, Plus, Search, Trash2, Truck } from "lucide-react";
+import { Loader2, Pencil, Plus, Search, Shirt, Trash2, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { UniformPieceDialog } from "@/components/hr/uniform-piece-dialog";
 import { ScopedLink } from "@/components/layout/scoped-link";
@@ -26,6 +26,43 @@ type UniformDetailsTableProps = {
   positions: Position[];
   canManage?: boolean;
 };
+
+function UniformPiecePhoto({
+  name,
+  imageUrl,
+}: {
+  name: string;
+  imageUrl: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const src = imageUrl.trim();
+  const showImage = Boolean(src) && !failed;
+
+  return (
+    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-black/10 bg-black/[0.04]">
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element -- WorkDrive / storage URL
+        <img
+          src={src}
+          alt=""
+          className="h-full w-full object-cover"
+          draggable={false}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span
+          className="flex h-full w-full items-center justify-center text-black/35"
+          aria-hidden
+        >
+          <Shirt className="h-5 w-5" />
+        </span>
+      )}
+      <span className="sr-only">
+        {showImage ? `Photo of ${name}` : `No photo for ${name}`}
+      </span>
+    </div>
+  );
+}
 
 function formatEntitlementLabel(
   departmentId: string,
@@ -75,6 +112,12 @@ export function UniformDetailsTable({
   }
 
   function handleDelete(piece: UniformPieceRow) {
+    if (piece.stock_assigned > 0) {
+      toast.error(
+        "This uniform piece is assigned to employees and cannot be deleted.",
+      );
+      return;
+    }
     if (
       !window.confirm(
         `Delete "${piece.name}" from the uniform catalog? This cannot be undone.`,
@@ -163,9 +206,18 @@ export function UniformDetailsTable({
               <tbody className="divide-y divide-black/5">
                 {filtered.map((piece) => {
                   const busy = pending && actionId === piece.id;
+                  const assignedToEmployees = piece.stock_assigned > 0;
                   return (
                     <tr key={piece.id} className="text-[#3D421F]">
-                      <td className="px-4 py-3 font-medium">{piece.name}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <UniformPiecePhoto
+                            name={piece.name}
+                            imageUrl={piece.image_url}
+                          />
+                          <span className="font-medium">{piece.name}</span>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-black/65">
                         {piece.details || "—"}
                       </td>
@@ -251,10 +303,19 @@ export function UniformDetailsTable({
                             </button>
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || assignedToEmployees}
                               onClick={() => handleDelete(piece)}
-                              className="rounded-md p-1.5 text-black/45 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40"
-                              aria-label={`Delete ${piece.name}`}
+                              className="rounded-md p-1.5 text-black/45 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+                              title={
+                                assignedToEmployees
+                                  ? "Assigned to employees — return the pieces before deleting"
+                                  : "Delete uniform piece"
+                              }
+                              aria-label={
+                                assignedToEmployees
+                                  ? `${piece.name} is assigned to employees and cannot be deleted`
+                                  : `Delete ${piece.name}`
+                              }
                             >
                               {busy ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />

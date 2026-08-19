@@ -75,10 +75,12 @@ export async function POST(request: Request) {
   });
 
   if (!result.ok) {
-    return NextResponse.json(
-      { ok: false, error: result.error },
-      { status: result.status ?? 400 },
-    );
+    const status = result.status === 413 ? 400 : (result.status ?? 400);
+    const error =
+      result.status === 413
+        ? "This file is too large to upload. Compress it or use a smaller PDF/photo."
+        : result.error;
+    return NextResponse.json({ ok: false, error }, { status });
   }
 
   return NextResponse.json({

@@ -281,8 +281,8 @@ export function LeaveCalendarClient({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-black/45">
-            Leave type
+          <span className="text-sm font-medium text-[#3D421F]">
+            Select Leave Kind
           </span>
           <button
             type="button"
@@ -298,7 +298,7 @@ export function LeaveCalendarClient({
             Clear selection
           </button>
         </div>
-        <div className="-mx-1 flex flex-nowrap items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
+        <div className="-mx-1 flex flex-nowrap items-center gap-1.5 overflow-x-auto px-1 py-[10px]">
           {leaveTypes.map((type) => {
             const selected = selectedCodes.includes(type.code);
             return (

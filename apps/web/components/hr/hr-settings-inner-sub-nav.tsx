@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BadgeCheck,
   Bell,
   BriefcaseBusiness,
   Building2,
@@ -20,6 +19,7 @@ import {
   LayoutTemplate,
   ListTree,
   Mail,
+  MailCheck,
   Mails,
   PartyPopper,
   Package,
@@ -315,7 +315,7 @@ const EMAILS_TABS: Tab[] = [
   {
     href: HR_SETTINGS_EMAILS_ACKNOWLEDGEMENTS_HREF,
     label: "Acknowledgements",
-    icon: BadgeCheck,
+    icon: MailCheck,
   },
   {
     href: HR_SETTINGS_EMAILS_PAY_HREF,

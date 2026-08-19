@@ -47,6 +47,7 @@ import {
   postTerminationBlockMessage,
   scheduleCellKey,
   scheduleDayLabelStyle,
+  scheduleDaysToCellMap,
   type ScheduleAttendanceCell,
   type ScheduleCellValue,
   type ScheduleDayLabel,
@@ -507,18 +508,7 @@ export function SchedulesWeekCalendar({
           shift_template_id: string | null;
         }[],
       ) {
-        const next: Record<string, ScheduleCellValue> = {};
-        for (const day of days) {
-          if (!knownCodes.has(day.label_code) && day.label_code !== "LP") continue;
-          const code = day.label_code === "LP" ? "AL" : day.label_code;
-          if (!knownCodes.has(code)) continue;
-          next[scheduleCellKey(day.staff_id, day.work_date)] = {
-            labelCode: code,
-            shiftTemplateId:
-              code === "SHIFT" ? (day.shift_template_id ?? null) : null,
-          };
-        }
-        return next;
+        return scheduleDaysToCellMap(days, knownCodes);
       }
 
       if (needDays && needSections) {
@@ -813,6 +803,24 @@ export function SchedulesWeekCalendar({
   function stageLabel(labelCode: string | null) {
     if (labelCode === null) {
       stageValue(null);
+      return;
+    }
+    if (labelCode === "ABS") {
+      // No-show: keep each cell's planned shift times.
+      if (!canEdit || selected.size === 0) return;
+      setDrafts((current) => {
+        let next = current;
+        for (const cell of selected.values()) {
+          const existing = displayAssignments[cell.key] ?? null;
+          next = reconcileDraft(next, saved, cell.key, {
+            labelCode: "ABS",
+            shiftTemplateId: existing?.shiftTemplateId ?? null,
+          });
+        }
+        return next;
+      });
+      setSelected(new Map());
+      setError(null);
       return;
     }
     stageValue({ labelCode, shiftTemplateId: null });

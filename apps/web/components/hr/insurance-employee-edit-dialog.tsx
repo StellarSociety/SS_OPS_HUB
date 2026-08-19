@@ -915,6 +915,10 @@ export function InsuranceEmployeeEditDialog({
                         void reloadRecords(activeRow.staff.id);
                         onSaved();
                       }}
+                      onRenamed={() => {
+                        void reloadRecords(activeRow.staff.id);
+                        onSaved();
+                      }}
                     />
                   ) : (
                     <p className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-4 text-center text-[11px] text-black/40">

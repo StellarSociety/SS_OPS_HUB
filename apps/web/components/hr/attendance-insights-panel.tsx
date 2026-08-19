@@ -11,14 +11,27 @@ import { StatusBadge } from "@/components/hr/status-badge";
 import { usePersistedHrAttendanceInsightsFilters } from "@/components/hr/use-persisted-hr-filters";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { Button } from "@/components/ui/button";
+import { exportAttendanceInsightsPdf } from "@/lib/hr/attendance-insights-pdf";
+import {
+  formatPayrollMonthLabel,
+  mergePayrollSettings,
+  payrollMonthContainingDate,
+  resolvePayrollPeriod,
+} from "@/lib/hr/payroll";
+import {
+  formatIsoDateShort,
+  formatWeekRangeLabel,
+  getIsoWeekNumber,
+} from "@/lib/hr/schedules";
 import type { HrAttendanceDay } from "@/lib/types/database";
 import {
   isOffBoardingForWeek,
   resolveWorkingStatus,
   WORKING_STATUS,
 } from "@/lib/hr/working-status";
-import { X } from "lucide-react";
-import { useMemo } from "react";
+import { FileText, X } from "lucide-react";
+import { useMemo, useState } from "react";
 
 type StaffLookup = {
   id: string;
@@ -52,6 +65,9 @@ type Props = {
   payrollPeriodStartDay: number;
   /** Venue payroll period end day (1–28). */
   payrollPeriodEndDay: number;
+  venueName: string;
+  venueLogoUrl?: string | null;
+  userDisplayName: string;
 };
 
 type StaffInsightRow = {
@@ -127,6 +143,13 @@ function isPunchShiftLabel(labelCode: string | null | undefined): boolean {
   return (labelCode ?? "").trim().toUpperCase() === "SHIFT";
 }
 
+function parseIsoLocal(iso: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(y!, m! - 1, d!);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function workDateInInsightsFilter(
   workDate: string,
   opts: {
@@ -155,7 +178,12 @@ export function AttendanceInsightsPanel({
   loadedToDate,
   payrollPeriodStartDay,
   payrollPeriodEndDay,
+  venueName,
+  venueLogoUrl = null,
+  userDisplayName,
 }: Props) {
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const {
     dayStart,
     dayEnd,
@@ -469,6 +497,98 @@ export function AttendanceInsightsPanel({
     setSelectedWeekKeys([]);
   }
 
+  const periodLabel = useMemo(() => {
+    if (hasDayRange) {
+      const settings = mergePayrollSettings({
+        periodStartDay: payrollPeriodStartDay,
+        periodEndDay: payrollPeriodEndDay,
+      });
+      try {
+        const month = payrollMonthContainingDate(rangeEnd, settings);
+        const period = resolvePayrollPeriod(month, settings);
+        if (period.periodStart === rangeStart && period.periodEnd === rangeEnd) {
+          return `Payroll · ${formatPayrollMonthLabel(month)} (${formatIsoDateShort(rangeStart)} - ${formatIsoDateShort(rangeEnd)})`;
+        }
+      } catch {
+        // Custom day range, not a payroll window.
+      }
+      return `Days · ${formatIsoDateShort(rangeStart)} - ${formatIsoDateShort(rangeEnd)}`;
+    }
+    if (hasWeekFilter) {
+      const sorted = [...selectedWeekKeys].sort();
+      const labels = sorted.map((key) => {
+        const date = parseIsoLocal(key);
+        if (!date) return key;
+        return `W${getIsoWeekNumber(date)} ${formatWeekRangeLabel(date)}`;
+      });
+      if (labels.length <= 2) {
+        return `Weeks · ${labels.join("; ")}`;
+      }
+      return `Weeks · ${labels[0]} ... ${labels[labels.length - 1]} (${labels.length} weeks)`;
+    }
+    return `Loaded · ${formatIsoDateShort(loadedFromDate)} - ${formatIsoDateShort(loadedToDate)}`;
+  }, [
+    hasDayRange,
+    hasWeekFilter,
+    rangeStart,
+    rangeEnd,
+    selectedWeekKeys,
+    loadedFromDate,
+    loadedToDate,
+    payrollPeriodStartDay,
+    payrollPeriodEndDay,
+  ]);
+
+  async function exportCurrentViewPdf() {
+    if (groups.length === 0) return;
+    setExportError(null);
+    setExportingPdf(true);
+    try {
+      await exportAttendanceInsightsPdf({
+        venueName,
+        venueLogoUrl,
+        periodLabel,
+        fromDate: statusPeriod.fromDate,
+        toDate: statusPeriod.toDate,
+        summaryLine: `${staffCount} staff · ${filteredDays.length} day${filteredDays.length === 1 ? "" : "s"} · ${formatHours(totalHours)} hours total`,
+        groups: groups.map((group) => ({
+          departmentName: group.departmentName,
+          totalHours: group.totalHours,
+          dayCount: group.dayCount,
+          completeDayCount: group.completeDayCount,
+          punchCompletePct: group.punchCompletePct,
+          rows: group.rows.map((row) => ({
+            empNo: row.empNo,
+            fullName: row.fullName,
+            employmentStatus: row.employmentStatus,
+            workingStatus: row.workingStatus,
+            dayCount: row.dayCount,
+            completeDayCount: row.completeDayCount,
+            totalHours: row.totalHours,
+            punchCompletePct: row.punchCompletePct,
+          })),
+        })),
+        departmentScores: [...punchDepartmentRows]
+          .sort((a, b) => a.departmentName.localeCompare(b.departmentName))
+          .map((row) => ({
+            departmentName: row.departmentName,
+            staffCount: row.staffCount,
+            dayCount: row.dayCount,
+            completeDayCount: row.completeDayCount,
+            punchCompletePct: row.punchCompletePct,
+          })),
+        exportedAt: new Date(),
+        userDisplayName,
+      });
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "Could not export insights PDF.",
+      );
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
   if (!days.length) {
     return (
       <div className="rounded-xl border border-dashed border-black/15 bg-white/40 px-5 py-10 text-center">
@@ -482,46 +602,72 @@ export function AttendanceInsightsPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3">
-        <AttendanceDayRangePicker
-          startDate={dayStart}
-          endDate={dayEnd}
-          onChange={({ startDate, endDate }) => {
-            setDayRange(startDate, endDate);
-            if (startDate || endDate) {
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <AttendanceDayRangePicker
+            startDate={dayStart}
+            endDate={dayEnd}
+            onChange={({ startDate, endDate }) => {
+              setDayRange(startDate, endDate);
+              if (startDate || endDate) {
+                setSelectedWeekKeys([]);
+              }
+            }}
+          />
+          <AttendanceMultiWeekPicker
+            selectedWeekKeys={selectedWeekKeys}
+            onChange={(keys) => {
+              setSelectedWeekKeys(keys);
+              if (keys.length > 0) {
+                setDayRange("", "");
+              }
+            }}
+          />
+          <AttendancePayrollMonthPicker
+            fieldLabel="Payroll"
+            periodStartDay={payrollPeriodStartDay}
+            periodEndDay={payrollPeriodEndDay}
+            startDate={dayStart}
+            endDate={dayEnd}
+            onChange={({ startDate, endDate }) => {
+              setDayRange(startDate, endDate);
               setSelectedWeekKeys([]);
+            }}
+          />
+          <button
+            type="button"
+            onClick={clearFilters}
+            disabled={!hasActiveFilters}
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 text-sm text-black/60 hover:bg-black/[0.02] disabled:pointer-events-none disabled:opacity-40"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear filters
+          </button>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={exportingPdf || groups.length === 0}
+            onClick={() => {
+              void exportCurrentViewPdf();
+            }}
+            className="h-10 shrink-0 gap-1.5 border border-black/15 bg-white px-3 text-[#3D421F] hover:bg-black/5"
+            title={
+              groups.length === 0
+                ? "No staff in the current view"
+                : "Download PDF of the current insights tables"
             }
-          }}
-        />
-        <AttendanceMultiWeekPicker
-          selectedWeekKeys={selectedWeekKeys}
-          onChange={(keys) => {
-            setSelectedWeekKeys(keys);
-            if (keys.length > 0) {
-              setDayRange("", "");
-            }
-          }}
-        />
-        <AttendancePayrollMonthPicker
-          fieldLabel="Payroll"
-          periodStartDay={payrollPeriodStartDay}
-          periodEndDay={payrollPeriodEndDay}
-          startDate={dayStart}
-          endDate={dayEnd}
-          onChange={({ startDate, endDate }) => {
-            setDayRange(startDate, endDate);
-            setSelectedWeekKeys([]);
-          }}
-        />
-        <button
-          type="button"
-          onClick={clearFilters}
-          disabled={!hasActiveFilters}
-          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-black/10 bg-white px-3 text-sm text-black/60 hover:bg-black/[0.02] disabled:pointer-events-none disabled:opacity-40"
-        >
-          <X className="h-3.5 w-3.5" />
-          Clear filters
-        </button>
+          >
+            <FileText className="h-4 w-4" />
+            {exportingPdf ? "Exporting…" : "PDF Export"}
+          </Button>
+          {exportError ? (
+            <p className="max-w-xs text-right text-xs text-rose-800">
+              {exportError}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <AttendanceInsightsPunchCharts

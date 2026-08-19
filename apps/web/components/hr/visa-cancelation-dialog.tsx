@@ -13,6 +13,7 @@ import {
 } from "@/lib/hr/certification-costs";
 import { upsertVisaRequestDraftBatch } from "@/lib/hr/visa-request-drafts-storage";
 import type { VisaEmployeeRow } from "@/lib/hr/types";
+import { VisaCancelationFileField } from "@/components/hr/visa-cancelation-file-field";
 import { DateInput } from "@/components/ui/date-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -178,7 +179,7 @@ export function VisaCancelationDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="visa-cancelation-title"
-        className="w-full max-w-md rounded-2xl border border-black/10 bg-white shadow-xl"
+        className="w-full max-w-lg rounded-2xl border border-black/10 bg-white shadow-xl"
       >
         <div className="flex items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
           <div>
@@ -216,6 +217,15 @@ export function VisaCancelationDialog({
               inputClassName="h-10"
             />
           </div>
+
+          <VisaCancelationFileField
+            staffId={row.staff.id}
+            empNo={row.staff.emp_no}
+            fullName={row.staff.full_name}
+            fileSlotId={row.latestRecordId}
+            docExpiry={cancelDate}
+            readOnly={pending}
+          />
 
           <div className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-black/45">

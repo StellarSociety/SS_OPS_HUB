@@ -27,6 +27,7 @@ import {
   unarchiveOffboardingProcess,
 } from "@/lib/actions/hr-offboarding";
 import { listBoardingNoticeEmails, countSentBoardingNoticeEmailsByStaff } from "@/lib/actions/hr-boarding-email";
+import { formatLeaveDays } from "@/lib/hr/leave";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import {
   OFFBOARDING_PROCESS_STATUS_LABELS,
@@ -793,9 +794,7 @@ function EmployeeCommunicationsDialog({
 }
 
 function formatDays(n: number): string {
-  return `${(Math.round(n * 10) / 10).toLocaleString("en-AE", {
-    maximumFractionDigits: 1,
-  })} d`;
+  return `${formatLeaveDays(n)} d`;
 }
 
 function StatusPill({ status }: { status: OffboardingProcessStatus }) {

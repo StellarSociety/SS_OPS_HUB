@@ -6,6 +6,7 @@ import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { LeaveBalancesTable } from "@/components/hr/leave-balances-table";
 import { LeaveEmployeeDetail } from "@/components/hr/leave-employee-detail";
 import type {
+  AnnualLeaveCalculationBreakdown,
   EmployeeLeaveSummary,
   ScheduledLeaveLabelStyle,
   ScheduledLeaveRange,
@@ -39,6 +40,7 @@ type DetailPayload = {
   scheduleLabels: ScheduledLeaveLabelStyle[];
   policy: HrLeavePolicySettings;
   year: number;
+  annualLeaveCalculation?: AnnualLeaveCalculationBreakdown | null;
 };
 
 type LeaveBalancesClientProps = {
@@ -116,6 +118,7 @@ export function LeaveBalancesClient({
           adjustments={detail.adjustments}
           scheduledLeaves={detail.scheduledLeaves}
           scheduleLabels={detail.scheduleLabels}
+          annualLeaveCalculation={detail.annualLeaveCalculation}
           canManage={canManage}
           onBack={() => setParams({ staffId: null, year: String(year) })}
         />

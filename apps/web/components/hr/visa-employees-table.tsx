@@ -11,7 +11,7 @@ import {
 } from "@/components/hr/visa-pending-uploads-dialog";
 import { VisaRequestEmailDialog } from "@/components/hr/visa-request-email-dialog";
 import { VisaRequestSentEmailsDialog } from "@/components/hr/visa-request-sent-emails-dialog";
-import { VisaResidencyFileCell, VisaNocFileCell, canShowVisaCancelationAction, canShowVisaIssueAction } from "@/components/hr/visa-residency-file-cell";
+import { VisaResidencyFileCell, VisaNocFileCell, VisaCancelationFileMark, canShowVisaCancelationAction, canShowVisaIssueAction } from "@/components/hr/visa-residency-file-cell";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { StatusBadge } from "@/components/hr/status-badge";
@@ -27,13 +27,14 @@ import {
   normalizeEmploymentStatusName,
 } from "@/lib/hr/employment-status";
 import { countVisaRequestDraftUnits } from "@/lib/hr/visa-request-drafts-storage";
-import type {
-  Department,
-  EmploymentStatus,
-  VisaComplianceStatus,
-  VisaEmployeeRow,
-  VisaProProvider,
-  WorkingStatus,
+import {
+  resolveDirectoryVisaStatus,
+  type Department,
+  type EmploymentStatus,
+  type VisaComplianceStatus,
+  type VisaEmployeeRow,
+  type VisaProProvider,
+  type WorkingStatus,
 } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
 import {
@@ -142,8 +143,8 @@ function compareBySortKey(
       return a.staff.full_name.localeCompare(b.staff.full_name);
     case "visaStatus":
       return compareNullableString(
-        a.visaStatus ?? a.staff.visa_status,
-        b.visaStatus ?? b.staff.visa_status,
+        resolveDirectoryVisaStatus(a.staff.visa_status, a.visaStatus),
+        resolveDirectoryVisaStatus(b.staff.visa_status, b.visaStatus),
       );
     case "visaNumber":
       return compareNullableString(a.visaNumber, b.visaNumber);
@@ -1008,9 +1009,10 @@ export function VisaEmployeesTable({
                           </td>
                           <td className="px-4 py-3 align-middle">
                             <StatusBadge
-                              status={
-                                row.visaStatus || row.staff.visa_status || null
-                              }
+                              status={resolveDirectoryVisaStatus(
+                                row.staff.visa_status,
+                                row.visaStatus,
+                              )}
                             />
                           </td>
                           <td className="px-3 py-3 align-middle">
@@ -1057,9 +1059,18 @@ export function VisaEmployeesTable({
                                 : "text-[#3D421F]",
                             )}
                           >
-                            {row.cancelDate
-                              ? formatDateOnly(row.cancelDate)
-                              : "—"}
+                            {canceled || row.hasCancelationDocument ? (
+                              <div className="inline-flex items-center gap-2">
+                                <VisaCancelationFileMark row={row} />
+                                <span>
+                                  {row.cancelDate
+                                    ? formatDateOnly(row.cancelDate)
+                                    : "—"}
+                                </span>
+                              </div>
+                            ) : (
+                              "—"
+                            )}
                           </td>
                           <td className="px-3 py-3 align-middle text-[#3D421F]">
                             <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">

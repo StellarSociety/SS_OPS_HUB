@@ -646,6 +646,7 @@ function scheduleLabelForValidation(
  * Persist one or more validation roster edits
  * (SH / OFF / PH-REPL / AL / SL / UPL / ML / PL / BL / ABS).
  * SH = shift for payroll (roster SHIFT) — does not invent or change hours.
+ * ABS = unauthorised absence — keeps existing shift times (planned attendance).
  * OFF = paid day off; on a configured public holiday date, save auto-maps to PH
  * (calendar holiday taken). PH-REPL = banked replacement day taken.
  * Working SH on a public holiday accrues PH-REPL automatically (no action needed).
@@ -674,7 +675,7 @@ export async function saveValidationRosterDays(params: {
           change.labelCode == null
             ? null
             : scheduleLabelForValidation(change.labelCode),
-        shiftTemplateId: null,
+        // Omit shiftTemplateId so SHIFT / ABS keep the planned work window.
       })),
     });
   } catch (err) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Mail, UserMinus } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -18,9 +18,14 @@ import { StaffAssetsPanel } from "@/components/hr/staff-assets-panel";
 import { StaffUniformPanel } from "@/components/hr/staff-uniform-panel";
 import { StaffEmploymentPath } from "@/components/hr/staff-employment-path";
 import {
+  getStaffDocUploadSlots,
   listStaffWorkDriveDocs,
+  type StaffDocUploadFilePart,
   type StaffWorkDriveDocumentListItem,
 } from "@/lib/actions/hr-workdrive";
+import { useStaffVisaCancelation } from "@/components/hr/visa-cancelation-panel";
+import { uploadStaffDocumentViaApi } from "@/lib/hr/workdrive/client-upload";
+import { docExpiryFieldForKind } from "@/lib/hr/workdrive/doc-expiry";
 import {
   computeSalaryBreakdown,
   formatAed,
@@ -48,111 +53,13 @@ import type {
   Nationality,
   Position,
 } from "@/lib/hr/types";
-import { STAFF_TERMINATION_TYPE_OPTIONS, VISA_STATUS_OPTIONS } from "@/lib/hr/types";
+import {
+  DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS,
+  STAFF_TERMINATION_TYPE_OPTIONS,
+  VISA_STATUS_OPTIONS,
+} from "@/lib/hr/types";
 import { DETACHED_FILE_FORM_ID } from "@/lib/hr/detached-file-form";
 import { cn } from "@/lib/utils";
-
-type StaffDocumentUploadResult =
-  | {
-      ok: true;
-      workdriveFileId: string;
-      permalink: string;
-      path: string;
-      fileName: string;
-    }
-  | { ok: false; error: string };
-
-/** XHR upload so we can report byte progress (fetch has no upload progress). */
-function uploadStaffDocumentViaApi(input: {
-  staffId: string;
-  empNo: string;
-  fullName: string;
-  docKind: HrWorkDriveDocKind;
-  fileSlotId?: string;
-  file: File;
-  onProgress?: (percent: number) => void;
-}): Promise<StaffDocumentUploadResult> {
-  const fd = new FormData();
-  fd.set("staff_id", input.staffId);
-  fd.set("emp_no", input.empNo);
-  fd.set("full_name", input.fullName);
-  fd.set("doc_kind", input.docKind);
-  if (input.fileSlotId) fd.set("file_slot_id", input.fileSlotId);
-  fd.set("file", input.file, input.file.name);
-
-  return new Promise((resolve) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/hr/workdrive/upload");
-    xhr.withCredentials = true;
-
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable || event.total <= 0) return;
-      const pct = Math.min(99, Math.round((event.loaded / event.total) * 100));
-      input.onProgress?.(pct);
-    };
-    xhr.upload.onload = () => {
-      // Bytes reached the server; Zoho handoff may still be running.
-      input.onProgress?.(100);
-    };
-
-    xhr.onload = () => {
-      let payload: unknown = null;
-      try {
-        payload = JSON.parse(xhr.responseText) as unknown;
-      } catch {
-        payload = null;
-      }
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-        const error =
-          payload &&
-          typeof payload === "object" &&
-          "error" in payload &&
-          typeof (payload as { error: unknown }).error === "string"
-            ? (payload as { error: string }).error
-            : `Upload failed (${xhr.status}).`;
-        resolve({ ok: false, error });
-        return;
-      }
-
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        (payload as { ok?: unknown }).ok !== true
-      ) {
-        resolve({ ok: false, error: "Unexpected upload response." });
-        return;
-      }
-
-      const okPayload = payload as {
-        workdriveFileId: string;
-        permalink: string;
-        path: string;
-        fileName: string;
-      };
-      resolve({
-        ok: true,
-        workdriveFileId: okPayload.workdriveFileId,
-        permalink: okPayload.permalink,
-        path: okPayload.path,
-        fileName: okPayload.fileName,
-      });
-    };
-
-    xhr.onerror = () => {
-      resolve({
-        ok: false,
-        error: "Upload failed — check your connection and try again.",
-      });
-    };
-    xhr.onabort = () => {
-      resolve({ ok: false, error: "Upload cancelled." });
-    };
-
-    input.onProgress?.(0);
-    xhr.send(fd);
-  });
-}
 
 export const STAFF_ENTRY_FORM_ID = "staff-entry-form";
 
@@ -343,8 +250,54 @@ const EMPLOYMENT_DOC_SLOTS: {
   },
 ];
 
-function WorkDriveDocUploadCard({
-  title,
+const LINKED_RECORD_SLOT_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isLinkedRecordSlot(slot: string) {
+  return LINKED_RECORD_SLOT_RE.test(slot);
+}
+
+/** Visa/insurance uploads store the HR record UUID as file_slot_id. */
+function resolvePartSlotId(
+  partId: string,
+  index: number,
+  linkedSlotId: string | undefined,
+  parts: StaffDocUploadFilePart[],
+) {
+  const linked = String(linkedSlotId ?? "").trim();
+  if (
+    index === 0 &&
+    linked &&
+    !parts.some((part) => part.id === linked)
+  ) {
+    return linked;
+  }
+  return partId;
+}
+
+function docsForFilePart(
+  docs: StaffWorkDriveDocumentListItem[],
+  slotId: string,
+  isFirstPart: boolean,
+) {
+  return docs.filter((row) => {
+    const slot = String(row.fileSlotId ?? "").trim();
+    if (slot === slotId) return true;
+    if (isFirstPart && !slot) return true;
+    if (isFirstPart && slot === "default" && slotId !== "default") return true;
+    if (
+      isFirstPart &&
+      isLinkedRecordSlot(slot) &&
+      (!slotId || slotId === "default" || isLinkedRecordSlot(slotId))
+    ) {
+      return true;
+    }
+    return false;
+  });
+}
+
+function WorkDriveFilePartUpload({
+  label,
   docKind,
   fileSlotId,
   staffId,
@@ -352,22 +305,175 @@ function WorkDriveDocUploadCard({
   fullName,
   readOnly,
   successLabel,
+  docExpiry,
+  docs,
+  docsLoading,
+  onDocsChange,
 }: {
-  title: string;
+  label: string;
   docKind: HrWorkDriveDocKind;
-  fileSlotId?: string;
+  fileSlotId: string;
   staffId: string | null;
   empNo: string;
   fullName: string;
   readOnly: boolean;
   successLabel: string;
+  docExpiry?: string;
+  docs: StaffWorkDriveDocumentListItem[];
+  docsLoading: boolean;
+  onDocsChange: Dispatch<
+    SetStateAction<StaffWorkDriveDocumentListItem[]>
+  >;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [driveNote, setDriveNote] = useState<string | null>(null);
-  const [docs, setDocs] = useState<StaffWorkDriveDocumentListItem[]>([]);
-  const [docsLoading, setDocsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+
+  const existing = docs.find((row) => !row.isMissing) ?? docs[0] ?? null;
+
+  async function refreshDocs() {
+    if (!staffId) return;
+    const refreshed = await listStaffWorkDriveDocs({ staffId, docKind });
+    if (refreshed.ok) onDocsChange(refreshed.items);
+  }
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-start">
+      <StaffDocumentUploadSlot
+        className="shrink-0"
+        label={label}
+        file={file}
+        existingFile={
+          existing
+            ? {
+                fileName: existing.fileName,
+                workdriveFileId: existing.workdriveFileId,
+                permalink: existing.permalink,
+              }
+            : null
+        }
+        onFileChange={(next) => {
+          setFile(next);
+          setDriveNote(null);
+        }}
+        readOnly={readOnly}
+        uploadingToDrive={uploading}
+        uploadProgress={uploadProgress}
+        driveUploadNote={driveNote}
+        onUploadToDrive={
+          readOnly || !file
+            ? undefined
+            : () => {
+                if (uploading) return;
+                void (async () => {
+                  if (!file) return;
+                  if (!staffId) {
+                    toast.error("Save the staff record before uploading.");
+                    return;
+                  }
+                  setUploading(true);
+                  setUploadProgress(0);
+                  try {
+                    const result = await uploadStaffDocumentViaApi({
+                      staffId,
+                      empNo: empNo.trim(),
+                      fullName: fullName.trim(),
+                      docKind,
+                      fileSlotId,
+                      docExpiry,
+                      file,
+                      onProgress: setUploadProgress,
+                    });
+                    if (!result.ok) {
+                      toast.error(result.error);
+                      setDriveNote(result.error);
+                      return;
+                    }
+                    toast.saved(`${successLabel} uploaded to WorkDrive`);
+                    setDriveNote(null);
+                    setFile(null);
+                    await refreshDocs();
+                  } catch (error) {
+                    const message =
+                      error instanceof Error
+                        ? error.message
+                        : "Upload failed.";
+                    toast.error(message);
+                    setDriveNote(message);
+                  } finally {
+                    setUploading(false);
+                    setUploadProgress(null);
+                  }
+                })();
+              }
+        }
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        {docsLoading && docs.length === 0 ? (
+          <p className="text-[11px] text-black/40">Loading documents…</p>
+        ) : null}
+        <StaffWorkDriveDocumentList
+          items={docs}
+          readOnly={readOnly}
+          className="mt-0"
+          onDeleted={(documentId) => {
+            onDocsChange((prev) => prev.filter((row) => row.id !== documentId));
+          }}
+          onRenamed={(documentId, next) => {
+            onDocsChange((prev) =>
+              prev.map((row) =>
+                row.id === documentId
+                  ? { ...row, fileName: next.fileName, path: next.path }
+                  : row,
+              ),
+            );
+          }}
+        />
+        {!docsLoading && docs.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-4 text-center text-[11px] text-black/40">
+            No files uploaded yet
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function WorkDriveDocUploadCard({
+  title,
+  docKind,
+  fileSlotId,
+  fileParts,
+  staffId,
+  empNo,
+  fullName,
+  readOnly,
+  successLabel,
+  docExpiryForSlot,
+}: {
+  title: string;
+  docKind: HrWorkDriveDocKind;
+  fileSlotId?: string;
+  fileParts?: StaffDocUploadFilePart[];
+  staffId: string | null;
+  empNo: string;
+  fullName: string;
+  readOnly: boolean;
+  successLabel: string;
+  docExpiryForSlot?: (slotId: string) => string | undefined;
+}) {
+  const [docs, setDocs] = useState<StaffWorkDriveDocumentListItem[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+
+  const defaultParts: StaffDocUploadFilePart[] =
+    DEFAULT_HR_WORK_DRIVE_DOC_SUBFOLDERS.find((row) => row.kind === docKind)
+      ?.fileSlots.map((slot) => ({ id: slot.id, label: slot.label })) ?? [];
+  const parts: StaffDocUploadFilePart[] = fileParts?.length
+    ? fileParts
+    : defaultParts.length
+      ? defaultParts
+      : [{ id: fileSlotId?.trim() || "default", label: successLabel }];
 
   useEffect(() => {
     if (!staffId) {
@@ -377,12 +483,18 @@ function WorkDriveDocUploadCard({
     }
     let cancelled = false;
     setDocsLoading(true);
-    void listStaffWorkDriveDocs({ staffId, docKind }).then((result) => {
-      if (cancelled) return;
-      if (result.ok) setDocs(result.items);
-      else setDocs([]);
-      setDocsLoading(false);
-    });
+    void listStaffWorkDriveDocs({ staffId, docKind })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.ok) setDocs(result.items);
+        else setDocs([]);
+      })
+      .catch(() => {
+        if (!cancelled) setDocs([]);
+      })
+      .finally(() => {
+        if (!cancelled) setDocsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -394,89 +506,63 @@ function WorkDriveDocUploadCard({
       className="h-full w-full"
       contentClassName="flex h-full flex-col"
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row md:items-start">
-        <StaffDocumentUploadSlot
-          className="shrink-0"
+      {parts.length === 1 ? (
+        <WorkDriveFilePartUpload
           label="Drag & drop or click to upload"
-          file={file}
-          onFileChange={(next) => {
-            setFile(next);
-            setDriveNote(null);
-          }}
+          docKind={docKind}
+          fileSlotId={resolvePartSlotId(
+            parts[0]!.id,
+            0,
+            fileSlotId,
+            parts,
+          )}
+          staffId={staffId}
+          empNo={empNo}
+          fullName={fullName}
           readOnly={readOnly}
-          uploadingToDrive={uploading}
-          uploadProgress={uploadProgress}
-          driveUploadNote={driveNote}
-          onUploadToDrive={
-            readOnly || !file
-              ? undefined
-              : () => {
-                  if (uploading) return;
-                  void (async () => {
-                    if (!file) return;
-                    if (!staffId) {
-                      toast.error("Save the staff record before uploading.");
-                      return;
-                    }
-                    setUploading(true);
-                    setUploadProgress(0);
-                    try {
-                      const result = await uploadStaffDocumentViaApi({
-                        staffId,
-                        empNo: empNo.trim(),
-                        fullName: fullName.trim(),
-                        docKind,
-                        fileSlotId,
-                        file,
-                        onProgress: setUploadProgress,
-                      });
-                      if (!result.ok) {
-                        toast.error(result.error);
-                        setDriveNote(result.error);
-                        return;
-                      }
-                      toast.saved(`${successLabel} uploaded to WorkDrive`);
-                      setDriveNote(null);
-                      setFile(null);
-                      const refreshed = await listStaffWorkDriveDocs({
-                        staffId,
-                        docKind,
-                      });
-                      if (refreshed.ok) setDocs(refreshed.items);
-                    } catch (error) {
-                      const message =
-                        error instanceof Error
-                          ? error.message
-                          : "Upload failed.";
-                      toast.error(message);
-                      setDriveNote(message);
-                    } finally {
-                      setUploading(false);
-                      setUploadProgress(null);
-                    }
-                  })();
-                }
-          }
+          successLabel={successLabel}
+          docExpiry={docExpiryForSlot?.(
+            resolvePartSlotId(parts[0]!.id, 0, fileSlotId, parts),
+          )}
+          docs={docsForFilePart(
+            docs,
+            resolvePartSlotId(parts[0]!.id, 0, fileSlotId, parts),
+            true,
+          )}
+          docsLoading={docsLoading}
+          onDocsChange={setDocs}
         />
-        <div className="flex min-w-0 flex-1 flex-col">
-          {docsLoading && docs.length === 0 ? (
-            <p className="text-[11px] text-black/40">Loading documents…</p>
-          ) : null}
-          <StaffWorkDriveDocumentList
-            items={docs}
-            readOnly={readOnly}
-            className="mt-0"
-            onDeleted={(documentId) => {
-              setDocs((prev) => prev.filter((row) => row.id !== documentId));
-            }}
-          />
-          {!docsLoading && docs.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-4 text-center text-[11px] text-black/40">
-              No files uploaded yet
-            </p>
-          ) : null}
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          {parts.map((part, index) => {
+            const partSlotId = resolvePartSlotId(
+              part.id,
+              index,
+              fileSlotId,
+              parts,
+            );
+            return (
+              <div key={part.id} className="min-w-0 space-y-1.5">
+                <p className="text-xs font-medium text-[#3D421F]">{part.label}</p>
+                <WorkDriveFilePartUpload
+                  label={`Drop or click ${part.label}`}
+                  docKind={docKind}
+                  fileSlotId={partSlotId}
+                  staffId={staffId}
+                  empNo={empNo}
+                  fullName={fullName}
+                  readOnly={readOnly}
+                  successLabel={`${successLabel} ${part.label}`}
+                  docExpiry={docExpiryForSlot?.(partSlotId)}
+                  docs={docsForFilePart(docs, partSlotId, index === 0)}
+                  docsLoading={docsLoading}
+                  onDocsChange={setDocs}
+                />
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
     </SectionCard>
   );
 }
@@ -523,6 +609,73 @@ function Field({
   );
 }
 
+function VisaCancelationStaffRow({
+  staffId,
+  empNo,
+  fullName,
+  readOnly,
+  fileParts,
+}: {
+  staffId: string | null;
+  empNo: string;
+  fullName: string;
+  readOnly: boolean;
+  fileParts?: StaffDocUploadFilePart[];
+}) {
+  const { cancelDate, recordId, savingDate, persistCancelDate } =
+    useStaffVisaCancelation(staffId);
+
+  return (
+    <div className="flex flex-col items-stretch gap-4 md:flex-row">
+      <div className="w-full max-w-lg shrink-0">
+        <SectionCard
+          title="Visa Cancelation"
+          className="h-full"
+          contentClassName="flex h-full flex-col space-y-3"
+        >
+          <Field
+            layout="inline"
+            label="Cancelation date"
+            htmlFor="staff-visa-cancel-date"
+            hint="Synced with Assets → Visa employees and Off-boarding."
+          >
+            <DateInput
+              id="staff-visa-cancel-date"
+              value={cancelDate}
+              onChange={(iso) => {
+                void persistCancelDate(iso);
+              }}
+              disabled={readOnly || savingDate || !staffId}
+              className="w-full"
+              inputClassName={fieldClass}
+            />
+          </Field>
+          {!staffId ? (
+            <p className="text-sm text-black/45">
+              Save the staff record to edit cancelation date and upload the
+              letter.
+            </p>
+          ) : null}
+        </SectionCard>
+      </div>
+      <div className="min-w-0 w-full flex-1">
+        <WorkDriveDocUploadCard
+          title="Visa Cancelation document"
+          docKind="visa_cancelation"
+          fileSlotId={recordId ?? "default"}
+          staffId={staffId}
+          empNo={empNo}
+          fullName={fullName}
+          readOnly={readOnly}
+          successLabel="Visa cancelation"
+          fileParts={fileParts}
+          docExpiryForSlot={() => cancelDate || undefined}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function StaffEntryForm({
   value,
   onChange,
@@ -555,6 +708,26 @@ export function StaffEntryForm({
     termination: value.termination_date,
   });
   const didInitStatusRef = useRef(false);
+  const [fileSlotsByKind, setFileSlotsByKind] = useState<
+    Record<string, StaffDocUploadFilePart[]>
+  >({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void getStaffDocUploadSlots().then((slots) => {
+      if (!cancelled) setFileSlotsByKind(slots);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const staffDocExpiry = (kind: HrWorkDriveDocKind, slotId: string) => {
+    const field = docExpiryFieldForKind(kind, slotId);
+    if (!field) return undefined;
+    const raw = value[field];
+    return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+  };
 
   const set =
     (field: keyof StaffFormState) =>
@@ -741,7 +914,14 @@ export function StaffEntryForm({
       toast.error("Work email must be a valid email address.");
       return;
     }
-    onSubmit(new FormData(e.currentTarget));
+    const fd = new FormData(e.currentTarget);
+    // FormData omits disabled <select>s and some browsers skip selects in hidden
+    // tab panels. Stamp controlled state so fields like contract_kind persist.
+    for (const [key, val] of Object.entries(value)) {
+      if (key === "probation_status") continue;
+      fd.set(key, val);
+    }
+    onSubmit(fd);
   }
 
   /**
@@ -1162,9 +1342,9 @@ export function StaffEntryForm({
         />
       </Field>
       <Field layout="inline" label="Contract type" htmlFor="contract_kind">
+        <input type="hidden" name="contract_kind" value={value.contract_kind} />
         <select
           id="contract_kind"
-          name="contract_kind"
           value={value.contract_kind}
           onChange={set("contract_kind")}
           disabled={readOnly}
@@ -1600,6 +1780,8 @@ export function StaffEntryForm({
           fullName={value.full_name}
           readOnly={readOnly}
           successLabel="Passport"
+          fileParts={fileSlotsByKind.passport}
+          docExpiryForSlot={(slotId) => staffDocExpiry("passport", slotId)}
         />
       </div>
     </div>
@@ -1645,6 +1827,8 @@ export function StaffEntryForm({
           fullName={value.full_name}
           readOnly={readOnly}
           successLabel="Emirates ID"
+          fileParts={fileSlotsByKind.emirates_id}
+          docExpiryForSlot={(slotId) => staffDocExpiry("emirates_id", slotId)}
         />
       </div>
     </div>
@@ -1710,6 +1894,8 @@ export function StaffEntryForm({
           fullName={value.full_name}
           readOnly={readOnly}
           successLabel="Bank certificate"
+          fileParts={fileSlotsByKind.bank}
+          docExpiryForSlot={(slotId) => staffDocExpiry("bank", slotId)}
         />
       </div>
     </div>
@@ -1768,11 +1954,20 @@ export function StaffEntryForm({
                 fullName={value.full_name}
                 readOnly={readOnly}
                 successLabel={title}
+                fileParts={fileSlotsByKind[docKind]}
+                docExpiryForSlot={(slotId) => staffDocExpiry(docKind, slotId)}
               />
             </div>
           </div>
         ),
       )}
+      <VisaCancelationStaffRow
+        staffId={staffId}
+        empNo={value.emp_no}
+        fullName={value.full_name}
+        readOnly={readOnly}
+        fileParts={fileSlotsByKind.visa_cancelation}
+      />
     </>
   );
 
@@ -1787,6 +1982,8 @@ export function StaffEntryForm({
     <StaffEmploymentPath
       staffId={staffId}
       joiningDate={value.joining_date || null}
+      terminationDate={value.termination_date || null}
+      terminationType={value.termination_type || null}
       canViewSalary={canViewSalary}
       canEdit={canEditPath}
       departments={departments}

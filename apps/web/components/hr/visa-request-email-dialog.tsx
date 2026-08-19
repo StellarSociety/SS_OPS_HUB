@@ -32,6 +32,10 @@ type VisaRequestEmailDialogProps = {
   providers: VisaProProvider[];
   venueId: string;
   initialStep?: DialogStep;
+  /** When set, every employee uses this request type (no Issue/Renew toggle). */
+  lockedRequestType?: "issue" | "renew" | "cancel";
+  /** Open this saved draft instead of composing a fresh preview. */
+  initialDraftBatchId?: string | null;
   onSent: () => void;
   onDraftsChanged?: () => void;
 };
@@ -82,6 +86,8 @@ export function VisaRequestEmailDialog({
   providers,
   venueId,
   initialStep = "compose",
+  lockedRequestType,
+  initialDraftBatchId = null,
   onSent,
   onDraftsChanged,
 }: VisaRequestEmailDialogProps) {
@@ -112,6 +118,8 @@ export function VisaRequestEmailDialog({
     onDraftsChanged?.();
   }
 
+  const rowKey = rows.map((row) => row.staff.id).join(",");
+
   useEffect(() => {
     if (!open) return;
     setStep(initialStep);
@@ -121,10 +129,85 @@ export function VisaRequestEmailDialog({
     setSavedBatches(listVisaRequestDraftBatches(venueId));
     const next: Record<string, "issue" | "renew" | "cancel"> = {};
     for (const row of rows) {
-      next[row.staff.id] = defaultRequestType(row);
+      next[row.staff.id] = lockedRequestType ?? defaultRequestType(row);
     }
     setRequestTypes(next);
-  }, [open, rows, venueId, initialStep]);
+
+    if (initialDraftBatchId) {
+      const batch = listVisaRequestDraftBatches(venueId).find(
+        (row) => row.id === initialDraftBatchId,
+      );
+      if (batch) {
+        let cancelled = false;
+        startTransition(async () => {
+          const result = await previewVisaRequestEmails({
+            units: batch.units.map((u) => ({
+              staffId: u.staffId,
+              requestType: u.requestType,
+              providerId: u.providerId,
+              to: u.to,
+              subject: u.subject,
+              body: u.body,
+            })),
+          });
+          if (cancelled) return;
+          if (!result.ok) {
+            toast.error(result.error);
+            return;
+          }
+          const byStaff = new Map(result.previews.map((p) => [p.staffId, p]));
+          const next = batch.units.map((u) => {
+            const fresh = byStaff.get(u.staffId);
+            return {
+              staffId: u.staffId,
+              empNo: u.empNo,
+              fullName: u.fullName,
+              requestType: u.requestType,
+              providerId: u.providerId,
+              providerName: u.providerName,
+              to: u.to,
+              subject: u.subject,
+              body: u.body,
+              attachments: fresh?.attachments ?? [],
+              requireAttachments: fresh?.requireAttachments ?? true,
+            };
+          });
+          setPreviews(next);
+          setActiveStaffId(next[0]?.staffId ?? null);
+          setSavedBatchId(batch.id);
+          setStep("preview");
+        });
+        return () => {
+          cancelled = true;
+        };
+      }
+    }
+
+    if (!lockedRequestType || rows.length === 0) return;
+
+    let cancelled = false;
+    startTransition(async () => {
+      const result = await previewVisaRequestEmails({
+        units: rows.map((row) => ({
+          staffId: row.staff.id,
+          requestType: lockedRequestType,
+          providerId: row.providerId,
+        })),
+      });
+      if (cancelled) return;
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setPreviews(result.previews);
+      setActiveStaffId(result.previews[0]?.staffId ?? null);
+      setSavedBatchId(null);
+      setStep("preview");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, rowKey, venueId, initialStep, lockedRequestType, initialDraftBatchId]);
 
   const active =
     previews.find((p) => p.staffId === activeStaffId) ?? previews[0] ?? null;
@@ -371,14 +454,18 @@ export function VisaRequestEmailDialog({
               >
                 {step === "drafts-list"
                   ? "Saved visa drafts"
-                  : "Email visa request"}
+                  : lockedRequestType === "cancel"
+                    ? "Email visa cancelation"
+                    : "Email visa request"}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {step === "drafts-list"
                   ? "Reopen a saved batch to edit or send provider requests."
                   : step === "preview" && active
                     ? `${requestTypeLabel(active.requestType)} · ${active.fullName} (${active.empNo})`
-                    : "Issue or renew medical visa with the provider."}
+                    : lockedRequestType === "cancel"
+                      ? "Uses the cancelation template from Visa request emails."
+                      : "Issue or renew medical visa with the provider."}
               </p>
             </div>
             <button
@@ -563,26 +650,37 @@ export function VisaRequestEmailDialog({
                           </p>
                         </div>
                         <div className="flex gap-1 rounded-lg border border-black/10 bg-white p-1">
-                          {(["issue", "renew"] as const).map((opt) => (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() =>
-                                setRequestTypes((prev) => ({
-                                  ...prev,
-                                  [row.staff.id]: opt,
-                                }))
-                              }
+                          {lockedRequestType ? (
+                            <span
                               className={cn(
-                                "rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition",
-                                type === opt
-                                  ? "bg-[var(--venue-primary,#818a40)] text-white"
-                                  : "text-black/50 hover:bg-black/5 hover:text-[#3D421F]",
+                                "rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide",
+                                "bg-[var(--venue-primary,#818a40)] text-white",
                               )}
                             >
-                              {opt}
-                            </button>
-                          ))}
+                              {requestTypeLabel(lockedRequestType)}
+                            </span>
+                          ) : (
+                            (["issue", "renew"] as const).map((opt) => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() =>
+                                  setRequestTypes((prev) => ({
+                                    ...prev,
+                                    [row.staff.id]: opt,
+                                  }))
+                                }
+                                className={cn(
+                                  "rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition",
+                                  type === opt
+                                    ? "bg-[var(--venue-primary,#818a40)] text-white"
+                                    : "text-black/50 hover:bg-black/5 hover:text-[#3D421F]",
+                                )}
+                              >
+                                {opt}
+                              </button>
+                            ))
+                          )}
                         </div>
                       </div>
                     );

@@ -1,12 +1,7 @@
 import { AttendanceApprovalsTable } from "@/components/hr/attendance-approvals-table";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
-import { currentMonthKey } from "@/lib/hr/attendance-months";
-import {
-  buildAttendanceValidationRows,
-  validationEmployeeOptions,
-  validationFetchRangeFromMonthKeys,
-} from "@/lib/hr/build-attendance-validation-rows";
+import { validationEmployeeOptions } from "@/lib/hr/build-attendance-validation-rows";
 import { canEditSchedules } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
@@ -15,7 +10,6 @@ import {
 } from "@/lib/hr/schedules";
 import {
   getHrVenueSetting,
-  listAttendanceMonths,
   listDepartments,
   listPublicHolidays,
   listScheduleDayLabels,
@@ -60,27 +54,13 @@ export default async function AttendanceValidationPage({
   const canEditRoster = canEditSchedules(permissions, venue.id);
 
   try {
-    const months = await listAttendanceMonths(supabase, venue.id);
-    const range = validationFetchRangeFromMonthKeys(
-      months.map((m) => m.month_key),
-      currentMonthKey(),
-    );
-    const fromDate =
-      payrollFrom && payrollTo && payrollFrom <= payrollTo
-        ? payrollFrom
-        : range.fromDate;
-    const toDate =
-      payrollFrom && payrollTo && payrollFrom <= payrollTo
-        ? payrollTo
-        : range.toDate;
     const holidayYear =
-      Number(fromDate.slice(0, 4)) || new Date().getFullYear();
+      Number((payrollFrom ?? "").slice(0, 4)) || new Date().getFullYear();
 
     const [
       staff,
       departments,
       scheduleLabels,
-      rows,
       publicHolidays,
       importRules,
       payrollRaw,
@@ -95,7 +75,6 @@ export default async function AttendanceValidationPage({
         return [];
       }),
       listScheduleDayLabels(supabase),
-      buildAttendanceValidationRows(supabase, venue.id, { fromDate, toDate }),
       listPublicHolidays(supabase, venue.id, {
         fromDate: `${holidayYear - 1}-01-01`,
         toDate: `${holidayYear + 1}-12-31`,
@@ -129,8 +108,6 @@ export default async function AttendanceValidationPage({
       name: d.name,
     }));
 
-    const employees = validationEmployeeOptions(staff);
-
     const labelOptions = (
       scheduleLabels ?? withFallbackScheduleLabelIds(DEFAULT_SCHEDULE_DAY_LABELS)
     ).map((label) => ({
@@ -152,6 +129,7 @@ export default async function AttendanceValidationPage({
       ...importRules,
     };
     const payrollSettings = mergePayrollSettings(payrollRaw);
+    const employees = validationEmployeeOptions(staff);
 
     return (
       <div className="space-y-4">
@@ -176,8 +154,8 @@ export default async function AttendanceValidationPage({
         ) : null}
         <AttendanceApprovalsTable
           heading="Validation"
-          description={`Select an employee and week(s) or a date range. Department is optional and narrows the employee list. Stage actions in three groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL / BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as calendar PH; working SH earns a PH-REPL credit automatically. Save roster edits, then Approve Attendance. SHIFT days only need approval when clock in/out differ from schedule by more than ${rules.scheduleVarianceMinutes} minutes (or punches are missing). Leave and ABS need approval; OFF / calendar PH do not.`}
-          rows={rows}
+          description={`Select an employee and week(s) or a date range. Department is optional and narrows the employee list. Stage actions in three groups — duty (SH / OFF / PH-REPL), paid leave (AL / SL / ML / PL / BL), unpaid (UPL / ABS). On a public holiday date, OFF saves as calendar PH; working SH earns a PH-REPL credit automatically. ABS keeps the scheduled start/end (expected to work, did not attend). Save roster edits, then Approve Attendance. SHIFT days only need approval when clock in/out differ from schedule by more than ${rules.scheduleVarianceMinutes} minutes (or punches are missing). Leave and ABS need approval; OFF / calendar PH do not.`}
+          rows={[]}
           departments={departmentOptions}
           employees={employees}
           scheduleLabels={labelOptions}

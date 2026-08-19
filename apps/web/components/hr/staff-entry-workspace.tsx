@@ -652,7 +652,7 @@ export function StaffEntryWorkspace({
                         className={verticalSegmentedSubNavLinkClass(active)}
                       >
                         <Icon
-                          className="h-3.5 w-3.5 shrink-0 opacity-80"
+                          className="h-5 w-5 shrink-0 opacity-80"
                           aria-hidden
                         />
                         <span className="min-w-0 truncate">{tab.label}</span>
@@ -682,7 +682,7 @@ export function StaffEntryWorkspace({
                       title="Current payroll month schedule"
                     >
                       <CalendarDays
-                        className="h-3.5 w-3.5 shrink-0 opacity-80"
+                        className="h-5 w-5 shrink-0 opacity-80"
                         aria-hidden
                       />
                       <span className="min-w-0 truncate">
@@ -697,7 +697,7 @@ export function StaffEntryWorkspace({
                       title="Open employee folder in WorkDrive"
                     >
                       <FolderOpen
-                        className="h-3.5 w-3.5 shrink-0 opacity-80"
+                        className="h-5 w-5 shrink-0 opacity-80"
                         aria-hidden
                       />
                       <span className="min-w-0 truncate">

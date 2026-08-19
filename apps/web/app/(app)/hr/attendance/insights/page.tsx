@@ -1,4 +1,5 @@
 import { AttendanceInsightsPanel } from "@/components/hr/attendance-insights-panel";
+import { buildExportUserLabel } from "@/lib/exports/user-label";
 import {
   rangeForMonthKeys,
   resolveFetchMonthKeys,
@@ -17,11 +18,12 @@ import {
   listStaffForVenue,
 } from "@/lib/hr/store";
 import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
+import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 export default async function AttendanceInsightsPage() {
-  const { supabase, venue } = await getHrPageContext();
+  const { supabase, user, venue } = await getHrPageContext();
 
-  const [staff, months, payrollRaw] = await Promise.all([
+  const [staff, months, payrollRaw, profileResult] = await Promise.all([
     listStaffForVenue(supabase, venue.id),
     listAttendanceMonths(supabase, venue.id),
     getHrVenueSetting<Partial<HrPayrollSettings>>(
@@ -30,7 +32,17 @@ export default async function AttendanceInsightsPage() {
       HR_SETTINGS_KEYS.payroll,
       {},
     ),
+    supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single(),
   ]);
+
+  const userDisplayName = buildExportUserLabel(
+    profileResult.data?.full_name,
+    profileResult.data?.email ?? user.email,
+  );
 
   const payrollSettings = mergePayrollSettings(payrollRaw);
   const fetchMonthKeys = resolveFetchMonthKeys(
@@ -135,6 +147,9 @@ export default async function AttendanceInsightsPage() {
         loadedToDate={range.toDate}
         payrollPeriodStartDay={payrollSettings.periodStartDay}
         payrollPeriodEndDay={payrollSettings.periodEndDay}
+        venueName={venue.name}
+        venueLogoUrl={getVenueLogoUrl(venue)}
+        userDisplayName={userDisplayName}
       />
     </section>
   );

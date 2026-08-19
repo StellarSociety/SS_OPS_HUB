@@ -10,6 +10,7 @@ import {
 import { loadPayslipPdfLogo } from "@/lib/hr/payslip-pdf";
 import {
   normalizeVisaStatusLabel,
+  resolveDirectoryVisaStatus,
   VISA_STATUS_OPTIONS,
   type VisaEmployeeRow,
 } from "@/lib/hr/types";
@@ -197,9 +198,7 @@ export function employmentStatusOf(row: VisaEmployeeRow): string {
 }
 
 export function visaStatusOf(row: VisaEmployeeRow): string {
-  const raw = (row.visaStatus || row.staff.visa_status || "").trim();
-  if (!raw) return "";
-  return normalizeVisaStatusLabel(raw) ?? "";
+  return resolveDirectoryVisaStatus(row.staff.visa_status, row.visaStatus) ?? "";
 }
 
 export function shortVisaStatusLabel(status: string | null | undefined): string {

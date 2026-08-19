@@ -107,6 +107,25 @@ export function countVisaRequestDraftUnits(venueId: string): number {
   return readAll(venueId).reduce((sum, b) => sum + b.units.length, 0);
 }
 
+export function listStaffVisaCancelDrafts(
+  venueId: string,
+  staffId: string,
+): Array<SavedVisaRequestDraftBatch & { unit: SavedVisaRequestDraftUnit }> {
+  const id = String(staffId ?? "").trim();
+  if (!id) return [];
+  const out: Array<
+    SavedVisaRequestDraftBatch & { unit: SavedVisaRequestDraftUnit }
+  > = [];
+  for (const batch of listVisaRequestDraftBatches(venueId)) {
+    const unit = batch.units.find(
+      (row) => row.staffId === id && row.requestType === "cancel",
+    );
+    if (!unit) continue;
+    out.push({ ...batch, unit });
+  }
+  return out;
+}
+
 export function formatVisaDraftBatchSummary(
   batch: SavedVisaRequestDraftBatch,
 ): string {

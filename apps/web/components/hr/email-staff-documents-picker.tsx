@@ -1,11 +1,14 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getWorkDriveSettings } from "@/lib/actions/hr-workdrive";
 import {
+  emailStaffDocumentOptionsFromSubfolders,
   HR_EMAIL_STAFF_DOCUMENT_OPTIONS,
   labelForEmailStaffDocumentKey,
   type HrEmailStaffDocumentKey,
+  type HrEmailStaffDocumentOption,
 } from "@/lib/hr/email-staff-documents";
 import { cn } from "@/lib/utils";
 
@@ -37,8 +40,25 @@ export function EmailStaffDocumentsPicker({
   defaultOpen = false,
 }: EmailStaffDocumentsPickerProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const [options, setOptions] = useState<readonly HrEmailStaffDocumentOption[]>(
+    HR_EMAIL_STAFF_DOCUMENT_OPTIONS,
+  );
   const selectedSet = new Set(selected);
   const requireField = requireName ?? `${name}_require`;
+
+  useEffect(() => {
+    let cancelled = false;
+    void getWorkDriveSettings().then((settings) => {
+      if (cancelled) return;
+      const next = emailStaffDocumentOptionsFromSubfolders(
+        settings.docSubfolders ?? [],
+      );
+      if (next.length > 0) setOptions(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function toggle(key: HrEmailStaffDocumentKey, checked: boolean) {
     if (checked) {
@@ -126,7 +146,7 @@ export function EmailStaffDocumentsPicker({
       ))}
       <div className={cn(!open && "hidden")}>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {HR_EMAIL_STAFF_DOCUMENT_OPTIONS.map((opt) => {
+          {options.map((opt) => {
             const checked = selectedSet.has(opt.key);
             return (
               <label

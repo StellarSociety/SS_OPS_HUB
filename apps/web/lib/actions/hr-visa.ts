@@ -17,8 +17,9 @@ import { parseEmailStaffDocumentKeysFromForm } from "@/lib/hr/email-staff-docume
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
 import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import { canAdminLookups, canEditAssets, canEditStaff } from "@/lib/hr/permissions";
-import { getHrVenueSetting } from "@/lib/hr/store";
+import { getHrVenueSetting, getStaffById } from "@/lib/hr/store";
 import {
+  buildVisaEmployeeRow,
   loadOrSeedStaffVisaHistory,
   loadStaffVisaDocumentIndex,
   loadStaffVisaHistory,
@@ -36,6 +37,7 @@ import {
   syncStaffVisaRunPendingDeductions,
 } from "@/lib/hr/payroll/visa-run-pending-deductions";
 import { repairLinkedWorkDriveDocExpiryName } from "@/lib/hr/workdrive/staff-upload";
+import { listStaffWorkDriveDocuments } from "@/lib/hr/workdrive/documents";
 import {
   DEFAULT_HR_VISA_REQUEST_EMAIL_SETTINGS,
   HR_MODULE_KEY,
@@ -45,6 +47,7 @@ import {
   type HrVisaRequestEmailSettings,
   type StaffVisaRecord,
   type VisaPenalty,
+  type VisaEmployeeRow,
   type VisaProProvider,
   type VisaRequestType,
 } from "@/lib/hr/types";
@@ -834,6 +837,127 @@ export async function applyVisaCancelation(
   return { ok: true, record };
 }
 
+const updateVisaCancelDateSchema = z.object({
+  staffId: z.string().uuid(),
+  cancelDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  recordId: z.string().uuid().optional(),
+});
+
+/** Keep cancelation date in sync between staff docs and visa dialogs. */
+export async function updateStaffVisaCancelDate(
+  input: z.infer<typeof updateVisaCancelDateSchema>,
+): Promise<
+  | { ok: true; cancelDate: string | null; recordId: string }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  if (
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
+  ) {
+    return { ok: false, error: "No permission to update staff visa." };
+  }
+
+  const parsed = updateVisaCancelDateSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
+  }
+
+  const cancelDate = parsed.data.cancelDate?.trim() || null;
+  const service = createServiceClient();
+  const { data: staff, error: staffError } = await service
+    .from("staff")
+    .select(
+      "id, home_venue_id, visa_status, visa_expiry, visa_expenses, visa_penalties_paid",
+    )
+    .eq("id", parsed.data.staffId)
+    .eq("home_venue_id", auth.venue.id)
+    .maybeSingle();
+  if (staffError) return { ok: false, error: staffError.message };
+  if (!staff) return { ok: false, error: "Staff not found." };
+
+  const existing = await loadOrSeedStaffVisaHistory(
+    service,
+    auth.venue.id,
+    staff,
+  );
+  const latest = pickLatestStaffVisaRecord(existing);
+  const targetId = parsed.data.recordId ?? latest?.id;
+  const target = targetId
+    ? existing.find((row) => row.id === targetId) ?? latest
+    : latest;
+  if (!target) {
+    return {
+      ok: false,
+      error: "No visa record found. Add a visa reference first.",
+    };
+  }
+
+  const next = existing.map((row) =>
+    row.id === target.id ? { ...row, cancelDate } : row,
+  );
+  const saved = await saveStaffVisaHistory(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+    next,
+  );
+  if (!saved.ok) return saved;
+
+  const synced = await syncStaffVisaFromLatestRecord(
+    service,
+    auth.venue.id,
+    parsed.data.staffId,
+    next,
+  );
+  if (!synced.ok) return synced;
+
+  try {
+    const cancelDocs = await listStaffWorkDriveDocuments(
+      service,
+      auth.venue.id,
+      parsed.data.staffId,
+      "visa_cancelation",
+    );
+    await Promise.all(
+      cancelDocs.map((row) =>
+        repairLinkedWorkDriveDocExpiryName({
+          venueId: auth.venue.id,
+          doc: {
+            id: row.id,
+            workdriveFileId: row.workdrive_file_id,
+            fileName: row.file_name,
+            permalink: row.permalink,
+            path: row.path,
+            folderId: row.subfolder_id || row.employee_folder_id,
+            fileSlotId: row.file_slot_id,
+            uploadedAt: row.uploaded_at,
+          },
+          expiryDate: cancelDate,
+        }),
+      ),
+    );
+  } catch (error) {
+    console.error(
+      "[hr] updateStaffVisaCancelDate rename cancelation file:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+
+  revalidateVisaPaths();
+  revalidatePath("/hr/staff", "layout");
+  return { ok: true, cancelDate, recordId: target.id };
+}
+
 function displayOrDash(value: unknown): string {
   const text = String(value ?? "").trim();
   return text || "—";
@@ -921,6 +1045,53 @@ function visaRequestTemplateBundle(
     attachKeys: settings.issueAttachDocuments,
     requireAttachments: settings.issueRequireAttachments,
   };
+}
+
+export async function getVisaEmployeeRequestEmailContext(staffId: string): Promise<
+  | {
+      ok: true;
+      row: VisaEmployeeRow;
+      providers: VisaProProvider[];
+      venueId: string;
+    }
+  | { ok: false; error: string }
+> {
+  const auth = await getActionAuthContext();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const denied = requireSendPermission(auth.permissions, auth.venue.id);
+  if (denied) return { ok: false, error: denied };
+
+  const id = String(staffId ?? "").trim();
+  if (!id) return { ok: false, error: "Staff is required." };
+
+  try {
+    const service = createServiceClient();
+    const [staff, providers, history] = await Promise.all([
+      getStaffById(service, id, auth.venue.id),
+      loadVisaProProviders(service, auth.venue.id),
+      loadStaffVisaHistory(service, auth.venue.id, id),
+    ]);
+    const latest = pickLatestStaffVisaRecord(history);
+    return {
+      ok: true,
+      row: buildVisaEmployeeRow(staff, providers, latest, {
+        hasResidence: false,
+        hasNoc: false,
+        hasCancelation: false,
+      }),
+      providers,
+      venueId: auth.venue.id,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Could not load visa details for this employee.",
+    };
+  }
 }
 
 export async function previewVisaRequestEmails(input: {

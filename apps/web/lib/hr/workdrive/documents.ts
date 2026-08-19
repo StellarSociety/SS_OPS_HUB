@@ -49,25 +49,60 @@ export async function persistStaffWorkDriveDocument(
     uploadedBy?: string | null;
   },
 ): Promise<StaffWorkDriveDocumentRow> {
+  const slot = row.fileSlotId?.trim() || null;
+  const payload = {
+    venue_id: row.venueId,
+    staff_id: row.staffId,
+    emp_no: row.empNo,
+    doc_kind: row.docKind,
+    file_slot_id: slot,
+    workdrive_file_id: row.workdriveFileId,
+    permalink: row.permalink || null,
+    file_name: row.fileName,
+    subfolder_id: row.subfolderId || null,
+    employee_folder_id: row.employeeFolderId || null,
+    path: row.path || null,
+    content_type: row.contentType || null,
+    uploaded_by: row.uploadedBy ?? null,
+    uploaded_at: new Date().toISOString(),
+    missing_at: null,
+    missing_reason: null,
+  };
+
+  let existingQuery = supabase
+    .from("hr_staff_workdrive_documents")
+    .select("id")
+    .eq("venue_id", row.venueId)
+    .eq("staff_id", row.staffId)
+    .eq("doc_kind", row.docKind);
+  existingQuery = slot
+    ? existingQuery.eq("file_slot_id", slot)
+    : existingQuery.is("file_slot_id", null);
+  const { data: existingRows, error: existingError } = await existingQuery
+    .order("uploaded_at", { ascending: false })
+    .limit(1);
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+  const existingId = existingRows?.[0]?.id as string | undefined;
+
+  if (existingId) {
+    const { data, error } = await supabase
+      .from("hr_staff_workdrive_documents")
+      .update(payload)
+      .eq("venue_id", row.venueId)
+      .eq("id", existingId)
+      .select("*")
+      .single();
+    if (error) {
+      throw new Error(error.message);
+    }
+    return data as StaffWorkDriveDocumentRow;
+  }
+
   const { data, error } = await supabase
     .from("hr_staff_workdrive_documents")
-    .insert({
-      venue_id: row.venueId,
-      staff_id: row.staffId,
-      emp_no: row.empNo,
-      doc_kind: row.docKind,
-      file_slot_id: row.fileSlotId?.trim() || null,
-      workdrive_file_id: row.workdriveFileId,
-      permalink: row.permalink || null,
-      file_name: row.fileName,
-      subfolder_id: row.subfolderId || null,
-      employee_folder_id: row.employeeFolderId || null,
-      path: row.path || null,
-      content_type: row.contentType || null,
-      uploaded_by: row.uploadedBy ?? null,
-      missing_at: null,
-      missing_reason: null,
-    })
+    .insert(payload)
     .select("*")
     .single();
 
@@ -157,10 +192,15 @@ export async function updateStaffWorkDriveDocumentFileName(
   venueId: string,
   documentId: string,
   fileName: string,
+  path?: string | null,
 ): Promise<void> {
+  const payload: { file_name: string; path?: string | null } = {
+    file_name: fileName,
+  };
+  if (path !== undefined) payload.path = path;
   const { error } = await supabase
     .from("hr_staff_workdrive_documents")
-    .update({ file_name: fileName })
+    .update(payload)
     .eq("venue_id", venueId)
     .eq("id", documentId);
   if (error) throw new Error(error.message);

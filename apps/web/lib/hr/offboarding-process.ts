@@ -1,5 +1,7 @@
 /** Offboarding process types — persisted in `hr_offboarding_processes`. */
 
+import { roundDays } from "./leave";
+
 export type OffboardingTerminationKind =
   | "resignation"
   | "termination_with_notice"
@@ -523,7 +525,7 @@ export function buildSettlementPreview(input: {
   autoAdjustments: OffboardingAutoAdjustments;
 }): OffboardingSettlementPreview {
   const dailyRate = estimateDailyRate(input.wagePackage);
-  const alDays = Math.max(0, round1(input.alBalance));
+  const alDays = Math.max(0, roundDays(input.alBalance));
   const phDays = Math.max(0, round1(input.phBalance));
 
   const payLeave = input.leaveHandling === "pay_off";
