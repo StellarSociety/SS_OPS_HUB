@@ -12,9 +12,9 @@ import {
   Landmark,
   LayoutDashboard,
   LineChart,
-  MessageCircleHeart,
+  MessageSquareQuote,
   MessagesSquare,
-  Smile,
+  ScanFace,
   Percent,
   Receipt,
   ReceiptText,
@@ -241,7 +241,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: LayoutDashboard,
       },
       {
-        label: "Invoices",
+        label: "Invoice Issue",
         href: "/accounting/invoices",
         activePathPrefix: "/accounting/invoices",
         icon: FileText,
@@ -255,7 +255,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     moduleKey: "sentiment",
     basePath: "/sentiment",
     label: "Sentiment",
-    icon: Smile,
+    icon: ScanFace,
     items: [
       {
         label: "Dashboard",
@@ -268,7 +268,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         label: "Reviews",
         href: "/sentiment/reviews",
         activePathPrefix: "/sentiment/reviews",
-        icon: MessageCircleHeart,
+        icon: MessageSquareQuote,
       },
       {
         label: "Actions",

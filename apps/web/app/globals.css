@@ -58,6 +58,68 @@ body {
   animation: sales-import-progress 1.4s ease-in-out infinite;
 }
 
+@keyframes rating-star-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes rating-star-fill {
+  from {
+    width: 0%;
+  }
+}
+
+.rating-star-animate {
+  animation: rating-star-in 0.45s ease-out both;
+}
+
+.rating-star-fill {
+  animation: rating-star-fill 0.55s ease-out both;
+}
+
+@keyframes rating-stars-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+.rating-stars-stage {
+  overflow: hidden;
+  transition: filter 0.5s ease;
+}
+
+.rating-stars-stage::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.38) 50%,
+    transparent 70%
+  );
+  opacity: 0;
+}
+
+.group\/rating:hover .rating-stars-stage {
+  filter: brightness(1.05);
+}
+
+.group\/rating:hover .rating-stars-stage::after {
+  opacity: 1;
+  animation: rating-stars-sheen 1.7s ease-in-out;
+}
+
 /* -------------------------------------------------------------------------
    Print — single-employee A4 export (see StaffPdfDocument)
    The document lives off-screen on screen and becomes the only visible node

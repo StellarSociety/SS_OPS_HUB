@@ -6,15 +6,13 @@ import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import { decryptSecret, encryptSecret } from "@/lib/email/secret";
 import { createServiceClient } from "@/lib/supabase/service";
-import {
-  listAllGoogleLocations,
-  listGoogleBusinessReviews,
-} from "@/lib/sentiment/google/business-profile";
+import { listAllGoogleLocations } from "@/lib/sentiment/google/business-profile";
 import {
   buildGoogleAuthUrl,
   encodeOAuthState,
   googleOAuthConfigured,
   refreshGoogleAccessToken,
+  requestAppOrigin,
   storeOAuthCookie,
 } from "@/lib/sentiment/google/oauth";
 import {
@@ -22,14 +20,13 @@ import {
   fetchPlaceDetails,
   resolvePlacesApiKey,
 } from "@/lib/sentiment/google/places";
+import { syncGoogleReviewsForVenue } from "@/lib/sentiment/google/sync";
 import { canAdminSettings } from "@/lib/sentiment/permissions";
 import {
   getReviewSource,
   getSourceSecrets,
   updateReviewSource,
   upsertReviewSource,
-  upsertReviews,
-  type ReviewUpsertInput,
 } from "@/lib/sentiment/store";
 import type { GoogleBusinessLocation } from "@/lib/sentiment/types";
 
@@ -79,13 +76,15 @@ export async function startGoogleOAuth() {
     );
   }
 
+  const redirectOrigin = await requestAppOrigin();
   const state = encodeOAuthState({
     venueId: ctx.venueId,
     userId: ctx.userId,
     slug: ctx.venueIsGlobal ? null : ctx.venueSlug,
+    redirectOrigin,
   });
   await storeOAuthCookie(state);
-  redirect(buildGoogleAuthUrl(state));
+  redirect(buildGoogleAuthUrl(state, redirectOrigin));
 }
 
 export async function saveGooglePlacesApiKey(formData: FormData) {
@@ -289,67 +288,12 @@ export async function syncGoogleReviews() {
   if ("error" in ctx) return fail(ctx.error);
 
   const source = await getReviewSource(ctx.service, ctx.venueId, "google");
-  const secrets = await getSourceSecrets(ctx.service, ctx.venueId, "google");
-  if (!source || !secrets) {
+  if (!source) {
     return fail("Save a Google Place ID or connect a Google account first.");
   }
 
   try {
-    let imported = 0;
-    let average: number | null = source.rating_average;
-    let total: number | null = source.review_count;
-
-    if (secrets.refresh_token_encrypted && secrets.external_account_id && secrets.external_location_id) {
-      const access = await refreshGoogleAccessToken(
-        decryptSecret(secrets.refresh_token_encrypted),
-      );
-      await updateReviewSource(ctx.service, source.id, {
-        access_token_encrypted: encryptSecret(access.accessToken),
-        access_token_expires_at: access.expiresAt,
-      });
-      const listed = await listGoogleBusinessReviews(
-        access.accessToken,
-        secrets.external_account_id,
-        secrets.external_location_id,
-      );
-      imported = await upsertReviews(
-        ctx.service,
-        listed.reviews.map((review) => toReviewRow(ctx.venueId, source.id, review)),
-      );
-      average = listed.averageRating;
-      total = listed.totalReviewCount;
-    } else if (secrets.place_id) {
-      const details = await fetchPlaceDetails(
-        secrets.place_id,
-        resolvePlacesApiKey(secrets.places_api_key_encrypted),
-      );
-      imported = await upsertReviews(
-        ctx.service,
-        details.reviews.map((review) =>
-          toReviewRow(ctx.venueId, source.id, review),
-        ),
-      );
-      average = details.rating;
-      total = details.userRatingCount;
-      if (!source.location_name && details.displayName) {
-        await updateReviewSource(ctx.service, source.id, {
-          location_name: details.displayName,
-          location_url: details.mapsUri,
-        });
-      }
-    } else {
-      return fail(
-        "Connect Google Business Profile and pick a location, or save a Place ID to import public reviews.",
-      );
-    }
-
-    await updateReviewSource(ctx.service, source.id, {
-      status: "connected",
-      last_error: null,
-      last_synced_at: new Date().toISOString(),
-      rating_average: average,
-      review_count: total,
-    });
+    const result = await syncGoogleReviewsForVenue(ctx.service, ctx.venueId);
 
     await writeAuditLog({
       actor_id: ctx.userId,
@@ -358,11 +302,11 @@ export async function syncGoogleReviews() {
       entity: "sentiment_reviews",
       entity_id: source.id,
       venue_id: ctx.venueId,
-      after: { imported, channel: "google" },
+      after: { imported: result.imported, channel: "google" },
     });
 
     revalidateSentiment();
-    return { ok: true as const, imported };
+    return { ok: true as const, imported: result.imported };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Google review import failed.";
@@ -408,46 +352,3 @@ export async function disconnectGoogle() {
   return { ok: true as const };
 }
 
-function toReviewRow(
-  venueId: string,
-  sourceId: string,
-  review: {
-    externalId: string;
-    authorName: string | null;
-    authorPhotoUrl: string | null;
-    rating: number | null;
-    comment: string | null;
-    reviewedAt: string | null;
-    language: string | null;
-    replyText?: string | null;
-    replyAt?: string | null;
-    reviewUrl: string | null;
-    raw: Record<string, unknown>;
-    authorProfileUrl?: string | null;
-    photoUrls?: string[];
-  },
-): ReviewUpsertInput {
-  return {
-    venue_id: venueId,
-    source_id: sourceId,
-    channel: "google",
-    external_id: review.externalId,
-    author_name: review.authorName,
-    author_photo_url: review.authorPhotoUrl,
-    rating: review.rating,
-    comment: review.comment,
-    reviewed_at: review.reviewedAt,
-    language: review.language,
-    ...(review.replyText !== undefined
-      ? { reply_text: review.replyText ?? null, reply_at: review.replyAt ?? null }
-      : {}),
-    review_url: review.reviewUrl,
-    raw: review.raw,
-    ...(review.authorProfileUrl
-      ? { author_profile_url: review.authorProfileUrl }
-      : {}),
-    ...(review.photoUrls && review.photoUrls.length > 0
-      ? { photo_urls: review.photoUrls }
-      : {}),
-  };
-}

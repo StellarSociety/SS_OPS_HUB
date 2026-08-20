@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 const OAUTH_COOKIE = "ss-sentiment-google-oauth";
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -14,13 +14,24 @@ export type GoogleOAuthState = {
   slug: string | null;
   nonce: string;
   issuedAt: number;
+  redirectOrigin: string;
 };
 
-function appOrigin(): string {
+function envOrigin(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
     /\/$/,
     "",
   );
+}
+
+export async function requestAppOrigin(): Promise<string> {
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  if (!host) return envOrigin();
+  const isLocal = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  const proto =
+    headerStore.get("x-forwarded-proto") ?? (isLocal ? "http" : "https");
+  return `${proto}://${host}`.replace(/\/$/, "");
 }
 
 export function googleOAuthConfigured(): boolean {
@@ -34,8 +45,8 @@ export function googlePlacesConfigured(): boolean {
   return Boolean(process.env.GOOGLE_PLACES_API_KEY?.trim());
 }
 
-export function googleCallbackUrl(): string {
-  return `${appOrigin()}/api/sentiment/google/callback`;
+export function googleCallbackUrl(origin?: string | null): string {
+  return `${(origin || envOrigin()).replace(/\/$/, "")}/api/sentiment/google/callback`;
 }
 
 function signingKey(): Buffer {
@@ -103,14 +114,14 @@ export async function clearOAuthCookie(): Promise<void> {
   store.delete(OAUTH_COOKIE);
 }
 
-export function buildGoogleAuthUrl(state: string): string {
+export function buildGoogleAuthUrl(state: string, redirectOrigin?: string | null): string {
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
   if (!clientId) {
     throw new Error("GOOGLE_CLIENT_ID is not set.");
   }
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: googleCallbackUrl(),
+    redirect_uri: googleCallbackUrl(redirectOrigin),
     response_type: "code",
     scope: `${BUSINESS_SCOPE} ${EMAIL_SCOPE}`,
     access_type: "offline",
@@ -128,7 +139,10 @@ export type GoogleTokenSet = {
   email: string | null;
 };
 
-export async function exchangeGoogleCode(code: string): Promise<GoogleTokenSet> {
+export async function exchangeGoogleCode(
+  code: string,
+  redirectOrigin?: string | null,
+): Promise<GoogleTokenSet> {
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
   if (!clientId || !clientSecret) {
@@ -139,7 +153,7 @@ export async function exchangeGoogleCode(code: string): Promise<GoogleTokenSet> 
     code,
     client_id: clientId,
     client_secret: clientSecret,
-    redirect_uri: googleCallbackUrl(),
+    redirect_uri: googleCallbackUrl(redirectOrigin),
     grant_type: "authorization_code",
   });
 

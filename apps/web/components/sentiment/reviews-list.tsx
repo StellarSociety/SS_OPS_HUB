@@ -38,7 +38,7 @@ export function ReviewsList({
         <p className="mx-auto mt-2 max-w-md text-sm text-black/55">
           {channel === "tripadvisor"
             ? "TripAdvisor will connect from Settings in a later step."
-            : "Connect Google in Settings and import reviews to see them here."}
+            : "Connect Google in Settings and import reviews to see them here. A Places API key only works if Google returns review text; otherwise connect Google Business Profile."}
         </p>
         {channel !== "tripadvisor" ? (
           <ScopedLink

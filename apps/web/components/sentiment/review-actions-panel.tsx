@@ -2,13 +2,17 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { ReviewActionDialog } from "@/components/sentiment/review-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
 import { saveReviewAction } from "@/lib/actions/sentiment-reviews";
-import { SENTIMENT_ACTION_STATUS_OPTIONS } from "@/lib/sentiment/types";
+import {
+  SENTIMENT_ACTION_STATUS_META,
+  SENTIMENT_ACTION_STATUS_OPTIONS,
+  sentimentActionStatusMeta,
+} from "@/lib/sentiment/types";
 import type {
   SentimentActionStatus,
   SentimentReview,
@@ -54,6 +58,10 @@ export function ReviewActionsPanel({
   const [whatHappened, setWhatHappened] = useState(action?.what_happened ?? "");
   const [actionPlan, setActionPlan] = useState(action?.action_plan ?? "");
   const [tags, setTags] = useState<string[]>(action?.recovery_tags ?? []);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogAction, setDialogAction] = useState<SentimentReviewAction | null>(
+    action,
+  );
 
   useEffect(() => {
     setStatus(action?.status ?? defaultStatus(review));
@@ -67,6 +75,12 @@ export function ReviewActionsPanel({
   const openLike = status === "open" || status === "in_progress";
   const trigger = triggerFromStatus(status);
   const hasFollowUp = Boolean(action) && action.status !== "not_required";
+  const latestAction =
+    action && dialogAction
+      ? action.updated_at >= dialogAction.updated_at
+        ? action
+        : dialogAction
+      : (dialogAction ?? action);
 
   function toggleTag(id: string) {
     setTags((current) =>
@@ -99,13 +113,19 @@ export function ReviewActionsPanel({
         toast.error(result.error);
         return;
       }
-      toast.saved(
-        mode === "trigger" && trigger === "follow_up" && !hasFollowUp
-          ? "Follow-up started."
-          : "Action saved.",
-      );
+      if (mode === "trigger" && trigger === "follow_up") {
+        setDialogAction(result.action);
+        setDialogOpen(true);
+        return;
+      }
+      toast.saved("Action saved.");
       router.refresh();
     });
+  }
+
+  function closeActionDialog() {
+    setDialogOpen(false);
+    router.refresh();
   }
 
   return (
@@ -124,7 +144,7 @@ export function ReviewActionsPanel({
           </p>
           <p className="mt-0.5 text-xs text-black/50">
             {mode === "trigger"
-              ? "Trigger a follow-up. Details are completed on Actions."
+              ? "Trigger a follow-up, then log what happened."
               : needsFollowUp
                 ? "Log what happened and how you recovered this guest."
                 : "Optional follow-up if something still needs handling."}
@@ -154,28 +174,37 @@ export function ReviewActionsPanel({
         </label>
       ) : null}
 
-      <label className="mt-3 text-[11px] font-medium text-black/45">
-        Status
-        <select
-          className={cn("mt-1", SELECT_CLASS)}
-          value={status}
-          disabled={!canEdit || pending || (mode === "trigger" && trigger === "none")}
-          onChange={(event) =>
-            setStatus(event.target.value as SentimentActionStatus)
-          }
-        >
-          {(mode === "trigger"
-            ? trigger === "none"
-              ? SENTIMENT_ACTION_STATUS_OPTIONS.filter((option) => option.id === "not_required")
-              : SENTIMENT_ACTION_STATUS_OPTIONS.filter((option) => option.id !== "not_required")
-            : SENTIMENT_ACTION_STATUS_OPTIONS
-          ).map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {mode !== "trigger" || trigger === "follow_up" ? (
+        <label className="mt-3 text-[11px] font-medium text-black/45">
+          Status
+          <select
+            className={cn(
+              "mt-1 flex h-9 w-full rounded-md border px-2 text-sm font-medium outline-none focus:ring-2 disabled:opacity-50",
+              sentimentActionStatusMeta(status).fieldClassName,
+            )}
+            value={status}
+            disabled={!canEdit || pending}
+            onChange={(event) =>
+              setStatus(event.target.value as SentimentActionStatus)
+            }
+          >
+            {(mode === "trigger"
+              ? SENTIMENT_ACTION_STATUS_OPTIONS.filter(
+                  (option) => option.id !== "not_required",
+                )
+              : SENTIMENT_ACTION_STATUS_OPTIONS
+            ).map((option) => (
+              <option
+                key={option.id}
+                value={option.id}
+                className={SENTIMENT_ACTION_STATUS_META[option.id].className}
+              >
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
 
       {mode === "full" ? (
         <>
@@ -226,7 +255,9 @@ export function ReviewActionsPanel({
         </>
       ) : null}
 
-      {canEdit ? (
+      {!canEdit ? (
+        <p className="mt-3 text-xs text-black/40">View only</p>
+      ) : mode !== "trigger" || trigger === "follow_up" || hasFollowUp ? (
         <Button
           type="button"
           className="mt-4"
@@ -237,17 +268,17 @@ export function ReviewActionsPanel({
             ? "Start action"
             : "Save"}
         </Button>
-      ) : (
-        <p className="mt-3 text-xs text-black/40">View only</p>
-      )}
+      ) : null}
 
       {mode === "trigger" ? (
-        <ScopedLink
-          href="/sentiment/actions"
-          className="mt-3 text-xs font-medium text-[#3D421F] hover:underline"
-        >
-          Open Actions
-        </ScopedLink>
+        <ReviewActionDialog
+          open={dialogOpen}
+          review={review}
+          action={latestAction}
+          canEdit={canEdit}
+          onClose={closeActionDialog}
+          onSaved={() => router.refresh()}
+        />
       ) : null}
     </Card>
   );
@@ -317,7 +348,10 @@ export function ReviewActionTableCells({
       <td className="px-3 py-2.5 align-middle">
         <select
           aria-label="Action status"
-          className={INLINE_SELECT_CLASS}
+          className={cn(
+            "h-8 w-full min-w-[7.5rem] rounded-md border px-2 text-xs font-medium outline-none focus:ring-2 disabled:opacity-50",
+            sentimentActionStatusMeta(status).fieldClassName,
+          )}
           value={status}
           disabled={!canEdit || pending || trigger === "none"}
           onChange={(event) =>
@@ -328,7 +362,11 @@ export function ReviewActionTableCells({
             ? SENTIMENT_ACTION_STATUS_OPTIONS.filter((option) => option.id === "not_required")
             : SENTIMENT_ACTION_STATUS_OPTIONS.filter((option) => option.id !== "not_required")
           ).map((option) => (
-            <option key={option.id} value={option.id}>
+            <option
+              key={option.id}
+              value={option.id}
+              className={SENTIMENT_ACTION_STATUS_META[option.id].className}
+            >
               {option.label}
             </option>
           ))}

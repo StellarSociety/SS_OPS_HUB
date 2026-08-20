@@ -380,7 +380,7 @@ export async function saveReviewAction(formData: FormData) {
         .filter((tag) => RECOVERY_TAG_IDS.has(tag))
     : (existing?.recovery_tags ?? []);
 
-  await upsertReviewAction(service, {
+  const saved = await upsertReviewAction(service, {
     venue_id: auth.venue.id,
     review_id: reviewId,
     status,
@@ -401,7 +401,7 @@ export async function saveReviewAction(formData: FormData) {
   });
 
   revalidateSentimentReviews();
-  return { ok: true as const };
+  return { ok: true as const, action: saved };
 }
 
 function userBelongsToVenue(user: UserListRow, venueId: string) {

@@ -101,33 +101,23 @@ function ReviewPhotoGallery({
         role="dialog"
         aria-modal="true"
         aria-label="Review photos"
-        className="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col items-center"
+        className="relative z-10 flex max-h-[90vh] w-full max-w-5xl flex-col items-center gap-3"
         onClick={(event) => event.stopPropagation()}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={current}
-          alt={`${altPrefix} photo ${index + 1}`}
-          className="max-h-[78vh] w-auto max-w-full rounded-lg object-contain shadow-2xl"
-        />
-        <p className="mt-3 text-sm text-white/80">
-          {index + 1} / {photos.length}
-        </p>
         <button
           type="button"
-          className="absolute right-0 top-0 rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
+          className="self-end rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
           aria-label="Close"
           onClick={onClose}
         >
           <X className="h-5 w-5" />
         </button>
-        {photos.length > 1 ? (
-          <>
+
+        <div className="flex min-h-0 w-full items-center justify-center gap-3">
+          {photos.length > 1 ? (
             <button
               type="button"
-              className={cn(
-                "absolute left-0 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/70",
-              )}
+              className="shrink-0 rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
               aria-label="Previous photo"
               onClick={() =>
                 onIndexChange((index + photos.length - 1) % photos.length)
@@ -135,16 +125,56 @@ function ReviewPhotoGallery({
             >
               <ChevronLeft className="h-6 w-6" />
             </button>
+          ) : null}
+
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={current}
+            alt={`${altPrefix} photo ${index + 1}`}
+            className="max-h-[68vh] w-auto max-w-[min(100%,52rem)] rounded-lg object-contain shadow-2xl"
+          />
+
+          {photos.length > 1 ? (
             <button
               type="button"
-              className="absolute right-0 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
+              className="shrink-0 rounded-full bg-black/50 p-2 text-white hover:bg-black/70"
               aria-label="Next photo"
               onClick={() => onIndexChange((index + 1) % photos.length)}
             >
               <ChevronRight className="h-6 w-6" />
             </button>
-          </>
+          ) : null}
+        </div>
+
+        {photos.length > 1 ? (
+          <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1">
+            {photos.map((src, photoIndex) => {
+              const selected = photoIndex === index;
+              return (
+                <button
+                  key={src}
+                  type="button"
+                  className={cn(
+                    "relative h-16 w-16 shrink-0 overflow-hidden rounded-md border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white",
+                    selected
+                      ? "border-white"
+                      : "border-transparent opacity-70 hover:opacity-100",
+                  )}
+                  onClick={() => onIndexChange(photoIndex)}
+                  aria-label={`Show photo ${photoIndex + 1} of ${photos.length}`}
+                  aria-current={selected ? "true" : undefined}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" className="h-full w-full object-cover" />
+                </button>
+              );
+            })}
+          </div>
         ) : null}
+
+        <p className="text-sm text-white/80">
+          {index + 1} / {photos.length}
+        </p>
       </div>
     </div>,
     document.body,

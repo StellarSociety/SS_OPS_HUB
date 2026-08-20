@@ -24,6 +24,40 @@ function formatReviewDate(iso: string | null): string {
   }
 }
 
+function SentimentBadge({
+  label,
+  score,
+}: {
+  label: SentimentReview["sentiment_label"];
+  score: number | null;
+}) {
+  if (!label) return null;
+  const styles =
+    label === "positive"
+      ? "bg-emerald-50 text-emerald-800"
+      : label === "negative"
+        ? "bg-red-50 text-red-800"
+        : label === "mixed"
+          ? "bg-amber-50 text-amber-900"
+          : "bg-black/[0.04] text-black/55";
+  const text =
+    label === "positive"
+      ? "Positive"
+      : label === "negative"
+        ? "Negative"
+        : label === "mixed"
+          ? "Mixed"
+          : "Neutral";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${styles}`}
+    >
+      {text}
+      {typeof score === "number" ? ` · ${score}` : ""}
+    </span>
+  );
+}
+
 function ChannelBadge({ channel }: { channel: SentimentChannel }) {
   if (channel === "google") {
     return (
@@ -237,16 +271,20 @@ export function ReviewCard({
         <ChannelBadge channel={review.channel} />
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <GoogleStars rating={review.rating} />
-        {review.comment ? (
-          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-black/70">
-            {review.comment}
-          </p>
-        ) : (
-          <p className="mt-1.5 text-sm italic text-black/40">No written comment.</p>
-        )}
+        <SentimentBadge
+          label={review.sentiment_label}
+          score={review.sentiment_score}
+        />
       </div>
+      {review.comment ? (
+        <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-black/70">
+          {review.comment}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-sm italic text-black/40">No written comment.</p>
+      )}
 
       <ReviewPhotoStrip photos={photos} altPrefix={`${guestName} review`} />
 

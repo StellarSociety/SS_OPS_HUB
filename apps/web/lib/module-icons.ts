@@ -2,7 +2,7 @@ export const MODULE_ICON_KEYS = [
   "clipboard-list",
   "folder-kanban",
   "wrench",
-  "smile",
+  "scan-face",
   "trending-up",
   "calculator",
   "landmark",

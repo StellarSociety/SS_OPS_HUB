@@ -142,8 +142,8 @@ export function GoogleConnectionCard({
             className="underline underline-offset-2"
           >
             Google Cloud credentials
-          </a>{" "}
-          with{" "}
+          </a>
+          . This app needs{" "}
           <a
             href="https://console.cloud.google.com/apis/library/places.googleapis.com"
             target="_blank"
@@ -151,8 +151,12 @@ export function GoogleConnectionCard({
             className="underline underline-offset-2"
           >
             Places API (New)
-          </a>{" "}
-          enabled. Saved keys are stored encrypted and never shown again.
+          </a>
+          , not the legacy Places API. Enable Places API (New), attach billing,
+          then on the key allow “Places API (New)”. A public Place ID import
+          can include up to 5 reviews — only if Google returns the reviews
+          field on that key. For the full history, connect Google Business
+          Profile below. Saved keys are stored encrypted and never shown again.
           {placesConfigured
             ? " A key is already available for this venue."
             : null}
@@ -252,9 +256,19 @@ export function GoogleConnectionCard({
         </p>
         <p className="text-xs text-black/45">
           Connect the Google account that manages this listing to import the
-          full review history and, later, reply from the app.
+          full review history and, later, reply from the app. In Google Cloud
+          enable Account Management, Business Information, and Google My
+          Business API, and add both redirect URIs:{" "}
+          <code className="text-[11px]">
+            https://ssopshub.vercel.app/api/sentiment/google/callback
+          </code>{" "}
+          and{" "}
+          <code className="text-[11px]">
+            http://localhost:3000/api/sentiment/google/callback
+          </code>
+          .
           {!oauthConfigured
-            ? " Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then add the redirect URI /api/sentiment/google/callback."
+            ? " Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then restart the app."
             : null}
         </p>
         {canEdit ? (

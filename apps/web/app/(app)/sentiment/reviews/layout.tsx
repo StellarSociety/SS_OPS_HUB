@@ -20,8 +20,8 @@ export default async function SentimentReviewsLayout({
       <div>
         <ModulePageTitle>Reviews</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
-          Guest reviews for {venue.name}. Use the practice review to try replies
-          before connecting Google.
+          Guest reviews for {venue.name} — reply, start a follow-up, and keep
+          ratings in view.
         </p>
         <hr className="mt-4 border-black/10" />
       </div>

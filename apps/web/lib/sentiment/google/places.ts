@@ -52,6 +52,24 @@ export function resolvePlacesApiKey(
   return process.env.GOOGLE_PLACES_API_KEY?.trim() || null;
 }
 
+function placesNewBlocked(message: string | undefined): boolean {
+  const text = message?.trim() || "";
+  return (
+    /GetPlace are blocked/i.test(text) ||
+    (/places\.googleapis\.com/i.test(text) && /blocked/i.test(text))
+  );
+}
+
+function placesApiErrorMessage(raw: string | undefined): string {
+  if (placesNewBlocked(raw)) {
+    return "The key has Places API (legacy) enabled, but this app needs Places API (New). In Google Cloud → APIs & Services → Library, enable Places API (New), attach billing, then on the API key change API restrictions from “Places API” to “Places API (New)”.";
+  }
+  return (
+    raw?.trim() ||
+    "Could not load this Google Place. Check the Place ID and that Places API (New) is enabled."
+  );
+}
+
 export async function fetchPlaceDetails(
   placeId: string,
   apiKey?: string | null,
@@ -95,10 +113,7 @@ export async function fetchPlaceDetails(
     error?: { message?: string };
   };
   if (!response.ok) {
-    throw new Error(
-      json.error?.message ||
-        "Could not load this Google Place. Check the Place ID and that Places API (New) is enabled.",
-    );
+    throw new Error(placesApiErrorMessage(json.error?.message));
   }
 
   return {

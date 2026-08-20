@@ -3,7 +3,6 @@ import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/rende
 import { createServiceClient } from "@/lib/supabase/service";
 import { canEditActions, canEditReviews } from "./permissions";
 import {
-  ensurePracticeReview,
   ensureReplyTemplates,
   getReviewSource,
   listReplyTemplates,
@@ -32,14 +31,9 @@ export async function getSentimentPageContext() {
 
   if (!venue.is_global) {
     const service = createServiceClient();
-    await Promise.all([
-      ensurePracticeReview(service, venue.id).catch(() => {
-        // Practice seed is best-effort so a listing still loads.
-      }),
-      ensureReplyTemplates(service, venue.id).catch(() => {
-        // Default templates are best-effort.
-      }),
-    ]);
+    await ensureReplyTemplates(service, venue.id).catch(() => {
+      // Default templates are best-effort.
+    });
   }
 
   return { supabase, venue, permissions: permissions ?? [], user };

@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const tokens = await exchangeGoogleCode(code);
+    const tokens = await exchangeGoogleCode(code, state.redirectOrigin);
     const service = createServiceClient();
     const source = await upsertReviewSource(service, {
       venue_id: state.venueId,

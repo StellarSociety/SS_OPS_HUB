@@ -9,20 +9,12 @@ import type {
   SentimentSourceStatus,
 } from "./types";
 import { DEFAULT_REPLY_TEMPLATES } from "./reply-templates";
+import { scoreReview } from "./score-review";
 
 type Client = SupabaseClient;
 
-export const PRACTICE_REVIEW_EXTERNAL_ID = "practice:local-sample";
-export const PRACTICE_NEGATIVE_EXTERNAL_ID = "practice:local-negative";
-export const PRACTICE_AVATAR_URL = "/sentiment/practice/layla.webp";
-export const PRACTICE_PHOTO_URLS = [
-  "/sentiment/practice/terrace.webp",
-  "/sentiment/practice/mezze.webp",
-  "/sentiment/practice/dining.webp",
-];
-
 const REVIEW_COLUMNS =
-  "id, venue_id, source_id, channel, external_id, author_name, author_photo_url, rating, comment, reviewed_at, language, reply_text, reply_at, review_url, status, is_practice, reply_sync_status, reply_sync_error, author_profile_url, author_is_local_guide, author_review_count, photo_urls, imported_at, updated_at";
+  "id, venue_id, source_id, channel, external_id, author_name, author_photo_url, rating, comment, reviewed_at, language, reply_text, reply_at, review_url, status, is_practice, reply_sync_status, reply_sync_error, author_profile_url, author_is_local_guide, author_review_count, photo_urls, sentiment_label, sentiment_score, sentiment_topics, sentiment_analyzed_at, imported_at, updated_at";
 
 const SOURCE_PUBLIC_COLUMNS = [
   "id",
@@ -230,117 +222,6 @@ export async function updateReviewReply(
   if (error) throw new Error(error.message);
 }
 
-export async function ensurePracticeReview(
-  client: Client,
-  venueId: string,
-): Promise<void> {
-  const existingSource = await getReviewSource(client, venueId, "google");
-  const source =
-    existingSource ??
-    (await upsertReviewSource(client, {
-      venue_id: venueId,
-      channel: "google",
-      label: "Google",
-    }));
-
-  const { data: existing, error: lookupError } = await client
-    .from("sentiment_reviews")
-    .select("id")
-    .eq("source_id", source.id)
-    .eq("external_id", PRACTICE_REVIEW_EXTERNAL_ID)
-    .maybeSingle();
-  if (lookupError) throw new Error(lookupError.message);
-
-  const practiceFields = {
-    author_name: "Layla M.",
-    author_photo_url: PRACTICE_AVATAR_URL,
-    author_profile_url: null as string | null,
-    author_is_local_guide: true,
-    author_review_count: 47,
-    photo_urls: PRACTICE_PHOTO_URLS,
-    rating: 4,
-    comment:
-      "Beautiful evening on the terrace. Sunset over JVT was a highlight, and the kitchen sent out a generous mezze to start. Service was warm though we waited a little for mains. Would happily come back for another dinner.",
-    language: "en",
-    is_practice: true,
-    raw: { practice: true },
-  };
-
-  if (existing) {
-    const { error } = await client
-      .from("sentiment_reviews")
-      .update(practiceFields)
-      .eq("id", existing.id);
-    if (error) throw new Error(error.message);
-  } else {
-    const reviewedAt = new Date();
-    reviewedAt.setUTCDate(reviewedAt.getUTCDate() - 3);
-    const { error } = await client.from("sentiment_reviews").insert({
-      venue_id: venueId,
-      source_id: source.id,
-      channel: "google",
-      external_id: PRACTICE_REVIEW_EXTERNAL_ID,
-      reviewed_at: reviewedAt.toISOString(),
-      status: "new",
-      ...practiceFields,
-    });
-    if (error) throw new Error(error.message);
-  }
-
-  await ensureNegativePracticeReview(client, venueId, source.id);
-}
-
-async function ensureNegativePracticeReview(
-  client: Client,
-  venueId: string,
-  sourceId: string,
-): Promise<void> {
-  const { data: existing, error: lookupError } = await client
-    .from("sentiment_reviews")
-    .select("id")
-    .eq("source_id", sourceId)
-    .eq("external_id", PRACTICE_NEGATIVE_EXTERNAL_ID)
-    .maybeSingle();
-  if (lookupError) throw new Error(lookupError.message);
-
-  const fields = {
-    author_name: "Omar K.",
-    author_photo_url: null as string | null,
-    author_profile_url: null as string | null,
-    author_is_local_guide: false,
-    author_review_count: 3,
-    photo_urls: [] as string[],
-    rating: 2,
-    comment:
-      "We waited over 40 minutes for mains and the sea bass arrived lukewarm. When we asked, the server seemed rushed and didn't offer much help. Disappointing for the price.",
-    language: "en",
-    is_practice: true,
-    raw: { practice: true, scenario: "negative" },
-  };
-
-  if (existing) {
-    const { error } = await client
-      .from("sentiment_reviews")
-      .update(fields)
-      .eq("id", existing.id);
-    if (error) throw new Error(error.message);
-    return;
-  }
-
-  const reviewedAt = new Date();
-  reviewedAt.setUTCDate(reviewedAt.getUTCDate() - 1);
-  const { error } = await client.from("sentiment_reviews").insert({
-    venue_id: venueId,
-    source_id: sourceId,
-    channel: "google",
-    external_id: PRACTICE_NEGATIVE_EXTERNAL_ID,
-    reviewed_at: reviewedAt.toISOString(),
-    status: "new",
-    ...fields,
-  });
-  if (error) throw new Error(error.message);
-}
-
 export async function listReplyTemplates(
   client: Client,
   venueId: string,
@@ -529,10 +410,24 @@ export async function upsertReviews(
   reviews: ReviewUpsertInput[],
 ): Promise<number> {
   if (reviews.length === 0) return 0;
+  const analyzedAt = new Date().toISOString();
+  const rows = reviews.map((review) => {
+    const scored = scoreReview({
+      rating: review.rating,
+      comment: review.comment,
+    });
+    return {
+      ...review,
+      sentiment_label: scored.label,
+      sentiment_score: scored.score,
+      sentiment_topics: scored.topics,
+      sentiment_analyzed_at: analyzedAt,
+    };
+  });
   const { error, data } = await client
     .from("sentiment_reviews")
-    .upsert(reviews, { onConflict: "source_id,external_id" })
+    .upsert(rows, { onConflict: "source_id,external_id" })
     .select("id");
   if (error) throw new Error(error.message);
-  return data?.length ?? reviews.length;
+  return data?.length ?? rows.length;
 }

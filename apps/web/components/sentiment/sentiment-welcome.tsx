@@ -36,8 +36,8 @@ export function SentimentWelcome({ venue, userName }: SentimentWelcomeProps) {
       </p>
 
       <p className="max-w-xl text-sm text-black/55 md:text-base">
-        Guest reviews for {venue.name} — start by connecting Google in Settings,
-        then browse them under Reviews.
+        Guest sentiment for {venue.name} — ratings, replies, and follow-ups in
+        one place.
       </p>
     </div>
   );

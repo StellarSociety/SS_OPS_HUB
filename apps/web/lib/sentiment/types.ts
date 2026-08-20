@@ -1,3 +1,5 @@
+import type { SentimentLabel } from "./score-review";
+
 export const SENTIMENT_MODULE_KEY = "sentiment" as const;
 
 export const SENTIMENT_FEATURES = {
@@ -66,6 +68,10 @@ export type SentimentReview = {
   author_is_local_guide: boolean;
   author_review_count: number | null;
   photo_urls: string[];
+  sentiment_label: SentimentLabel | null;
+  sentiment_score: number | null;
+  sentiment_topics: string[];
+  sentiment_analyzed_at: string | null;
   imported_at: string;
   updated_at: string;
 };

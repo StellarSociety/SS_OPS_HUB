@@ -127,7 +127,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
   {
     key: "sentiment",
     label: "Sentiment",
-    iconKey: "smile",
+    iconKey: "scan-face",
     category: "operational",
     href: "/sentiment",
     status: "live",

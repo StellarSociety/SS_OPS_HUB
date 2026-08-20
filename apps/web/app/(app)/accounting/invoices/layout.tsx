@@ -9,7 +9,7 @@ export default function InvoicesLayout({
     <div className="mx-auto w-full max-w-none space-y-5">
       <div className="space-y-1">
         <h1 className="font-serif text-2xl font-semibold tracking-tight text-[#3D421F] md:text-3xl">
-          Invoices
+          Invoice Issue
         </h1>
         <InvoicesTypeBanner />
       </div>

@@ -27,7 +27,16 @@ const SHARP_TRACE_EXCLUDES = [
   "node_modules/.pnpm/@img+sharp-libvips-linuxmusl-*/**/*",
 ];
 
+const NGROK_DEV_ORIGINS = [
+  "*.ngrok-free.dev",
+  "*.ngrok-free.app",
+  "*.ngrok.app",
+  "*.ngrok.io",
+];
+
 const nextConfig: NextConfig = {
+  // Allow ngrok / similar tunnels to load /_next assets in `next dev`.
+  allowedDevOrigins: NGROK_DEV_ORIGINS,
   // Trace from the workspace root so pnpm's symlinked store is followed.
   outputFileTracingRoot: workspaceRoot,
   // sharp is a native module; keep it external and ship its platform binaries.
@@ -61,6 +70,7 @@ const nextConfig: NextConfig = {
         "ss-ops-hub.vercel.app",
         "localhost:3000",
         "127.0.0.1:3000",
+        ...(process.env.NODE_ENV === "production" ? [] : NGROK_DEV_ORIGINS),
       ],
     },
   },

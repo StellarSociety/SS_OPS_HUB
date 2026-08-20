@@ -34,8 +34,8 @@ import {
   LayoutDashboard,
   LineChart,
   Lock,
-  MessageCircleHeart,
   MessagesSquare,
+  MessageSquareQuote,
   PackageCheck,
   Percent,
   Receipt,
@@ -107,7 +107,7 @@ const FEATURE_ICONS: Partial<Record<string, LucideIcon>> = {
   "maintenance:requests": Wrench,
   "maintenance:assets": Boxes,
   "sentiment:overview": LayoutDashboard,
-  "sentiment:reviews": MessageCircleHeart,
+  "sentiment:reviews": MessageSquareQuote,
   "sentiment:actions": ClipboardList,
   "sales:overview": LayoutDashboard,
   "sales:venue_daily": Coins,
@@ -168,7 +168,7 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   "daily-figures": Coins,
   planning: LineChart,
   "close-of-day": Camera,
-  reviews: MessageCircleHeart,
+  reviews: MessageSquareQuote,
   actions: ClipboardList,
   all: Layers,
   other: Layers,
@@ -367,9 +367,7 @@ export function UserAccessEditor({
 }: UserAccessEditorProps) {
   const [state, setState] = useState<AccessEditorState>(initialState);
   const [baseline, setBaseline] = useState(() => JSON.stringify(initialState));
-  const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(initialState.modules.filter((m) => m.enabled).map((m) => m.moduleKey)),
-  );
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [isPending, startTransition] = useTransition();
   const onSaveRef = useRef<() => Promise<boolean>>(async () => false);
 
@@ -424,11 +422,7 @@ export function UserAccessEditor({
       ...prev,
       modules: prev.modules.map((m) => ({ ...m, enabled })),
     }));
-    if (enabled) {
-      setExpanded(new Set(modules.map((m) => m.key)));
-    } else {
-      setExpanded(new Set());
-    }
+    setExpanded(new Set());
   }
 
   function setModuleRole(moduleKey: string, role: AppRole) {
@@ -713,15 +707,14 @@ export function UserAccessEditor({
                         <Lock className="h-3 w-3" /> Suspended
                       </span>
                     ) : null}
+                    {config.enabled ? (
+                      <ChevronDown
+                        className={`ml-auto h-4 w-4 shrink-0 text-black/40 transition-transform ${
+                          isOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    ) : null}
                   </button>
-
-                  {config.enabled ? (
-                    <ChevronDown
-                      className={`h-4 w-4 text-black/40 transition-transform ${
-                        isOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  ) : null}
                 </div>
 
                 {config.enabled && isOpen ? (
