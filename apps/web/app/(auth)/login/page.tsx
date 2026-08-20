@@ -1,4 +1,5 @@
 import { LoginForm } from "@/components/auth/login-form";
+import { fetchGroupLogoState } from "@/lib/group/branding";
 
 const NOTICES: Record<string, string> = {
   deactivated: "Your account has been deactivated.",
@@ -12,10 +13,11 @@ type LoginPageProps = {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const { error } = await searchParams;
   const notice = error ? NOTICES[error] ?? null : null;
+  const { logoUrl } = await fetchGroupLogoState();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-black px-4 py-12">
-      <LoginForm notice={notice} />
+      <LoginForm notice={notice} logoUrl={logoUrl} />
     </div>
   );
 }

@@ -17,6 +17,10 @@ import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { MaybeSettingsNavMenu } from "@/components/layout/settings-nav-context-menu";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import {
+  guardAppNavigation,
+  usePageAccess,
+} from "@/components/providers/page-access-provider";
+import {
   getModuleSidebarByKey,
   type ModuleSidebarItem,
 } from "@/lib/module-sidebar";
@@ -441,6 +445,7 @@ export function ExpandableModuleGrid({
 }: ExpandableModuleGridProps) {
   const router = useRouter();
   const { scope, slug } = useVenueScope();
+  const access = usePageAccess();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -456,6 +461,7 @@ export function ExpandableModuleGrid({
   const handleSelectModule = (mod: ModuleGridItem) => {
     if (!canExpandModule(mod)) {
       if (mod.status === "live" && mod.clickable && mod.href) {
+        if (!guardAppNavigation(access, mod.href)) return;
         router.push(toScopedHref(mod.href, scope, slug));
       }
       return;

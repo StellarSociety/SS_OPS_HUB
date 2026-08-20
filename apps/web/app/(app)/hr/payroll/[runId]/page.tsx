@@ -13,6 +13,7 @@ import {
   type PayrollStaffOption,
 } from "@/components/hr/payroll-run-client";
 import { PayrollShell } from "@/components/hr/payroll-shell";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import {
   listPayrollApproverCandidates,
   listPendingPayrollApprovalsForRun,
@@ -47,13 +48,7 @@ export default async function HrPayrollRunPage({
   const { supabase, venue, permissions, user } = await getHrPageContext();
 
   if (!canAccessPayroll(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Payroll for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const showSalary = canViewSalary(permissions, venue.id);

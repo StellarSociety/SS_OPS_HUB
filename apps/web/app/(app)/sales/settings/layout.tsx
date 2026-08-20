@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessSalesSettings } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
@@ -10,13 +11,7 @@ export default async function SalesSettingsLayout({
   const { venue, permissions } = await getSalesPageContext();
 
   if (!canAccessSalesSettings(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Sales & Revenue settings for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   return (

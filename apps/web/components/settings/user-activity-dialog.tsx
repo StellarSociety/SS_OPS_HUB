@@ -9,21 +9,36 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  Monitor,
   MousePointerClick,
   SquareArrowOutUpRight,
+  Wifi,
   X,
 } from "lucide-react";
 import {
   getUserActivity,
+  getUserOnlineSessions,
   type ActivityItem,
   type ActivityKind,
+  type OnlineSessionItem,
 } from "@/lib/actions/user-activity";
+import {
+  segmentedSubNavLinkClass,
+  segmentedSubNavShellClass,
+} from "@/lib/sub-nav-ui";
 
 type UserActivityDialogProps = {
   userId: string;
   userName: string;
   onClose: () => void;
 };
+
+type ActivityTab = "activity" | "online";
+
+const TABS: { id: ActivityTab; label: string }[] = [
+  { id: "activity", label: "Activity" },
+  { id: "online", label: "Online Activity" },
+];
 
 const KIND_META: Record<
   ActivityKind,
@@ -52,6 +67,47 @@ function formatWhen(value: string): string {
   });
 }
 
+function formatTime(value: string): string {
+  return new Date(value).toLocaleTimeString(undefined, {
+    timeStyle: "short",
+  });
+}
+
+function sameCalendarDay(a: string, b: string): boolean {
+  const x = new Date(a);
+  const y = new Date(b);
+  return (
+    x.getFullYear() === y.getFullYear() &&
+    x.getMonth() === y.getMonth() &&
+    x.getDate() === y.getDate()
+  );
+}
+
+function formatUsageRange(from: string, until: string, isActive: boolean): string {
+  const start = formatTime(from);
+  if (isActive) return `${start} – now`;
+  if (sameCalendarDay(from, until)) return `${start} – ${formatTime(until)}`;
+  return `${formatWhen(from)} – ${formatWhen(until)}`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return "< 1 min";
+  const totalMin = Math.round(ms / 60_000);
+  const days = Math.floor(totalMin / (60 * 24));
+  const hours = Math.floor((totalMin % (60 * 24)) / 60);
+  const minutes = totalMin % 60;
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes} min`;
+}
+
+function sessionEndLabel(session: OnlineSessionItem): string {
+  if (session.is_active) return "Active now";
+  if (session.end_reason === "logout") return "Signed out";
+  if (session.end_reason === "replaced") return "New sign-in";
+  return "Went idle";
+}
+
 /** Group items by calendar day for a scannable timeline. */
 function dayLabel(value: string): string {
   const d = new Date(value);
@@ -77,8 +133,11 @@ export function UserActivityDialog({
   userName,
   onClose,
 }: UserActivityDialogProps) {
+  const [tab, setTab] = useState<ActivityTab>("activity");
   const [items, setItems] = useState<ActivityItem[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [sessions, setSessions] = useState<OnlineSessionItem[] | null>(null);
+  const [loadingActivity, setLoadingActivity] = useState(true);
+  const [loadingOnline, setLoadingOnline] = useState(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -90,7 +149,7 @@ export function UserActivityDialog({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
+    setLoadingActivity(true);
     getUserActivity(userId)
       .then((data) => {
         if (active) setItems(data);
@@ -99,12 +158,32 @@ export function UserActivityDialog({
         if (active) setItems([]);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) setLoadingActivity(false);
       });
     return () => {
       active = false;
     };
   }, [userId]);
+
+  useEffect(() => {
+    let active = true;
+    setLoadingOnline(true);
+    getUserOnlineSessions(userId)
+      .then((data) => {
+        if (active) setSessions(data);
+      })
+      .catch(() => {
+        if (active) setSessions([]);
+      })
+      .finally(() => {
+        if (active) setLoadingOnline(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const loading = tab === "activity" ? loadingActivity : loadingOnline;
 
   return (
     <div
@@ -137,12 +216,45 @@ export function UserActivityDialog({
           </button>
         </div>
 
+        <div className="border-b border-black/10 px-5 py-3">
+          <nav
+            aria-label="Activity sections"
+            className={segmentedSubNavShellClass}
+            role="tablist"
+          >
+            {TABS.map(({ id, label }) => {
+              const selected = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setTab(id)}
+                  className={segmentedSubNavLinkClass(selected)}
+                >
+                  <span className="min-w-0 truncate">{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
         <div className="max-h-[65vh] overflow-y-auto px-5 py-4">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-black/50">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading activity…
+              {tab === "online" ? "Loading online activity…" : "Loading activity…"}
             </div>
+          ) : tab === "online" ? (
+            !sessions || sessions.length === 0 ? (
+              <p className="py-12 text-center text-sm text-black/50">
+                No sign-ins recorded yet. Each login and how long they stayed
+                active will appear here.
+              </p>
+            ) : (
+              <OnlineTimeline sessions={sessions} />
+            )
           ) : !items || items.length === 0 ? (
             <p className="py-12 text-center text-sm text-black/50">
               No activity recorded yet. Sign-ins, app visits and form entries
@@ -197,6 +309,90 @@ function ActivityTimeline({ items }: { items: ActivityItem[] }) {
                   </span>
                   <span className="shrink-0 text-xs tabular-nums text-black/40">
                     {formatWhen(item.created_at)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OnlineTimeline({ sessions }: { sessions: OnlineSessionItem[] }) {
+  const groups: { day: string; sessions: OnlineSessionItem[] }[] = [];
+  for (const session of sessions) {
+    const day = dayLabel(session.started_at);
+    const last = groups[groups.length - 1];
+    if (last && last.day === day) last.sessions.push(session);
+    else groups.push({ day, sessions: [session] });
+  }
+
+  return (
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <div key={group.day}>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/40">
+            {group.day}
+          </p>
+          <ul className="space-y-1">
+            {group.sessions.map((session) => {
+              const fromLogin = session.started_by === "login";
+              const Icon = fromLogin ? LogIn : Wifi;
+              return (
+                <li
+                  key={session.id}
+                  className="flex items-start gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-black/[0.03]"
+                >
+                  <span
+                    className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                      session.is_active
+                        ? "bg-emerald-100 text-emerald-700"
+                        : fromLogin
+                          ? "bg-[var(--venue-primary)]/15 text-[#818a40]"
+                          : "bg-black/5 text-black/45"
+                    }`}
+                  >
+                    {session.is_active ? (
+                      <Monitor className="h-4 w-4" />
+                    ) : (
+                      <Icon className="h-4 w-4" />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-[#3D421F]">
+                      {fromLogin ? "Signed in" : "Came back online"}
+                    </span>
+                    <span className="mt-0.5 block text-sm text-[#3D421F]">
+                      Using the app{" "}
+                      <span className="text-black/55">
+                        {formatUsageRange(
+                          session.used_from,
+                          session.used_until,
+                          session.is_active,
+                        )}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block text-xs text-black/40">
+                      Active for {formatDuration(session.duration_ms)}
+                      {session.is_active ? (
+                        <>
+                          {" · "}
+                          <span className="font-medium text-emerald-700">
+                            {sessionEndLabel(session)}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-black/30">
+                          {" "}
+                          · {sessionEndLabel(session)}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs tabular-nums text-black/40">
+                    {formatWhen(session.used_from)}
                   </span>
                 </li>
               );

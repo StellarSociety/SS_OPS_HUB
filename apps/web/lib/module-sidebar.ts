@@ -3,6 +3,7 @@ import {
   CalendarCheck,
   CalendarDays,
   CalendarOff,
+  ClipboardList,
   Camera,
   Coins,
   FileBarChart,
@@ -11,7 +12,9 @@ import {
   Landmark,
   LayoutDashboard,
   LineChart,
+  MessageCircleHeart,
   MessagesSquare,
+  Smile,
   Percent,
   Receipt,
   ReceiptText,
@@ -246,6 +249,39 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     ],
     bottomItems: [
       { label: "Settings", href: "/accounting/settings", icon: Settings },
+    ],
+  },
+  {
+    moduleKey: "sentiment",
+    basePath: "/sentiment",
+    label: "Sentiment",
+    icon: Smile,
+    items: [
+      {
+        label: "Dashboard",
+        href: "/sentiment",
+        exact: true,
+        icon: LayoutDashboard,
+        dividerAfter: true,
+      },
+      {
+        label: "Reviews",
+        href: "/sentiment/reviews",
+        activePathPrefix: "/sentiment/reviews",
+        icon: MessageCircleHeart,
+      },
+      {
+        label: "Actions",
+        href: "/sentiment/actions",
+        icon: ClipboardList,
+      },
+    ],
+    bottomItems: [
+      {
+        label: "Settings",
+        href: "/sentiment/settings",
+        icon: Settings,
+      },
     ],
   },
 ];

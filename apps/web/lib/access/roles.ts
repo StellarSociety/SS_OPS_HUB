@@ -6,6 +6,7 @@ import type {
 import {
   APP_MODULE_KEY,
   getAssignableModules,
+  getFeatureDef,
   getSensitiveFeaturesForModule,
   getSettingsFeatureForModule,
   getSubPagesForModule,
@@ -43,7 +44,7 @@ export const APP_ROLE_OPTIONS: {
   {
     value: "viewer",
     label: "Viewer",
-    description: "View only. Cannot export files or submit forms.",
+    description: "View only by default. Turn Editor on for specific pages to allow edits there.",
   },
 ];
 
@@ -103,6 +104,8 @@ export type ModuleAccessConfig = {
   venueId: string | null;
   /** Layer 3 — selected sub-pages (feature keys). */
   subPages: string[];
+  /** Subset of `subPages` the user may edit. Others are view-only. */
+  editPages: string[];
   /** Layer 4 — selected sensitive content (feature keys). */
   sensitive: string[];
 };
@@ -182,12 +185,18 @@ export function expandAccess(state: AccessEditorState): ExpandedAccess {
     const validSubPages = new Set(
       getSubPagesForModule(mod.moduleKey).map((f) => f.key),
     );
+    const editPages = new Set(mod.editPages ?? []);
     for (const key of mod.subPages) {
       if (!validSubPages.has(key)) continue;
       grants.push({
         module_key: mod.moduleKey,
         feature_key: key,
-        access_level: level,
+        access_level:
+          editPages.has(key) && !getFeatureDef(mod.moduleKey, key)?.viewOnly
+            ? level === "view"
+              ? "edit"
+              : level
+            : "view",
         venue_id: mod.venueId,
       });
     }
@@ -234,8 +243,60 @@ export function defaultModuleConfig(
     suspended: false,
     venueId,
     subPages: getSubPagesForModule(moduleKey).map((f) => f.key),
+    editPages: [],
     sensitive: [],
   };
+}
+
+/**
+ * Pages added after a user was last saved. If they already have a sibling
+ * grant, treat the new page as selected until the editor is saved again.
+ */
+const NEW_SUBPAGE_INHERIT_FROM: Record<string, readonly string[]> = {
+  uniform: [
+    "staff_compliance",
+    "assets",
+    "insurance",
+    "certifications",
+    "visa",
+    "staff",
+  ],
+  cash: ["venue_daily", "waiter_daily", "daily_vs_waiters", "cash_drawer"],
+  reports: ["cash_up"],
+};
+
+function inheritNewSubPages(
+  selected: string[],
+  subPageKeys: Set<string>,
+): string[] {
+  const next = [...selected];
+  for (const [key, fromKeys] of Object.entries(NEW_SUBPAGE_INHERIT_FROM)) {
+    if (
+      subPageKeys.has(key) &&
+      !next.includes(key) &&
+      next.some((granted) => fromKeys.includes(granted))
+    ) {
+      next.push(key);
+    }
+  }
+  return next;
+}
+
+function inheritNewEditPages(
+  selectedPages: string[],
+  selectedEdit: string[],
+): string[] {
+  const next = [...selectedEdit];
+  for (const [key, fromKeys] of Object.entries(NEW_SUBPAGE_INHERIT_FROM)) {
+    if (
+      selectedPages.includes(key) &&
+      !next.includes(key) &&
+      next.some((granted) => fromKeys.includes(granted))
+    ) {
+      next.push(key);
+    }
+  }
+  return next;
 }
 
 function levelToRole(level: AccessLevel): AppRole {
@@ -300,9 +361,23 @@ export function buildEditorState(user: UserListRow): AccessEditorState {
       getSensitiveFeaturesForModule(mod.key).map((f) => f.key),
     );
 
-    const selectedSubPages = modGrants
-      .map((g) => g.feature_key)
-      .filter((k) => subPageKeys.has(k));
+    const selectedSubPages = inheritNewSubPages(
+      modGrants
+        .map((g) => g.feature_key)
+        .filter((k) => subPageKeys.has(k)),
+      subPageKeys,
+    );
+    const selectedEditPages = inheritNewEditPages(
+      selectedSubPages,
+      modGrants
+        .filter(
+          (g) =>
+            subPageKeys.has(g.feature_key) &&
+            g.access_level !== "view" &&
+            !getFeatureDef(mod.key, g.feature_key)?.viewOnly,
+        )
+        .map((g) => g.feature_key),
+    );
     const selectedSensitive = modGrants
       .map((g) => g.feature_key)
       .filter((k) => sensitiveKeys.has(k));
@@ -315,6 +390,7 @@ export function buildEditorState(user: UserListRow): AccessEditorState {
         suspended: access.suspended,
         venueId: access.venue_id,
         subPages: selectedSubPages,
+        editPages: selectedEditPages,
         sensitive: selectedSensitive,
       } satisfies ModuleAccessConfig;
     }
@@ -330,6 +406,7 @@ export function buildEditorState(user: UserListRow): AccessEditorState {
         suspended: false,
         venueId: modGrants[0]!.venue_id,
         subPages: selectedSubPages,
+        editPages: selectedEditPages,
         sensitive: selectedSensitive,
       } satisfies ModuleAccessConfig;
     }

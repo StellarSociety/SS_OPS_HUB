@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { SalesSettingsSubNav } from "@/components/sales/sales-settings-sub-nav";
 import { SalesTendersSettingsPanel } from "@/components/sales/sales-tenders-settings-panel";
 import {
@@ -16,14 +17,7 @@ export default async function SalesTendersSettingsPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
 
   if (!canAccessSalesSettings(permissions, venue.id)) {
-    return (
-      <>
-        <SalesSettingsSubNav />
-        <p className="text-sm text-black/60">
-          You do not have access to tender settings for this venue.
-        </p>
-      </>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

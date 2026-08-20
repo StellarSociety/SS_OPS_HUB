@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { OnlinePresence } from "@/components/layout/online-presence";
 import { SelectVenueWelcome } from "@/components/venue/select-venue-welcome";
 import { VenueGrid } from "@/components/venue/venue-grid";
 import { canAccessGlobal } from "@/lib/role-permissions";
@@ -109,6 +110,7 @@ export default async function SelectVenuePage() {
 
   return (
     <div className="relative h-dvh overflow-hidden bg-[#E9E3D6]">
+      <OnlinePresence />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_55%)]" />
       <div className="relative grid h-full grid-rows-[3fr_auto_auto_1fr]">
         <div className="flex min-h-0 items-end justify-center px-4 pb-6 pt-10 sm:pb-10 sm:pt-14">

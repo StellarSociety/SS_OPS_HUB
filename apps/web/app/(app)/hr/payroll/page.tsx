@@ -1,4 +1,5 @@
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { CreatePayrollRunForm } from "@/components/hr/create-payroll-run-form";
 import {
@@ -52,13 +53,7 @@ export default async function HrPayrollPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
 
   if (!canAccessPayroll(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Payroll for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const showSalary = canViewSalary(permissions, venue.id);

@@ -1,6 +1,6 @@
 "use server";
 
-import { canViewStaff } from "@/lib/hr/permissions";
+import { canAccessLeave } from "@/lib/hr/permissions";
 import {
   dateRangesOverlap,
   normalizeScheduleLeaveCode,
@@ -235,7 +235,7 @@ export async function getLeaveRangeActivity(input: {
     .select("*")
     .eq("user_id", user.id);
 
-  if (!canViewStaff(permissions ?? [], venue.id)) {
+  if (!canAccessLeave(permissions ?? [], venue.id)) {
     return { items: [], error: "You do not have permission to view leave." };
   }
 

@@ -11,6 +11,13 @@ export type Venue = {
   created_at: string;
 };
 
+export type GroupBranding = {
+  id: number;
+  logo_url: string | null;
+  updated_at: string;
+  updated_by: string | null;
+};
+
 export type Profile = {
   id: string;
   email: string;

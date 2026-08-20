@@ -73,6 +73,74 @@ export function canAccessStaff(
   return hasHrFeatureAccess(permissions, HR_FEATURES.staff, venueId);
 }
 
+/**
+ * HR Overview / dashboard. Staff-directory grants still open it so existing
+ * users without an explicit overview row are not locked out.
+ */
+export function canAccessHrOverview(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.overview, venueId) ||
+    canAccessStaff(permissions, venueId)
+  );
+}
+
+/** Can enter any Staff Compliance section (uniform, assets, certs, insurance, visa). */
+export function canAccessStaffCompliance(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.staffCompliance, venueId) ||
+    hasHrFeatureAccess(permissions, HR_FEATURES.uniform, venueId) ||
+    hasHrFeatureAccess(permissions, HR_FEATURES.insurance, venueId) ||
+    hasHrFeatureAccess(permissions, HR_FEATURES.certifications, venueId) ||
+    hasHrFeatureAccess(permissions, HR_FEATURES.visa, venueId) ||
+    canAccessAssets(permissions, venueId)
+  );
+}
+
+function canAccessComplianceSection(
+  permissions: UserPermission[],
+  featureKey: string,
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, featureKey, venueId) ||
+    hasHrFeatureAccess(permissions, HR_FEATURES.staffCompliance, venueId) ||
+    canAccessAssets(permissions, venueId)
+  );
+}
+
+function canEditComplianceSection(
+  permissions: UserPermission[],
+  featureKey: string,
+  venueId: string,
+): boolean {
+  return (
+    hasHrPermission(permissions, featureKey, "edit", venueId) ||
+    hasHrPermission(permissions, HR_FEATURES.staffCompliance, "edit", venueId) ||
+    canEditAssets(permissions, venueId)
+  );
+}
+
+/** Uniform tab — falls back to Staff Compliance / assets / staff. */
+export function canAccessUniform(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return canAccessComplianceSection(permissions, HR_FEATURES.uniform, venueId);
+}
+
+export function canEditUniform(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return canEditComplianceSection(permissions, HR_FEATURES.uniform, venueId);
+}
+
 /** Can view the assets catalog (falls back to staff access). */
 export function canAccessAssets(
   permissions: UserPermission[],
@@ -101,6 +169,30 @@ export function canAccessSchedules(
   venueId: string,
 ): boolean {
   return hasHrFeatureAccess(permissions, HR_FEATURES.schedules, venueId);
+}
+
+/** Attendance hub (validation / insights / records). */
+export function canAccessAttendance(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, "attendance_validation", venueId) ||
+    hasHrFeatureAccess(permissions, "attendance_insights", venueId) ||
+    hasHrFeatureAccess(permissions, "attendance", venueId) ||
+    canAccessLeave(permissions, venueId) ||
+    canAccessStaff(permissions, venueId)
+  );
+}
+
+export function canAccessLeave(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.leave, venueId) ||
+    canAccessStaff(permissions, venueId)
+  );
 }
 
 /** Can edit schedule roster cells and week sections. */

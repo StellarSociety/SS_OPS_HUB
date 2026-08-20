@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { DiscountsSubNav } from "@/components/sales/discounts-sub-nav";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessDiscounts } from "@/lib/sales/permissions";
@@ -11,13 +12,7 @@ export default async function SalesDiscountsLayout({
   const { venue, permissions } = await getSalesPageContext();
 
   if (!canAccessDiscounts(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Discounts for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   return (

@@ -1,4 +1,5 @@
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { PayslipsHistoryClient } from "@/components/hr/payslips-history-client";
 import { listPayslipsForVenue } from "@/lib/actions/hr-payroll";
 import { canEditPayroll, canViewPayslips } from "@/lib/hr/permissions";
@@ -11,13 +12,7 @@ export default async function HrPayslipsPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
 
   if (!canViewPayslips(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Payslips for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const canGenerate = canEditPayroll(permissions, venue.id);

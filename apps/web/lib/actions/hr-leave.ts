@@ -44,10 +44,10 @@ import {
   type ScheduledLeaveRange,
 } from "@/lib/hr/leave";
 import {
+  canAccessLeave,
   canAdminLookups,
   canEditSchedules,
   canEditStaff,
-  canViewStaff,
 } from "@/lib/hr/permissions";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
@@ -857,7 +857,7 @@ export async function listLeaveBalanceSummaries(
 }> {
   const { supabase, venue, permissions } = await getAuthContext();
 
-  if (!canViewStaff(permissions, venue.id)) {
+  if (!canAccessLeave(permissions, venue.id)) {
     return {
       error: "You do not have permission to view leave balances.",
       year: leaveYear ?? currentLeaveYear(),
@@ -968,7 +968,7 @@ export async function getEmployeeLeaveBalances(input: {
   const year = input.leaveYear ?? currentLeaveYear();
   const policy = await getLeavePolicySettings();
 
-  if (!canViewStaff(permissions, venue.id)) {
+  if (!canAccessLeave(permissions, venue.id)) {
     return {
       error: "You do not have permission to view leave balances.",
       year,
@@ -1703,7 +1703,7 @@ export async function getStaffPhReplacementCredits(input: {
   const { supabase, venue, permissions } = await getAuthContext();
   const year = input.leaveYear ?? currentLeaveYear();
 
-  if (!canViewStaff(permissions, venue.id)) {
+  if (!canAccessLeave(permissions, venue.id)) {
     return {
       error: "You do not have permission to view leave balances.",
       year,
@@ -1834,7 +1834,7 @@ export async function getStaffLeaveUsageDays(input: {
     };
   const meta = titles[input.kind];
 
-  if (!canViewStaff(permissions, venue.id)) {
+  if (!canAccessLeave(permissions, venue.id)) {
     return {
       error: "You do not have permission to view leave balances.",
       year,
@@ -2246,7 +2246,7 @@ export async function getLeaveCalendarMonth(input: {
   const year = input.year;
   const month = input.month;
 
-  if (!canViewStaff(permissions, venue.id)) {
+  if (!canAccessLeave(permissions, venue.id)) {
     return {
       error: "You do not have permission to view the leave calendar.",
       year,

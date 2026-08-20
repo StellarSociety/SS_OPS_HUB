@@ -1,9 +1,6 @@
 import { SchedulesDepartmentTabs } from "@/components/hr/schedules-department-tabs";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
-import {
-  getScheduleApprovalSettings,
-  listScheduleApproverCandidates,
-} from "@/lib/actions/hr-schedule-approval";
+import { listConfiguredScheduleApprovers } from "@/lib/actions/hr-schedule-approval";
 import { canEditSchedules } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
@@ -65,7 +62,7 @@ export default async function SchedulesPage() {
   const currentWeekDays = getWeekDayColumns(currentMonday);
   const currentFromDate = currentWeekDays[0]?.key ?? "";
   const currentToDate = currentWeekDays[6]?.key ?? "";
-  const [staff, labelsFromDb, shiftTemplatesFromDb, publicHolidays, profileResult, approvalSettings, candidatesResult, currentWeekScheduleDays] =
+  const [staff, labelsFromDb, shiftTemplatesFromDb, publicHolidays, profileResult, configuredApprovers, currentWeekScheduleDays] =
     await Promise.all([
       listStaffForVenue(supabase, venue.id),
       listScheduleDayLabels(supabase),
@@ -79,8 +76,7 @@ export default async function SchedulesPage() {
         .select("full_name, email")
         .eq("id", user.id)
         .single(),
-      getScheduleApprovalSettings(),
-      listScheduleApproverCandidates(),
+      listConfiguredScheduleApprovers(),
       currentFromDate && currentToDate
         ? listScheduleDaysByDateRange(supabase, venue.id, {
             fromDate: currentFromDate,
@@ -93,12 +89,7 @@ export default async function SchedulesPage() {
     profileResult.data?.full_name,
     profileResult.data?.email ?? user.email,
   );
-  const candidateById = new Map(
-    (candidatesResult.candidates ?? []).map((c) => [c.id, c]),
-  );
-  const approverPool = approvalSettings.approverUserIds
-    .map((id) => candidateById.get(id))
-    .filter((c): c is NonNullable<typeof c> => c != null);
+  const approverPool = configuredApprovers.candidates ?? [];
   const labels =
     labelsFromDb && labelsFromDb.length > 0
       ? labelsFromDb

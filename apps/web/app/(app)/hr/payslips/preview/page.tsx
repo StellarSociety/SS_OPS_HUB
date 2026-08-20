@@ -1,4 +1,5 @@
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { PayslipPdfPreviewClient } from "@/components/hr/payslip-pdf-preview-client";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { getPayslipLetterheadSettings } from "@/lib/actions/hr-payslip-letterhead";
@@ -12,13 +13,7 @@ export default async function HrPayslipPdfPreviewPage() {
   const { venue, permissions } = await getHrPageContext();
 
   if (!canViewPayslips(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Payslips for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const venueLogoUrl = getVenueLogoUrl({

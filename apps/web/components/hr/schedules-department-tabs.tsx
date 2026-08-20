@@ -21,6 +21,7 @@ import {
 import {
   approveScheduleWeek,
   getScheduleApprovalsForWeek,
+  rejectScheduleWeek,
   requestScheduleApproval,
   type ScheduleApproverCandidate,
 } from "@/lib/actions/hr-schedule-approval";
@@ -288,6 +289,30 @@ export function SchedulesDepartmentTabs({
         [weekStart]: {
           ...(prev[weekStart] ?? emptyApprovalsByDepartment()),
           [departmentKey]: result.request ?? null,
+        },
+      }));
+      setApproveOpen(false);
+    });
+  }
+
+  function handleRejectConfirm(note: string) {
+    const departmentKey = active;
+    startApproval(async () => {
+      setApprovalError(null);
+      const result = await rejectScheduleWeek({
+        weekStart,
+        departmentKey,
+        note,
+      });
+      if (result.error) {
+        setApprovalError(result.error);
+        return;
+      }
+      setApprovalsByWeek((prev) => ({
+        ...prev,
+        [weekStart]: {
+          ...(prev[weekStart] ?? emptyApprovalsByDepartment()),
+          [departmentKey]: null,
         },
       }));
       setApproveOpen(false);
@@ -620,6 +645,7 @@ export function SchedulesDepartmentTabs({
           if (!approvalPending) setApproveOpen(false);
         }}
         onConfirm={handleApproveConfirm}
+        onReject={handleRejectConfirm}
       />
 
       {exportError ? (

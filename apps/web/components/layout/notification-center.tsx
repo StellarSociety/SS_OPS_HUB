@@ -42,6 +42,9 @@ function severityDot(severity: NotificationRow["severity"]) {
 }
 
 function notificationHref(n: NotificationRow): string | null {
+  if (n.module_key === "sentiment" && n.entity === "sentiment_review") {
+    return `/sentiment/justify/${n.entity_id}`;
+  }
   if (n.module_key === "hr" && n.entity === "staff") {
     return `/hr/${n.entity_id}`;
   }
@@ -427,7 +430,14 @@ export function NotificationCenter({
                         {n.title}
                       </p>
                       {n.body ? (
-                        <p className="mt-0.5 line-clamp-2 text-xs text-black/55">
+                        <p
+                          className={cn(
+                            "mt-0.5 text-xs text-black/55",
+                            n.type.startsWith("schedule_approval_")
+                              ? "whitespace-pre-line line-clamp-8"
+                              : "line-clamp-2",
+                          )}
+                        >
                           {n.body}
                         </p>
                       ) : null}

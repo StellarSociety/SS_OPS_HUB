@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { DailySnapPanel } from "@/components/sales/daily-snap-panel";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
@@ -38,13 +39,7 @@ export default async function SalesDailySnapPage({ searchParams }: DailySnapPage
   const selectedDate = params.date ?? getLocalTodayIsoDate();
 
   if (!canAccessCashUp(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Daily Snap for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

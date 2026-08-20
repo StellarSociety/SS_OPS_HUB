@@ -58,7 +58,12 @@ export function SubpageTile({
         {comingSoon ? (
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-[18deg] whitespace-nowrap rounded-[3px] border-2 border-[#b23b2e] px-1.5 py-0.5 text-[9px] font-extrabold uppercase leading-none tracking-[0.08em] text-[#b23b2e]"
+            className={cn(
+              "pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-[18deg] whitespace-nowrap rounded-[2px] border border-[#b23b2e] font-semibold uppercase leading-none tracking-[0.04em] text-[#b23b2e]",
+              size === "sm"
+                ? "px-0.5 py-px text-[6px]"
+                : "px-1 py-px text-[7px]",
+            )}
           >
             Coming Soon
           </span>

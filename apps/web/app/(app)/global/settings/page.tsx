@@ -1,26 +1,34 @@
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { GroupLogoPanel } from "@/components/settings/group-logo-panel";
 import { Card } from "@/components/ui/card";
+import { fetchGroupLogoState } from "@/lib/group/branding";
 
-export default function GlobalSettingsPage() {
+export default async function GlobalSettingsPage() {
+  const groupLogo = await fetchGroupLogoState();
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Link href="/global/settings/branding">
-        <Card className="h-full p-6 transition-colors hover:bg-[var(--venue-secondary)]/30">
-          <h2 className="font-serif text-xl text-[#3D421F]">Branding</h2>
-          <p className="mt-2 text-sm text-black/60">
-            Logo, icon, favicon, display name, and brand colors for each venue.
-          </p>
-        </Card>
-      </Link>
-      <Link href="/global/settings/apps">
-        <Card className="h-full p-6 transition-colors hover:bg-[var(--venue-secondary)]/30">
-          <h2 className="font-serif text-xl text-[#3D421F]">Apps</h2>
-          <p className="mt-2 text-sm text-black/60">
-            Control app availability in the Apps Hub — coming soon, visible but
-            locked, or hidden.
-          </p>
-        </Card>
-      </Link>
+    <div className="space-y-4">
+      <GroupLogoPanel initial={groupLogo} />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link href="/global/settings/branding">
+          <Card className="h-full p-6 transition-colors hover:bg-[var(--venue-secondary)]/30">
+            <h2 className="font-serif text-xl text-[#3D421F]">Branding</h2>
+            <p className="mt-2 text-sm text-black/60">
+              Stellar Society Group logo, plus logo, icon, favicon, display name,
+              and brand colors for each venue.
+            </p>
+          </Card>
+        </Link>
+        <Link href="/global/settings/apps">
+          <Card className="h-full p-6 transition-colors hover:bg-[var(--venue-secondary)]/30">
+            <h2 className="font-serif text-xl text-[#3D421F]">Apps</h2>
+            <p className="mt-2 text-sm text-black/60">
+              Control app availability in the Apps Hub — coming soon, visible but
+              locked, or hidden.
+            </p>
+          </Card>
+        </Link>
+      </div>
     </div>
   );
 }

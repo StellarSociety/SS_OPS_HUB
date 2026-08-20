@@ -4,13 +4,9 @@ import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { motion } from "framer-motion";
 import { Lock } from "lucide-react";
 import { ModuleIcon } from "@/components/modules/module-icon";
+import { usePageAccess } from "@/components/providers/page-access-provider";
 import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import type { ModuleIconKey } from "@/lib/module-icons";
-import {
-  ACCESS_DENIED_MESSAGE,
-  ACCESS_DENIED_TITLE,
-} from "@/lib/access/messages";
-import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { AppModuleState } from "@/lib/modules-registry";
 
@@ -36,6 +32,7 @@ export function ModuleTile({
   onSelect,
   selected = false,
 }: ModuleTileProps) {
+  const { notifyAccessDenied } = usePageAccess();
   const isLive = status === "live" && clickable && Boolean(href);
   const isComingSoon = status === "coming_soon";
   const isLocked = status === "visible_locked";
@@ -89,7 +86,7 @@ export function ModuleTile({
         {isComingSoon ? (
           <span
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-[18deg] whitespace-nowrap rounded-[3px] border-2 border-[#b23b2e] px-1.5 py-0.5 text-[9px] font-extrabold uppercase leading-none tracking-[0.08em] text-[#b23b2e]"
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-[18deg] whitespace-nowrap rounded-[2px] border border-[#b23b2e] px-1 py-px text-[7px] font-semibold uppercase leading-none tracking-[0.04em] text-[#b23b2e]"
           >
             Coming Soon
           </span>
@@ -138,12 +135,7 @@ export function ModuleTile({
     return (
       <button
         type="button"
-        onClick={() =>
-          toast.alert({
-            title: ACCESS_DENIED_TITLE,
-            message: ACCESS_DENIED_MESSAGE,
-          })
-        }
+        onClick={() => notifyAccessDenied()}
         aria-label={`${label} — access restricted`}
         className="block w-full"
       >

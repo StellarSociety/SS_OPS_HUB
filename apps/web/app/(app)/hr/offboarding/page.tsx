@@ -1,4 +1,5 @@
 import { OffboardingPageClient } from "@/components/hr/offboarding-page-client";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { listOffboardingProcesses } from "@/lib/actions/hr-offboarding";
 import { canEditStaff, canViewStaff } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
@@ -13,11 +14,7 @@ export default async function HrOffboardingPage() {
   const { supabase, venue, permissions } = await getHrPageContext();
 
   if (!canViewStaff(permissions, venue.id)) {
-    return (
-      <p className="text-sm text-black/60">
-        You do not have permission to view offboarding for this venue.
-      </p>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const [staff, departments, positions, statuses, processesResult] =

@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { SalesForecastPanel } from "@/components/sales/sales-forecast-panel";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
@@ -21,13 +22,7 @@ export default async function SalesForecastPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
 
   if (!canAccessForecast(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Forecasts for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

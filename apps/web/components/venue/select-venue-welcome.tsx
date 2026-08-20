@@ -46,11 +46,6 @@ export function SelectVenueWelcome({
           <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight text-[#3D421F] sm:text-3xl">
             {firstName ?? displayName}
           </h2>
-          {firstName &&
-          fullName?.trim().includes(" ") &&
-          displayName !== firstName ? (
-            <p className="truncate text-sm text-black/50">{displayName}</p>
-          ) : null}
           {empNo || position ? (
             <dl className="mt-2 flex flex-col items-center gap-1 text-xs text-black/55">
               {empNo ? (

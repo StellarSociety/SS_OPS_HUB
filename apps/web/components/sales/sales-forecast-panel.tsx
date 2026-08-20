@@ -277,7 +277,7 @@ function MonthSection({
             {month.fiscalWeekCount} fiscal weeks · {formatMonthDateRange(month.monthKey)}
           </p>
         </div>
-        <div className="grid min-w-[16rem] flex-1 grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+        <div className="grid min-w-[16rem] flex-1 grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3 lg:grid-cols-5">
           <div>
             <p className="text-black/45">Forecast GS</p>
             <p className="font-medium tabular-nums">{formatMoney(month.forecastGs)}</p>
@@ -290,6 +290,12 @@ function MonthSection({
             <p className="text-black/45">Covers</p>
             <p className="font-medium tabular-nums">
               {month.actualCovers.toLocaleString()} / {month.forecastCovers.toLocaleString()}
+            </p>
+          </div>
+          <div>
+            <p className="text-black/45">ASPH</p>
+            <p className="font-medium tabular-nums">
+              {formatMoney(month.actualVenueAsph)} / {formatMoney(month.forecastVenueAsph)}
             </p>
           </div>
           <div>

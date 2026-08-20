@@ -1,7 +1,11 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { HrOverview } from "@/components/hr/hr-overview";
 import { HrWelcome } from "@/components/hr/hr-welcome";
 import { ModuleShortcuts } from "@/components/layout/module-shortcuts";
-import { canAccessStaff } from "@/lib/hr/permissions";
+import {
+  canAccessHrOverview,
+  maskSensitiveStaffFields,
+} from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { listOffBoardingItems } from "@/lib/hr/offboarding";
 import { buildHrOverviewStats } from "@/lib/hr/overview";
@@ -10,14 +14,8 @@ import { listStaffForVenue } from "@/lib/hr/store";
 export default async function HrOverviewPage() {
   const { supabase, venue, permissions, user } = await getHrPageContext();
 
-  if (!canAccessStaff(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Human Resources for this venue.
-        </p>
-      </div>
-    );
+  if (!canAccessHrOverview(permissions, venue.id)) {
+    return <AccessDeniedBounce />;
   }
 
   const [{ data: profile }, staff] = await Promise.all([
@@ -26,8 +24,11 @@ export default async function HrOverviewPage() {
   ]);
 
   const userName = (profile?.full_name as string | null)?.trim() || null;
-  const stats = buildHrOverviewStats(staff, []);
-  const offBoarding = listOffBoardingItems(staff);
+  const visibleStaff = staff.map((member) =>
+    maskSensitiveStaffFields(member, permissions, venue.id),
+  );
+  const stats = buildHrOverviewStats(visibleStaff, []);
+  const offBoarding = listOffBoardingItems(visibleStaff);
 
   return (
     <div className="mx-auto w-full max-w-none space-y-6">

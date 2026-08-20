@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { AccountingSettingsSubNav } from "@/components/accounting/accounting-settings-sub-nav";
 import {
@@ -14,13 +15,7 @@ export default async function AccountingSettingsLayout({
   const { venue, permissions } = await getAccountingPageContext();
 
   if (!canAccessAccountingSettings(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Accounting settings for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const canEdit = canAdminAccountingSettings(permissions, venue.id);

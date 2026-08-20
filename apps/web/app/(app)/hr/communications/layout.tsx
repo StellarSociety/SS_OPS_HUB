@@ -1,5 +1,6 @@
 import { CommunicationsShell } from "@/components/hr/communications-shell";
-import { canViewStaff } from "@/lib/hr/permissions";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
+import { canViewStaff, hasHrFeatureAccess } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 
 export default async function HrCommunicationsLayout({
@@ -9,12 +10,11 @@ export default async function HrCommunicationsLayout({
 }) {
   const { venue, permissions } = await getHrPageContext();
 
-  if (!canViewStaff(permissions, venue.id)) {
-    return (
-      <p className="text-sm text-black/60">
-        You do not have permission to view communications for this venue.
-      </p>
-    );
+  if (
+    !hasHrFeatureAccess(permissions, "communications", venue.id) &&
+    !canViewStaff(permissions, venue.id)
+  ) {
+    return <AccessDeniedBounce />;
   }
 
   return <CommunicationsShell>{children}</CommunicationsShell>;

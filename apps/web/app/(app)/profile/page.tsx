@@ -16,7 +16,6 @@ import {
   appRoleLabel,
   buildEditorState,
 } from "@/lib/access/roles";
-import { listAccessEvents } from "@/lib/access/store";
 import type { ModuleAccessRecord, UserListRow } from "@/lib/access/types";
 import { getModuleLabel } from "@/lib/modules-catalog";
 import { getModuleEntryHref, getOverviewModuleByKey } from "@/lib/modules-registry";
@@ -80,7 +79,6 @@ export default async function ProfilePage() {
     .eq("user_id", user.id);
 
   const moduleAccess = await loadOwnModuleAccess(supabase, user.id);
-  const events = await listAccessEvents(supabase, user.id, 25);
 
   const unwrap = <T,>(value: T | T[] | null | undefined): T | null => {
     if (value == null) return null;
@@ -273,7 +271,7 @@ export default async function ProfilePage() {
         )}
       </Card>
 
-      <UserAccessLogs events={events} />
+      <UserAccessLogs userId={user.id} />
     </div>
   );
 }

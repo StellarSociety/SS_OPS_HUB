@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { SalesSettingsSubNav } from "@/components/sales/sales-settings-sub-nav";
 import { SalesWaitersSettingsPanel } from "@/components/sales/sales-waiters-settings-panel";
 import {
@@ -18,14 +19,7 @@ export default async function SalesWaitersSettingsPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
 
   if (!canAccessSalesSettings(permissions, venue.id)) {
-    return (
-      <>
-        <SalesSettingsSubNav />
-        <p className="text-sm text-black/60">
-          You do not have access to waiter settings for this venue.
-        </p>
-      </>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

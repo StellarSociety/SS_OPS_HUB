@@ -1,6 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
+import type { ComponentType } from "react";
 import {
   pillSubNavLinkClass,
   segmentedSubNavLinkClass,
@@ -13,7 +14,7 @@ import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 type SubNavTabProps = {
   href: string;
   label: string;
-  icon: LucideIcon;
+  icon: LucideIcon | ComponentType<{ className?: string }>;
   active: boolean;
   variant?: "segmented" | "pill";
 };

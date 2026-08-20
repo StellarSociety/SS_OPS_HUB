@@ -1157,9 +1157,16 @@ export type ExpiryItem = {
 
 export const HR_MODULE_KEY = "hr" as const;
 export const HR_FEATURES = {
+  overview: "overview",
   staff: "staff",
+  staffCompliance: "staff_compliance",
+  uniform: "uniform",
   assets: "assets",
+  insurance: "insurance",
+  certifications: "certifications",
+  visa: "visa",
   schedules: "schedules",
+  leave: "leave",
   lookups: "lookups",
   salary: "salary",
   scheduleApproval: "schedule_approval",
@@ -3417,7 +3424,11 @@ export type PayrollApprovalRequest = {
   updated_at: string;
 };
 
-export type ScheduleApprovalStatus = "pending" | "approved" | "cancelled";
+export type ScheduleApprovalStatus =
+  | "pending"
+  | "approved"
+  | "cancelled"
+  | "rejected";
 
 export type ScheduleApprovalDepartmentKey =
   | "kitchen"
@@ -3438,6 +3449,7 @@ export type ScheduleApprovalRequest = {
   reviewed_by: string | null;
   reviewed_at: string | null;
   note: string | null;
+  submitted_roster?: Record<string, unknown> | null;
 };
 
 export type HrExpirySettings = {

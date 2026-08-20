@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import {
   SalesSchemaSetupNotice,
@@ -26,13 +27,7 @@ export default async function SalesVouchersPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
 
   if (!canAccessVouchers(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Vouchers for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

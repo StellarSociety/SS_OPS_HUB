@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { cn } from "@/lib/utils";
 import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
@@ -126,17 +126,5 @@ export function InvoiceStatusBadge({ status }: { status: string }) {
 }
 
 export function ApDenied() {
-  return (
-    <div className="mx-auto max-w-4xl">
-      <p className="text-sm text-black/60">
-        You do not have access to Accounts Payable for this venue.
-      </p>
-      <ScopedLink
-        href="/accounting"
-        className="mt-3 inline-block text-sm text-[var(--venue-primary)] underline"
-      >
-        Back to Accounting
-      </ScopedLink>
-    </div>
-  );
+  return <AccessDeniedBounce />;
 }

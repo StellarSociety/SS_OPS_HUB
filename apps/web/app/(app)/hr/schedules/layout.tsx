@@ -1,4 +1,5 @@
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { canAccessSchedules } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 
@@ -10,13 +11,7 @@ export default async function SchedulesLayout({
   const { venue, permissions } = await getHrPageContext();
 
   if (!canAccessSchedules(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Schedules for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   return (

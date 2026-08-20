@@ -150,11 +150,33 @@ export function canAccessCashDrawer(
   );
 }
 
+export function canAccessCash(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasSalesFeatureAccess(permissions, SALES_FEATURES.cash, venueId) ||
+    canAccessVenueDaily(permissions, venueId) ||
+    canAccessWaiterDaily(permissions, venueId) ||
+    canAccessCashDrawer(permissions, venueId)
+  );
+}
+
 export function canAccessCashUp(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
   return hasSalesFeatureAccess(permissions, SALES_FEATURES.cashUp, venueId);
+}
+
+export function canAccessReports(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasSalesFeatureAccess(permissions, SALES_FEATURES.reports, venueId) ||
+    canAccessCashUp(permissions, venueId)
+  );
 }
 
 export function canEditCashUp(
@@ -264,9 +286,11 @@ export function canAccessSalesModule(
     canAccessWaiterDaily(permissions, venueId) ||
     canAccessDailyVsWaiters(permissions, venueId) ||
     canAccessCashDrawer(permissions, venueId) ||
+    canAccessCash(permissions, venueId) ||
     canAccessForecast(permissions, venueId) ||
     canAccessVouchers(permissions, venueId) ||
-    canAccessCashUp(permissions, venueId)
+    canAccessCashUp(permissions, venueId) ||
+    canAccessReports(permissions, venueId)
   );
 }
 
@@ -285,8 +309,10 @@ export function firstAccessibleSalesPath(
   if (canAccessDailyVsWaiters(permissions, venueId))
     return "/sales/daily-vs-waiters/figures-verification";
   if (canAccessCashDrawer(permissions, venueId)) return "/sales/discounts";
+  if (canAccessCash(permissions, venueId)) return "/sales/cash/journal";
   if (canAccessForecast(permissions, venueId)) return "/sales/forecast";
   if (canAccessVouchers(permissions, venueId)) return "/sales/vouchers";
   if (canAccessCashUp(permissions, venueId)) return "/sales/daily-snap";
+  if (canAccessReports(permissions, venueId)) return "/sales/reports";
   return null;
 }

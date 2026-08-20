@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { DailyVsWaitersSubNav } from "@/components/sales/daily-vs-waiters-sub-nav";
 import { canAccessDailyVsWaiters } from "@/lib/sales/permissions";
@@ -11,13 +12,7 @@ export default async function DailyVsWaitersLayout({
   const { venue, permissions } = await getSalesPageContext();
 
   if (!canAccessDailyVsWaiters(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Daily vs Waiters for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   return (

@@ -171,11 +171,12 @@ export function SearchableSelect({
         ? createPortal(
             <div
               ref={panelRef}
-              className="fixed z-[250] overflow-hidden rounded-md border border-black/10 bg-white shadow-lg"
+              className="fixed overflow-hidden rounded-md border border-black/10 bg-white shadow-lg"
               style={{
                 top: panelPos.top,
                 left: panelPos.left,
                 width: panelPos.width,
+                zIndex: 450,
               }}
             >
               <div className="relative border-b border-black/5 p-2">

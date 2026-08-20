@@ -20,6 +20,7 @@ import {
   Coins,
   DoorClosed,
   DoorOpen,
+  FileBarChart,
   FileChartColumn,
   FileText,
   FolderKanban,
@@ -27,6 +28,7 @@ import {
   GraduationCap,
   HandCoins,
   HardHat,
+  IdCard,
   Landmark,
   Layers,
   LayoutDashboard,
@@ -42,7 +44,7 @@ import {
   Settings,
   ShieldAlert,
   ShieldCheck,
-  Smile,
+  Shirt,
   Tag,
   Ticket,
   TrendingUp,
@@ -66,13 +68,21 @@ import {
   type ModuleAccessConfig,
 } from "@/lib/access/roles";
 import { moduleOverviewRegistry } from "@/lib/modules-registry";
+import { getModuleSidebarByKey } from "@/lib/module-sidebar";
 import { ModuleIcon } from "@/components/modules/module-icon";
 import {
   getAssignableModules,
+  featureHasEditorSwitch,
+  getEditorSwitchKeysForModule,
+  getFeatureDef,
+  getGroupedSubPageKeys,
+  getGroupedSubPagesForModule,
   getModuleLabel,
   getSensitiveFeaturesForModule,
   getSettingsFeatureForModule,
   getSubPagesForModule,
+  type GroupedSubPageFeature,
+  type ModuleFeatureEntry,
 } from "@/lib/modules-catalog";
 import type { Venue } from "@/lib/types/database";
 import { Button } from "@/components/ui/button";
@@ -89,23 +99,26 @@ const MODULE_OVERVIEW = new Map(
   moduleOverviewRegistry.map((module) => [module.key, module]),
 );
 
-const FEATURE_ICONS: Record<string, LucideIcon> = {
+const FEATURE_ICONS: Partial<Record<string, LucideIcon>> = {
   "operational_lists:shift_report": ClipboardList,
   "operational_lists:opening": DoorOpen,
   "operational_lists:closing": DoorClosed,
   "team_projects:projects": FolderKanban,
   "maintenance:requests": Wrench,
   "maintenance:assets": Boxes,
-  "sentiment:guest": MessageCircleHeart,
-  "sentiment:team": Smile,
+  "sentiment:overview": LayoutDashboard,
+  "sentiment:reviews": MessageCircleHeart,
+  "sentiment:actions": ClipboardList,
   "sales:overview": LayoutDashboard,
   "sales:venue_daily": Coins,
   "sales:waiter_daily": UserRound,
   "sales:daily_vs_waiters": GitCompareArrows,
   "sales:cash_drawer": Tag,
+  "sales:cash": Wallet,
   "sales:forecast": LineChart,
   "sales:vouchers": Ticket,
   "sales:cash_up": Camera,
+  "sales:reports": FileBarChart,
   "sales:revenue_figures": TrendingUp,
   "gp_cos:invoices": FileText,
   "gp_cos:food_cost": Utensils,
@@ -117,21 +130,25 @@ const FEATURE_ICONS: Record<string, LucideIcon> = {
   "accounting:statements": FileChartColumn,
   "hr:overview": LayoutDashboard,
   "hr:staff": Users,
-  "hr:insurance": ShieldCheck,
+  "hr:staff_compliance": BadgeCheck,
+  "hr:uniform": Shirt,
+  "hr:assets": Boxes,
   "hr:certifications": GraduationCap,
+  "hr:insurance": ShieldCheck,
+  "hr:visa": IdCard,
+  "hr:lookups": UserRoundSearch,
   "hr:schedules": CalendarDays,
   "hr:attendance_insights": LineChart,
   "hr:attendance": CalendarCheck,
   "hr:attendance_validation": ClipboardCheck,
   "hr:leave": CalendarOff,
-  "hr:payroll": Wallet,
   "hr:benefits": HandCoins,
+  "hr:payroll": Wallet,
   "hr:payslips": ReceiptText,
   "hr:expenses": Receipt,
-  "hr:onboarding": UserPlus,
   "hr:communications": MessagesSquare,
+  "hr:onboarding": UserPlus,
   "hr:offboarding": UserMinus,
-  "hr:lookups": UserRoundSearch,
   "hr:salary": Banknote,
   "hr:schedule_approval": PackageCheck,
   "learning:courses": BookOpen,
@@ -140,6 +157,21 @@ const FEATURE_ICONS: Record<string, LucideIcon> = {
   "venue_governance:contractors": HardHat,
   "venue_governance:compliance": BadgeCheck,
   "approvals:approvals": CircleCheckBig,
+};
+
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  overview: LayoutDashboard,
+  "staff-details": UserRound,
+  attendance: CalendarCheck,
+  pay: Wallet,
+  boarding: UserPlus,
+  "daily-figures": Coins,
+  planning: LineChart,
+  "close-of-day": Camera,
+  reviews: MessageCircleHeart,
+  actions: ClipboardList,
+  all: Layers,
+  other: Layers,
 };
 
 function FeatureIcon({
@@ -151,10 +183,181 @@ function FeatureIcon({
   featureKey: string;
   className?: string;
 }) {
+  const mapped = FEATURE_ICONS[`${moduleKey}:${featureKey}`];
+  const feature = mapped ? null : getFeatureDef(moduleKey, featureKey);
+  const href = feature?.href;
+  const sidebarItem = href
+    ? getModuleSidebarByKey(moduleKey)?.items.find(
+        (item) =>
+          item.href === href ||
+          (item.activePathPrefix
+            ? href === item.activePathPrefix ||
+              href.startsWith(`${item.activePathPrefix}/`)
+            : false),
+      )
+    : undefined;
   const Icon =
-    FEATURE_ICONS[`${moduleKey}:${featureKey}`] ??
+    mapped ??
+    sidebarItem?.icon ??
     (featureKey === "settings" ? Settings : Building2);
   return <Icon aria-hidden="true" className={className} />;
+}
+
+function EditorSwitch({
+  checked,
+  disabled,
+  onToggle,
+  label,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={`Editor access for ${label}`}
+      disabled={disabled}
+      title={
+        checked
+          ? "Editor — can submit and change this page"
+          : "View only — cannot submit or change this page"
+      }
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onToggle();
+      }}
+      className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        checked ? "bg-[#818a40]" : "bg-black/20"
+      }`}
+    >
+      <span
+        className={`absolute top-[1px] h-3 w-3 rounded-full bg-white shadow-sm transition-all ${
+          checked ? "left-[11px]" : "left-[1px]"
+        }`}
+      />
+    </button>
+  );
+}
+
+function SubPageToggle({
+  moduleKey,
+  feature,
+  checked,
+  canEdit,
+  editorEnabled,
+  showEditor = true,
+  onToggle,
+  onEditorToggle,
+}: {
+  moduleKey: string;
+  feature: ModuleFeatureEntry;
+  checked: boolean;
+  canEdit: boolean;
+  editorEnabled: boolean;
+  showEditor?: boolean;
+  onToggle: () => void;
+  onEditorToggle: () => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-black/10 bg-white px-2.5 py-2 text-sm">
+      <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-1.5">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-black/20 accent-[#818a40]"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5 text-[#3D421F]">
+            <FeatureIcon
+              moduleKey={moduleKey}
+              featureKey={feature.key}
+              className="h-4 w-4 shrink-0 text-[#818a40]"
+            />
+            <span className="whitespace-normal break-words leading-snug">
+              {feature.label}
+            </span>
+          </span>
+          {feature.description ? (
+            <span className="mt-0.5 block text-[11px] leading-snug text-black/45">
+              {feature.description}
+            </span>
+          ) : null}
+        </span>
+      </label>
+      {showEditor ? (
+        <span className="flex shrink-0 items-center gap-1">
+          {checked && canEdit ? (
+            <span className="text-[9px] font-medium uppercase tracking-wide text-[#818a40]">
+              Editor
+            </span>
+          ) : null}
+          <EditorSwitch
+            checked={checked && canEdit}
+            disabled={!editorEnabled}
+            onToggle={onEditorToggle}
+            label={feature.label}
+          />
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function SubPageFeatureBlock({
+  moduleKey,
+  feature,
+  selected,
+  editPages,
+  editorEnabled,
+  onToggle,
+  onEditorToggle,
+}: {
+  moduleKey: string;
+  feature: GroupedSubPageFeature;
+  selected: string[];
+  editPages: string[];
+  editorEnabled: boolean;
+  onToggle: (key: string) => void;
+  onEditorToggle: (key: string) => void;
+}) {
+  const hasChildren = feature.children.length > 0;
+  return (
+    <div className={hasChildren ? "sm:col-span-2 lg:col-span-3" : undefined}>
+      <SubPageToggle
+        moduleKey={moduleKey}
+        feature={feature}
+        checked={selected.includes(feature.key)}
+        canEdit={editPages.includes(feature.key)}
+        editorEnabled={editorEnabled}
+        showEditor={!hasChildren && featureHasEditorSwitch(feature)}
+        onToggle={() => onToggle(feature.key)}
+        onEditorToggle={() => onEditorToggle(feature.key)}
+      />
+      {hasChildren ? (
+        <div className="mt-2 ml-2 grid grid-cols-1 gap-2 border-l-2 border-[#818a40]/25 pl-3 sm:grid-cols-2 lg:grid-cols-3">
+          {feature.children.map((child) => (
+            <SubPageToggle
+              key={child.key}
+              moduleKey={moduleKey}
+              feature={child}
+              checked={selected.includes(child.key)}
+              canEdit={editPages.includes(child.key)}
+              editorEnabled={editorEnabled}
+              showEditor={featureHasEditorSwitch(child)}
+              onToggle={() => onToggle(child.key)}
+              onEditorToggle={() => onEditorToggle(child.key)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function UserAccessEditor({
@@ -228,30 +431,96 @@ export function UserAccessEditor({
     }
   }
 
+  function setModuleRole(moduleKey: string, role: AppRole) {
+    const editorKeys = getEditorSwitchKeysForModule(moduleKey);
+    setState((prev) => ({
+      ...prev,
+      modules: prev.modules.map((m) => {
+        if (m.moduleKey !== moduleKey) return m;
+        let editPages = m.editPages ?? [];
+        if (m.role === "viewer" && role !== "viewer") {
+          editPages = m.subPages.filter((key) => editorKeys.has(key));
+        }
+        return { ...m, role, editPages };
+      }),
+    }));
+  }
+
   function toggleSubPage(moduleKey: string, key: string) {
+    const editorKeys = getEditorSwitchKeysForModule(moduleKey);
     setState((prev) => ({
       ...prev,
       modules: prev.modules.map((m) => {
         if (m.moduleKey !== moduleKey) return m;
         const has = m.subPages.includes(key);
+        const editPages = m.editPages ?? [];
+        if (has) {
+          return {
+            ...m,
+            subPages: m.subPages.filter((k) => k !== key),
+            editPages: editPages.filter((k) => k !== key),
+          };
+        }
         return {
           ...m,
-          subPages: has
-            ? m.subPages.filter((k) => k !== key)
-            : [...m.subPages, key],
+          subPages: [...m.subPages, key],
+          editPages:
+            m.role === "viewer" ||
+            editPages.includes(key) ||
+            !editorKeys.has(key)
+              ? editPages
+              : [...editPages, key],
         };
       }),
     }));
   }
 
-  function setAllSubPages(moduleKey: string, keys: string[], enabled: boolean) {
+  function togglePageEditor(moduleKey: string, key: string) {
+    const editorKeys = getEditorSwitchKeysForModule(moduleKey);
+    if (!editorKeys.has(key)) return;
     setState((prev) => ({
       ...prev,
-      modules: prev.modules.map((m) =>
-        m.moduleKey === moduleKey
-          ? { ...m, subPages: enabled ? [...keys] : [] }
-          : m,
-      ),
+      modules: prev.modules.map((m) => {
+        if (m.moduleKey !== moduleKey) return m;
+        const editPages = m.editPages ?? [];
+        const hasEdit = editPages.includes(key);
+        if (hasEdit) {
+          return { ...m, editPages: editPages.filter((k) => k !== key) };
+        }
+        return {
+          ...m,
+          subPages: m.subPages.includes(key)
+            ? m.subPages
+            : [...m.subPages, key],
+          editPages: [...editPages, key],
+        };
+      }),
+    }));
+  }
+
+  function setSubPages(moduleKey: string, keys: string[], enabled: boolean) {
+    const editorKeys = getEditorSwitchKeysForModule(moduleKey);
+    setState((prev) => ({
+      ...prev,
+      modules: prev.modules.map((m) => {
+        if (m.moduleKey !== moduleKey) return m;
+        const keySet = new Set(keys);
+        const editPages = m.editPages ?? [];
+        if (enabled) {
+          const next = new Set(m.subPages);
+          const nextEdit = new Set(editPages);
+          for (const key of keys) {
+            next.add(key);
+            if (m.role !== "viewer" && editorKeys.has(key)) nextEdit.add(key);
+          }
+          return { ...m, subPages: [...next], editPages: [...nextEdit] };
+        }
+        return {
+          ...m,
+          subPages: m.subPages.filter((k) => !keySet.has(k)),
+          editPages: editPages.filter((k) => !keySet.has(k)),
+        };
+      }),
     }));
   }
 
@@ -350,8 +619,8 @@ export function UserAccessEditor({
             <div>
               <h2 className="font-serif text-xl text-[#3D421F]">App access</h2>
               <p className="mt-1 text-sm text-black/60">
-                Enable apps, set a role, pick sub-pages, and control sensitive
-                content per app.
+                Enable apps, set a role, pick pages (grouped as they appear in
+                the app), and control sensitive content per app.
               </p>
             </div>
           </div>
@@ -390,6 +659,7 @@ export function UserAccessEditor({
             const config = state.modules.find((m) => m.moduleKey === mod.key);
             if (!config) return null;
             const isOpen = expanded.has(mod.key);
+            const subPageGroups = getGroupedSubPagesForModule(mod.key);
             const subPages = getSubPagesForModule(mod.key);
             const sensitive = getSensitiveFeaturesForModule(mod.key);
             const settingsFeature = getSettingsFeatureForModule(mod.key);
@@ -462,9 +732,10 @@ export function UserAccessEditor({
                         <select
                           value={config.role}
                           onChange={(e) =>
-                            patchModule(mod.key, {
-                              role: e.target.value as AppRole,
-                            })
+                            setModuleRole(
+                              mod.key,
+                              e.target.value as AppRole,
+                            )
                           }
                           className="h-10 w-full rounded-md border border-black/10 px-2 text-sm"
                         >
@@ -503,12 +774,18 @@ export function UserAccessEditor({
                       </label>
                     </div>
 
-                    {subPages.length > 0 ? (
-                      <div className="space-y-2">
+                    {subPageGroups.length > 0 ? (
+                      <div className="space-y-3">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-medium uppercase tracking-wide text-black/40">
-                            Sub-pages
-                          </p>
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-black/40">
+                              Pages this user can open
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-black/40">
+                              Editor lets them submit and change that page,
+                              including on the Viewer role.
+                            </p>
+                          </div>
                           {(() => {
                             const allChecked = subPages.every((f) =>
                               config.subPages.includes(f.key),
@@ -519,7 +796,7 @@ export function UserAccessEditor({
                                   type="checkbox"
                                   checked={allChecked}
                                   onChange={(e) =>
-                                    setAllSubPages(
+                                    setSubPages(
                                       mod.key,
                                       subPages.map((f) => f.key),
                                       e.target.checked,
@@ -527,32 +804,87 @@ export function UserAccessEditor({
                                   }
                                   className="h-4 w-4 rounded border-black/20 accent-[#818a40]"
                                 />
-                                {allChecked ? "Deselect all" : "Select all"}
+                                {allChecked
+                                  ? "Deselect all pages"
+                                  : "Select all pages"}
                               </label>
                             );
                           })()}
                         </div>
-                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                          {subPages.map((f) => (
-                            <label
-                              key={f.key}
-                              className="flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+                        {subPageGroups.map((group) => {
+                          const groupKeys = getGroupedSubPageKeys(group);
+                          const selectedCount = groupKeys.filter((key) =>
+                            config.subPages.includes(key),
+                          ).length;
+                          const allChecked =
+                            groupKeys.length > 0 &&
+                            selectedCount === groupKeys.length;
+                          const GroupIcon = GROUP_ICONS[group.key] ?? Layers;
+                          const groupedLikeNav =
+                            group.key !== "all" && group.key !== "overview";
+                          const grid = (
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                              {group.features.map((feature) => (
+                                <SubPageFeatureBlock
+                                  key={feature.key}
+                                  moduleKey={mod.key}
+                                  feature={feature}
+                                  selected={config.subPages}
+                                  editPages={config.editPages ?? []}
+                                  editorEnabled
+                                  onToggle={(key) =>
+                                    toggleSubPage(mod.key, key)
+                                  }
+                                  onEditorToggle={(key) =>
+                                    togglePageEditor(mod.key, key)
+                                  }
+                                />
+                              ))}
+                            </div>
+                          );
+                          if (!groupedLikeNav) {
+                            return <div key={group.key}>{grid}</div>;
+                          }
+                          return (
+                            <div
+                              key={group.key}
+                              className="space-y-2 rounded-lg border border-black/10 bg-black/[0.015] p-3"
                             >
-                              <input
-                                type="checkbox"
-                                checked={config.subPages.includes(f.key)}
-                                onChange={() => toggleSubPage(mod.key, f.key)}
-                                className="h-4 w-4 rounded border-black/20 accent-[#818a40]"
-                              />
-                              <FeatureIcon
-                                moduleKey={mod.key}
-                                featureKey={f.key}
-                                className="h-4 w-4 shrink-0 text-[#818a40]"
-                              />
-                              <span className="text-[#3D421F]">{f.label}</span>
-                            </label>
-                          ))}
-                        </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-black/50">
+                                  <GroupIcon className="h-3.5 w-3.5 text-[#818a40]" />
+                                  {group.label}
+                                  <span className="font-normal normal-case tracking-normal text-black/35">
+                                    {selectedCount}/{groupKeys.length}
+                                  </span>
+                                </p>
+                                <label className="flex cursor-pointer items-center gap-2 text-xs text-black/60">
+                                  <input
+                                    type="checkbox"
+                                    checked={allChecked}
+                                    ref={(el) => {
+                                      if (el) {
+                                        el.indeterminate =
+                                          selectedCount > 0 &&
+                                          selectedCount < groupKeys.length;
+                                      }
+                                    }}
+                                    onChange={(e) =>
+                                      setSubPages(
+                                        mod.key,
+                                        groupKeys,
+                                        e.target.checked,
+                                      )
+                                    }
+                                    className="h-4 w-4 rounded border-black/20 accent-[#818a40]"
+                                  />
+                                  {allChecked ? "Deselect" : "Select all"}
+                                </label>
+                              </div>
+                              {grid}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : null}
 

@@ -75,6 +75,7 @@ import {
   setCachedScheduleAttendance,
   setCachedScheduleSections,
 } from "@/lib/hr/schedules-client-cache";
+import { firstLastName } from "@/lib/user/display";
 import { cn } from "@/lib/utils";
 
 type SchedulesWeekCalendarProps = {
@@ -1769,7 +1770,9 @@ export function SchedulesWeekCalendar({
             />
             <span className="min-w-0 flex-1 self-center">
               <span className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate">{member.fullName}</span>
+                <span className="min-w-0 truncate" title={member.fullName}>
+                  {firstLastName(member.fullName)}
+                </span>
                 <WorkingStatusBadge status={resolvedWorkingStatus} />
               </span>
               <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-black/50">

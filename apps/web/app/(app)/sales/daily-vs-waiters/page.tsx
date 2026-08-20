@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { DailyVsWaitersTable } from "@/components/sales/daily-vs-waiters-table";
 import {
   SalesSchemaSetupNotice,
@@ -23,13 +24,7 @@ export default async function DailyVsWaitersPage() {
   const { supabase, venue, permissions, user } = await getSalesPageContext();
 
   if (!canAccessDailyVsWaiters(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Monthly vs Waiters for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

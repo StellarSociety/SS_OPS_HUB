@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { WaitersDailyTotalTable } from "@/components/sales/waiters-daily-total-table";
 import {
   SalesSchemaSetupNotice,
@@ -21,13 +22,7 @@ export default async function DailyVsWaitersFiguresPage() {
   const { supabase, venue, permissions } = await getSalesPageContext();
 
   if (!canAccessDailyVsWaiters(permissions, venue.id)) {
-    return (
-      <Card className="p-6">
-        <p className="text-sm text-black/60">
-          You do not have access to Daily vs Waiters for this venue.
-        </p>
-      </Card>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

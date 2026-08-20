@@ -5,7 +5,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import type { ActionAuthContext, ActionAuthFailure } from "@/lib/auth/action-context";
-import { canAccessAssets, canEditAssets } from "@/lib/hr/permissions";
+import { canAccessUniform, canEditUniform } from "@/lib/hr/permissions";
 import { HR_MODULE_KEY } from "@/lib/hr/types";
 import {
   listUniformItemsForStaff,
@@ -95,7 +95,7 @@ function revalidateUniformPaths() {
 
 function assertEdit(ctx: ActionAuthContext | ActionAuthFailure): ActionAuthContext {
   if ("error" in ctx) throw new Error(ctx.error);
-  if (!canEditAssets(ctx.permissions, ctx.venue.id)) {
+  if (!canEditUniform(ctx.permissions, ctx.venue.id)) {
     throw new Error("You do not have permission to manage uniforms.");
   }
   return ctx;
@@ -104,7 +104,7 @@ function assertEdit(ctx: ActionAuthContext | ActionAuthFailure): ActionAuthConte
 export async function listStaffUniforms(input: { staffId: string }) {
   const ctx = await getActionAuthContext();
   if ("error" in ctx) throw new Error(ctx.error);
-  if (!canAccessAssets(ctx.permissions, ctx.venue.id)) {
+  if (!canAccessUniform(ctx.permissions, ctx.venue.id)) {
     throw new Error("You do not have permission to view uniforms.");
   }
 

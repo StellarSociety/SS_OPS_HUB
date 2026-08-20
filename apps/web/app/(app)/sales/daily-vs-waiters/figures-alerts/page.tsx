@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { FiguresAlertsPanel } from "@/components/sales/figures-alerts-panel";
 import {
   SalesSchemaSetupNotice,
@@ -22,13 +23,7 @@ export default async function FiguresAlertsPage() {
   const { supabase, venue, permissions, user } = await getSalesPageContext();
 
   if (!canAccessDailyVsWaiters(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Figures Alerts for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   try {

@@ -24,3 +24,11 @@ export function getUserInitials(
 
   return source.charAt(0).toUpperCase();
 }
+
+/** First + last name only (drops middle names). */
+export function firstLastName(fullName: string | null | undefined): string {
+  const trimmed = fullName?.trim() ?? "";
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length <= 2) return trimmed;
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+}

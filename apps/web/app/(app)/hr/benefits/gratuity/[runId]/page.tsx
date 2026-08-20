@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import {
   BenefitRunClient,
   type BenefitAllocationView,
@@ -27,11 +28,7 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
   const { supabase, venue, permissions, user } = await getHrPageContext();
 
   if (!canAccessBenefits(permissions, venue.id)) {
-    return (
-      <p className="text-sm text-black/60">
-        You do not have access to Benefits for this venue.
-      </p>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const canEdit = canEditBenefits(permissions, venue.id);

@@ -56,6 +56,7 @@ export async function signIn(
       user_id: data.user.id,
       event_type: "login",
     });
+    await supabase.rpc("start_login_session");
   } catch {
     // best-effort
   }
@@ -79,6 +80,7 @@ export async function signOut() {
 
   if (user) {
     try {
+      await supabase.rpc("end_online_session");
       await supabase.from("access_events").insert({
         user_id: user.id,
         event_type: "logout",

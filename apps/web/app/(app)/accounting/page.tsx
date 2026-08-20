@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { AccountingWelcome } from "@/components/accounting/accounting-welcome";
 import { ModuleShortcuts } from "@/components/layout/module-shortcuts";
 import { getAccountingPageContext } from "@/lib/accounting/page-context";
@@ -9,13 +10,7 @@ export default async function AccountingOverviewPage() {
     await getAccountingPageContext();
 
   if (!canAccessModule(permissions, ACCOUNTING_MODULE_KEY, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Accounting for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   const { data: profile } = await supabase

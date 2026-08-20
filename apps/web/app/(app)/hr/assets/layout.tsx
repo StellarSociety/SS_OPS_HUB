@@ -1,5 +1,6 @@
 import { AssetsShell } from "@/components/hr/assets-shell";
-import { canAccessAssets } from "@/lib/hr/permissions";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
+import { canAccessStaffCompliance } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 
 export default async function HrAssetsLayout({
@@ -9,14 +10,8 @@ export default async function HrAssetsLayout({
 }) {
   const { venue, permissions } = await getHrPageContext();
 
-  if (!canAccessAssets(permissions, venue.id)) {
-    return (
-      <div className="space-y-6">
-        <p className="text-sm text-black/60">
-          You do not have permission to view assets.
-        </p>
-      </div>
-    );
+  if (!canAccessStaffCompliance(permissions, venue.id)) {
+    return <AccessDeniedBounce />;
   }
 
   return <AssetsShell>{children}</AssetsShell>;

@@ -4,7 +4,7 @@ import { UserAccessEditor } from "@/components/settings/user-access-editor";
 import { UserAccessLogs } from "@/components/settings/user-access-logs";
 import { UserActionsPanel } from "@/components/settings/user-actions-panel";
 import { buildEditorState } from "@/lib/access/roles";
-import { getUserById, listAccessEvents, listVenues } from "@/lib/access/store";
+import { getUserById, listVenues } from "@/lib/access/store";
 import { createServiceClient } from "@/lib/supabase/service";
 
 type PageProps = {
@@ -15,10 +15,9 @@ export default async function SettingsUserDetailPage({ params }: PageProps) {
   const { id } = await params;
   const service = createServiceClient();
 
-  const [user, venues, events] = await Promise.all([
+  const [user, venues] = await Promise.all([
     getUserById(service, id),
     listVenues(service),
-    listAccessEvents(service, id, 50),
   ]);
 
   if (!user) notFound();
@@ -58,7 +57,7 @@ export default async function SettingsUserDetailPage({ params }: PageProps) {
         venues={venues}
       />
 
-      <UserAccessLogs events={events} />
+      <UserAccessLogs userId={user.id} />
     </div>
   );
 }

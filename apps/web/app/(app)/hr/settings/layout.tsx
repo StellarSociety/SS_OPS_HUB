@@ -1,4 +1,5 @@
 import { HrSettingsSubNav } from "@/components/hr/hr-settings-sub-nav";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAdminLookups } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
@@ -11,13 +12,7 @@ export default async function HrSettingsLayout({
   const { venue, permissions } = await getHrPageContext();
 
   if (!canAdminLookups(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Human Resources settings for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   return (

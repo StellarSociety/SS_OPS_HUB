@@ -45,7 +45,11 @@ export default function ForgotPasswordPage() {
           {state.success ? (
             <p className="text-sm text-emerald-300">{state.success}</p>
           ) : null}
-          <Button type="submit" className="w-full bg-[#818a40]" disabled={pending}>
+          <Button
+            type="submit"
+            className="w-full bg-[#a7aaae] text-[#1a1a1a] hover:bg-[#929599]"
+            disabled={pending}
+          >
             Send reset link
           </Button>
         </form>

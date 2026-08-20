@@ -11,6 +11,14 @@ import {
   listVenueDailySales,
 } from "@/lib/sales/daily-sales-store";
 import { canAccessSalesModule } from "@/lib/sales/permissions";
+import {
+  canAccessHrOverview,
+  maskSensitiveStaffFields,
+} from "@/lib/hr/permissions";
+import { listOffBoardingItems } from "@/lib/hr/offboarding";
+import { buildHrOverviewStats } from "@/lib/hr/overview";
+import { listStaffForVenue } from "@/lib/hr/store";
+import { HrOverview } from "@/components/hr/hr-overview";
 import type { UserPermission } from "@/lib/role-permissions";
 import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 export default async function DashboardPage() {
@@ -51,13 +59,33 @@ export default async function DashboardPage() {
     }
   }
 
+  let hrSlot: ReactNode = null;
+  if (canAccessHrOverview(perms, venue.id)) {
+    try {
+      const staff = await listStaffForVenue(supabase, venue.id);
+      const visibleStaff = staff.map((member) =>
+        maskSensitiveStaffFields(member, perms, venue.id),
+      );
+      hrSlot = (
+        <HrOverview
+          stats={buildHrOverviewStats(visibleStaff, [])}
+          offBoarding={listOffBoardingItems(visibleStaff)}
+        />
+      );
+    } catch (error) {
+      console.error("[dashboard/hr-overview]", error);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
       <DashboardWelcome venue={venue} userName={userName} />
 
       <DashboardModuleTabs
         sections={sections}
-        dashboardsPanel={<DashboardsPanel slots={{ revenue: revenueSlot }} />}
+        dashboardsPanel={
+          <DashboardsPanel slots={{ revenue: revenueSlot, hr: hrSlot }} />
+        }
       />
     </div>
   );

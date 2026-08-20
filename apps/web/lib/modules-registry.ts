@@ -129,9 +129,10 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     label: "Sentiment",
     iconKey: "smile",
     category: "operational",
-    status: "coming_soon",
+    href: "/sentiment",
+    status: "live",
     description:
-      "Capture guest and staff feedback to spot trends and act on how people feel about the venue.",
+      "Gather and manage guest reviews from Google, TripAdvisor, and other channels.",
   },
   {
     key: "sales",

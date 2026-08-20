@@ -282,3 +282,162 @@ export async function getUserActivity(
 
   return items.slice(0, limit);
 }
+
+export type OnlineSessionItem = {
+  id: string;
+  started_at: string;
+  last_seen_at: string;
+  ended_at: string | null;
+  /** First moment of this in-app usage window. */
+  used_from: string;
+  /** Last moment of this in-app usage window (or now if still active). */
+  used_until: string;
+  /** login = signed in; heartbeat = returned after idle. */
+  started_by: "login" | "heartbeat";
+  end_reason: "logout" | "idle" | "replaced" | null;
+  /** True when last seen within the idle window and not closed. */
+  is_active: boolean;
+  /** Time actually spent in the app for this window. */
+  duration_ms: number;
+};
+
+const ONLINE_IDLE_MS = 5 * 60 * 1000;
+/**
+ * Access events are throttled to once per module per 30 minutes, so a gap
+ * shorter than this still counts as one sitting. Heartbeat sessions are
+ * already split at 5 minutes and pass through unchanged.
+ */
+const USAGE_CLUSTER_GAP_MS = 35 * 60 * 1000;
+
+type SessionRow = {
+  id: string;
+  started_at: string;
+  last_seen_at: string;
+  ended_at: string | null;
+  started_by: "login" | "heartbeat";
+  end_reason: "logout" | "idle" | "replaced" | null;
+};
+
+function clusterUsageWindows(times: number[]): { start: number; end: number }[] {
+  if (times.length === 0) return [];
+  const sorted = [...new Set(times)].sort((a, b) => a - b);
+  const windows: { start: number; end: number }[] = [];
+  let start = sorted[0];
+  let end = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    const t = sorted[i];
+    if (t - end > USAGE_CLUSTER_GAP_MS) {
+      windows.push({ start, end });
+      start = t;
+    }
+    end = t;
+  }
+  windows.push({ start, end });
+  return windows;
+}
+
+function toIso(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+/**
+ * Login / online sessions for a user, newest first. Long historical rows
+ * (login → last event days later) are split into the sittings when they
+ * were actually using the app.
+ */
+export async function getUserOnlineSessions(
+  userId: string,
+  limit = 100,
+): Promise<OnlineSessionItem[]> {
+  const supabase = createServiceClient();
+
+  try {
+    const [sessionsRes, accessRes, auditRes] = await Promise.all([
+      supabase
+        .from("user_online_sessions")
+        .select("id, started_at, last_seen_at, ended_at, started_by, end_reason")
+        .eq("user_id", userId)
+        .order("started_at", { ascending: false })
+        .limit(limit),
+      supabase
+        .from("access_events")
+        .select("created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(2000),
+      supabase
+        .from("audit_log")
+        .select("created_at")
+        .eq("actor_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(2000),
+    ]);
+
+    if (sessionsRes.error || !sessionsRes.data) return [];
+
+    const activityTimes = [
+      ...((accessRes.data ?? []) as { created_at: string }[]),
+      ...((auditRes.data ?? []) as { created_at: string }[]),
+    ]
+      .map((row) => new Date(row.created_at).getTime())
+      .filter((ms) => Number.isFinite(ms));
+
+    const now = Date.now();
+    const items: OnlineSessionItem[] = [];
+
+    for (const row of sessionsRes.data as SessionRow[]) {
+      const started = new Date(row.started_at).getTime();
+      const lastSeen = new Date(row.last_seen_at).getTime();
+      const closedAt = row.ended_at ? new Date(row.ended_at).getTime() : null;
+      const sessionActive =
+        row.ended_at == null && now - lastSeen <= ONLINE_IDLE_MS;
+      const hi = sessionActive ? now : (closedAt ?? lastSeen);
+
+      const times = [started, lastSeen];
+      if (closedAt != null) times.push(closedAt);
+      if (sessionActive) times.push(now);
+      for (const t of activityTimes) {
+        if (t >= started && t <= hi) times.push(t);
+      }
+
+      const windows = clusterUsageWindows(times);
+      windows.reverse();
+
+      for (let i = 0; i < windows.length; i++) {
+        const window = windows[i];
+        const isLastWindow = i === 0;
+        const isActive = sessionActive && isLastWindow;
+        const usedUntil = isActive ? now : window.end;
+        const fromLogin =
+          row.started_by === "login" &&
+          Math.abs(window.start - started) < 60_000;
+
+        items.push({
+          id: windows.length === 1 ? row.id : `${row.id}:${window.start}`,
+          started_at: toIso(window.start),
+          last_seen_at: toIso(window.end),
+          ended_at: isActive ? null : toIso(usedUntil),
+          used_from: toIso(window.start),
+          used_until: toIso(usedUntil),
+          started_by: fromLogin ? "login" : "heartbeat",
+          end_reason: isActive
+            ? null
+            : isLastWindow
+              ? (row.end_reason ?? "idle")
+              : "idle",
+          is_active: isActive,
+          duration_ms: Math.max(0, usedUntil - window.start),
+        });
+      }
+    }
+
+    items.sort(
+      (a, b) =>
+        new Date(b.used_from).getTime() - new Date(a.used_from).getTime(),
+    );
+
+    return items.slice(0, limit);
+  } catch {
+    return [];
+  }
+}

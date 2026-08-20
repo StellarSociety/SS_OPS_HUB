@@ -131,6 +131,7 @@ export default async function AppLayout({
       scope={scope}
       scopeSlug={venue.is_global ? null : venue.slug}
       scopeBase={scopeBase}
+      permissions={perms}
     >
       {children}
     </AppShell>

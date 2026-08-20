@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { WaiterSalesSubNav } from "@/components/sales/waiter-sales-sub-nav";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessWaiterDaily } from "@/lib/sales/permissions";
@@ -11,13 +12,7 @@ export default async function SalesWaiterLayout({
   const { venue, permissions } = await getSalesPageContext();
 
   if (!canAccessWaiterDaily(permissions, venue.id)) {
-    return (
-      <div className="mx-auto max-w-4xl">
-        <p className="text-sm text-black/60">
-          You do not have access to Waiter Sales for this venue.
-        </p>
-      </div>
-    );
+    return <AccessDeniedBounce />;
   }
 
   return (
