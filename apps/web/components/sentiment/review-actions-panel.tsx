@@ -74,7 +74,7 @@ export function ReviewActionsPanel({
     typeof review.rating === "number" && review.rating <= 3;
   const openLike = status === "open" || status === "in_progress";
   const trigger = triggerFromStatus(status);
-  const hasFollowUp = Boolean(action) && action.status !== "not_required";
+  const hasFollowUp = action != null && action.status !== "not_required";
   const latestAction =
     action && dialogAction
       ? action.updated_at >= dialogAction.updated_at
