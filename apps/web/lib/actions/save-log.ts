@@ -23,36 +23,50 @@ function fail(message: string) {
   return { ok: false as const, error: message };
 }
 
+type SaveLogActor =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      userId: string;
+      venueId: string;
+      service: ReturnType<typeof createServiceClient>;
+    };
+
 function revalidateSaveLog() {
   revalidatePath("/save-log", "page");
   revalidatePath("/save-log/logs", "page");
   revalidatePath("/save-log/settings", "page");
 }
 
-async function requireLogEditor() {
+async function requireLogEditor(): Promise<SaveLogActor> {
   const auth = await getActionAuthContext();
-  if ("error" in auth) return { error: auth.error };
+  if ("error" in auth) return { ok: false, error: auth.error };
 
   if (!canEditLogs(auth.permissions, auth.venue.id)) {
-    return { error: "You need SafeLog edit access to upload or remove records." };
+    return {
+      ok: false,
+      error: "You need SafeLog edit access to upload or remove records.",
+    };
   }
 
   return {
+    ok: true,
     userId: auth.user.id,
     venueId: auth.venue.id,
     service: createServiceClient(),
   };
 }
 
-async function requireSettingsAdmin() {
+async function requireSettingsAdmin(): Promise<SaveLogActor> {
   const auth = await getActionAuthContext();
-  if ("error" in auth) return { error: auth.error };
+  if ("error" in auth) return { ok: false, error: auth.error };
 
   if (!canAdminSettings(auth.permissions, auth.venue.id)) {
-    return { error: "You need SafeLog Settings admin access." };
+    return { ok: false, error: "You need SafeLog Settings admin access." };
   }
 
   return {
+    ok: true,
     userId: auth.user.id,
     venueId: auth.venue.id,
     service: createServiceClient(),
@@ -75,7 +89,7 @@ function isPdfUpload(type: string, name: string): boolean {
 
 export async function uploadSaveLogRecord(formData: FormData) {
   const auth = await requireLogEditor();
-  if ("error" in auth) return fail(auth.error);
+  if (!auth.ok) return fail(auth.error);
 
   const typeId = String(formData.get("typeId") ?? "").trim();
   const logDate = String(formData.get("logDate") ?? "").trim();
@@ -170,7 +184,7 @@ export async function uploadSaveLogRecord(formData: FormData) {
 
 export async function deleteSaveLogRecord(formData: FormData) {
   const auth = await requireLogEditor();
-  if ("error" in auth) return fail(auth.error);
+  if (!auth.ok) return fail(auth.error);
 
   const recordId = String(formData.get("recordId") ?? "").trim();
   if (!recordId) return fail("Missing record.");
@@ -204,7 +218,7 @@ export async function deleteSaveLogRecord(formData: FormData) {
 
 export async function saveSaveLogType(formData: FormData) {
   const auth = await requireSettingsAdmin();
-  if ("error" in auth) return fail(auth.error);
+  if (!auth.ok) return fail(auth.error);
 
   const id = String(formData.get("id") ?? "").trim() || null;
   const label = String(formData.get("label") ?? "").trim();
@@ -256,7 +270,7 @@ export async function saveSaveLogType(formData: FormData) {
 
 export async function archiveSaveLogType(formData: FormData) {
   const auth = await requireSettingsAdmin();
-  if ("error" in auth) return fail(auth.error);
+  if (!auth.ok) return fail(auth.error);
 
   const id = String(formData.get("id") ?? "").trim();
   const restore = formData.get("restore") === "1";
