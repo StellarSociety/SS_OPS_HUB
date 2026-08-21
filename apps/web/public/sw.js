@@ -3,7 +3,7 @@
  * Purpose: satisfy installability and keep icons/static shell available.
  * Does not cache HTML documents, auth responses, or API data.
  */
-const CACHE_NAME = "ss-ops-hub-pwa-v1";
+const CACHE_NAME = "ss-ops-hub-pwa-v8";
 const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -11,6 +11,9 @@ const PRECACHE = [
   "/icons/logo.svg",
   "/icons/install-qr.svg",
   "/apple-touch-icon.png",
+  "/brand/ss-ops-hub-app-icon.webp",
+  "/brand/stellar-society-group-logo.webp",
+  "/brand/stellar-society-group-favicon.webp",
 ];
 
 self.addEventListener("install", (event) => {

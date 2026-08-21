@@ -3,7 +3,10 @@ import { DM_Sans, Google_Sans, Inter, Playfair_Display } from "next/font/google"
 import { PWAInstallProvider } from "@/components/pwa/pwa-install-provider";
 import { MotionProvider } from "@/components/providers/motion-provider";
 import {
-  PWA_APP_NAME,
+  DEFAULT_GROUP_FAVICON_URL,
+  fetchGroupBrandingState,
+} from "@/lib/group/branding";
+import {
   PWA_APPLE_TOUCH_ICON,
   PWA_ICON_192,
   PWA_ICON_512,
@@ -33,26 +36,30 @@ const googleSans = Google_Sans({
   adjustFontFallback: false,
 });
 
-export const metadata: Metadata = {
-  title: "Stellar Society — Operational Hub",
-  description: "Internal operations hub for Stellar Society venues.",
-  applicationName: PWA_APP_NAME,
-  appleWebApp: {
-    capable: true,
-    title: PWA_APP_NAME,
-    statusBarStyle: "black-translucent",
-  },
-  icons: {
-    apple: [{ url: PWA_APPLE_TOUCH_ICON, sizes: "180x180", type: "image/png" }],
-    icon: [
-      { url: PWA_ICON_192, sizes: "192x192", type: "image/png" },
-      { url: PWA_ICON_512, sizes: "512x512", type: "image/png" },
-    ],
-  },
-  other: {
-    "apple-mobile-web-app-capable": "yes",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { appName } = await fetchGroupBrandingState();
+  return {
+    title: "Stellar Society — Operational Hub",
+    description: "Internal operations hub for Stellar Society venues.",
+    applicationName: appName,
+    appleWebApp: {
+      capable: true,
+      title: appName,
+      statusBarStyle: "black-translucent",
+    },
+    icons: {
+      apple: [{ url: PWA_APPLE_TOUCH_ICON, sizes: "180x180", type: "image/png" }],
+      icon: [
+        { url: DEFAULT_GROUP_FAVICON_URL, type: "image/webp" },
+        { url: PWA_ICON_192, sizes: "192x192", type: "image/png" },
+        { url: PWA_ICON_512, sizes: "512x512", type: "image/png" },
+      ],
+    },
+    other: {
+      "apple-mobile-web-app-capable": "yes",
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: PWA_THEME_COLOR,

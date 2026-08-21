@@ -9,6 +9,7 @@ import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/rende
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { getUserRoleLabel } from "@/lib/user/display";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
+import { fetchGroupBrandingState } from "@/lib/group/branding";
 import { GLOBAL_BASE, venueBase } from "@/lib/venue/scope-routing";
 
 export default async function AppLayout({
@@ -115,9 +116,10 @@ export default async function AppLayout({
     isGlobalVenue: venue.is_global,
   };
 
-  const [notifications, unreadCount] = await Promise.all([
+  const [notifications, unreadCount, branding] = await Promise.all([
     listNotificationsForUser(supabase, user.id, { ...venueContext, limit: 40 }),
     countUnreadNotifications(supabase, user.id, venueContext),
+    fetchGroupBrandingState(),
   ]);
 
   return (
@@ -132,6 +134,9 @@ export default async function AppLayout({
       scopeSlug={venue.is_global ? null : venue.slug}
       scopeBase={scopeBase}
       permissions={perms}
+      logoUrl={branding.logoUrl}
+      appName={branding.appName}
+      groupFaviconUrl={branding.faviconUrl}
     >
       {children}
     </AppShell>

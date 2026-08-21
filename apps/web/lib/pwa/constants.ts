@@ -1,4 +1,7 @@
-export const PWA_APP_NAME = "SS OPS HUB";
+import { DEFAULT_APP_NAME } from "@/lib/group/branding";
+
+/** Same default as Global Settings → App name. */
+export const PWA_APP_NAME = DEFAULT_APP_NAME;
 
 export const PWA_START_PATH = "/m";
 /** In-scope start URL. `/m` without a trailing slash sits outside scope `/m/`. */
@@ -18,8 +21,8 @@ export const PWA_ICON_192 = "/icons/icon-192.png";
 export const PWA_ICON_512 = "/icons/icon-512.png";
 export const PWA_ICON_MASKABLE = "/icons/icon-512-maskable.png";
 export const PWA_APPLE_TOUCH_ICON = "/apple-touch-icon.png";
-export const PWA_LOGO_SRC = "/icons/logo.svg";
-export const PWA_INSTALL_QR_SRC = "/icons/install-qr.svg";
+export const PWA_LOGO_SRC = "/brand/ss-ops-hub-app-icon.webp";
+export const PWA_INSTALL_QR_SRC = "/icons/install-qr.svg?v=2";
 
 export const PWA_BANNER_DISMISS_KEY = "ss-ops-pwa-banner-dismissed";
 export const PWA_RETURN_PATH_KEY = "ss-ops-pwa-return-path";

@@ -15,6 +15,8 @@ type AppShellLayoutProps = {
   showSettings?: boolean;
   notifications: NotificationRow[];
   unreadCount: number;
+  logoUrl?: string;
+  appName?: string;
   children: React.ReactNode;
 };
 
@@ -25,6 +27,8 @@ export function AppShellLayout({
   showSettings = false,
   notifications,
   unreadCount,
+  logoUrl,
+  appName,
   children,
 }: AppShellLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -36,6 +40,8 @@ export function AppShellLayout({
         venues={venues}
         showSettings={showSettings}
         open={sidebarOpen}
+        logoUrl={logoUrl}
+        appName={appName}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <AppHeader

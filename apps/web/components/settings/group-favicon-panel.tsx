@@ -2,14 +2,16 @@
 
 import { useRef, useState, useTransition } from "react";
 import { ImageIcon, Trash2, Upload } from "lucide-react";
-import { GroupLogo } from "@/components/brand/group-logo";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
-import { removeGroupLogo, uploadGroupLogo } from "@/lib/actions/group-branding";
 import {
-  DEFAULT_GROUP_LOGO_URL,
-  type GroupLogoState,
+  removeGroupFavicon,
+  uploadGroupFavicon,
+} from "@/lib/actions/group-branding";
+import {
+  DEFAULT_GROUP_FAVICON_URL,
+  type GroupFaviconState,
 } from "@/lib/group/branding";
 import { cn } from "@/lib/utils";
 
@@ -18,13 +20,13 @@ const lightOutlineButtonClass =
 
 const ACCEPT = "image/png,image/jpeg,image/webp,image/svg+xml";
 
-type GroupLogoPanelProps = {
-  initial: GroupLogoState;
+type GroupFaviconPanelProps = {
+  initial: GroupFaviconState;
 };
 
-export function GroupLogoPanel({ initial }: GroupLogoPanelProps) {
-  const [logoUrl, setLogoUrl] = useState(initial.logoUrl);
-  const [storedUrl, setStoredUrl] = useState(initial.storedUrl);
+export function GroupFaviconPanel({ initial }: GroupFaviconPanelProps) {
+  const [faviconUrl, setFaviconUrl] = useState(initial.faviconUrl);
+  const [storedUrl, setStoredUrl] = useState(initial.storedFaviconUrl);
   const [isDragging, setIsDragging] = useState(false);
   const [isPending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -35,29 +37,29 @@ export function GroupLogoPanel({ initial }: GroupLogoPanelProps) {
     formData.set("file", file);
 
     startTransition(async () => {
-      const result = await uploadGroupLogo(formData);
+      const result = await uploadGroupFavicon(formData);
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      if (result.logoUrl) {
-        setLogoUrl(result.logoUrl);
-        setStoredUrl(result.logoUrl);
+      if (result.faviconUrl) {
+        setFaviconUrl(result.faviconUrl);
+        setStoredUrl(result.faviconUrl);
       }
-      toast.uploaded(result.success ?? "Group logo uploaded.");
+      toast.uploaded(result.success ?? "Group favicon uploaded.");
     });
   }
 
   function handleRemove() {
     startTransition(async () => {
-      const result = await removeGroupLogo();
+      const result = await removeGroupFavicon();
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      setLogoUrl(DEFAULT_GROUP_LOGO_URL);
+      setFaviconUrl(DEFAULT_GROUP_FAVICON_URL);
       setStoredUrl(null);
-      toast.saved(result.success ?? "Default group logo restored.");
+      toast.saved(result.success ?? "Default group favicon restored.");
     });
   }
 
@@ -66,11 +68,11 @@ export function GroupLogoPanel({ initial }: GroupLogoPanelProps) {
       <div className="flex min-h-[7.5rem] flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-serif text-xl text-[#3D421F]">
-            Stellar Society Group Logo
+            Stellar Society Group Favicon
           </h2>
           <p className="mt-1 text-sm text-black/60">
-            Shown on the sign-in screen. Upload a replacement or clear to restore
-            the built-in wordmark.
+            Browser tab icon for sign-in and Global. Venue pages keep their own
+            favicon. Upload a square image, or clear to restore the default.
           </p>
         </div>
         <span
@@ -89,10 +91,10 @@ export function GroupLogoPanel({ initial }: GroupLogoPanelProps) {
         type="button"
         disabled={isPending}
         className={cn(
-          "mt-4 flex h-56 w-full shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed bg-white px-6 py-6 transition-colors",
+          "mt-4 flex h-56 w-full shrink-0 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-6 py-6 transition-colors",
           isDragging
             ? "border-[var(--venue-primary)] bg-[var(--venue-primary)]/10"
-            : "border-black/20 hover:border-[var(--venue-primary)]/50",
+            : "border-black/20 bg-[#F4F4F4] hover:border-[var(--venue-primary)]/50",
           isPending && "cursor-not-allowed opacity-60",
         )}
         onClick={() => {
@@ -118,14 +120,42 @@ export function GroupLogoPanel({ initial }: GroupLogoPanelProps) {
         }}
       >
         <div className="flex h-[88px] w-full items-center justify-center">
-          {logoUrl ? (
-            <GroupLogo
-              src={logoUrl}
-              className="h-full max-h-[88px] w-full max-w-[280px]"
-            />
-          ) : (
-            <ImageIcon className="h-8 w-8 text-black/20" />
-          )}
+          <div className="w-full max-w-[240px] overflow-hidden rounded-lg border border-black/10 bg-white shadow-sm">
+            <div className="flex items-center gap-2 bg-[#E4E4E4] px-2.5 py-1.5">
+              <div className="flex shrink-0 gap-1" aria-hidden>
+                <span className="size-1.5 rounded-full bg-[#FF5F57]" />
+                <span className="size-1.5 rounded-full bg-[#FEBC2E]" />
+                <span className="size-1.5 rounded-full bg-[#28C840]" />
+              </div>
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-white px-2 py-1 shadow-sm">
+                {faviconUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={faviconUrl}
+                    alt=""
+                    className="size-3.5 shrink-0 object-contain"
+                  />
+                ) : (
+                  <ImageIcon className="size-3.5 shrink-0 text-black/25" />
+                )}
+                <span className="truncate text-[11px] text-[#3D421F]">
+                  Stellar Society
+                </span>
+              </div>
+            </div>
+            <div className="flex h-9 items-center justify-center bg-[#F7F7F7]">
+              {faviconUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={faviconUrl}
+                  alt="Stellar Society Group favicon"
+                  className="size-6 object-contain"
+                />
+              ) : (
+                <ImageIcon className="h-5 w-5 text-black/20" />
+              )}
+            </div>
+          </div>
         </div>
         <p className="mt-3 text-xs font-medium text-black/50">
           {isDragging ? "Drop to upload new" : "Drag & drop or click to upload new"}
@@ -167,7 +197,7 @@ export function GroupLogoPanel({ initial }: GroupLogoPanelProps) {
           onClick={handleRemove}
           title={
             canClear
-              ? "Remove uploaded logo and restore the built-in default"
+              ? "Remove uploaded favicon and restore the built-in default"
               : "Using the built-in default"
           }
         >

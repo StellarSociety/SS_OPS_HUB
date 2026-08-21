@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ClipboardList,
   Code2,
+  Download,
   LayoutDashboard,
   Scale,
   Settings,
@@ -43,6 +44,7 @@ import {
 import { SettingsNavContextMenu } from "@/components/layout/settings-nav-context-menu";
 import { AppsHubContextMenu } from "@/components/layout/apps-hub-context-menu";
 import { VenueSelector } from "@/components/layout/venue-selector";
+import { InstallAppDialog } from "@/components/pwa/install-app-dialog";
 import type { Venue } from "@/lib/types/database";
 
 const SHELL_BAR_HEIGHT = "h-16";
@@ -223,8 +225,45 @@ function SidebarLink({
           <span className="truncate">{label}</span>
         )
       ) : null}
-      <NavigationPendingIndicator className={collapsed ? "absolute right-1 top-1" : "ml-auto"} />
+        <NavigationPendingIndicator className={collapsed ? "absolute right-1 top-1" : "ml-auto"} />
     </Link>
+  );
+}
+
+function SidebarAction({
+  label,
+  icon: Icon,
+  collapsed,
+  compact = false,
+  onClick,
+}: {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  collapsed: boolean;
+  compact?: boolean;
+  onClick: () => void;
+}) {
+  const { triggerProps, tooltip } = useNavTooltip(label, collapsed);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={collapsed ? label : undefined}
+      {...triggerProps}
+      className={cn(
+        "relative flex w-full items-center rounded-lg text-sm transition-colors",
+        compact ? "py-1" : "py-2",
+        collapsed ? "justify-center px-2" : "gap-2.5 px-3",
+        "text-black/60 hover:bg-black/5 hover:text-[#3D421F]",
+      )}
+    >
+      <AnimatedSymbol>
+        <Icon className={cn("shrink-0", collapsed ? "h-5 w-5" : "h-4 w-4")} />
+      </AnimatedSymbol>
+      {tooltip}
+      {!collapsed ? <span className="truncate">{label}</span> : null}
+    </button>
   );
 }
 
@@ -528,6 +567,8 @@ type AppSidebarProps = {
   venues: Venue[];
   showSettings?: boolean;
   open?: boolean;
+  logoUrl?: string;
+  appName?: string;
 };
 
 export function AppSidebar({
@@ -535,12 +576,15 @@ export function AppSidebar({
   venues,
   showSettings = false,
   open = true,
+  logoUrl,
+  appName,
 }: AppSidebarProps) {
   const pathname = useRelativePathname();
   const collapsed = !open;
   const hasBrandAssets = hasVenueBrandAssets(venue);
   const moduleSidebar = getModuleSidebarForPath(pathname);
   const ModuleIcon = moduleSidebar?.icon;
+  const [installOpen, setInstallOpen] = useState(false);
 
   return (
     <aside
@@ -751,6 +795,13 @@ export function AppSidebar({
         (!moduleSidebar && !venue.is_global) ? (
           <SidebarDivider collapsed={collapsed} />
         ) : null}
+        <SidebarAction
+          label="Download"
+          icon={Download}
+          collapsed={collapsed}
+          compact
+          onClick={() => setInstallOpen(true)}
+        />
         {footerNavItems.map((item) => (
           <SidebarLink
             key={item.href}
@@ -763,6 +814,12 @@ export function AppSidebar({
           />
         ))}
       </nav>
+      <InstallAppDialog
+        open={installOpen}
+        onOpenChange={setInstallOpen}
+        logoUrl={logoUrl}
+        appName={appName}
+      />
     </aside>
   );
 }

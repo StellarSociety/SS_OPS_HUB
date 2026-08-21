@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useTransition, type FocusEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { LoginScreen } from "@/components/auth/login-screen";
@@ -11,6 +11,7 @@ import { MobileNotificationsScreen } from "@/components/mobile/mobile-notificati
 import { MobileRevenueScreen } from "@/components/mobile/mobile-revenue-screen";
 import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
+import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import { SelectVenueScreen } from "@/components/venue/select-venue-screen";
 import {
   APP_PATH,
@@ -213,8 +214,18 @@ function PhoneStage({
   const router = useRouter();
   const stageRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [previewNonce, setPreviewNonce] = useState(0);
+  const [refreshing, startRefresh] = useTransition();
   const frame = frameSize(device);
   const page = getAppPathPage(pageId);
+
+  const handleRefreshPreview = useCallback(() => {
+    startRefresh(() => {
+      setPreviewVenue(welcome.venue);
+      setPreviewNonce((current) => current + 1);
+      router.refresh();
+    });
+  }, [router, setPreviewVenue, startRefresh, welcome.venue]);
 
   const handleAuthenticated = useCallback(() => {
     setPageId("select-venue");
@@ -277,64 +288,69 @@ function PhoneStage({
           <PhoneChrome
             device={device}
             page={page}
+            refreshing={refreshing}
+            onRefresh={handleRefreshPreview}
             screen={
-              page.id === "login" ? (
-                <LoginScreen
-                  logoUrl={loginLogoUrl}
-                  fill
-                  preview
-                  onAuthenticated={handleAuthenticated}
-                />
-              ) : page.id === "select-venue" ? (
-                <SelectVenueScreen
-                  {...selectVenue}
-                  fill
-                  preview
-                  onSelectVenue={handleVenueSelected}
-                />
-              ) : page.id === "welcome" ? (
-                <MobileWelcomeScreen
-                  venue={previewVenue}
-                  userName={welcome.userName}
-                  modules={welcome.modules}
-                  profile={welcome.profile}
-                  onOpenProfile={() => setPageId("employee-profile")}
-                  notificationCount={welcome.notificationCount}
-                  unreadCount={welcome.unreadCount}
-                  onOpenNotifications={() => setPageId("notifications")}
-                  onOpenRevenue={() => setPageId("revenue")}
-                  onOpenTerms={() => setPageId("terms")}
-                />
-              ) : page.id === "notifications" ? (
-                <MobileNotificationsScreen
-                  venue={previewVenue}
-                  notifications={welcome.notifications}
-                  onSelectTab={(tab) => {
-                    if (tab.pageId) setPageId(tab.pageId);
-                  }}
-                />
-              ) : page.id === "employee-profile" ? (
-                <MobileEmployeeProfileScreen
-                  venue={previewVenue}
-                  profile={welcome.profile}
-                  onSelectTab={(tab) => {
-                    if (tab.pageId) setPageId(tab.pageId);
-                  }}
-                />
-              ) : page.id === "revenue" ? (
-                <MobileRevenueScreen
-                  venue={previewVenue}
-                  overview={revenueOverview}
-                  onSelectTab={(tab) => {
-                    if (tab.pageId) setPageId(tab.pageId);
-                  }}
-                />
-              ) : page.id === "terms" ? (
-                <MobileTermsScreen
-                  venue={previewVenue}
-                  onBack={() => setPageId("welcome")}
-                />
-              ) : null
+              <div key={previewNonce} className="h-full min-h-0">
+                {page.id === "login" ? (
+                  <LoginScreen
+                    logoUrl={loginLogoUrl}
+                    fill
+                    preview
+                    onAuthenticated={handleAuthenticated}
+                  />
+                ) : page.id === "select-venue" ? (
+                  <SelectVenueScreen
+                    {...selectVenue}
+                    fill
+                    preview
+                    onSelectVenue={handleVenueSelected}
+                  />
+                ) : page.id === "welcome" ? (
+                  <MobileWelcomeScreen
+                    venue={previewVenue}
+                    userName={welcome.userName}
+                    modules={welcome.modules}
+                    profile={welcome.profile}
+                    onOpenProfile={() => setPageId("employee-profile")}
+                    notificationCount={welcome.notificationCount}
+                    unreadCount={welcome.unreadCount}
+                    onOpenNotifications={() => setPageId("notifications")}
+                    onOpenRevenue={() => setPageId("revenue")}
+                    onOpenTerms={() => setPageId("terms")}
+                    onLogout={() => setPageId("login")}
+                  />
+                ) : page.id === "notifications" ? (
+                  <MobileNotificationsScreen
+                    venue={previewVenue}
+                    notifications={welcome.notifications}
+                    onSelectTab={(tab) => {
+                      if (tab.pageId) setPageId(tab.pageId);
+                    }}
+                  />
+                ) : page.id === "employee-profile" ? (
+                  <MobileEmployeeProfileScreen
+                    venue={previewVenue}
+                    profile={welcome.profile}
+                    onSelectTab={(tab) => {
+                      if (tab.pageId) setPageId(tab.pageId);
+                    }}
+                  />
+                ) : page.id === "revenue" ? (
+                  <MobileRevenueScreen
+                    venue={previewVenue}
+                    overview={revenueOverview}
+                    onSelectTab={(tab) => {
+                      if (tab.pageId) setPageId(tab.pageId);
+                    }}
+                  />
+                ) : page.id === "terms" ? (
+                  <MobileTermsScreen
+                    venue={previewVenue}
+                    onBack={() => setPageId("welcome")}
+                  />
+                ) : null}
+              </div>
             }
           />
         </div>
@@ -344,6 +360,8 @@ function PhoneStage({
         selectedId={pageId}
         onSelect={setPageId}
         venue={previewVenue}
+        refreshing={refreshing}
+        onRefreshPreview={handleRefreshPreview}
       />
     </div>
   );
@@ -353,10 +371,14 @@ function PhoneChrome({
   device,
   page,
   screen,
+  refreshing,
+  onRefresh,
 }: {
   device: DevicePreset;
   page: AppPathPage;
   screen: ReactNode;
+  refreshing: boolean;
+  onRefresh: () => void;
 }) {
   const isIphone = device.brand === "iphone";
   const classic = device.island === "home-button";
@@ -388,14 +410,6 @@ function PhoneChrome({
       >
         <div
           className={`absolute inset-0 ${
-            page.id === "login" ||
-            page.id === "employee-profile" ||
-            page.id === "notifications" ||
-            page.id === "revenue" ||
-            page.id === "terms"
-              ? "overflow-hidden"
-              : "overflow-auto"
-          } ${
             page.id === "login"
               ? "bg-black"
               : page.id === "welcome" ||
@@ -407,7 +421,22 @@ function PhoneChrome({
                 : "bg-[#E9E3D6]"
           }`}
         >
-          {screen}
+          <PullToRefresh
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            contentClassName={
+              page.id === "welcome" ? "overflow-auto" : "overflow-hidden"
+            }
+            indicatorInsetTop={
+              device.island === "dynamic-island"
+                ? 56
+                : device.island === "punch-hole"
+                  ? 32
+                  : 16
+            }
+          >
+            {screen}
+          </PullToRefresh>
         </div>
         {device.island === "dynamic-island" ? (
           <div

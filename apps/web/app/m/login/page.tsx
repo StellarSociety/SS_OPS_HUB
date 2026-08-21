@@ -1,5 +1,5 @@
 import { LoginScreen } from "@/components/auth/login-screen";
-import { fetchGroupLogoState } from "@/lib/group/branding";
+import { fetchGroupBrandingState } from "@/lib/group/branding";
 import { MOBILE_APP_BASE, safeMobileAppPath } from "@/lib/mobile/app-path";
 
 const NOTICES: Record<string, string> = {
@@ -14,12 +14,13 @@ type LoginPageProps = {
 export default async function MobileLoginPage({ searchParams }: LoginPageProps) {
   const { error, next } = await searchParams;
   const notice = error ? NOTICES[error] ?? null : null;
-  const { logoUrl } = await fetchGroupLogoState();
+  const { logoUrl, faviconUrl } = await fetchGroupBrandingState();
 
   return (
     <LoginScreen
       notice={notice}
       logoUrl={logoUrl}
+      faviconUrl={faviconUrl}
       mobileApp
       nextPath={safeMobileAppPath(next) ?? `${MOBILE_APP_BASE}/select-venue`}
     />

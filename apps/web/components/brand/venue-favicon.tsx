@@ -24,7 +24,14 @@ export function VenueFavicon({ url }: VenueFaviconProps) {
     }
 
     link.href = url;
-    link.type = url.endsWith(".svg") ? "image/svg+xml" : "image/png";
+    const path = url.split("?")[0] ?? url;
+    link.type = path.endsWith(".svg")
+      ? "image/svg+xml"
+      : path.endsWith(".webp")
+        ? "image/webp"
+        : path.endsWith(".ico")
+          ? "image/x-icon"
+          : "image/png";
   }, [url]);
 
   return null;

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { detectPWADevice, isIOSSafariUserAgent } from "@/lib/pwa/device";
+import {
+  deviceForInstallPreview,
+  parseInstallPreview,
+} from "@/lib/pwa/install-preview";
 import { isStandaloneDisplayMode } from "@/lib/pwa/standalone";
 import { defaultPwaOpenPath, safePwaReturnPath } from "@/lib/pwa/return-path";
 
@@ -103,5 +107,21 @@ describe("PWA return path", () => {
   it("falls back to /m", () => {
     expect(defaultPwaOpenPath(null)).toBe("/m");
     expect(defaultPwaOpenPath("/m/orilla")).toBe("/m/orilla");
+  });
+});
+
+describe("install preview override", () => {
+  it("parses known preview kinds", () => {
+    expect(parseInstallPreview("ios")).toBe("ios");
+    expect(parseInstallPreview("ios-chrome")).toBe("ios-chrome");
+    expect(parseInstallPreview("unknown")).toBeNull();
+    expect(parseInstallPreview(undefined)).toBeNull();
+  });
+
+  it("maps iPhone Safari preview to Add to Home Screen steps", () => {
+    const device = deviceForInstallPreview("ios");
+    expect(device.isIOS).toBe(true);
+    expect(device.isIOSSafari).toBe(true);
+    expect(device.needsSafari).toBe(false);
   });
 });

@@ -57,7 +57,11 @@ export function IosAddIcon({ className }: { className?: string }) {
   );
 }
 
-export function IOSInstallInstructions() {
+export function IOSInstallInstructions({
+  appName,
+}: {
+  appName: string;
+}) {
   const steps = [
     {
       icon: <IosShareIcon className="size-6" />,
@@ -72,12 +76,12 @@ export function IOSInstallInstructions() {
     {
       icon: null,
       title: "Turn on “Open as Web App” if you see it",
-      body: "This keeps SS OPS HUB opening as an app, not a Safari tab.",
+      body: `This keeps ${appName} opening as an app, not a Safari tab.`,
     },
     {
       icon: null,
       title: "Tap Add",
-      body: "SS OPS HUB will appear on your Home Screen.",
+      body: `${appName} will appear on your Home Screen.`,
     },
   ];
 
@@ -86,17 +90,17 @@ export function IOSInstallInstructions() {
       {steps.map((step, index) => (
         <li
           key={step.title}
-          className="flex gap-3 rounded-2xl bg-white/55 px-3 py-3 shadow-sm ring-1 ring-[#3D421F]/8"
+          className="flex gap-3 rounded-2xl bg-neutral-900 px-3 py-3 ring-1 ring-white/12"
         >
-          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-[#818a40] text-sm font-semibold text-white">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-neutral-700 text-sm font-semibold text-white">
             {index + 1}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 font-medium text-[#3D421F]">
+            <p className="flex items-center gap-2 font-medium text-white">
               {step.icon}
               <span>{step.title}</span>
             </p>
-            <p className="mt-1 text-sm leading-5 text-[#3D421F]/70">{step.body}</p>
+            <p className="mt-1 text-sm leading-5 text-white/60">{step.body}</p>
           </div>
         </li>
       ))}

@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { fetchGroupBrandingState } from "@/lib/group/branding";
 import {
   PWA_APP_NAME,
   PWA_BACKGROUND_COLOR,
@@ -12,13 +13,15 @@ import {
   PWA_THEME_COLOR,
 } from "@/lib/pwa/constants";
 
-export default function manifest(): MetadataRoute.Manifest {
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const { appName } = await fetchGroupBrandingState();
+  const name = appName || PWA_APP_NAME;
+
   return {
     id: PWA_START_URL,
-    name: PWA_APP_NAME,
-    short_name: PWA_APP_NAME,
-    description:
-      "Internal operations hub for Stellar Society venues. Install SS OPS HUB for Home Screen access.",
+    name,
+    short_name: name,
+    description: `Internal operations hub for Stellar Society venues. Install ${name} for Home Screen access.`,
     start_url: PWA_START_URL,
     scope: PWA_SCOPE,
     display: "standalone",

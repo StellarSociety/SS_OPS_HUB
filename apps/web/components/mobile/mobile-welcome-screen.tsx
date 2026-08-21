@@ -3,14 +3,18 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Bell } from "lucide-react";
+import { Bell, LogOut } from "lucide-react";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { ModuleTile } from "@/components/modules/module-tile";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
+import { signOut } from "@/lib/actions/auth";
 import { moduleCategories } from "@/lib/module-categories";
 import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { getUserInitials } from "@/lib/user/display";
 import type { Venue } from "@/lib/types/database";
+
+const LOGOUT_BUTTON_CLASS =
+  "flex w-full items-center justify-center gap-1.5 rounded-xl border border-black/10 bg-black/[0.03] py-2.5 text-sm font-medium text-[#3D421F] dark:border-white/12 dark:bg-white/[0.08] dark:text-[CanvasText]";
 
 type MobileWelcomeScreenProps = {
   venue: Venue;
@@ -27,6 +31,7 @@ type MobileWelcomeScreenProps = {
   revenueHref?: string;
   onOpenTerms?: () => void;
   termsHref?: string;
+  onLogout?: () => void;
 };
 
 export function MobileWelcomeScreen({
@@ -44,6 +49,7 @@ export function MobileWelcomeScreen({
   revenueHref,
   onOpenTerms,
   termsHref,
+  onLogout,
 }: MobileWelcomeScreenProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
@@ -95,7 +101,7 @@ export function MobileWelcomeScreen({
         <p className="mt-1 font-serif text-lg tracking-wide text-[#3D421F] dark:text-[CanvasText]">
           Operational Apps Hub
         </p>
-        <p className="mx-auto mt-2 max-w-[20rem] text-[13px] leading-relaxed text-black/55 dark:text-white/55">
+        <p className="mx-auto mt-2 max-w-[20rem] text-[13px] leading-snug text-black/55 dark:text-white/55">
           Your operations command center for {venue.name}.
           <br />
           Choose the apps you want to start with.
@@ -120,7 +126,7 @@ export function MobileWelcomeScreen({
         <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
           <div className="flex flex-col gap-y-2.5">
             {sections.map((section) => (
-              <section key={section.category.key} className="flex flex-col gap-y-1">
+              <section key={section.category.key} className="flex flex-col gap-y-2">
                 <h2 className="flex items-center gap-2 px-1 font-serif text-base leading-none text-[#3D421F] dark:text-[CanvasText]">
                   <span
                     aria-hidden
@@ -171,28 +177,46 @@ export function MobileWelcomeScreen({
           </div>
         </div>
 
-        <div className="space-y-1.5 px-1 pb-1">
+        <div className="space-y-2 px-1 pb-1">
+          {onLogout ? (
+            <button
+              type="button"
+              onClick={onLogout}
+              className={LOGOUT_BUTTON_CLASS}
+            >
+              <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
+              Logout
+            </button>
+          ) : (
+            <form action={signOut}>
+              <input type="hidden" name="mobile_app" value="1" />
+              <button type="submit" className={LOGOUT_BUTTON_CLASS}>
+                <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
+                Logout
+              </button>
+            </form>
+          )}
           <p className="text-center text-[11px] leading-relaxed text-black/50 dark:text-white/50">
             By using this hub you agree to follow Stellar Society policies for
             data, records, and workplace conduct. Misuse may result in access
-            being revoked and disciplinary action, including dismissal.
+            being revoked and disciplinary action, including dismissal.{" "}
+            {onOpenTerms ? (
+              <button
+                type="button"
+                onClick={onOpenTerms}
+                className="font-medium text-[#3D421F] underline underline-offset-2 dark:text-[CanvasText]"
+              >
+                Terms &amp; Conditions
+              </button>
+            ) : termsHref ? (
+              <Link
+                href={termsHref}
+                className="font-medium text-[#3D421F] underline underline-offset-2 dark:text-[CanvasText]"
+              >
+                Terms &amp; Conditions
+              </Link>
+            ) : null}
           </p>
-          {onOpenTerms ? (
-            <button
-              type="button"
-              onClick={onOpenTerms}
-              className="block w-full text-center text-[11px] font-medium text-[#3D421F] underline underline-offset-2 dark:text-[CanvasText]"
-            >
-              Terms &amp; Conditions
-            </button>
-          ) : termsHref ? (
-            <Link
-              href={termsHref}
-              className="block w-full text-center text-[11px] font-medium text-[#3D421F] underline underline-offset-2 dark:text-[CanvasText]"
-            >
-              Terms &amp; Conditions
-            </Link>
-          ) : null}
         </div>
       </div>
     </div>
@@ -221,8 +245,8 @@ function WelcomeNotificationsCard({
 
   const row = (
     <>
-      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)]/15 text-[#3D421F] dark:text-[CanvasText]">
-        <Bell className="h-5 w-5" strokeWidth={1.75} />
+      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)]/15 text-[#3D421F] dark:text-[CanvasText]">
+        <Bell className="h-6 w-6" strokeWidth={1.75} />
         {unreadCount > 0 ? (
           <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] px-1 text-[9px] font-semibold leading-none text-white">
             {unreadCount > 99 ? "99+" : unreadCount}
@@ -241,24 +265,24 @@ function WelcomeNotificationsCard({
   );
 
   return (
-    <section className="min-w-0 rounded-xl border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/12 dark:bg-white/[0.08]">
+    <section className="min-w-0 rounded-xl border border-black/10 bg-black/[0.03] px-2.5 py-3 dark:border-white/12 dark:bg-white/[0.08]">
       {onOpen ? (
         <button
           type="button"
           onClick={onOpen}
-          className="flex w-full items-center gap-1.5 rounded-lg py-0.5 text-left hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+          className="flex w-full items-center gap-2 rounded-lg py-1.5 text-left hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
         >
           {row}
         </button>
       ) : href ? (
         <Link
           href={href}
-          className="flex items-center gap-1.5 rounded-lg py-0.5 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+          className="flex items-center gap-2 rounded-lg py-1.5 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
         >
           {row}
         </Link>
       ) : (
-        <div className="flex items-center gap-1.5 py-0.5">{row}</div>
+        <div className="flex items-center gap-2 py-1.5">{row}</div>
       )}
     </section>
   );
@@ -279,7 +303,7 @@ function WelcomeProfileCard({
   const row = (
     <>
       {profile.avatarUrl ? (
-        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-white shadow-sm ring-1 ring-black/10">
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border border-white shadow-sm ring-1 ring-black/10">
           <Image
             src={profile.avatarUrl}
             alt=""
@@ -289,7 +313,7 @@ function WelcomeProfileCard({
           />
         </div>
       ) : (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#3D421F] text-[11px] font-medium text-white">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#3D421F] text-xs font-medium text-white">
           {initials}
         </div>
       )}
@@ -305,24 +329,24 @@ function WelcomeProfileCard({
   );
 
   return (
-    <section className="min-w-0 rounded-xl border border-black/10 bg-black/[0.03] px-2 py-1.5 dark:border-white/12 dark:bg-white/[0.08]">
+    <section className="min-w-0 rounded-xl border border-black/10 bg-black/[0.03] px-2.5 py-3 dark:border-white/12 dark:bg-white/[0.08]">
       {onOpen ? (
         <button
           type="button"
           onClick={onOpen}
-          className="flex w-full items-center gap-1.5 rounded-lg py-0.5 text-left hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+          className="flex w-full items-center gap-2 rounded-lg py-1.5 text-left hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
         >
           {row}
         </button>
       ) : href ? (
         <Link
           href={href}
-          className="flex items-center gap-1.5 rounded-lg py-0.5 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+          className="flex items-center gap-2 rounded-lg py-1.5 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
         >
           {row}
         </Link>
       ) : (
-        <div className="flex items-center gap-1.5 py-0.5">{row}</div>
+        <div className="flex items-center gap-2 py-1.5">{row}</div>
       )}
     </section>
   );

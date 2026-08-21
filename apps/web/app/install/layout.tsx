@@ -1,6 +1,5 @@
 import type { Viewport } from "next";
 import { MobileNoZoom } from "@/components/mobile/mobile-no-zoom";
-import { PWA_BACKGROUND_COLOR, PWA_THEME_COLOR } from "@/lib/pwa/constants";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -8,8 +7,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: PWA_THEME_COLOR,
-  colorScheme: "light",
+  themeColor: "#000000",
+  colorScheme: "dark",
 };
 
 export default function InstallLayout({
@@ -20,7 +19,7 @@ export default function InstallLayout({
   return (
     <>
       <MobileNoZoom />
-      <div style={{ backgroundColor: PWA_BACKGROUND_COLOR }}>{children}</div>
+      <div className="bg-black">{children}</div>
     </>
   );
 }

@@ -36,7 +36,11 @@ function subscribeBannerDismiss(onStoreChange: () => void): () => void {
   };
 }
 
-export function InstallAppBanner() {
+export function InstallAppBanner({
+  appName,
+}: {
+  appName: string;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { installed, standalone, canPrompt, promptInstall } = usePWAInstall();
@@ -78,7 +82,7 @@ export function InstallAppBanner() {
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-[#3D421F] px-3 py-2.5 text-white shadow-lg shadow-black/20">
         <p className="min-w-0 flex-1 text-sm leading-5">
-          Install SS OPS HUB for easier access
+          Install {appName} for easier access
         </p>
         {canPrompt ? (
           <button

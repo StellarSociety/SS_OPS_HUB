@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { requireAppAdmin } from "@/lib/access/permissions";
 import { writeAuditLog } from "@/lib/audit";
-import { GROUP_LOGO_STORAGE_PATHS } from "@/lib/group/branding";
+import {
+  APP_NAME_MAX_LENGTH,
+  DEFAULT_APP_NAME,
+  GROUP_APP_ICON_STORAGE_PATHS,
+  GROUP_FAVICON_STORAGE_PATHS,
+  GROUP_LOGO_STORAGE_PATHS,
+  resolveAppName,
+} from "@/lib/group/branding";
 import {
   asUploadBlob,
   convertImageToWebp,
@@ -19,8 +26,11 @@ const GROUP_LOGO_SOURCE_MAX_BYTES = 4 * 1024 * 1024;
 
 const REVALIDATE_PATHS = [
   "/login",
+  "/install",
+  "/m",
   "/global/settings",
   "/global/settings/branding",
+  "/manifest.webmanifest",
 ];
 
 const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "svg"]);
@@ -66,12 +76,20 @@ function contentTypeForExtension(extension: string): string {
   }
 }
 
-async function readGroupLogoRow(
+type GroupBrandingRow = {
+  id: number;
+  logo_url: string | null;
+  app_icon_url: string | null;
+  favicon_url: string | null;
+  app_name: string | null;
+};
+
+async function readGroupBrandingRow(
   service: ReturnType<typeof createServiceClient>,
 ) {
   const { data, error } = await service
     .from("group_branding")
-    .select("id, logo_url")
+    .select("id, logo_url, app_icon_url, favicon_url, app_name")
     .eq("id", 1)
     .maybeSingle();
 
@@ -90,10 +108,26 @@ async function readGroupLogoRow(
         error: "Could not load group branding. Run the latest database migrations.",
       };
     }
-    return { row: { id: 1, logo_url: null as string | null } };
+    return {
+      row: {
+        id: 1,
+        logo_url: null,
+        app_icon_url: null,
+        favicon_url: null,
+        app_name: null,
+      } satisfies GroupBrandingRow,
+    };
   }
 
-  return { row: data };
+  return {
+    row: {
+      id: data.id as number,
+      logo_url: (data.logo_url as string | null) ?? null,
+      app_icon_url: (data.app_icon_url as string | null) ?? null,
+      favicon_url: (data.favicon_url as string | null) ?? null,
+      app_name: (data.app_name as string | null) ?? null,
+    } satisfies GroupBrandingRow,
+  };
 }
 
 export async function uploadGroupLogo(formData: FormData) {
@@ -114,7 +148,7 @@ export async function uploadGroupLogo(formData: FormData) {
     return { error: "Unsupported file type. Use PNG, JPG, WebP, or SVG." };
   }
 
-  const existing = await readGroupLogoRow(service);
+  const existing = await readGroupBrandingRow(service);
   if (existing.error || !existing.row) return { error: existing.error };
 
   const bytes = Buffer.from(await file.arrayBuffer());
@@ -198,7 +232,7 @@ export async function removeGroupLogo() {
   const { user: actor } = await requireAppAdmin();
   const service = createServiceClient();
 
-  const existing = await readGroupLogoRow(service);
+  const existing = await readGroupBrandingRow(service);
   if (existing.error || !existing.row) return { error: existing.error };
 
   const previousUrl = existing.row.logo_url;
@@ -231,4 +265,341 @@ export async function removeGroupLogo() {
 
   revalidateGroupBranding();
   return { success: "Default Stellar Society Group logo restored." };
+}
+
+export async function uploadGroupAppIcon(formData: FormData) {
+  const { user: actor } = await requireAppAdmin();
+  const service = createServiceClient();
+
+  const file = asUploadBlob(formData.get("file"));
+  if (!file) {
+    return { error: "Choose an image file to upload." };
+  }
+  if (file.size > GROUP_LOGO_SOURCE_MAX_BYTES) {
+    return { error: "File is too large. Maximum size is 4 MB." };
+  }
+
+  const meta = uploadBlobMeta(file);
+  const sourceExtension = extensionForUpload(meta.name, meta.type);
+  if (!ALLOWED_EXTENSIONS.has(sourceExtension)) {
+    return { error: "Unsupported file type. Use PNG, JPG, WebP, or SVG." };
+  }
+
+  const existing = await readGroupBrandingRow(service);
+  if (existing.error || !existing.row) return { error: existing.error };
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  let uploadBytes: Buffer = bytes;
+  let extension = sourceExtension;
+  let contentType = contentTypeForExtension(sourceExtension);
+
+  if (!shouldSkipWebpConversion(meta.type, sourceExtension)) {
+    try {
+      const webp = await convertImageToWebp(bytes, {
+        maxWidth: 1024,
+        maxHeight: 1024,
+      });
+      uploadBytes = Buffer.from(webp.buffer);
+      extension = webp.extension;
+      contentType = webp.contentType;
+    } catch {
+      return { error: "Could not convert image to WebP." };
+    }
+  }
+
+  if (uploadBytes.length > BRAND_ASSET_MAX_BYTES) {
+    return { error: "Converted icon is too large. Try a simpler image." };
+  }
+
+  const storagePath = `group/app-icon.${extension}`;
+
+  await service.storage
+    .from(BRANDING_BUCKET)
+    .remove([...GROUP_APP_ICON_STORAGE_PATHS]);
+
+  const { error: uploadError } = await service.storage
+    .from(BRANDING_BUCKET)
+    .upload(storagePath, uploadBytes, {
+      contentType,
+      upsert: true,
+      cacheControl: "31536000",
+    });
+
+  if (uploadError) {
+    return {
+      error:
+        "Could not upload file. Ensure the venue-branding storage bucket exists (run db migrations).",
+    };
+  }
+
+  const { data: publicData } = service.storage
+    .from(BRANDING_BUCKET)
+    .getPublicUrl(storagePath);
+
+  const publicUrl = `${publicData.publicUrl}?v=${Date.now()}`;
+
+  const { data: updated, error: updateError } = await service
+    .from("group_branding")
+    .update({
+      app_icon_url: publicUrl,
+      updated_at: new Date().toISOString(),
+      updated_by: actor.id,
+    })
+    .eq("id", 1)
+    .select("app_icon_url")
+    .single();
+
+  if (updateError || !updated) {
+    return { error: "File uploaded but group branding could not be updated." };
+  }
+
+  await writeAuditLog({
+    actor_id: actor.id,
+    action: "update",
+    module_key: "settings",
+    entity: "group_branding",
+    entity_id: "1",
+    before: { app_icon_url: existing.row.app_icon_url },
+    after: { app_icon_url: publicUrl },
+  });
+
+  revalidateGroupBranding();
+  return {
+    success: "App icon uploaded.",
+    appIconUrl: updated.app_icon_url as string,
+  };
+}
+
+export async function removeGroupAppIcon() {
+  const { user: actor } = await requireAppAdmin();
+  const service = createServiceClient();
+
+  const existing = await readGroupBrandingRow(service);
+  if (existing.error || !existing.row) return { error: existing.error };
+
+  const previousUrl = existing.row.app_icon_url;
+  const storagePath = storagePathFromBrandAssetUrl(previousUrl);
+  const paths = new Set<string>(GROUP_APP_ICON_STORAGE_PATHS);
+  if (storagePath) paths.add(storagePath);
+
+  await service.storage.from(BRANDING_BUCKET).remove([...paths]);
+
+  const { error } = await service
+    .from("group_branding")
+    .update({
+      app_icon_url: null,
+      updated_at: new Date().toISOString(),
+      updated_by: actor.id,
+    })
+    .eq("id", 1);
+
+  if (error) return { error: "Could not restore the default app icon." };
+
+  await writeAuditLog({
+    actor_id: actor.id,
+    action: "update",
+    module_key: "settings",
+    entity: "group_branding",
+    entity_id: "1",
+    before: { app_icon_url: previousUrl },
+    after: { app_icon_url: null },
+  });
+
+  revalidateGroupBranding();
+  return { success: "Default SS OPS HUB app icon restored." };
+}
+
+export async function uploadGroupFavicon(formData: FormData) {
+  const { user: actor } = await requireAppAdmin();
+  const service = createServiceClient();
+
+  const file = asUploadBlob(formData.get("file"));
+  if (!file) {
+    return { error: "Choose an image file to upload." };
+  }
+  if (file.size > GROUP_LOGO_SOURCE_MAX_BYTES) {
+    return { error: "File is too large. Maximum size is 4 MB." };
+  }
+
+  const meta = uploadBlobMeta(file);
+  const sourceExtension = extensionForUpload(meta.name, meta.type);
+  if (!ALLOWED_EXTENSIONS.has(sourceExtension)) {
+    return { error: "Unsupported file type. Use PNG, JPG, WebP, or SVG." };
+  }
+
+  const existing = await readGroupBrandingRow(service);
+  if (existing.error || !existing.row) return { error: existing.error };
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  let uploadBytes: Buffer = bytes;
+  let extension = sourceExtension;
+  let contentType = contentTypeForExtension(sourceExtension);
+
+  if (!shouldSkipWebpConversion(meta.type, sourceExtension)) {
+    try {
+      const webp = await convertImageToWebp(bytes, {
+        maxWidth: 512,
+        maxHeight: 512,
+      });
+      uploadBytes = Buffer.from(webp.buffer);
+      extension = webp.extension;
+      contentType = webp.contentType;
+    } catch {
+      return { error: "Could not convert image to WebP." };
+    }
+  }
+
+  if (uploadBytes.length > BRAND_ASSET_MAX_BYTES) {
+    return { error: "Converted favicon is too large. Try a simpler image." };
+  }
+
+  const storagePath = `group/favicon.${extension}`;
+
+  await service.storage
+    .from(BRANDING_BUCKET)
+    .remove([...GROUP_FAVICON_STORAGE_PATHS]);
+
+  const { error: uploadError } = await service.storage
+    .from(BRANDING_BUCKET)
+    .upload(storagePath, uploadBytes, {
+      contentType,
+      upsert: true,
+      cacheControl: "31536000",
+    });
+
+  if (uploadError) {
+    return {
+      error:
+        "Could not upload file. Ensure the venue-branding storage bucket exists (run db migrations).",
+    };
+  }
+
+  const { data: publicData } = service.storage
+    .from(BRANDING_BUCKET)
+    .getPublicUrl(storagePath);
+
+  const publicUrl = `${publicData.publicUrl}?v=${Date.now()}`;
+
+  const { data: updated, error: updateError } = await service
+    .from("group_branding")
+    .update({
+      favicon_url: publicUrl,
+      updated_at: new Date().toISOString(),
+      updated_by: actor.id,
+    })
+    .eq("id", 1)
+    .select("favicon_url")
+    .single();
+
+  if (updateError || !updated) {
+    return { error: "File uploaded but group branding could not be updated." };
+  }
+
+  await writeAuditLog({
+    actor_id: actor.id,
+    action: "update",
+    module_key: "settings",
+    entity: "group_branding",
+    entity_id: "1",
+    before: { favicon_url: existing.row.favicon_url },
+    after: { favicon_url: publicUrl },
+  });
+
+  revalidateGroupBranding();
+  return {
+    success: "Group favicon uploaded.",
+    faviconUrl: updated.favicon_url as string,
+  };
+}
+
+export async function removeGroupFavicon() {
+  const { user: actor } = await requireAppAdmin();
+  const service = createServiceClient();
+
+  const existing = await readGroupBrandingRow(service);
+  if (existing.error || !existing.row) return { error: existing.error };
+
+  const previousUrl = existing.row.favicon_url;
+  const storagePath = storagePathFromBrandAssetUrl(previousUrl);
+  const paths = new Set<string>(GROUP_FAVICON_STORAGE_PATHS);
+  if (storagePath) paths.add(storagePath);
+
+  await service.storage.from(BRANDING_BUCKET).remove([...paths]);
+
+  const { error } = await service
+    .from("group_branding")
+    .update({
+      favicon_url: null,
+      updated_at: new Date().toISOString(),
+      updated_by: actor.id,
+    })
+    .eq("id", 1);
+
+  if (error) return { error: "Could not restore the default group favicon." };
+
+  await writeAuditLog({
+    actor_id: actor.id,
+    action: "update",
+    module_key: "settings",
+    entity: "group_branding",
+    entity_id: "1",
+    before: { favicon_url: previousUrl },
+    after: { favicon_url: null },
+  });
+
+  revalidateGroupBranding();
+  return { success: "Default Stellar Society Group favicon restored." };
+}
+
+export async function updateGroupAppName(appName: string) {
+  const { user: actor } = await requireAppAdmin();
+  const service = createServiceClient();
+
+  const trimmed = appName.replace(/\s+/g, " ").trim();
+  if (trimmed.length > APP_NAME_MAX_LENGTH) {
+    return {
+      error: `App name must be ${APP_NAME_MAX_LENGTH} characters or fewer.`,
+    };
+  }
+
+  const storedName = trimmed || DEFAULT_APP_NAME;
+
+  const existing = await readGroupBrandingRow(service);
+  if (existing.error || !existing.row) return { error: existing.error };
+
+  const { data: updated, error } = await service
+    .from("group_branding")
+    .update({
+      app_name: storedName,
+      updated_at: new Date().toISOString(),
+      updated_by: actor.id,
+    })
+    .eq("id", 1)
+    .select("app_name")
+    .single();
+
+  if (error || !updated) {
+    return { error: "Could not save the app name." };
+  }
+
+  await writeAuditLog({
+    actor_id: actor.id,
+    action: "update",
+    module_key: "settings",
+    entity: "group_branding",
+    entity_id: "1",
+    before: { app_name: existing.row.app_name },
+    after: { app_name: storedName },
+  });
+
+  revalidateGroupBranding();
+  return {
+    success:
+      storedName === DEFAULT_APP_NAME
+        ? "Default app name saved."
+        : "App name saved.",
+    appName: resolveAppName(
+      typeof updated.app_name === "string" ? updated.app_name : storedName,
+    ),
+  };
 }

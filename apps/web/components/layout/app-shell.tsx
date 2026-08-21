@@ -24,6 +24,9 @@ type AppShellProps = {
   scopeSlug: string | null;
   scopeBase: string;
   permissions: UserPermission[];
+  logoUrl?: string;
+  appName?: string;
+  groupFaviconUrl?: string;
   children: React.ReactNode;
 };
 
@@ -38,9 +41,15 @@ export function AppShell({
   scopeSlug,
   scopeBase,
   permissions,
+  logoUrl,
+  appName,
+  groupFaviconUrl,
   children,
 }: AppShellProps) {
-  const faviconUrl = getVenueBadgeUrl(venue);
+  const venueBadge = getVenueBadgeUrl(venue);
+  const faviconUrl = venue.is_global
+    ? (groupFaviconUrl ?? venueBadge)
+    : (venueBadge || groupFaviconUrl || null);
 
   return (
     <VenueScopeProvider scope={scope} slug={scopeSlug} base={scopeBase}>
@@ -60,6 +69,8 @@ export function AppShell({
               showSettings={showSettings}
               notifications={notifications}
               unreadCount={unreadCount}
+              logoUrl={logoUrl}
+              appName={appName}
             >
               {children}
             </AppShellLayout>

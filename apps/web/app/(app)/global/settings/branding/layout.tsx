@@ -17,8 +17,8 @@ export default async function GlobalBrandingLayout({
       <div>
         <h2 className="font-serif text-2xl text-[#3D421F]">Branding</h2>
         <p className="mt-1 text-sm text-black/60">
-          Group logo for sign-in, then pick a venue tab to edit its identity,
-          colors, and brand assets.
+          Group logo and favicon for sign-in, app icon for Home Screen, then
+          pick a venue tab to edit its identity, colors, and brand assets.
         </p>
       </div>
       <BrandingVenueSubNav venues={venues} />

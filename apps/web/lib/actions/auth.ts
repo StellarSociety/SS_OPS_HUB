@@ -84,7 +84,7 @@ export async function signIn(
   redirect("/select-venue");
 }
 
-export async function signOut() {
+export async function signOut(formData?: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -110,6 +110,9 @@ export async function signOut() {
   }
 
   await supabase.auth.signOut();
+  if (formData && String(formData.get("mobile_app") ?? "") === "1") {
+    redirect(`${MOBILE_APP_BASE}/login`);
+  }
   redirect("/login");
 }
 

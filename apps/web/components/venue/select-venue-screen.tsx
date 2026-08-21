@@ -28,7 +28,7 @@ export function SelectVenueScreen({
     <div
       className={cn(
         "relative overflow-hidden bg-[#E9E3D6]",
-        fill ? "h-full" : "h-dvh",
+        fill ? "h-full min-h-0" : "h-dvh",
       )}
     >
       {preview ? null : <OnlinePresence />}

@@ -14,6 +14,9 @@ export type Venue = {
 export type GroupBranding = {
   id: number;
   logo_url: string | null;
+  app_icon_url: string | null;
+  favicon_url: string | null;
+  app_name: string | null;
   updated_at: string;
   updated_by: string | null;
 };
