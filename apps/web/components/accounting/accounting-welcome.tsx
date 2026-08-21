@@ -8,9 +8,6 @@ type AccountingWelcomeProps = {
 
 export function AccountingWelcome({ venue, userName }: AccountingWelcomeProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
-  const hubTitle = venue.is_global
-    ? "All Venues Operational HUB"
-    : `${venue.name} Operational HUB`;
 
   return (
     <div className="flex flex-col items-center gap-3 pb-2 pt-6 text-center md:pt-10">
@@ -32,7 +29,7 @@ export function AccountingWelcome({ venue, userName }: AccountingWelcomeProps) {
       </h1>
 
       <p className="font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl">
-        {hubTitle}
+        Accounting
       </p>
 
       <p className="max-w-xl text-sm text-black/55 md:text-base">

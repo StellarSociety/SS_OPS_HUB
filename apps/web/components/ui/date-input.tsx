@@ -378,7 +378,7 @@ export function DateInput({
           onClick={openCalendar}
           onBlur={handleBlur}
           className={cn(
-            "h-full w-full rounded-md border border-black/10 bg-white ps-3 text-sm tabular-nums text-[#3D421F] placeholder:text-black/35",
+            "h-full w-full rounded-md border border-black/10 bg-white ps-3 text-[16px] tabular-nums text-[#3D421F] placeholder:text-black/35 md:text-sm",
             disabled && "cursor-not-allowed opacity-60",
             inputClassName,
             // Keep space for the calendar button even if inputClassName sets px-*

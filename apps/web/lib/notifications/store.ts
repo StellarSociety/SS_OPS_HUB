@@ -47,6 +47,25 @@ export async function countUnreadNotifications(
   return count ?? 0;
 }
 
+export async function countNotifications(
+  supabase: SupabaseClient,
+  userId: string,
+  options: { venueId: string; isGlobalVenue: boolean },
+): Promise<number> {
+  let query = supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  if (!options.isGlobalVenue) {
+    query = query.eq("venue_id", options.venueId);
+  }
+
+  const { count, error } = await query;
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function markNotificationRead(
   supabase: SupabaseClient,
   userId: string,

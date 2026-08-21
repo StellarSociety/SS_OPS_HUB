@@ -17,7 +17,7 @@ export default async function SalesSettingsLayout({
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div>
-        <ModulePageTitle>Sales & Revenue Settings</ModulePageTitle>
+        <ModulePageTitle>Revenue Settings</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Configuration for {venue.name} — tax rates, waiters, and sales defaults.
         </p>

@@ -51,6 +51,8 @@ type SalesOverviewChartsProps = {
   totalTaxPct: number;
   waiterRecords: VenueWaiterDailySalesEntry[];
   tenders: VenueTender[];
+  /** Single column — phone canvas ignores the desktop viewport. */
+  compact?: boolean;
 };
 
 function formatAsphLabel(value: number | null | undefined): string {
@@ -287,6 +289,7 @@ function AverageSpendInsightsPanel({
   metrics,
   currentMtdRange,
   previousMtdRange,
+  compact = false,
 }: {
   metrics: Array<{
     key: string;
@@ -298,6 +301,7 @@ function AverageSpendInsightsPanel({
   }>;
   currentMtdRange: string;
   previousMtdRange: string;
+  compact?: boolean;
 }) {
   const hasData = metrics.some(
     (metric) => (metric.currentAsph ?? 0) > 0 || (metric.previousAsph ?? 0) > 0,
@@ -360,9 +364,13 @@ function AverageSpendInsightsPanel({
               <div
                 key={metric.key}
                 className={
-                  isVenue
-                    ? "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3 border-b border-black/5 pb-3"
-                    : "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3"
+                  compact
+                    ? isVenue
+                      ? "space-y-2 border-b border-black/5 pb-3"
+                      : "space-y-2"
+                    : isVenue
+                      ? "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3 border-b border-black/5 pb-3"
+                      : "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3"
                 }
               >
                 <p
@@ -555,6 +563,7 @@ export function SalesOverviewCharts({
   totalTaxPct,
   waiterRecords,
   tenders,
+  compact = false,
 }: SalesOverviewChartsProps) {
   const allRows = useMemo(
     () => enrichOverviewRows(records, totalTaxPct),
@@ -621,7 +630,13 @@ export function SalesOverviewCharts({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div
+        className={
+          compact
+            ? "grid grid-cols-1 gap-3"
+            : "grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
+        }
+      >
         <HeadlineStat
           label={`${currentMonthLabel} gross sales · MTD`}
           value={formatMoney(headlineStats.currentGross)}
@@ -710,7 +725,7 @@ export function SalesOverviewCharts({
         </Card>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className={compact ? "grid grid-cols-1 gap-3" : "grid gap-4 xl:grid-cols-3"}>
         <YearToDateMonthlyTrendChart
           year={yearToDateMonthlyTrend.year}
           points={yearToDateMonthlyTrend.points}
@@ -723,8 +738,8 @@ export function SalesOverviewCharts({
         <WeeklySalesTrendChart points={weeklyTrend} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-1">
+      <div className={compact ? "grid grid-cols-1 gap-3" : "grid gap-4 xl:grid-cols-3"}>
+        <div className={compact ? undefined : "xl:col-span-1"}>
           <MonthlyTendersChart
             waiterRecords={waiterRecords}
             tenders={tenders}
@@ -733,11 +748,12 @@ export function SalesOverviewCharts({
             mtdRange={currentMtdRange}
           />
         </div>
-        <div className="xl:col-span-2">
+        <div className={compact ? undefined : "xl:col-span-2"}>
           <AverageSpendInsightsPanel
             metrics={averageSpendMetrics}
             currentMtdRange={currentMtdRange}
             previousMtdRange={previousMtdRange}
+            compact={compact}
           />
         </div>
       </div>

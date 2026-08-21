@@ -27,6 +27,8 @@ type ModuleShortcutsProps = {
   basePath: string;
   /** Accessible label for the nav landmark. Defaults to "<Module> apps". */
   ariaLabel?: string;
+  /** When false, shortcuts render as labels and do not navigate. */
+  navigate?: boolean;
 };
 
 function shortcutBoxClass(active: boolean, branded = false, textOnly = false) {
@@ -68,6 +70,7 @@ function ShortcutLink({
   fallbackIcon,
   branded = false,
   textOnly = false,
+  navigate = true,
 }: {
   item: ModuleSidebarItem;
   active: boolean;
@@ -75,35 +78,46 @@ function ShortcutLink({
   fallbackIcon: LucideIcon;
   branded?: boolean;
   textOnly?: boolean;
+  navigate?: boolean;
 }) {
   const Icon = item.icon ?? fallbackIcon;
+  const className = shortcutBoxClass(active, branded, textOnly);
+  const body = (
+    <>
+      <AnimatedSymbol>
+        <Icon
+          className={cn(
+            textOnly
+              ? "h-4 w-4 shrink-0 text-black"
+              : branded
+                ? moduleBrandedNavIconClass(active)
+                : "h-3.5 w-3.5 shrink-0 opacity-80",
+          )}
+          aria-hidden
+        />
+      </AnimatedSymbol>
+      {sublabel ? (
+        <span className="min-w-0 leading-none">
+          <span className="block text-[9px] font-medium uppercase tracking-wide text-black/45">
+            {sublabel}
+          </span>
+          <span className="mt-0.5 block">{item.label}</span>
+        </span>
+      ) : (
+        <span className="whitespace-nowrap">{item.label}</span>
+      )}
+      {navigate ? <NavigationPendingIndicator /> : null}
+    </>
+  );
+
+  if (!navigate) {
+    return <span className={className}>{body}</span>;
+  }
 
   return (
     <MaybeSettingsNavMenu href={item.comingSoon ? undefined : item.href}>
-      <ScopedLink href={item.href} className={shortcutBoxClass(active, branded, textOnly)}>
-        <AnimatedSymbol>
-          <Icon
-            className={cn(
-              textOnly
-                ? "h-4 w-4 shrink-0 text-black"
-                : branded
-                  ? moduleBrandedNavIconClass(active)
-                  : "h-3.5 w-3.5 shrink-0 opacity-80",
-            )}
-            aria-hidden
-          />
-        </AnimatedSymbol>
-        {sublabel ? (
-          <span className="min-w-0 leading-none">
-            <span className="block text-[9px] font-medium uppercase tracking-wide text-black/45">
-              {sublabel}
-            </span>
-            <span className="mt-0.5 block">{item.label}</span>
-          </span>
-        ) : (
-          <span className="whitespace-nowrap">{item.label}</span>
-        )}
-        <NavigationPendingIndicator />
+      <ScopedLink href={item.href} className={className}>
+        {body}
       </ScopedLink>
     </MaybeSettingsNavMenu>
   );
@@ -118,10 +132,12 @@ function CategorizedShortcuts({
   moduleSidebar,
   categories,
   ariaLabel,
+  navigate = true,
 }: {
   moduleSidebar: ModuleSidebarDef;
   categories: ModuleSidebarCategory[];
   ariaLabel: string;
+  navigate?: boolean;
 }) {
   const pathname = useRelativePathname();
   const itemByHref = new Map(
@@ -194,6 +210,7 @@ function CategorizedShortcuts({
                 active={isModuleSidebarItemActive(pathname, item)}
                 fallbackIcon={activeCategory.icon}
                 textOnly
+                navigate={navigate}
               />
             ))}
           </motion.div>
@@ -206,6 +223,7 @@ function CategorizedShortcuts({
 export function ModuleShortcuts({
   basePath,
   ariaLabel,
+  navigate = true,
 }: ModuleShortcutsProps) {
   const pathname = useRelativePathname();
   const moduleSidebar = getModuleSidebarForPath(basePath);
@@ -222,6 +240,7 @@ export function ModuleShortcuts({
         moduleSidebar={moduleSidebar}
         categories={moduleSidebar.categories}
         ariaLabel={resolvedAriaLabel}
+        navigate={navigate}
       />
     );
   }
@@ -239,6 +258,7 @@ export function ModuleShortcuts({
           item={item}
           active={isModuleSidebarItemActive(pathname, item)}
           fallbackIcon={moduleSidebar.icon}
+          navigate={navigate}
         />
       ))}
     </nav>

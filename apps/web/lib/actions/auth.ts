@@ -3,10 +3,11 @@
 import { redirect } from "next/navigation";
 import { storeUserLoginPassword } from "@/lib/access/password-vault";
 import { writeAuditLog } from "@/lib/audit";
+import { MOBILE_APP_BASE, safeMobileAppPath } from "@/lib/mobile/app-path";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
-type AuthState = { error: string };
+type AuthState = { error: string; authenticated?: boolean };
 
 export async function signIn(
   _prevState: AuthState,
@@ -68,6 +69,17 @@ export async function signIn(
     entity: "session",
     entity_id: data.user.id,
   });
+
+  if (String(formData.get("device_preview") ?? "") === "1") {
+    return { error: "", authenticated: true };
+  }
+
+  if (String(formData.get("mobile_app") ?? "") === "1") {
+    redirect(
+      safeMobileAppPath(String(formData.get("next") ?? "")) ??
+        `${MOBILE_APP_BASE}/select-venue`,
+    );
+  }
 
   redirect("/select-venue");
 }

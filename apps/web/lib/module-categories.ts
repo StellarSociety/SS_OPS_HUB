@@ -24,7 +24,7 @@ export const moduleCategoryMeta: Record<
     pageTitle: "Operational Apps",
     href: "/modules/operational",
     description:
-      "Day-to-day venue operations — checklists, team projects, maintenance, and guest sentiment tools to keep service running smoothly.",
+      "Day-to-day venue operations — Connecteam, checklists, tasks and projects, events, Cookbook, Pourbook, maintenance, guest sentiment, and HACCP SafeLog records to keep service running smoothly.",
   },
   revenue: {
     pageTitle: "Revenue Apps",
@@ -42,7 +42,7 @@ export const moduleCategoryMeta: Record<
     pageTitle: "Management Apps",
     href: "/modules/management",
     description:
-      "Venue governance and approvals — oversight tools for leadership, policies, and compliance workflows.",
+      "Venue governance, vault, approvals, and the mobile app — oversight tools for leadership plus operations on the go.",
   },
 };
 

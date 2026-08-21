@@ -15,6 +15,12 @@ const REMEMBER_CREDENTIALS_KEY = "ss-ops-remember-credentials";
 type LoginFormProps = {
   notice?: string | null;
   logoUrl?: string;
+  /** Device preview: sign in stays in the phone, then venue selection. */
+  preview?: boolean;
+  onAuthenticated?: () => void;
+  /** After a real sign-in, return the phone to this PhoneChrome path. */
+  nextPath?: string | null;
+  mobileApp?: boolean;
 };
 
 type SavedCredentials = {
@@ -39,6 +45,10 @@ function loadSavedCredentials(): SavedCredentials | null {
 export function LoginForm({
   notice,
   logoUrl = DEFAULT_GROUP_LOGO_URL,
+  preview = false,
+  onAuthenticated,
+  nextPath = null,
+  mobileApp = false,
 }: LoginFormProps) {
   const [state, formAction, pending] = useActionState(signIn, { error: "" });
   const [email, setEmail] = useState("");
@@ -55,6 +65,11 @@ export function LoginForm({
     setPassword(saved.password);
     setHasSavedCredentials(true);
   }, []);
+
+  useEffect(() => {
+    if (!state.authenticated) return;
+    onAuthenticated?.();
+  }, [state.authenticated, onAuthenticated]);
 
   function handleSubmit() {
     localStorage.setItem(
@@ -86,6 +101,11 @@ export function LoginForm({
         className="space-y-4"
         onSubmit={handleSubmit}
       >
+        {preview ? (
+          <input type="hidden" name="device_preview" value="1" />
+        ) : null}
+        {mobileApp ? <input type="hidden" name="mobile_app" value="1" /> : null}
+        {nextPath ? <input type="hidden" name="next" value={nextPath} /> : null}
         <Input
           id="email"
           name="email"
@@ -97,6 +117,7 @@ export function LoginForm({
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           variant="onDark"
+          className="text-[16px]"
         />
         <div className="relative">
           <Input
@@ -109,7 +130,7 @@ export function LoginForm({
             placeholder="Password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            className="pr-10"
+            className="pr-10 text-[16px]"
             variant="onDark"
           />
           <button
@@ -149,7 +170,13 @@ export function LoginForm({
       </form>
 
       <p className="mt-6 text-center text-sm text-white/50">
-        <Link href="/forgot-password" className="hover:text-white/80">
+        <Link
+          href="/forgot-password"
+          className="hover:text-white/80"
+          onClick={
+            preview || mobileApp ? (event) => event.preventDefault() : undefined
+          }
+        >
           Forgot password?
         </Link>
       </p>

@@ -187,7 +187,7 @@ export function dailySalesTemplateInstructions(): string[][] {
     ["2. Fill in or edit rows — one row per date."],
     ["3. Keep the column headers unchanged."],
     ["4. Dates must be YYYY-MM-DD (e.g. 2026-01-15)."],
-    ["5. Upload the saved .xlsx file on Sales & Revenue → Settings → Data Management → Daily Sales."],
+    ["5. Upload the saved .xlsx file on Revenue → Settings → Data Management → Daily Sales."],
     ["6. Import is idempotent: existing dates are updated, new dates are added."],
     [""],
     ["Leave numeric cells blank or 0 when not applicable."],

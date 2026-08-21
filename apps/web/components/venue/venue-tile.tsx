@@ -3,16 +3,34 @@
 import { motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { selectVenue } from "@/lib/actions/venue";
+import { selectMobileVenue } from "@/lib/actions/mobile-venue";
 import type { Venue } from "@/lib/types/database";
 
 type VenueTileProps = {
   venue: Venue;
   disabled?: boolean;
+  preview?: boolean;
+  onSelectVenue?: (venue: Venue) => void;
+  runtime?: "web" | "mobile";
 };
 
-export function VenueTile({ venue, disabled = false }: VenueTileProps) {
+export function VenueTile({
+  venue,
+  disabled = false,
+  preview = false,
+  onSelectVenue,
+  runtime = "web",
+}: VenueTileProps) {
   const handleSelect = async () => {
     if (disabled) return;
+    if (preview) {
+      onSelectVenue?.(venue);
+      return;
+    }
+    if (runtime === "mobile") {
+      await selectMobileVenue(venue.slug);
+      return;
+    }
     await selectVenue(venue.slug);
   };
 

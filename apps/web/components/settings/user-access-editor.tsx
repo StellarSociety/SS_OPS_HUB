@@ -18,22 +18,25 @@ import {
   ClipboardCheck,
   ClipboardList,
   Coins,
+  CookingPot,
   DoorClosed,
   DoorOpen,
   FileBarChart,
   FileChartColumn,
   FileText,
-  FolderKanban,
   GitCompareArrows,
   GraduationCap,
   HandCoins,
   HardHat,
   IdCard,
+  ListTodo,
   Landmark,
   Layers,
   LayoutDashboard,
   LineChart,
   Lock,
+  Martini,
+  Megaphone,
   MessagesSquare,
   MessageSquareQuote,
   PackageCheck,
@@ -45,6 +48,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Shirt,
+  Smartphone,
   Tag,
   Ticket,
   TrendingUp,
@@ -69,7 +73,7 @@ import {
 } from "@/lib/access/roles";
 import { moduleOverviewRegistry } from "@/lib/modules-registry";
 import { getModuleSidebarByKey } from "@/lib/module-sidebar";
-import { ModuleIcon } from "@/components/modules/module-icon";
+import { ModuleIcon, VaultSafe, SafeLogHaccp } from "@/components/modules/module-icon";
 import {
   getAssignableModules,
   featureHasEditorSwitch,
@@ -100,15 +104,24 @@ const MODULE_OVERVIEW = new Map(
 );
 
 const FEATURE_ICONS: Partial<Record<string, LucideIcon>> = {
+  "team_connect:messages": MessagesSquare,
+  "team_connect:announcements": Megaphone,
   "operational_lists:shift_report": ClipboardList,
   "operational_lists:opening": DoorOpen,
   "operational_lists:closing": DoorClosed,
-  "team_projects:projects": FolderKanban,
+  "team_projects:projects": ListTodo,
+  "events:events": CalendarDays,
+  "cookbook:recipes": CookingPot,
+  "poorbook:cocktails": Martini,
+  "poorbook:wine": Wine,
+  "poorbook:spirits": Wine,
   "maintenance:requests": Wrench,
   "maintenance:assets": Boxes,
   "sentiment:overview": LayoutDashboard,
   "sentiment:reviews": MessageSquareQuote,
   "sentiment:actions": ClipboardList,
+  "save_log:overview": LayoutDashboard,
+  "save_log:logs": SafeLogHaccp,
   "sales:overview": LayoutDashboard,
   "sales:venue_daily": Coins,
   "sales:waiter_daily": UserRound,
@@ -156,7 +169,9 @@ const FEATURE_ICONS: Partial<Record<string, LucideIcon>> = {
   "venue_governance:legal_docs": Scale,
   "venue_governance:contractors": HardHat,
   "venue_governance:compliance": BadgeCheck,
+  "vault:documents": VaultSafe,
   "approvals:approvals": CircleCheckBig,
+  "mobile_app:app": Smartphone,
 };
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
@@ -170,6 +185,7 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   "close-of-day": Camera,
   reviews: MessageSquareQuote,
   actions: ClipboardList,
+  logs: SafeLogHaccp,
   all: Layers,
   other: Layers,
 };

@@ -36,6 +36,8 @@ export const VENUE_APP_ROOTS = [
   "/sales",
   "/accounting",
   "/sentiment",
+  "/save-log",
+  "/mobile",
   "/settings",
   "/profile",
   "/user-guide",
@@ -49,6 +51,7 @@ const UNSCOPED_PREFIXES = [
   "/forgot-password",
   "/reset-password",
   "/select-venue",
+  "/m",
   "/auth",
   "/api",
   "/acknowledge",
@@ -74,6 +77,9 @@ function stripPrefix(path: string, prefix: string): string {
 
 export const venueBase = (slug: string): string => `/${VENUE_SEGMENT}/${slug}`;
 export const GLOBAL_BASE = `/${GLOBAL_SEGMENT}`;
+
+/** Canonical path after login / venue selection, and at empty scope roots. */
+export const DEFAULT_LANDING_PATH = "/modules";
 
 /**
  * Map a canonical route path to its public, scoped URL for the given scope.
@@ -111,7 +117,7 @@ export function scopedHrefForVenue(
 
 /** Canonical -> public path within the global scope. */
 export function canonicalToGlobalPublic(path: string): string {
-  if (path === "/dashboard") return GLOBAL_BASE;
+  if (path === DEFAULT_LANDING_PATH) return GLOBAL_BASE;
   if (underRoot(path, "/modules")) return `${GLOBAL_BASE}${path}`;
   if (underRoot(path, "/hr/settings")) {
     return `${GLOBAL_BASE}/settings/hr${stripPrefix(path, "/hr/settings")}`;
@@ -124,6 +130,12 @@ export function canonicalToGlobalPublic(path: string): string {
   }
   if (underRoot(path, "/sentiment/settings")) {
     return `${GLOBAL_BASE}/settings/sentiment${stripPrefix(path, "/sentiment/settings")}`;
+  }
+  if (underRoot(path, "/save-log/settings")) {
+    return `${GLOBAL_BASE}/settings/save-log${stripPrefix(path, "/save-log/settings")}`;
+  }
+  if (underRoot(path, "/mobile/settings")) {
+    return `${GLOBAL_BASE}/settings/mobile${stripPrefix(path, "/mobile/settings")}`;
   }
   // Global-only pages already live under /global.
   if (underRoot(path, GLOBAL_BASE)) return path;
@@ -162,7 +174,8 @@ export function resolvePublicPath(pathname: string): ScopeResolution | null {
     const slug = slashIdx === -1 ? afterSegment : afterSegment.slice(0, slashIdx);
     if (!slug) return null;
     const rest = slashIdx === -1 ? "" : afterSegment.slice(slashIdx);
-    const canonical = rest === "" || rest === "/" ? "/dashboard" : rest;
+    const canonical =
+      rest === "" || rest === "/" ? DEFAULT_LANDING_PATH : rest;
     return {
       scope: "venue",
       slug,
@@ -188,7 +201,7 @@ export function resolvePublicPath(pathname: string): ScopeResolution | null {
 /** Public path within the global scope -> canonical route-tree path. */
 export function globalPublicToCanonical(pathname: string): string {
   if (pathname === GLOBAL_BASE || pathname === `${GLOBAL_BASE}/`) {
-    return "/dashboard";
+    return DEFAULT_LANDING_PATH;
   }
   if (underRoot(pathname, `${GLOBAL_BASE}/modules`)) {
     return stripPrefix(pathname, GLOBAL_BASE);
@@ -204,6 +217,12 @@ export function globalPublicToCanonical(pathname: string): string {
   }
   if (underRoot(pathname, `${GLOBAL_BASE}/settings/sentiment`)) {
     return `/sentiment/settings${stripPrefix(pathname, `${GLOBAL_BASE}/settings/sentiment`)}`;
+  }
+  if (underRoot(pathname, `${GLOBAL_BASE}/settings/save-log`)) {
+    return `/save-log/settings${stripPrefix(pathname, `${GLOBAL_BASE}/settings/save-log`)}`;
+  }
+  if (underRoot(pathname, `${GLOBAL_BASE}/settings/mobile`)) {
+    return `/mobile/settings${stripPrefix(pathname, `${GLOBAL_BASE}/settings/mobile`)}`;
   }
   // Global-only surfaces (/global/settings, /global/settings/apps,
   // /global/settings/branding, ...) render from their own physical routes.
@@ -225,7 +244,7 @@ export function toRelativePathname(
 ): string {
   if (scope === "venue" && slug) {
     const base = venueBase(slug);
-    if (pathname === base) return "/dashboard";
+    if (pathname === base) return DEFAULT_LANDING_PATH;
     if (pathname.startsWith(`${base}/`)) return pathname.slice(base.length);
     return pathname;
   }

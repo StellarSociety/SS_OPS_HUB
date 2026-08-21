@@ -6,11 +6,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   BadgePercent,
   Calculator,
-  CheckCircle2,
   ConciergeBell,
   GraduationCap,
   PieChart,
   Scale,
+  Stamp,
   TrendingUp,
   Users,
   Wrench,
@@ -40,7 +40,7 @@ const DASHBOARD_TABS: DashboardTab[] = [
   { key: "hr", label: "HR", icon: Users },
   { key: "learning", label: "L&D", icon: GraduationCap },
   { key: "governance", label: "Governance", icon: Scale },
-  { key: "approvals", label: "Approvals", icon: CheckCircle2 },
+  { key: "approvals", label: "Approvals", icon: Stamp },
 ];
 
 export function DashboardsPanel({ slots }: DashboardsPanelProps) {

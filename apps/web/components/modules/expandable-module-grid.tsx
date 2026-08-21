@@ -81,20 +81,24 @@ function buildDisplayRows(groups: SubpageGroup[]): SubpageDisplayRow[] {
       attendance?.key === "attendance" &&
       pay?.key === "pay"
     ) {
-      const staffDetails =
+      const overviewGroup: SubpageGroup | null =
         overviewItems.length > 0
           ? {
-              ...group,
-              items: [
-                ...overviewItems.map((item) => ({
-                  ...item,
-                  dividerAfter: true,
-                })),
-                ...group.items,
-              ],
+              key: "overview",
+              label: "",
+              icon: group.icon,
+              items: overviewItems.map((item) => ({
+                ...item,
+                dividerAfter: true,
+              })),
             }
-          : group;
-      rows.push({ type: "multi", groups: [staffDetails, attendance, pay] });
+          : null;
+      rows.push({
+        type: "multi",
+        groups: overviewGroup
+          ? [overviewGroup, group, attendance, pay]
+          : [group, attendance, pay],
+      });
       i += 2;
       continue;
     }
@@ -151,10 +155,9 @@ function FitToWidth({
       const available = outer.clientWidth;
       if (available <= 0) return;
 
-      // Measure natural (unscaled) size.
       const prev = inner.style.transform;
       inner.style.transform = "translateX(-50%) scale(1)";
-      const needed = inner.offsetWidth;
+      const needed = Math.max(inner.scrollWidth, inner.offsetWidth);
       const naturalHeight = inner.offsetHeight;
       inner.style.transform = prev;
 
@@ -162,8 +165,8 @@ function FitToWidth({
 
       const next = Math.min(1, available / needed);
       const nextHeight = Math.ceil(naturalHeight * next);
-      setScale((prev) => (Math.abs(prev - next) < 0.002 ? prev : next));
-      setHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+      setScale((prevScale) => (Math.abs(prevScale - next) < 0.002 ? prevScale : next));
+      setHeight((prevHeight) => (prevHeight === nextHeight ? prevHeight : nextHeight));
     };
 
     measure();
@@ -202,44 +205,23 @@ function PairedSubpageGroupsRow({
   right: SubpageGroup;
   forceComingSoon?: boolean;
 }) {
+  const last = left.items.length - 1;
+  const leftWithDivider: SubpageGroup = {
+    ...left,
+    items: left.items.map((item, index) =>
+      index === last ? { ...item, dividerAfter: true } : item,
+    ),
+  };
+
   return (
-    <div className="space-y-1">
-      {left.label ? (
-        <p className="text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-black/40">
-          {left.label}
-        </p>
-      ) : null}
-      <div className="flex flex-nowrap items-stretch justify-center gap-x-3">
-        {left.items.map((item) => {
-          const Icon = item.icon ?? left.icon;
-          return (
-            <div key={item.href} className="w-[4rem] shrink-0">
-              <SubpageTile
-                label={item.label}
-                href={item.href}
-                icon={Icon}
-                size="sm"
-                comingSoon={item.comingSoon || forceComingSoon}
-              />
-            </div>
-          );
-        })}
-        <SubpageTileDivider />
-        {right.items.map((item) => {
-          const Icon = item.icon ?? right.icon;
-          return (
-            <div key={item.href} className="w-[4rem] shrink-0">
-              <SubpageTile
-                label={item.label}
-                href={item.href}
-                icon={Icon}
-                size="sm"
-                comingSoon={item.comingSoon || forceComingSoon}
-              />
-            </div>
-          );
-        })}
-      </div>
+    <div className="flex flex-nowrap items-stretch justify-center gap-x-3">
+      <GroupBlock group={leftWithDivider} forceComingSoon={forceComingSoon} nowrap />
+      <GroupBlock
+        group={right}
+        forceComingSoon={forceComingSoon}
+        nowrap
+        reserveLabel
+      />
     </div>
   );
 }
@@ -247,18 +229,26 @@ function PairedSubpageGroupsRow({
 function MultiGroupRow({
   groups,
   forceComingSoon,
+  wrap = false,
 }: {
   groups: SubpageGroup[];
   forceComingSoon?: boolean;
+  wrap?: boolean;
 }) {
   return (
-    <div className="flex flex-nowrap items-stretch justify-center gap-x-3">
+    <div
+      className={cn(
+        "flex items-stretch justify-center gap-x-3",
+        wrap ? "flex-wrap gap-y-4" : "flex-nowrap",
+      )}
+    >
       {groups.map((group) => (
         <GroupBlock
           key={group.key}
           group={group}
           forceComingSoon={forceComingSoon}
-          nowrap
+          nowrap={!wrap}
+          reserveLabel={!group.label && groups.some((g) => g.label)}
         />
       ))}
     </div>
@@ -417,16 +407,28 @@ function GroupBlock({
   group,
   forceComingSoon,
   nowrap,
+  reserveLabel = false,
 }: {
   group: SubpageGroup;
   forceComingSoon?: boolean;
   nowrap?: boolean;
+  /** Keep tiles aligned with labeled groups in the same row. */
+  reserveLabel?: boolean;
 }) {
+  const showLabel = Boolean(group.label);
+  const showLabelSlot = showLabel || reserveLabel;
+
   return (
     <div className="shrink-0 space-y-1">
-      {group.label ? (
-        <p className="text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-black/40">
-          {group.label}
+      {showLabelSlot ? (
+        <p
+          className={cn(
+            "text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-black/40",
+            !showLabel && "invisible",
+          )}
+          aria-hidden={!showLabel}
+        >
+          {group.label || "\u00a0"}
         </p>
       ) : null}
       <SubpageRow
@@ -437,6 +439,67 @@ function GroupBlock({
       />
     </div>
   );
+}
+
+export function ModuleSubpagesExpand({
+  moduleKey,
+  forceComingSoon = false,
+  wrap = false,
+}: {
+  moduleKey: string;
+  forceComingSoon?: boolean;
+  /** Wrap groups onto new lines at full size before scaling. */
+  wrap?: boolean;
+}) {
+  const expanded = resolveSubpages(moduleKey);
+  if (!expanded || expanded.items.length === 0) return null;
+  const useGroups = Boolean(expanded.groups && expanded.groups.length > 0);
+
+  const body = useGroups ? (
+    <div
+      className={cn(
+        wrap ? "w-full space-y-2.5" : "w-max max-w-none space-y-2.5",
+      )}
+    >
+      {buildDisplayRows(expanded.groups!).map((row) =>
+        row.type === "multi" ? (
+          <MultiGroupRow
+            key={row.groups.map((g) => g.key).join("-")}
+            groups={row.groups}
+            forceComingSoon={forceComingSoon}
+            wrap={wrap}
+          />
+        ) : row.type === "paired" ? (
+          <PairedSubpageGroupsRow
+            key={`${row.left.key}-${row.right.key}`}
+            left={row.left}
+            right={row.right}
+            forceComingSoon={forceComingSoon}
+          />
+        ) : (
+          <GroupBlock
+            key={row.group.key}
+            group={row.group}
+            forceComingSoon={forceComingSoon}
+            nowrap={!wrap}
+          />
+        ),
+      )}
+    </div>
+  ) : (
+    <SubpageRow
+      items={expanded.items}
+      fallbackIcon={expanded.icon}
+      forceComingSoon={forceComingSoon}
+      nowrap={!wrap}
+    />
+  );
+
+  if (wrap) {
+    return <div className="w-full min-w-0">{body}</div>;
+  }
+
+  return <FitToWidth>{body}</FitToWidth>;
 }
 
 export function ExpandableModuleGrid({
@@ -451,7 +514,6 @@ export function ExpandableModuleGrid({
 
   const selected = modules.find((mod) => mod.key === selectedKey) ?? null;
   const expanded = selectedKey ? resolveSubpages(selectedKey) : null;
-  const useGroups = Boolean(expanded?.groups && expanded.groups.length > 0);
 
   useEffect(() => {
     if (!expanded || !panelRef.current) return;
@@ -505,42 +567,10 @@ export function ExpandableModuleGrid({
           ref={panelRef}
           className="overflow-hidden rounded-2xl border border-[var(--venue-primary)]/20 bg-[var(--venue-primary)]/10 px-3 py-3 shadow-inner"
         >
-          <FitToWidth>
-            {useGroups ? (
-              <div className="w-max max-w-none space-y-2.5">
-                {buildDisplayRows(expanded.groups!).map((row) =>
-                  row.type === "multi" ? (
-                    <MultiGroupRow
-                      key={row.groups.map((g) => g.key).join("-")}
-                      groups={row.groups}
-                      forceComingSoon={selected.status === "coming_soon"}
-                    />
-                  ) : row.type === "paired" ? (
-                    <PairedSubpageGroupsRow
-                      key={`${row.left.key}-${row.right.key}`}
-                      left={row.left}
-                      right={row.right}
-                      forceComingSoon={selected.status === "coming_soon"}
-                    />
-                  ) : (
-                    <GroupBlock
-                      key={row.group.key}
-                      group={row.group}
-                      forceComingSoon={selected.status === "coming_soon"}
-                      nowrap
-                    />
-                  ),
-                )}
-              </div>
-            ) : (
-              <SubpageRow
-                items={expanded.items}
-                fallbackIcon={expanded.icon}
-                forceComingSoon={selected.status === "coming_soon"}
-                nowrap
-              />
-            )}
-          </FitToWidth>
+          <ModuleSubpagesExpand
+            moduleKey={selected.key}
+            forceComingSoon={selected.status === "coming_soon"}
+          />
         </div>
       ) : null}
     </div>

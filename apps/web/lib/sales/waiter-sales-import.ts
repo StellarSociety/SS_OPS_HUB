@@ -253,7 +253,7 @@ export function waiterSalesTemplateInstructions(tenders: VenueTender[]): string[
     ["2. Fill in one row per waiter per date."],
     ["3. Waiter names must match Settings → Waiters exactly."],
     ["4. Tender columns use the prefix 'Tender:' followed by the tender name."],
-    ["5. Upload the saved .xlsx file on Sales & Revenue → Settings → Data Management → Waiter Sales."],
+    ["5. Upload the saved .xlsx file on Revenue → Settings → Data Management → Waiter Sales."],
     ["6. Import is idempotent: existing waiter+date rows are updated."],
     [""],
     ["Configured tenders", tenderList],

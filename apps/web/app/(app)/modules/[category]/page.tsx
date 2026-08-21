@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import { ModuleGrid } from "@/components/modules/module-grid";
-import { ModuleExplanations } from "@/components/modules/module-explanations";
+import { AppsHubStage } from "@/components/modules/apps-hub-stage";
 import { loadModulesHubContext } from "@/lib/modules-hub-data";
 import {
   getModuleCategoryMeta,
@@ -23,16 +22,21 @@ export default async function ModuleCategoryPage({ params }: CategoryPageProps) 
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      <div className="space-y-3">
-        <h1 className="font-serif text-3xl text-[#3D421F]">{meta.pageTitle}</h1>
-        <p className="max-w-2xl text-sm leading-relaxed text-black/60">
+      <header className="space-y-2 text-center">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-black/40">
+          Apps Hub
+        </p>
+        <h1 className="font-serif text-3xl tracking-tight text-[#3D421F] md:text-4xl">
+          {meta.pageTitle}
+        </h1>
+        <p className="mx-auto max-w-2xl text-sm leading-relaxed text-black/55">
           {meta.description}
         </p>
-      </div>
+      </header>
 
-      <ModuleGrid modules={modules} />
-
-      <ModuleExplanations modules={modules} />
+      <AppsHubStage
+        sections={[{ category: { key: category, label: meta.pageTitle }, modules }]}
+      />
     </div>
   );
 }

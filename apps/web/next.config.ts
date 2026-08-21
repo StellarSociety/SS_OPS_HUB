@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 import type { NextConfig } from "next";
 
 const appDir = path.dirname(fileURLToPath(import.meta.url));
@@ -34,9 +35,27 @@ const NGROK_DEV_ORIGINS = [
   "*.ngrok.io",
 ];
 
+const LAN_DEV_WILDCARDS = ["192.168.*.*", "10.*.*.*", "172.16.*.*", "172.31.*.*"];
+
+function lanDevOrigins(): string[] {
+  const origins = new Set<string>(LAN_DEV_WILDCARDS);
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const addr of addrs ?? []) {
+      if (addr.internal) continue;
+      const family = String(addr.family);
+      if (family !== "IPv4" && family !== "4") continue;
+      origins.add(addr.address);
+      origins.add(`${addr.address}:3000`);
+    }
+  }
+  return [...origins];
+}
+
+const DEV_LAN_ORIGINS = lanDevOrigins();
+
 const nextConfig: NextConfig = {
-  // Allow ngrok / similar tunnels to load /_next assets in `next dev`.
-  allowedDevOrigins: NGROK_DEV_ORIGINS,
+  // Allow ngrok / LAN phones to load /_next assets in `next dev`.
+  allowedDevOrigins: [...NGROK_DEV_ORIGINS, ...DEV_LAN_ORIGINS],
   // Trace from the workspace root so pnpm's symlinked store is followed.
   outputFileTracingRoot: workspaceRoot,
   // sharp is a native module; keep it external and ship its platform binaries.
@@ -70,7 +89,9 @@ const nextConfig: NextConfig = {
         "ss-ops-hub.vercel.app",
         "localhost:3000",
         "127.0.0.1:3000",
-        ...(process.env.NODE_ENV === "production" ? [] : NGROK_DEV_ORIGINS),
+        ...(process.env.NODE_ENV === "production"
+          ? []
+          : [...NGROK_DEV_ORIGINS, ...DEV_LAN_ORIGINS]),
       ],
     },
   },

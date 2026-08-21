@@ -437,7 +437,7 @@ function SidebarPreview({ venue }: { venue: Venue }) {
         </div>
         <div className="h-9 rounded-lg px-3 py-2 text-xs text-black/55">Dashboard</div>
         <div className="h-9 rounded-lg px-3 py-2 text-xs text-black/55">
-          Sales & Revenue
+          Revenue
         </div>
         <div className="h-9 rounded-lg bg-[var(--venue-secondary)]/50 px-3 py-2 text-xs text-black/55">
           Settings

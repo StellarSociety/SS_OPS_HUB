@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DM_Sans, Inter, Playfair_Display } from "next/font/google";
+import { DM_Sans, Google_Sans, Inter, Playfair_Display } from "next/font/google";
 import { MotionProvider } from "@/components/providers/motion-provider";
 import "./globals.css";
 
@@ -19,6 +19,12 @@ const dmSans = DM_Sans({
   weight: ["500", "600", "700"],
 });
 
+const googleSans = Google_Sans({
+  variable: "--font-google-sans",
+  subsets: ["latin"],
+  adjustFontFallback: false,
+});
+
 export const metadata: Metadata = {
   title: "Stellar Society — Operational Hub",
   description: "Internal operations hub for Stellar Society venues.",
@@ -32,7 +38,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${playfair.variable} ${dmSans.variable} h-full antialiased`}
+      className={`${inter.variable} ${playfair.variable} ${dmSans.variable} ${googleSans.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <MotionProvider>{children}</MotionProvider>

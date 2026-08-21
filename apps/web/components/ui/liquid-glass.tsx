@@ -23,15 +23,17 @@ export function LiquidGlassPanel({
   children,
   className,
   labelledBy,
+  modal = true,
 }: {
   children: React.ReactNode;
   className?: string;
   labelledBy: string;
+  modal?: boolean;
 }) {
   return (
     <div
       role="dialog"
-      aria-modal="true"
+      aria-modal={modal}
       aria-labelledby={labelledBy}
       className={cn(
         "relative z-10 overflow-hidden border border-white/55 bg-white/45 shadow-[0_12px_50px_rgba(61,66,31,0.22),inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-2xl backdrop-saturate-150",

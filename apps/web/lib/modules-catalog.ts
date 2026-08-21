@@ -78,6 +78,16 @@ export const moduleCatalog: ModuleDef[] = [
     ],
   },
   {
+    key: "team_connect",
+    label: "Connecteam",
+    description: "Internal messages, announcements, and team updates.",
+    features: [
+      { key: "messages", label: "Messages" },
+      { key: "announcements", label: "Announcements" },
+      { key: "settings", label: "Settings", settings: true },
+    ],
+  },
+  {
     key: "operational_lists",
     label: "Operational Lists & Forms",
     description: "Shift reports, opening & closing duties.",
@@ -90,10 +100,40 @@ export const moduleCatalog: ModuleDef[] = [
   },
   {
     key: "team_projects",
-    label: "Team Projects & Tasks",
-    description: "Projects, tasks, and team coordination.",
+    label: "Tasks & Projects",
+    description: "Tasks, projects, and team coordination.",
     features: [
       { key: "projects", label: "Projects & tasks" },
+      { key: "settings", label: "Settings", settings: true },
+    ],
+  },
+  {
+    key: "events",
+    label: "Events",
+    description: "Venue events, private bookings, and special occasions.",
+    features: [
+      { key: "events", label: "Events" },
+      { key: "settings", label: "Settings", settings: true },
+    ],
+  },
+  {
+    key: "cookbook",
+    label: "Cookbook",
+    description: "Recipes, dishes, and kitchen standards.",
+    features: [
+      { key: "recipes", label: "Recipes" },
+      { key: "settings", label: "Settings", settings: true },
+    ],
+  },
+  {
+    key: "poorbook",
+    label: "Pourbook",
+    description:
+      "Cocktail recipes, bar management, and wine and spirits training cards.",
+    features: [
+      { key: "cocktails", label: "Cocktails" },
+      { key: "wine", label: "Wine" },
+      { key: "spirits", label: "Spirits training" },
       { key: "settings", label: "Settings", settings: true },
     ],
   },
@@ -145,8 +185,38 @@ export const moduleCatalog: ModuleDef[] = [
     ],
   },
   {
+    key: "save_log",
+    label: "SafeLog",
+    description: "HACCP daily records — upload, review, and keep food-safety logs.",
+    featureGroups: [
+      { key: "overview", label: "Overview" },
+      { key: "logs", label: "Daily Logs" },
+    ],
+    features: [
+      {
+        key: "overview",
+        label: "Dashboard",
+        href: "/save-log",
+        group: "overview",
+        viewOnly: true,
+      },
+      {
+        key: "logs",
+        label: "Daily Logs",
+        href: "/save-log/logs",
+        group: "logs",
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        href: "/save-log/settings",
+        settings: true,
+      },
+    ],
+  },
+  {
     key: "sales",
-    label: "Sales & Revenue",
+    label: "Revenue",
     description: "Daily sales records & closing reports.",
     featureGroups: [
       { key: "overview", label: "Overview" },
@@ -430,12 +500,40 @@ export const moduleCatalog: ModuleDef[] = [
     ],
   },
   {
+    key: "vault",
+    label: "Vault",
+    description: "Secure documents, contracts, and confidential records.",
+    features: [
+      { key: "documents", label: "Documents", sensitive: true },
+      { key: "settings", label: "Settings", settings: true },
+    ],
+  },
+  {
     key: "approvals",
     label: "Approvals",
     description: "Workflow approvals and sign-offs.",
     features: [
       { key: "approvals", label: "Approvals" },
       { key: "settings", label: "Settings", settings: true },
+    ],
+  },
+  {
+    key: "mobile_app",
+    label: "Mobile App",
+    description: "Venue operations on phones and tablets.",
+    features: [
+      {
+        key: "app",
+        label: "Mobile",
+        href: "/mobile",
+        viewOnly: true,
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        href: "/mobile/settings",
+        settings: true,
+      },
     ],
   },
 ];

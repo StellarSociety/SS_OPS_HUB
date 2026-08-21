@@ -32,6 +32,8 @@ const MODULE_SETTINGS_ROUTES: Record<string, string> = {
   hr: "/hr/settings",
   accounting: "/accounting/settings",
   sentiment: "/sentiment/settings",
+  save_log: "/save-log/settings",
+  mobile_app: "/mobile/settings",
 };
 
 /** Standalone "Global Settings" tile shown at the bottom of the global Apps Hub. */
@@ -83,19 +85,24 @@ export function buildModuleGridItems(
     .filter((item) => item.status !== "hidden");
 }
 
-export async function loadModulesHubContext() {
+export async function loadModulesHubContext(options?: {
+  venue?: Venue;
+  signInHref?: string;
+  selectVenueHref?: string;
+}) {
   const supabase = await getRenderClient();
   const user = await getRenderUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(options?.signInHref ?? "/login");
 
-  const venue = await getRenderVenue();
-  if (!venue) redirect("/select-venue");
+  const venue = options?.venue ?? (await getRenderVenue());
+  if (!venue) redirect(options?.selectVenueHref ?? "/select-venue");
 
-  const [{ data: permissions }, { data: venueModules }, appStateMap] =
+  const [{ data: permissions }, { data: venueModules }, appStateMap, { data: profile }] =
     await Promise.all([
       supabase.from("user_permissions").select("*").eq("user_id", user.id),
       supabase.from("venue_modules").select("*").eq("venue_id", venue.id),
       fetchAppModuleStateMap(supabase),
+      supabase.from("profiles").select("full_name").eq("id", user.id).single(),
     ]);
 
   const perms = (permissions ?? []) as UserPermission[];
@@ -117,6 +124,7 @@ export async function loadModulesHubContext() {
   return {
     venue: venue as Venue,
     isGlobal,
+    userName: (profile?.full_name as string | null)?.trim() || null,
     sections: getModuleOverviewByCategory().map(({ category, modules }) => ({
       category,
       modules: toGridItems(modules),

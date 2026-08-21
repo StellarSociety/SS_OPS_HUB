@@ -36,13 +36,12 @@ export function AppHeader({
   const moduleSidebar = getModuleSidebarForPath(pathname);
   const inModuleApp = Boolean(moduleSidebar);
   const ModuleIcon = moduleSidebar?.icon;
-  const title = inModuleApp
-    ? moduleSidebar!.label
-    : venue.is_global
-      ? "All Venues Operational HUB"
-      : `${venue.name} Operational HUB`;
+  const title = inModuleApp ? moduleSidebar!.label : "Operational Hub";
   /** Welcome pages move the hub title into the page hero. */
-  const hideTitle = pathname === "/hr" || pathname === "/dashboard";
+  const hideTitle =
+    pathname === "/hr" ||
+    pathname === "/dashboard" ||
+    pathname === "/modules";
 
   const sidebarToggle = onToggleSidebar ? (
     <button

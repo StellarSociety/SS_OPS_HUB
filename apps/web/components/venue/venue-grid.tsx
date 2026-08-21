@@ -6,9 +6,17 @@ import type { Venue } from "@/lib/types/database";
 
 type VenueGridProps = {
   venues: Venue[];
+  preview?: boolean;
+  onSelectVenue?: (venue: Venue) => void;
+  runtime?: "web" | "mobile";
 };
 
-export function VenueGrid({ venues }: VenueGridProps) {
+export function VenueGrid({
+  venues,
+  preview = false,
+  onSelectVenue,
+  runtime = "web",
+}: VenueGridProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -24,7 +32,13 @@ export function VenueGrid({ venues }: VenueGridProps) {
       </p>
       <div className="mt-12 flex flex-wrap items-start justify-center gap-10 md:gap-14">
         {venues.map((venue) => (
-          <VenueTile key={venue.id} venue={venue} />
+          <VenueTile
+            key={venue.id}
+            venue={venue}
+            preview={preview}
+            onSelectVenue={onSelectVenue}
+            runtime={runtime}
+          />
         ))}
       </div>
     </motion.div>

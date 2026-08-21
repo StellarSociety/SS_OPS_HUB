@@ -98,6 +98,15 @@ export type ModuleNavItem = {
 /** All hub modules for the Operational Apps overview. */
 export const moduleOverviewRegistry: ModuleOverviewItem[] = [
   {
+    key: "team_connect",
+    label: "Connecteam",
+    iconKey: "messages-square",
+    category: "operational",
+    status: "coming_soon",
+    description:
+      "Internal messages, announcements, and shift updates so the whole team stays aligned.",
+  },
+  {
     key: "operational_lists",
     label: "Operational Lists & Forms",
     iconKey: "clipboard-list",
@@ -108,21 +117,21 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
   },
   {
     key: "team_projects",
-    label: "Team Projects & Tasks",
-    iconKey: "folder-kanban",
+    label: "Tasks & Projects",
+    iconKey: "list-todo",
     category: "operational",
     status: "coming_soon",
     description:
       "Plan projects, assign tasks, and track progress across the team with clear ownership and due dates.",
   },
   {
-    key: "maintenance",
-    label: "Maintenance",
-    iconKey: "wrench",
+    key: "events",
+    label: "Events",
+    iconKey: "calendar-days",
     category: "operational",
     status: "coming_soon",
     description:
-      "Log equipment issues, schedule repairs, and keep assets running with a full maintenance history.",
+      "Plan venue events, private bookings, and special occasions from one place.",
   },
   {
     key: "sentiment",
@@ -135,8 +144,45 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
       "Gather and manage guest reviews from Google, TripAdvisor, and other channels.",
   },
   {
+    key: "save_log",
+    label: "SafeLog",
+    iconKey: "notebook-pen",
+    category: "operational",
+    href: "/save-log",
+    status: "live",
+    description:
+      "Upload and manage HACCP daily records — temperature logs, receiving, cleaning, and other food-safety checks.",
+  },
+  {
+    key: "cookbook",
+    label: "Cookbook",
+    iconKey: "cooking-pot",
+    category: "operational",
+    status: "coming_soon",
+    description:
+      "Recipes, dishes, and kitchen standards for the venue in one place.",
+  },
+  {
+    key: "poorbook",
+    label: "Pourbook",
+    iconKey: "martini",
+    category: "operational",
+    status: "coming_soon",
+    description:
+      "Cocktail recipes and bar management, plus wine and spirits training cards.",
+  },
+  {
+    key: "maintenance",
+    label: "Maintenance",
+    iconKey: "wrench",
+    category: "operational",
+    status: "coming_soon",
+    description:
+      "Log equipment issues, schedule repairs, and keep assets running with a full maintenance history.",
+  },
+  {
     key: "sales",
-    label: "Sales & Revenue",
+    label: "Revenue",
     iconKey: "trending-up",
     category: "revenue",
     href: "/sales",
@@ -147,7 +193,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
   {
     key: "gp_cos",
     label: "GP & COS",
-    iconKey: "calculator",
+    iconKey: "chart-pie",
     category: "revenue",
     status: "coming_soon",
     description:
@@ -192,15 +238,51 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
       "Central oversight of venue policies, standards, and configuration for leadership.",
   },
   {
+    key: "vault",
+    label: "Vault",
+    iconKey: "vault-safe",
+    category: "management",
+    status: "coming_soon",
+    description:
+      "Secure storage for confidential venue documents, contracts, and records.",
+  },
+  {
     key: "approvals",
     label: "Approvals",
-    iconKey: "check-circle-2",
+    iconKey: "stamp",
     category: "management",
     status: "coming_soon",
     description:
       "Review and sign off on requests, changes, and workflows that need management approval.",
   },
+  {
+    key: "mobile_app",
+    label: "Mobile App",
+    iconKey: "smartphone",
+    category: "management",
+    href: "/mobile",
+    status: "live",
+    description:
+      "Venue operations on a phone — reviews, approvals, and daily tools in a compact app.",
+  },
 ];
+
+/**
+ * Apps Hub icon rows (flattened, independent of category grouping).
+ * Unknown keys append on the last row.
+ */
+export const HUB_MODULE_ROWS: string[][] = [
+  ["team_connect", "operational_lists", "team_projects", "events", "sentiment", "save_log"],
+  ["cookbook", "poorbook", "sales", "gp_cos", "accounting", "hr", "learning"],
+  ["venue_governance", "vault", "maintenance", "approvals", "mobile_app"],
+];
+
+export const HUB_MODULE_ORDER: string[] = HUB_MODULE_ROWS.flat();
+
+export function hubModuleSortIndex(key: string): number {
+  const index = HUB_MODULE_ORDER.indexOf(key);
+  return index === -1 ? HUB_MODULE_ORDER.length : index;
+}
 
 /** Live modules for deep links. */
 export const modulesRegistry: ModuleNavItem[] = moduleOverviewRegistry

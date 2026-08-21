@@ -6,10 +6,16 @@ import {
 } from "@/lib/constants";
 import { createMiddlewareClient } from "@/lib/supabase/middleware";
 import {
+  isMobileAppPath,
+  MOBILE_APP_BASE,
+  safeMobileAppPath,
+} from "@/lib/mobile/app-path";
+import {
   VENUE_APP_ROOTS,
   VENUE_SCOPE_HEADER,
   VENUE_SEGMENT,
   VENUE_SLUG_HEADER,
+  DEFAULT_LANDING_PATH,
   canonicalToGlobalPublic,
   isUnscopedPath,
   resolvePublicPath,
@@ -119,7 +125,11 @@ export async function middleware(request: NextRequest) {
 
   if (!userId && !isPublicRoute(pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = isMobileAppPath(pathname)
+      ? `${MOBILE_APP_BASE}/login`
+      : "/login";
+    url.search = "";
+    url.searchParams.set("next", `${pathname}${search}`);
     return NextResponse.redirect(url);
   }
 
@@ -142,7 +152,9 @@ export async function middleware(request: NextRequest) {
       if (profile?.status === "disabled") {
         await supabase.auth.signOut();
         const url = request.nextUrl.clone();
-        url.pathname = "/login";
+        url.pathname = isMobileAppPath(pathname)
+          ? `${MOBILE_APP_BASE}/login`
+          : "/login";
         url.searchParams.set("error", "deactivated");
         return NextResponse.redirect(url);
       }
@@ -154,15 +166,37 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  if (userId && pathname === `${MOBILE_APP_BASE}/login`) {
+    const url = request.nextUrl.clone();
+    const next = safeMobileAppPath(request.nextUrl.searchParams.get("next"));
+    url.search = "";
+    url.pathname = next
+      ? new URL(next, request.url).pathname
+      : `${MOBILE_APP_BASE}/select-venue`;
+    if (next) {
+      const nextUrl = new URL(next, request.url);
+      url.search = nextUrl.search;
+    }
+    return NextResponse.redirect(url);
+  }
+
   if (userId && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/select-venue";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  if (userId && (pathname === MOBILE_APP_BASE || pathname === `${MOBILE_APP_BASE}/`)) {
+    const url = request.nextUrl.clone();
+    url.pathname = `${MOBILE_APP_BASE}/select-venue`;
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
   if (userId && pathname === "/") {
     const url = request.nextUrl.clone();
-    const landing = defaultScopedUrl(request, "/dashboard");
+    const landing = defaultScopedUrl(request, DEFAULT_LANDING_PATH);
     url.pathname = "/select-venue";
     if (landing) {
       const landingUrl = new URL(landing, request.url);

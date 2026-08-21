@@ -1,4 +1,4 @@
-import { LoginForm } from "@/components/auth/login-form";
+import { LoginScreen } from "@/components/auth/login-screen";
 import { fetchGroupLogoState } from "@/lib/group/branding";
 
 const NOTICES: Record<string, string> = {
@@ -15,9 +15,5 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const notice = error ? NOTICES[error] ?? null : null;
   const { logoUrl } = await fetchGroupLogoState();
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-black px-4 py-12">
-      <LoginForm notice={notice} logoUrl={logoUrl} />
-    </div>
-  );
+  return <LoginScreen notice={notice} logoUrl={logoUrl} />;
 }

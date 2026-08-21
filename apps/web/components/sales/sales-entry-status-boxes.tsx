@@ -7,6 +7,10 @@ import type { SalesEntryStatusDay } from "@/lib/sales/sales-entry-status";
 
 type SalesEntryStatusBoxesProps = {
   days: SalesEntryStatusDay[];
+  /** When false, card titles are labels and do not open webapp pages. */
+  navigate?: boolean;
+  /** Single column — phone canvas ignores the desktop viewport. */
+  compact?: boolean;
 };
 
 function signedValue(
@@ -71,6 +75,7 @@ function StatusCard({
   href,
   subtitle,
   columns,
+  navigate = true,
   children,
 }: {
   icon: LucideIcon;
@@ -78,17 +83,32 @@ function StatusCard({
   href: string;
   subtitle?: string;
   columns?: [string, string];
+  navigate?: boolean;
   children: React.ReactNode;
 }) {
+  const heading = (
+    <>
+      <Icon className="h-4 w-4 shrink-0 text-[#3D421F]/70" aria-hidden />
+      <span className={navigate ? "group-hover:underline" : undefined}>
+        {title}
+      </span>
+    </>
+  );
+
   return (
     <Card className="flex h-full flex-col p-4">
-      <Link
-        href={href}
-        className="group flex items-center gap-1.5 font-serif text-base text-[#3D421F] transition-colors hover:text-[var(--venue-primary)]"
-      >
-        <Icon className="h-4 w-4 shrink-0 text-[#3D421F]/70" aria-hidden />
-        <span className="group-hover:underline">{title}</span>
-      </Link>
+      {navigate ? (
+        <Link
+          href={href}
+          className="group flex items-center gap-1.5 font-serif text-base text-[#3D421F] transition-colors hover:text-[var(--venue-primary)]"
+        >
+          {heading}
+        </Link>
+      ) : (
+        <div className="flex items-center gap-1.5 font-serif text-base text-[#3D421F]">
+          {heading}
+        </div>
+      )}
       <hr className="mt-2 border-t-2 border-black/15" />
       {columns ? (
         <div className="mt-0.5 flex items-baseline gap-2 text-xs text-black/50">
@@ -106,14 +126,25 @@ function StatusCard({
   );
 }
 
-export function SalesEntryStatusBoxes({ days }: SalesEntryStatusBoxesProps) {
+export function SalesEntryStatusBoxes({
+  days,
+  navigate = true,
+  compact = false,
+}: SalesEntryStatusBoxesProps) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <div
+      className={
+        compact
+          ? "grid grid-cols-1 gap-3"
+          : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+      }
+    >
       <StatusCard
         icon={Coins}
         title="Daily Sales Entry"
         href="/sales/daily"
         columns={["Lunch", "Dinner"]}
+        navigate={navigate}
       >
         {days.map((day) => (
           <TwoColRow
@@ -139,6 +170,7 @@ export function SalesEntryStatusBoxes({ days }: SalesEntryStatusBoxesProps) {
         title="Waiter Sales Entry"
         href="/sales/waiter"
         subtitle="Waiter [sales]"
+        navigate={navigate}
       >
         {days.map((day) => (
           <div key={day.isoDate} className={ROW_CLASS}>
@@ -173,6 +205,7 @@ export function SalesEntryStatusBoxes({ days }: SalesEntryStatusBoxesProps) {
         title="Daily & Waiters"
         href="/sales/daily-vs-waiters/figures-verification"
         columns={["Δ Covers", "Δ Revenue"]}
+        navigate={navigate}
       >
         {days.map((day) => (
           <TwoColRow
@@ -198,6 +231,7 @@ export function SalesEntryStatusBoxes({ days }: SalesEntryStatusBoxesProps) {
         title="Discounts Entries"
         href="/sales/discounts"
         columns={["Total", "Discrepancy"]}
+        navigate={navigate}
       >
         {days.map((day) => (
           <TwoColRow
@@ -227,6 +261,7 @@ export function SalesEntryStatusBoxes({ days }: SalesEntryStatusBoxesProps) {
         title="Daily Snap"
         href="/sales/daily-snap"
         subtitle="Closing report"
+        navigate={navigate}
       >
         {days.map((day) => (
           <div key={day.isoDate} className={ROW_CLASS}>

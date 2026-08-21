@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const inputVariants = cva(
-  "flex h-10 w-full rounded-md border px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#818a40] disabled:cursor-not-allowed disabled:opacity-50",
+  "flex h-10 w-full rounded-md border px-3 py-2 text-[16px] md:text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#818a40] disabled:cursor-not-allowed disabled:opacity-50",
   {
     variants: {
       variant: {
@@ -12,7 +12,7 @@ const inputVariants = cva(
           "border-black/10 bg-white text-[#3D421F] placeholder:text-black/40 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
         /** Dark auth / marketing surfaces. */
         onDark:
-          "border-white/15 bg-white/5 text-white placeholder:text-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+          "border-white/15 bg-white/5 text-white placeholder:text-white/40 focus-visible:ring-[#a7aaae] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
       },
     },
     defaultVariants: {

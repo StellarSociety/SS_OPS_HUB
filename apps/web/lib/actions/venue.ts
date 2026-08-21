@@ -6,7 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { ACTIVE_SCOPE_COOKIE, ACTIVE_VENUE_COOKIE } from "@/lib/constants";
 import { canAccessGlobal } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
-import { GLOBAL_BASE, venueBase } from "@/lib/venue/scope-routing";
+import { DEFAULT_LANDING_PATH, scopedHrefForVenue } from "@/lib/venue/scope-routing";
 
 export async function selectVenue(venueSlug: string) {
   const supabase = await createClient();
@@ -66,7 +66,7 @@ export async function selectVenue(venueSlug: string) {
     after: { slug: venue.slug },
   });
 
-  redirect(venue.is_global ? GLOBAL_BASE : `${venueBase(venue.slug)}/dashboard`);
+  redirect(scopedHrefForVenue(venue, DEFAULT_LANDING_PATH));
 }
 
 export async function clearVenueSelection() {

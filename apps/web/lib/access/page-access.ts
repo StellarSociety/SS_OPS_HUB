@@ -37,6 +37,15 @@ import {
   canAccessActions as canAccessSentimentActions,
   canAccessSettings as canAccessSentimentSettings,
 } from "@/lib/sentiment/permissions";
+import {
+  canAccessOverview as canAccessSaveLogOverview,
+  canAccessLogs as canAccessSaveLogLogs,
+  canAccessSettings as canAccessSaveLogSettings,
+} from "@/lib/save-log/permissions";
+import {
+  canAccessMobileApp,
+  canAccessSettings as canAccessMobileSettings,
+} from "@/lib/mobile/permissions";
 import { toRelativePathname, type VenueScope } from "@/lib/venue/scope-routing";
 
 function startsWithPath(pathname: string, prefix: string): boolean {
@@ -183,6 +192,30 @@ export function canOpenAppPath(
       return canAccessSentimentActions(permissions, venueId);
     }
     return canAccessModule(permissions, "sentiment", venueId);
+  }
+
+  if (startsWithPath(pathname, "/save-log")) {
+    if (pathname === "/save-log") {
+      return canAccessSaveLogOverview(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/save-log/settings")) {
+      return canAccessSaveLogSettings(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/save-log/logs")) {
+      return canAccessSaveLogLogs(permissions, venueId);
+    }
+    return canAccessModule(permissions, "save_log", venueId);
+  }
+
+  if (startsWithPath(pathname, "/mobile")) {
+    if (startsWithPath(pathname, "/mobile/settings")) {
+      return canAccessMobileSettings(permissions, venueId);
+    }
+    return canAccessMobileApp(permissions, venueId);
+  }
+
+  if (startsWithPath(pathname, "/m")) {
+    return canAccessMobileApp(permissions, venueId);
   }
 
   return true;

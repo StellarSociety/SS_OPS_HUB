@@ -161,7 +161,7 @@ export function discountsTemplateInstructions(): string[][] {
     ["3. Keep the column headers unchanged."],
     ["4. Dates must be YYYY-MM-DD (e.g. 2026-01-15)."],
     [
-      "5. Upload the saved .xlsx file on Sales & Revenue → Settings → Data Management → Discounts.",
+      "5. Upload the saved .xlsx file on Revenue → Settings → Data Management → Discounts.",
     ],
     ["6. Import is idempotent: existing dates are updated, new dates are added."],
     [""],

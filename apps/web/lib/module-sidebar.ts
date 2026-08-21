@@ -20,6 +20,7 @@ import {
   ReceiptText,
   FileText,
   Settings,
+  Smartphone,
   Tag,
   Ticket,
   TrendingUp,
@@ -31,6 +32,7 @@ import {
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { SafeLogHaccp } from "@/components/modules/safelog-haccp-icon";
 
 export type ModuleSidebarItem = {
   label: string;
@@ -188,7 +190,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
   {
     moduleKey: "sales",
     basePath: "/sales",
-    label: "Sales & Revenue",
+    label: "Revenue",
     icon: TrendingUp,
     items: [
       {
@@ -284,6 +286,60 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       },
     ],
   },
+  {
+    moduleKey: "save_log",
+    basePath: "/save-log",
+    label: "SafeLog",
+    icon: SafeLogHaccp,
+    items: [
+      {
+        label: "Dashboard",
+        href: "/save-log",
+        exact: true,
+        icon: LayoutDashboard,
+        dividerAfter: true,
+      },
+      {
+        label: "Daily Logs",
+        href: "/save-log/logs",
+        activePathPrefix: "/save-log/logs",
+        icon: SafeLogHaccp,
+      },
+    ],
+    bottomItems: [
+      {
+        label: "Settings",
+        href: "/save-log/settings",
+        icon: Settings,
+      },
+    ],
+  },
+  {
+    moduleKey: "mobile_app",
+    basePath: "/mobile",
+    label: "Mobile App",
+    icon: Smartphone,
+    items: [
+      {
+        label: "Mobile",
+        href: "/mobile",
+        exact: true,
+        icon: Smartphone,
+      },
+      {
+        label: "Users Access",
+        href: "/mobile/users-access",
+        icon: Users,
+      },
+    ],
+    bottomItems: [
+      {
+        label: "Settings",
+        href: "/mobile/settings",
+        icon: Settings,
+      },
+    ],
+  },
 ];
 
 export function isModuleSidebarItemActive(
@@ -343,5 +399,5 @@ export function getAppHeaderTitle(pathname: string): string {
   if (moduleSidebar) {
     return moduleSidebar.label.toUpperCase();
   }
-  return "Operational HUB";
+  return "Operational Hub";
 }
