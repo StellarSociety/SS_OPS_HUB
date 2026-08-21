@@ -1,6 +1,14 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Google_Sans, Inter, Playfair_Display } from "next/font/google";
+import { PWAInstallProvider } from "@/components/pwa/pwa-install-provider";
 import { MotionProvider } from "@/components/providers/motion-provider";
+import {
+  PWA_APP_NAME,
+  PWA_APPLE_TOUCH_ICON,
+  PWA_ICON_192,
+  PWA_ICON_512,
+  PWA_THEME_COLOR,
+} from "@/lib/pwa/constants";
 import "./globals.css";
 
 const inter = Inter({
@@ -28,6 +36,26 @@ const googleSans = Google_Sans({
 export const metadata: Metadata = {
   title: "Stellar Society — Operational Hub",
   description: "Internal operations hub for Stellar Society venues.",
+  applicationName: PWA_APP_NAME,
+  appleWebApp: {
+    capable: true,
+    title: PWA_APP_NAME,
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    apple: [{ url: PWA_APPLE_TOUCH_ICON, sizes: "180x180", type: "image/png" }],
+    icon: [
+      { url: PWA_ICON_192, sizes: "192x192", type: "image/png" },
+      { url: PWA_ICON_512, sizes: "512x512", type: "image/png" },
+    ],
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: PWA_THEME_COLOR,
 };
 
 export default function RootLayout({
@@ -41,7 +69,9 @@ export default function RootLayout({
       className={`${inter.variable} ${playfair.variable} ${dmSans.variable} ${googleSans.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <MotionProvider>{children}</MotionProvider>
+        <MotionProvider>
+          <PWAInstallProvider>{children}</PWAInstallProvider>
+        </MotionProvider>
       </body>
     </html>
   );

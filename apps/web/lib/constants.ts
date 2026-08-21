@@ -11,6 +11,7 @@ export const ACTIVE_SCOPE_COOKIE = "ss-active-scope";
 export const PUBLIC_ROUTES = [
   "/login",
   "/m/login",
+  "/install",
   "/forgot-password",
   "/reset-password",
   "/auth/callback",

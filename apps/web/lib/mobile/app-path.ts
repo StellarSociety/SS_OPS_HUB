@@ -98,11 +98,21 @@ export function mobileTermsHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/terms`;
 }
 
-/** Same-origin `/m/...` path only. */
+/** Same-origin `/m/...` path only. Resolves `.` / `..` so it cannot leave `/m`. */
 export function safeMobileAppPath(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
-  if (!isMobileAppPath(trimmed.split("?")[0] ?? trimmed)) return null;
-  if (trimmed.startsWith("//") || trimmed.includes("://")) return null;
-  return trimmed;
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.includes("://")) {
+    return null;
+  }
+  if (trimmed.includes("\\")) return null;
+  try {
+    const resolved = new URL(trimmed, "https://ssopshub.vercel.app");
+    if (resolved.origin !== "https://ssopshub.vercel.app") return null;
+    const pathname = resolved.pathname;
+    if (!isMobileAppPath(pathname)) return null;
+    return `${pathname}${resolved.search}`;
+  } catch {
+    return null;
+  }
 }

@@ -76,6 +76,40 @@ const nextConfig: NextConfig = {
       "../../node_modules/.pnpm/@img+sharp-libvips-linux-x64@*/node_modules/@img/sharp-libvips-linux-x64/**/*",
     ],
   },
+  async headers() {
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/javascript; charset=utf-8",
+          },
+          {
+            key: "Cache-Control",
+            value: "no-cache, no-store, must-revalidate",
+          },
+          {
+            key: "Service-Worker-Allowed",
+            value: "/",
+          },
+        ],
+      },
+      {
+        source: "/manifest.webmanifest",
+        headers: [
+          {
+            key: "Content-Type",
+            value: "application/manifest+json; charset=utf-8",
+          },
+          {
+            key: "Cache-Control",
+            value: "no-cache",
+          },
+        ],
+      },
+    ];
+  },
   experimental: {
     // Middleware/proxy clones request bodies (default 10mb). Large WorkDrive
     // uploads also bypass middleware via matcher exclude; keep this high for

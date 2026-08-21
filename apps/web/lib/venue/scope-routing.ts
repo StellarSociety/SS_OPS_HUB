@@ -52,6 +52,7 @@ const UNSCOPED_PREFIXES = [
   "/reset-password",
   "/select-venue",
   "/m",
+  "/install",
   "/auth",
   "/api",
   "/acknowledge",

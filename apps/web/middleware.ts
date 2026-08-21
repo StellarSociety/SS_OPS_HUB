@@ -242,6 +242,6 @@ export const config = {
      * multipart payloads (default 10mb) and breaks request.formData().
      * Auth for that route is enforced in the route handler.
      */
-    "/((?!_next/static|_next/image|favicon.ico|api/hr/workdrive/upload|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|api/hr/workdrive/upload|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
