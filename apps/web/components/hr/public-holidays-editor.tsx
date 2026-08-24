@@ -3,6 +3,7 @@
 import { Check, Pencil, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { DateInput } from "@/components/ui/date-input";
 import { Input } from "@/components/ui/input";
 import {
   deletePublicHoliday,
@@ -53,6 +54,10 @@ function toDateKey(year: number, monthIndex: number, day: number) {
   return `${year}-${m}-${d}`;
 }
 
+function localTodayKey(date = new Date()) {
+  return toDateKey(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 function daysInMonth(year: number, monthIndex: number) {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
@@ -88,6 +93,8 @@ export function PublicHolidaysEditor({
     for (const h of yearHolidays) map.set(h.holidayDate, h);
     return map;
   }, [yearHolidays]);
+
+  const todayKey = useMemo(() => localTodayKey(), []);
 
   function fillForm(dateKey: string) {
     setEditingId(null);
@@ -142,36 +149,47 @@ export function PublicHolidaysEditor({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          onClick={() => setYear((y) => y - 1)}
-        >
-          ←
-        </Button>
-        <span className="min-w-[4.5rem] text-center font-serif text-lg text-[#3D421F]">
-          {year}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setYear((y) => y - 1)}
+          >
+            ←
+          </Button>
+          <span className="min-w-[4.5rem] text-center font-serif text-lg text-[#3D421F]">
+            {year}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setYear((y) => y + 1)}
+          >
+            →
+          </Button>
+        </div>
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-black/50">
+          <span
+            className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded bg-[var(--venue-primary,#818a40)] px-1 text-[10px] font-semibold text-white"
+            aria-hidden
+          >
+            {Number(todayKey.slice(8, 10))}
+          </span>
+          Today
         </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          onClick={() => setYear((y) => y + 1)}
-        >
-          →
-        </Button>
       </div>
 
       <div className="flex flex-wrap items-end gap-2 rounded-lg border border-black/10 bg-black/[0.02] p-3">
         <label className="space-y-1 text-xs text-black/55">
           Date
-          <Input
-            type="date"
+          <DateInput
             value={draftDate}
-            onChange={(e) => setDraftDate(e.target.value)}
-            className={cn("h-9 w-[11rem]", LIGHT_INPUT)}
+            onChange={setDraftDate}
+            className="w-[11rem]"
+            inputClassName={cn("h-9", LIGHT_INPUT)}
           />
         </label>
         <label className="min-w-[12rem] flex-1 space-y-1 text-xs text-black/55">
@@ -205,13 +223,27 @@ export function PublicHolidaysEditor({
           ];
           while (cells.length % 7 !== 0) cells.push(null);
 
+          const isCurrentMonth = todayKey.startsWith(
+            `${year}-${String(monthIndex + 1).padStart(2, "0")}-`,
+          );
+
           return (
             <div
               key={monthName}
-              className="rounded-lg border border-black/10 bg-white p-3"
+              className={cn(
+                "rounded-lg border bg-white p-3",
+                isCurrentMonth
+                  ? "border-[var(--venue-primary,#818a40)]/40"
+                  : "border-black/10",
+              )}
             >
               <h3 className="mb-2 font-serif text-sm text-[#3D421F]">
                 {monthName}
+                {isCurrentMonth ? (
+                  <span className="ml-2 font-sans text-[10px] font-medium uppercase tracking-wide text-[var(--venue-primary,#818a40)]">
+                    Today
+                  </span>
+                ) : null}
               </h3>
               <div className="grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-black/40">
                 {WEEKDAYS.map((d) => (
@@ -226,26 +258,36 @@ export function PublicHolidaysEditor({
                   const dateKey = toDateKey(year, monthIndex, day);
                   const holiday = holidayByDate.get(dateKey);
                   const selected = draftDate === dateKey;
+                  const isToday = dateKey === todayKey;
                   return (
                     <button
                       key={dateKey}
                       type="button"
+                      aria-current={isToday ? "date" : undefined}
                       title={
                         holiday
-                          ? `${holiday.name} — click to edit`
-                          : `Mark ${dateKey} as public holiday`
+                          ? `${holiday.name}${isToday ? " (today)" : ""} — click to edit`
+                          : isToday
+                            ? `Today — mark ${dateKey} as public holiday`
+                            : `Mark ${dateKey} as public holiday`
                       }
                       onClick={() => fillForm(dateKey)}
                       className={cn(
                         "flex h-7 items-center justify-center rounded text-xs tabular-nums transition-colors",
                         holiday
                           ? "bg-[#ede9fe] font-semibold text-[#5b21b6]"
-                          : "text-black/70 hover:bg-black/[0.04]",
+                          : isToday
+                            ? "bg-[var(--venue-primary,#818a40)] font-semibold text-white"
+                            : "text-black/70 hover:bg-black/[0.04]",
                         selected
                           ? "outline outline-2 outline-offset-[-1px] outline-[#5b21b6]"
-                          : holiday
-                            ? "ring-1 ring-[#ddd6fe]"
-                            : null,
+                          : holiday && isToday
+                            ? "ring-2 ring-[var(--venue-primary,#818a40)]"
+                            : holiday
+                              ? "ring-1 ring-[#ddd6fe]"
+                              : isToday
+                                ? "ring-1 ring-[var(--venue-primary,#818a40)]/40"
+                                : null,
                       )}
                     >
                       {day}
@@ -370,11 +412,11 @@ function HolidayRow({
     <li className="flex flex-wrap items-end gap-2 bg-black/[0.02] px-3 py-2.5">
       <label className="space-y-1 text-xs text-black/55">
         Date
-        <Input
-          type="date"
+        <DateInput
           value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className={cn("h-9 w-[11rem]", LIGHT_INPUT)}
+          onChange={setDate}
+          className="w-[11rem]"
+          inputClassName={cn("h-9", LIGHT_INPUT)}
         />
       </label>
       <label className="min-w-[10rem] flex-1 space-y-1 text-xs text-black/55">

@@ -269,7 +269,7 @@ function renderRingSlots(
           label={leaveTypeDisplayName(code, type)}
           available={available}
           used={used}
-          total={total > 0 ? total : undefined}
+          total={total}
         />
       );
     }
@@ -298,7 +298,7 @@ function renderRingSlots(
         label={group.label}
         available={available}
         used={used}
-        total={total > 0 ? total : undefined}
+        total={total}
         expanded={isOpen}
         hint="View pay stages"
         onClick={() => onOpenGroup(group.id)}
@@ -763,7 +763,7 @@ export function LeaveEmployeeDetail({
                     label={leaveTypeDisplayName(row.code, row.type)}
                     available={row.available}
                     used={row.used}
-                    total={row.total > 0 ? row.total : undefined}
+                    total={row.total}
                   />
                 ))}
               </div>

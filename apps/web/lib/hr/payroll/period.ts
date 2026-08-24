@@ -211,3 +211,28 @@ export function payrollMonthInputValue(payrollMonth: string): string {
   const { year, month } = parsePayrollMonth(payrollMonth);
   return `${year}-${pad2(month)}`;
 }
+
+/** Payroll period that contains a local calendar date (defaults to today). */
+export function currentPayrollPeriod(
+  asOf: Date = new Date(),
+  settings: HrPayrollSettings = DEFAULT_HR_PAYROLL_SETTINGS,
+): PayrollPeriod {
+  const today = isoDate(asOf.getFullYear(), asOf.getMonth() + 1, asOf.getDate());
+  return resolvePayrollPeriod(
+    payrollMonthContainingDate(today, settings),
+    settings,
+  );
+}
+
+/** Validation page path with employee + current payroll month selected. */
+export function attendanceValidationHref(staffId: string, asOf?: Date): string {
+  const params = new URLSearchParams({ staffId });
+  try {
+    const period = currentPayrollPeriod(asOf);
+    params.set("from", period.periodStart);
+    params.set("to", period.periodEnd);
+  } catch {
+    // Staff-only deep link still opens validation with the employee selected.
+  }
+  return `/hr/attendance/validation?${params.toString()}`;
+}

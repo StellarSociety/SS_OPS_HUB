@@ -36,21 +36,23 @@ export function LeaveBalanceRing({
   onClick,
   expanded,
 }: LeaveBalanceRingProps) {
-  const safeAvailable = Math.max(0, available);
-  const safeUsed = Math.max(0, used);
+  // Bar widths cannot be negative; displayed leftover can (overdrawn).
+  const barAvailable = Math.max(0, available);
+  const barUsed = Math.max(0, used);
   const eligible =
-    total != null && total > 0
+    total != null && Number.isFinite(total)
       ? Math.max(0, total)
-      : Math.max(0, safeAvailable + safeUsed);
+      : Math.max(0, barAvailable + barUsed);
   const denom = Math.max(eligible, 0.0001);
 
-  const usedRatio = Math.min(1, Math.max(0, safeUsed / denom));
+  const usedRatio = Math.min(1, Math.max(0, barUsed / denom));
   const leftRatio = Math.min(
     1 - usedRatio,
-    Math.max(0, safeAvailable / denom),
+    Math.max(0, barAvailable / denom),
   );
   const otherRatio = Math.max(0, 1 - usedRatio - leftRatio);
-  const depleted = safeAvailable <= 0 && eligible > 0;
+  const overdrawn = available < 0;
+  const depleted = !overdrawn && available <= 0 && eligible > 0;
 
   const body = (
     <>
@@ -69,19 +71,23 @@ export function LeaveBalanceRing({
           <p
             className={cn(
               "text-[2rem] font-semibold leading-none tabular-nums tracking-tight",
-              depleted
-                ? "text-[#3D421F]/55"
-                : "text-[var(--venue-primary,#818a40)]",
+              overdrawn
+                ? "text-red-700"
+                : depleted
+                  ? "text-[#3D421F]/55"
+                  : "text-[var(--venue-primary,#818a40)]",
             )}
           >
-            {formatDays(safeAvailable)}
+            {formatDays(available)}
           </p>
           <p
             className={cn(
               "mt-1 text-[11px] font-semibold uppercase tracking-wider",
-              depleted
-                ? "text-[#3D421F]/45"
-                : "text-[var(--venue-primary,#818a40)]",
+              overdrawn
+                ? "text-red-700"
+                : depleted
+                  ? "text-[#3D421F]/45"
+                  : "text-[var(--venue-primary,#818a40)]",
             )}
           >
             days left
@@ -93,7 +99,7 @@ export function LeaveBalanceRing({
         className="mt-4 h-2.5 w-full overflow-hidden rounded-full"
         style={{ backgroundColor: TRACK }}
         role="img"
-        aria-label={`${formatDays(safeUsed)} taken, ${formatDays(safeAvailable)} left of ${formatDays(eligible)} eligible`}
+        aria-label={`${formatDays(barUsed)} taken, ${formatDays(available)} left of ${formatDays(eligible)} eligible`}
       >
         <div className="flex h-full w-full">
           {usedRatio > 0 ? (
@@ -128,13 +134,13 @@ export function LeaveBalanceRing({
         <Stat
           swatch={LEFT}
           label="Left"
-          value={formatDays(safeAvailable)}
-          tone="accent"
+          value={formatDays(available)}
+          tone={overdrawn ? "negative" : "accent"}
         />
         <Stat
           swatch={TAKEN}
           label="Taken"
-          value={formatDays(safeUsed)}
+          value={formatDays(barUsed)}
           tone="ink"
         />
       </dl>
@@ -183,7 +189,7 @@ function Stat({
   swatchBorder?: boolean;
   label: string;
   value: string;
-  tone: "ink" | "accent" | "muted";
+  tone: "ink" | "accent" | "muted" | "negative";
 }) {
   return (
     <div className="min-w-0">
@@ -193,6 +199,7 @@ function Stat({
           tone === "ink" && "text-[#3D421F]",
           tone === "accent" && "text-[var(--venue-primary,#818a40)]",
           tone === "muted" && "text-black/45",
+          tone === "negative" && "text-red-700",
         )}
       >
         <span
@@ -211,6 +218,7 @@ function Stat({
           tone === "ink" && "text-[#3D421F]",
           tone === "accent" && "text-[var(--venue-primary,#818a40)]",
           tone === "muted" && "text-black/55",
+          tone === "negative" && "text-red-700",
         )}
       >
         {value}

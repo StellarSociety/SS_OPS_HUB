@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Briefcase,
   CalendarDays,
+  ClipboardCheck,
   FileText,
   FolderOpen,
   IdCard,
@@ -18,6 +19,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { ScopedLink } from "@/components/layout/scoped-link";
 import { Card } from "@/components/ui/card";
 import { StaffAvatarField } from "@/components/hr/staff-avatar-field";
 import {
@@ -32,7 +34,10 @@ import { updateStaff } from "@/lib/actions/hr";
 import { getStaffCurrentPayrollSchedule } from "@/lib/actions/hr-staff-payroll-schedule";
 import { resolveStaffEmployeeWorkDriveFolderLink } from "@/lib/actions/hr-workdrive";
 import { computeAge, computeWorkedTime, type SalaryPercentages } from "@/lib/hr/derived";
-import { shiftPayrollMonth } from "@/lib/hr/payroll/period";
+import {
+  attendanceValidationHref,
+  shiftPayrollMonth,
+} from "@/lib/hr/payroll/period";
 import type { PayrollDayFraction } from "@/lib/hr/payroll/types";
 import { staffToForm, type StaffFormState } from "@/lib/hr/staff-form";
 import { nationalityDisplay } from "@/lib/hr/nationality-flag";
@@ -341,9 +346,9 @@ export function StaffDetailView({
         </button>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
         <div className="w-full max-w-lg shrink-0">
-          <Card className="px-6 py-8 sm:px-8">
+          <Card className="h-full px-6 py-8 sm:px-8">
             <div className="flex flex-col items-center gap-4 text-center">
               <StaffAvatarField
                 staffId={staff.id}
@@ -465,8 +470,11 @@ export function StaffDetailView({
             </div>
           ) : null}
 
-          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-start">
-            <div className={verticalSegmentedSubNavShellClass} role="tablist">
+          <div className="flex min-h-0 w-full flex-1 flex-col gap-2 sm:flex-row sm:items-stretch">
+            <div
+              className={cn(verticalSegmentedSubNavShellClass, "h-full")}
+              role="tablist"
+            >
               {DETAIL_TABS.map((tab) => {
                 const Icon = tab.icon;
                 const active = activeTab === tab.id;
@@ -481,7 +489,10 @@ export function StaffDetailView({
                         current === tab.id ? null : tab.id,
                       )
                     }
-                    className={verticalSegmentedSubNavLinkClass(active)}
+                    className={cn(
+                      verticalSegmentedSubNavLinkClass(active),
+                      "flex-1",
+                    )}
                   >
                     <Icon
                       className="h-5 w-5 shrink-0 opacity-80"
@@ -494,13 +505,13 @@ export function StaffDetailView({
             </div>
 
             <div
-              className="flex w-full flex-col overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-40 sm:shrink-0"
+              className="flex w-full flex-col self-start overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-40 sm:shrink-0"
               aria-label="Shortcuts"
             >
               <p
                 className={cn(
                   subNavLabelClass,
-                  "border-b border-black/10 px-3 py-2 text-black/40",
+                  "border-b border-black/10 px-3 py-2.5 text-black/40",
                 )}
               >
                 Shortcuts
@@ -520,6 +531,19 @@ export function StaffDetailView({
                   {scheduleLoading ? "Loading…" : "Schedule"}
                 </span>
               </button>
+              <ScopedLink
+                href={attendanceValidationHref(staff.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={verticalSegmentedSubNavLinkClass(false)}
+                title="Open attendance validation for this employee (current payroll month)"
+              >
+                <ClipboardCheck
+                  className="h-5 w-5 shrink-0 opacity-80"
+                  aria-hidden
+                />
+                <span className="min-w-0 truncate">Attendance</span>
+              </ScopedLink>
               <button
                 type="button"
                 disabled={driveLoading}
