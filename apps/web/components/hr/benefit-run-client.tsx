@@ -1752,7 +1752,7 @@ export function BenefitRunClient({
   const barCcToPool = Number(totals.pool?.barCcToPool) || 0;
   const barCcToBarStaff =
     Number(totals.pool?.barCcToBarStaff) > 0
-      ? Number(totals.pool.barCcToBarStaff)
+      ? Number(totals.pool?.barCcToBarStaff)
       : Math.max(0, round2(barCcCollected - barCcToPool));
   const waiterCashTipOut = Number(totals.pool?.waiterCashTipOut) || 0;
   const waiterCcTipOut = Number(totals.pool?.waiterCcTipOut) || 0;
@@ -1767,11 +1767,11 @@ export function BenefitRunClient({
       : null;
   const barCashToBarStaff =
     Number(totals.pool?.barCashToBarStaff) > 0
-      ? Number(totals.pool.barCashToBarStaff)
+      ? Number(totals.pool?.barCashToBarStaff)
       : barCashCollected;
   const generalPoolGross =
     Number(totals.pool?.gross) > 0
-      ? Number(totals.pool.gross)
+      ? Number(totals.pool?.gross)
       : round2(waiterCashTipOut + waiterCcTipOut + barCcToPool);
   const runnerHkFund = Number(totals.pool?.runnerHousekeeperFund) || 0;
   const barStaffFund = round2(barCcToBarStaff + barCashToBarStaff);

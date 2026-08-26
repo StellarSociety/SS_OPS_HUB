@@ -84,7 +84,7 @@ function collectionsTotalOf(
     pool.benefitDeductions,
   ];
   if (parts.every((n) => n == null)) return null;
-  return round2(parts.reduce((sum, n) => sum + asAmount(n), 0));
+  return round2(parts.reduce<number>((sum, n) => sum + asAmount(n), 0));
 }
 
 function statusLabel(status: string): string {
