@@ -1188,6 +1188,7 @@ export const HR_FEATURES = {
   lookups: "lookups",
   salary: "salary",
   scheduleApproval: "schedule_approval",
+  attendanceValidation: "attendance_validation",
   attendanceValidator: "attendance_validator",
   payroll: "payroll",
   payslips: "payslips",
@@ -1207,6 +1208,33 @@ export const EXPIRY_FIELDS = [
   { field: "fire_safety_date", label: "Fire Safety", renewalMonths: 12 },
   { field: "first_aid_date", label: "First Aid", renewalMonths: 24 },
 ] as const;
+
+/** PIC / food safety / fire / first aid — shown in the Training expiries widget. */
+export const TRAINING_EXPIRY_FIELDS = [
+  "pic_date",
+  "basic_food_safety_date",
+  "fire_safety_date",
+  "first_aid_date",
+] as const;
+
+const TRAINING_EXPIRY_FIELD_SET = new Set<string>(TRAINING_EXPIRY_FIELDS);
+
+export function isTrainingExpiryField(field: string): boolean {
+  return TRAINING_EXPIRY_FIELD_SET.has(field);
+}
+
+export function partitionExpiryItems(items: ExpiryItem[]): {
+  documents: ExpiryItem[];
+  trainings: ExpiryItem[];
+} {
+  const documents: ExpiryItem[] = [];
+  const trainings: ExpiryItem[] = [];
+  for (const item of items) {
+    if (isTrainingExpiryField(item.field)) trainings.push(item);
+    else documents.push(item);
+  }
+  return { documents, trainings };
+}
 
 /** Display window for HR expiry widgets (notifications fire at 30/14/7 days). */
 export const DEFAULT_EXPIRY_LEAD_DAYS = 90;
@@ -1575,6 +1603,7 @@ export type HrLeaveBalanceAdjustment = {
   new_value: number;
   reason: string;
   author_id: string | null;
+  author_name: string | null;
   created_at: string;
 };
 

@@ -39,6 +39,23 @@ function asUuidOrNull(value: string | null | undefined): string | null {
   return UUID_RE.test(trimmed) ? trimmed : null;
 }
 
+/** Only return a process id that already exists — new forms mint a UUID before save. */
+async function resolveExistingOffboardingProcessId(
+  service: ReturnType<typeof createServiceClient>,
+  venueId: string,
+  processId: string | null | undefined,
+): Promise<string | null> {
+  const id = asUuidOrNull(processId);
+  if (!id) return null;
+  const { data } = await service
+    .from("hr_offboarding_processes")
+    .select("id")
+    .eq("venue_id", venueId)
+    .eq("id", id)
+    .maybeSingle();
+  return data?.id ? String(data.id) : null;
+}
+
 type BoardingEmailRow = {
   id: string;
   venue_id?: string;
@@ -458,11 +475,16 @@ export async function saveBoardingNoticeEmailDraft(input: {
     const toEmail = (input.to?.trim() || ctx.to || "").trim();
     const fromEmail = ctx.settings.fromEmail.trim() || null;
     const service = createServiceClient();
+    const processId = await resolveExistingOffboardingProcessId(
+      service,
+      ctx.auth.venue.id,
+      input.processId,
+    );
 
     const shared = {
       venue_id: ctx.auth.venue.id,
       staff_id: input.staffId,
-      process_id: asUuidOrNull(input.processId),
+      process_id: processId,
       action: input.action,
       status: "draft" as const,
       to_email: toEmail,
@@ -731,11 +753,16 @@ export async function sendBoardingNoticeEmail(input: {
     const existingId = asUuidOrNull(input.id);
     const rowId = existingId ?? crypto.randomUUID();
     const service = createServiceClient();
+    const processId = await resolveExistingOffboardingProcessId(
+      service,
+      ctx.auth.venue.id,
+      input.processId,
+    );
 
     const shared = {
       venue_id: ctx.auth.venue.id,
       staff_id: input.staffId,
-      process_id: asUuidOrNull(input.processId),
+      process_id: processId,
       action: input.action,
       status: "sent" as const,
       to_email: toEmail,
@@ -909,11 +936,16 @@ export async function scheduleBoardingNoticeEmail(input: {
     const rowId = existingId ?? crypto.randomUUID();
     const fromEmail = ctx.settings.fromEmail.trim() || null;
     const service = createServiceClient();
+    const processId = await resolveExistingOffboardingProcessId(
+      service,
+      ctx.auth.venue.id,
+      input.processId,
+    );
 
     const shared = {
       venue_id: ctx.auth.venue.id,
       staff_id: input.staffId,
-      process_id: asUuidOrNull(input.processId),
+      process_id: processId,
       action: input.action,
       status: "scheduled" as const,
       to_email: toEmail,

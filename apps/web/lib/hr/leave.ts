@@ -92,6 +92,9 @@ export type ScheduledLeaveRange = {
   /** Approval workflow status when matched to a leave request; roster-only → scheduled. */
   approvalStatus?: LeaveCalendarStatus;
   requestId?: string | null;
+  /** Hub user who approved this range (leave request or Validation). */
+  approvedByName?: string | null;
+  approvedAt?: string | null;
 };
 
 export type ScheduledLeaveLabelStyle = {
@@ -1225,45 +1228,73 @@ export function seedEntitlementForType(
  */
 export const PH_WORKED_LABEL_CODES = new Set(["SHIFT", "PH-W"]);
 
+export type PhReplacementCreditInput = {
+  holidayDates: Iterable<string>;
+  scheduleDays: Array<{ work_date: string; label_code: string }>;
+  /** Credits only count on/after the joining date. */
+  joiningDate?: string | null;
+  /** Credits only count on/before the last working day. */
+  terminationDate?: string | null;
+  /** Credits only count through this date (already worked). Default today. */
+  asOf?: Date;
+};
+
 /**
  * PH replacement rule (automatic):
  * - Public holiday dates come from venue settings
  * - Worked that day (SHIFT, or legacy PH-W) → +1 PH-REPL credit
  * - Did not work (PH taken, OFF, leave, etc.) → no credit
+ * - Ignore roster days before joining, after termination, or still in the future
+ *   (year templates often have SHIFT on holidays the employee was not employed)
  *
  * Returns unique holiday dates that earned a credit, sorted ascending.
  */
-export function listPhReplacementCreditDates(input: {
-  holidayDates: Iterable<string>;
-  scheduleDays: Array<{ work_date: string; label_code: string }>;
-}): string[] {
+export function listPhReplacementCreditDates(
+  input: PhReplacementCreditInput,
+): string[] {
   const holidays = new Set(
     [...input.holidayDates].map((d) => d.slice(0, 10)),
   );
   if (holidays.size === 0) return [];
+
+  const join = input.joiningDate?.trim()?.slice(0, 10) ?? "";
+  const term = input.terminationDate?.trim()?.slice(0, 10) ?? "";
+  const asOfIso = toIsoDateLocal(input.asOf ?? new Date());
+  const latest = term && term < asOfIso ? term : asOfIso;
 
   const credited = new Set<string>();
   for (const day of input.scheduleDays) {
     const date = String(day.work_date).slice(0, 10);
     if (!holidays.has(date)) continue;
     if (!PH_WORKED_LABEL_CODES.has(day.label_code)) continue;
+    if (join && date < join) continue;
+    if (date > latest) continue;
     credited.add(date);
   }
   return Array.from(credited).sort();
 }
 
-export function countPhReplacementCredits(input: {
-  holidayDates: Iterable<string>;
-  scheduleDays: Array<{ work_date: string; label_code: string }>;
-}): number {
+export function countPhReplacementCredits(
+  input: PhReplacementCreditInput,
+): number {
   return listPhReplacementCreditDates(input).length;
 }
 
 /** Leave types that may carry unused days into the next calendar year. */
 export const CARRY_FORWARD_LEAVE_CODES = new Set(["AL", "PH-REPL"]);
 
+/** Manual HR corrections (not roster usage such as `used` / `scheduled`). */
+export const MANUAL_LEAVE_ADJUSTMENT_FIELDS = new Set([
+  "adjusted",
+  "carried_forward",
+]);
+
 export function canCarryForwardLeaveCode(code: string): boolean {
   return CARRY_FORWARD_LEAVE_CODES.has(code);
+}
+
+export function isManualLeaveAdjustmentField(field: string): boolean {
+  return MANUAL_LEAVE_ADJUSTMENT_FIELDS.has(field);
 }
 
 export function carryForwardAmount(
@@ -1578,10 +1609,86 @@ export function allocateMaternityLeaveScheduleDays(
   );
 }
 
-/**
- * Count pending-request days in a leave year that are not already on the roster
- * for the matching leave family code.
- */
+/** Used / scheduled roster dates that sit on a leave-balance row. */
+export function leaveBalanceUsageDates(input: {
+  leaveTypeCode: string;
+  scheduleDays: ScheduleDayRef[];
+  policy: HrLeavePolicySettings;
+  asOf?: Date;
+}): { usedDates: string[]; scheduledDates: string[] } {
+  const code = input.leaveTypeCode.trim().toUpperCase();
+  const asOf = input.asOf ?? new Date();
+  if (code === "SL-FP" || code === "SL-HP" || code === "SL-UP") {
+    const alloc = allocateSickLeaveScheduleDays(
+      input.scheduleDays,
+      input.policy.sick,
+    );
+    const dates =
+      code === "SL-FP"
+        ? alloc.fpDates
+        : code === "SL-HP"
+          ? alloc.hpDates
+          : alloc.upDates;
+    return splitDatesPastFuture(dates, asOf);
+  }
+  if (code === "ML-FP" || code === "ML-HP" || code === "ML-UP") {
+    const alloc = allocateMaternityLeaveScheduleDays(
+      input.scheduleDays,
+      input.policy.other,
+    );
+    const dates =
+      code === "ML-FP"
+        ? alloc.fpDates
+        : code === "ML-HP"
+          ? alloc.hpDates
+          : alloc.upDates;
+    return splitDatesPastFuture(dates, asOf);
+  }
+  const family =
+    policyCodeToScheduleLeaveCode(code) ?? normalizeScheduleLeaveCode(code);
+  return splitLeaveScheduleDaysByCode(input.scheduleDays, family, asOf);
+}
+
+/** Pending request dates for a roster family (not yet on the schedule). */
+export function pendingLeaveDatesForFamily(input: {
+  requests: PendingLeaveRequestRef[];
+  scheduleDays: ScheduleDayRef[];
+  leaveYear: number;
+  familyCode: string;
+}): string[] {
+  const family = normalizeScheduleLeaveCode(input.familyCode);
+  if (!family) return [];
+  const yearFrom = `${input.leaveYear}-01-01`;
+  const yearTo = `${input.leaveYear}-12-31`;
+  const onRoster = new Set<string>();
+  for (const day of input.scheduleDays) {
+    const date = (day.work_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    onRoster.add(`${normalizeScheduleLeaveCode(day.label_code)}:${date}`);
+  }
+  const dates: string[] = [];
+  const seen = new Set<string>();
+  for (const req of input.requests) {
+    if (normalizeLeaveCalendarStatus(req.status) !== "pending") continue;
+    const code = normalizeScheduleLeaveCode(req.scheduleCode);
+    if (code !== family) continue;
+    const start = req.startDate.slice(0, 10);
+    const end = req.endDate.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      continue;
+    }
+    for (const date of eachIsoDateInRange(start, end)) {
+      if (date < yearFrom || date > yearTo) continue;
+      if (onRoster.has(`${code}:${date}`)) continue;
+      if (seen.has(date)) continue;
+      seen.add(date);
+      dates.push(date);
+    }
+  }
+  dates.sort();
+  return dates;
+}
+
 export function countPendingLeaveDaysByScheduleCode(
   requests: PendingLeaveRequestRef[],
   scheduleDays: ScheduleDayRef[],
@@ -1926,6 +2033,8 @@ function leaveYearUsageCounts(
   year: number,
   holidayDates: Iterable<string>,
   asOf: Date,
+  joiningDate?: string | null,
+  terminationDate?: string | null,
 ) {
   const refs = days
     .filter((d) => d.workDate.startsWith(`${year}-`))
@@ -1943,6 +2052,9 @@ function leaveYearUsageCounts(
     phCredits: countPhReplacementCredits({
       holidayDates,
       scheduleDays: refs,
+      joiningDate,
+      terminationDate,
+      asOf,
     }),
   };
 }
@@ -1956,6 +2068,8 @@ export function liveLeaveBalanceTriple(input: {
   overlay: Array<{ workDate: string; labelCode: string | null }>;
   holidayDates: Iterable<string>;
   asOf?: Date;
+  joiningDate?: string | null;
+  terminationDate?: string | null;
 }): LeaveBalanceTriple {
   const asOf = input.asOf ?? new Date();
   const year = input.snapshot.year;
@@ -1979,12 +2093,16 @@ export function liveLeaveBalanceTriple(input: {
     year,
     input.holidayDates,
     asOf,
+    input.joiningDate,
+    input.terminationDate,
   );
   const live = leaveYearUsageCounts(
     mergedDays,
     year,
     input.holidayDates,
     asOf,
+    input.joiningDate,
+    input.terminationDate,
   );
   const dAlTaken = live.alTaken - base.alTaken;
   const dAlScheduled = live.alScheduled - base.alScheduled;

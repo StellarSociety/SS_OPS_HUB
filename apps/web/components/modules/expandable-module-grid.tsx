@@ -451,9 +451,21 @@ export function ModuleSubpagesExpand({
   /** Wrap groups onto new lines at full size before scaling. */
   wrap?: boolean;
 }) {
+  const { canOpenHref } = usePageAccess();
   const expanded = resolveSubpages(moduleKey);
   if (!expanded || expanded.items.length === 0) return null;
-  const useGroups = Boolean(expanded.groups && expanded.groups.length > 0);
+
+  const allowed = (item: ModuleSidebarItem) =>
+    Boolean(item.comingSoon) || canOpenHref(item.href);
+  const items = expanded.items.filter(allowed);
+  const groups = expanded.groups
+    ?.map((group) => ({
+      ...group,
+      items: group.items.filter(allowed),
+    }))
+    .filter((group) => group.items.length > 0);
+  if (items.length === 0) return null;
+  const useGroups = Boolean(groups && groups.length > 0);
 
   const body = useGroups ? (
     <div
@@ -461,7 +473,7 @@ export function ModuleSubpagesExpand({
         wrap ? "w-full space-y-2.5" : "w-max max-w-none space-y-2.5",
       )}
     >
-      {buildDisplayRows(expanded.groups!).map((row) =>
+      {buildDisplayRows(groups!).map((row) =>
         row.type === "multi" ? (
           <MultiGroupRow
             key={row.groups.map((g) => g.key).join("-")}
@@ -488,7 +500,7 @@ export function ModuleSubpagesExpand({
     </div>
   ) : (
     <SubpageRow
-      items={expanded.items}
+      items={items}
       fallbackIcon={expanded.icon}
       forceComingSoon={forceComingSoon}
       nowrap={!wrap}

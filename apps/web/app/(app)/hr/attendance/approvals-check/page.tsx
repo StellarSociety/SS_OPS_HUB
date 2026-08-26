@@ -1,3 +1,4 @@
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { AttendanceApprovalsCheckPanel } from "@/components/hr/attendance-approvals-check-panel";
 import { attendanceDayRequiresApproval } from "@/lib/hr/attendance-approval";
 import { currentMonthKey } from "@/lib/hr/attendance-months";
@@ -5,6 +6,7 @@ import {
   approvalsCheckScope,
   buildAttendanceValidationRows,
 } from "@/lib/hr/build-attendance-validation-rows";
+import { canAccessAttendanceValidation } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   formatPayrollMonthLabel,
@@ -46,7 +48,10 @@ export default async function AttendanceApprovalsCheckPage({
   searchParams,
 }: PageProps) {
   const params = (await searchParams) ?? {};
-  const { supabase, venue } = await getHrPageContext();
+  const { supabase, venue, permissions } = await getHrPageContext();
+  if (!canAccessAttendanceValidation(permissions, venue.id)) {
+    return <AccessDeniedBounce />;
+  }
 
   try {
     const [payrollRaw, importRules, staff, departments] = await Promise.all([

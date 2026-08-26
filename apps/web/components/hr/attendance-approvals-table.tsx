@@ -1205,8 +1205,18 @@ export function AttendanceApprovalsTable({
       snapshot: leaveSnapshot,
       overlay,
       holidayDates: Object.keys(publicHolidayByDate),
+      joiningDate: selectedEmployee?.joiningDate,
+      terminationDate: selectedEmployee?.terminationDate,
     });
-  }, [leaveSnapshot, local, filtered, empNo, publicHolidayByDate]);
+  }, [
+    leaveSnapshot,
+    local,
+    filtered,
+    empNo,
+    publicHolidayByDate,
+    selectedEmployee?.joiningDate,
+    selectedEmployee?.terminationDate,
+  ]);
 
   const rosterTotals = useMemo(() => {
     const counts = new Map<ValidationRosterLabelCode, number>();

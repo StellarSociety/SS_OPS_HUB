@@ -33,8 +33,12 @@ import {
   type OffboardingSettlementPreview,
   type OffboardingTerminationKind,
 } from "@/lib/hr/offboarding-process";
-import { canEditStaff, canViewStaff } from "@/lib/hr/permissions";
-import { parseBoardingEmailAction } from "@/lib/hr/types";
+import {
+  canAccessAttendanceValidation,
+  canAccessLeave,
+  canEditStaff,
+  canViewStaff,
+} from "@/lib/hr/permissions";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
   withFallbackScheduleLabelIds,
@@ -42,9 +46,11 @@ import {
 } from "@/lib/hr/schedules";
 import { getHrVenueSetting, listScheduleDayLabels, listStaffScheduleDays } from "@/lib/hr/store";
 import {
+  BOARDING_EMAIL_ACTIONS,
   DEFAULT_HR_LEAVE_POLICY_SETTINGS,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
+  parseBoardingEmailAction,
   type HrLeaveBalance,
 } from "@/lib/hr/types";
 import { createClient } from "@/lib/supabase/server";
@@ -590,6 +596,17 @@ export async function upsertOffboardingProcessAction(
   revalidatePath(`/hr/offboarding/${processId}`);
   revalidatePath("/hr/staff");
 
+  await service
+    .from("hr_boarding_emails")
+    .update({ process_id: processId, updated_at: new Date().toISOString() })
+    .eq("venue_id", ctx.venue.id)
+    .eq("staff_id", processWithId.staffId)
+    .is("process_id", null)
+    .in(
+      "action",
+      BOARDING_EMAIL_ACTIONS.map((row) => row.value),
+    );
+
   const noticeEmailRecords = await loadNoticeEmailsForProcess({
     venueId: ctx.venue.id,
     staffId: processWithId.staffId,
@@ -846,7 +863,11 @@ export async function getOffboardingLeaveSnapshot(input: {
     .select("*")
     .eq("user_id", user.id);
 
-  if (!canViewStaff(permissions ?? [], venue.id)) {
+  if (
+    !canViewStaff(permissions ?? [], venue.id) &&
+    !canAccessLeave(permissions ?? [], venue.id) &&
+    !canAccessAttendanceValidation(permissions ?? [], venue.id)
+  ) {
     return { ...empty, error: "You do not have permission to view leave." };
   }
 

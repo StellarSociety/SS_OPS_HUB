@@ -14,6 +14,7 @@ import { NavigationPendingIndicator } from "@/components/layout/navigation-pendi
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { MaybeSettingsNavMenu } from "@/components/layout/settings-nav-context-menu";
 import { AnimatedSymbol } from "@/components/ui/animated-symbol";
+import { usePageAccess } from "@/components/providers/page-access-provider";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
   subNavLabelClass,
@@ -140,8 +141,15 @@ function CategorizedShortcuts({
   navigate?: boolean;
 }) {
   const pathname = useRelativePathname();
+  const { canOpenHref } = usePageAccess();
   const itemByHref = new Map(
-    moduleSidebar.items.map((item) => [item.href, item]),
+    moduleSidebar.items
+      .filter((item) => item.comingSoon || canOpenHref(item.href))
+      .map((item) => [item.href, item]),
+  );
+
+  const visibleCategories = categories.filter((category) =>
+    category.itemHrefs.some((href) => itemByHref.has(href)),
   );
 
   const isCategoryActive = (category: ModuleSidebarCategory) =>
@@ -151,10 +159,11 @@ function CategorizedShortcuts({
     });
 
   const initialKey =
-    categories.find((category) => isCategoryActive(category))?.key ?? null;
+    visibleCategories.find((category) => isCategoryActive(category))?.key ??
+    null;
   const [activeKey, setActiveKey] = useState<string | null>(initialKey);
 
-  const activeCategory = categories.find(
+  const activeCategory = visibleCategories.find(
     (category) => category.key === activeKey,
   );
   const activeItems =
@@ -165,7 +174,7 @@ function CategorizedShortcuts({
   return (
     <nav aria-label={ariaLabel}>
       <div className="flex w-full flex-wrap items-center justify-center gap-2">
-        {categories.map((category) => {
+        {visibleCategories.map((category) => {
           const Icon = category.icon;
           const active = category.key === activeKey;
           const hasActiveRoute = isCategoryActive(category);
@@ -226,6 +235,7 @@ export function ModuleShortcuts({
   navigate = true,
 }: ModuleShortcutsProps) {
   const pathname = useRelativePathname();
+  const { canOpenHref } = usePageAccess();
   const moduleSidebar = getModuleSidebarForPath(basePath);
 
   if (!moduleSidebar) {
@@ -245,7 +255,9 @@ export function ModuleShortcuts({
     );
   }
 
-  const shortcuts = moduleSidebar.items.filter((item) => !item.exact);
+  const shortcuts = moduleSidebar.items.filter(
+    (item) => !item.exact && canOpenHref(item.href),
+  );
 
   return (
     <nav

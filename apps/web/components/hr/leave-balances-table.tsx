@@ -1004,8 +1004,8 @@ export function LeaveBalancesTable({
             </div>
 
             <p className="mt-3 text-sm text-black/55">
-              Dates this employee worked a public holiday and earned a
-              replacement day.
+              Dates this employee worked a public holiday after joining. Future
+              rostered holidays do not count until the day is worked.
             </p>
 
             {phCreditsPending ? (

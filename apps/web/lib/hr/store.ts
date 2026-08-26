@@ -688,6 +688,8 @@ export async function listAttendanceDaysForStaff(
     status: string;
     approval_status: string;
     total_hours: number | null;
+    updated_by: string | null;
+    updated_at: string | null;
   }[] = [];
   let from = 0;
 
@@ -696,7 +698,7 @@ export async function listAttendanceDaysForStaff(
     let query = supabase
       .from("hr_attendance_days")
       .select(
-        "id, staff_id, emp_no, work_date, clock_in, clock_out, status, approval_status, total_hours",
+        "id, staff_id, emp_no, work_date, clock_in, clock_out, status, approval_status, total_hours, updated_by, updated_at",
       )
       .eq("venue_id", venueId)
       .gte("work_date", opts.fromDate)

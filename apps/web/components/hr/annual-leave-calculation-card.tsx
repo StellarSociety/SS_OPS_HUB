@@ -163,6 +163,26 @@ export function AnnualLeaveCalculationCard({
           aria-hidden
         />
       </button>
+      <div className="mt-4 grid grid-cols-2 divide-x divide-black/10">
+        <div className="pr-6 text-center">
+          <p className="text-sm text-[#3D421F]">Employment Duration</p>
+          <p
+            className="mt-1 text-sm font-medium tabular-nums text-[#3D421F]"
+            title="Calendar time from joining until termination (or as-of date)"
+          >
+            {employmentDuration}
+          </p>
+        </div>
+        <div className="pl-6 text-center">
+          <p className="text-sm text-[#3D421F]">Work Time</p>
+          <p
+            className="mt-1 text-sm font-medium tabular-nums text-[#3D421F]"
+            title="Employment duration minus unpaid leave (UPL) and unauthorised absence (ABS)"
+          >
+            {workTime}
+          </p>
+        </div>
+      </div>
       {open ? (
         <blockquote className="relative mt-3 rounded-lg bg-red-50 px-10 py-4">
           <span
@@ -273,28 +293,7 @@ export function AnnualLeaveCalculationCard({
           value={`${calculation.roundedFinalAnnualLeaveBalance} days`}
           hint={`Exact remainder ${formatLeaveDays(calculation.finalAnnualLeaveBalance)} days, rounded to the nearest day for balances`}
           emphasize
-          ruleAfter="full"
         />
-        <div className="grid grid-cols-2 divide-x divide-black/10">
-          <div className="pr-6 text-center">
-            <p className="text-sm text-[#3D421F]">Employment Duration</p>
-            <p
-              className="mt-1 text-sm font-medium tabular-nums text-[#3D421F]"
-              title="Calendar time from joining until termination (or as-of date)"
-            >
-              {employmentDuration}
-            </p>
-          </div>
-          <div className="pl-6 text-center">
-            <p className="text-sm text-[#3D421F]">Work Time</p>
-            <p
-              className="mt-1 text-sm font-medium tabular-nums text-[#3D421F]"
-              title="Employment duration minus unpaid leave (UPL) and unauthorised absence (ABS)"
-            >
-              {workTime}
-            </p>
-          </div>
-        </div>
       </div>
       ) : null}
     </section>

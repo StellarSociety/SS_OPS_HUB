@@ -1,5 +1,6 @@
 import {
   canAccessAttendance,
+  canAccessAttendanceValidation,
   canAccessBenefits,
   canAccessHrOverview,
   canAccessLeave,
@@ -52,6 +53,13 @@ function startsWithPath(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
+function isStaffDirectoryPath(pathname: string): boolean {
+  if (startsWithPath(pathname, "/hr/staff")) return true;
+  return /^\/hr\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    pathname,
+  );
+}
+
 export function toCanonicalAppPath(
   href: string,
   scope: VenueScope,
@@ -77,7 +85,7 @@ export function canOpenAppPath(
     if (startsWithPath(pathname, "/hr/settings")) {
       return canAdminLookups(permissions, venueId);
     }
-    if (startsWithPath(pathname, "/hr/staff")) {
+    if (isStaffDirectoryPath(pathname)) {
       return canAccessStaff(permissions, venueId);
     }
     if (startsWithPath(pathname, "/hr/assets")) {
@@ -88,6 +96,12 @@ export function canOpenAppPath(
     }
     if (startsWithPath(pathname, "/hr/attendance/leave")) {
       return canAccessLeave(permissions, venueId);
+    }
+    if (
+      startsWithPath(pathname, "/hr/attendance/validation") ||
+      startsWithPath(pathname, "/hr/attendance/approvals-check")
+    ) {
+      return canAccessAttendanceValidation(permissions, venueId);
     }
     if (startsWithPath(pathname, "/hr/attendance")) {
       return canAccessAttendance(permissions, venueId);

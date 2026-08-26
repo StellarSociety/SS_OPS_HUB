@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { usePageAccess } from "@/components/providers/page-access-provider";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
   BookOpen,
@@ -365,12 +366,21 @@ function ModuleSidebarItems({
   pathname: string;
   collapsed: boolean;
 }) {
+  const { canOpenHref } = usePageAccess();
   const categories = moduleSidebar.categories ?? [];
   const fitAnchorRef = useRef<HTMLDivElement>(null);
 
+  const visibleItems = useMemo(
+    () =>
+      moduleSidebar.items.filter(
+        (item) => item.comingSoon || canOpenHref(item.href),
+      ),
+    [moduleSidebar.items, canOpenHref],
+  );
+
   const itemByHref = useMemo(
-    () => new Map(moduleSidebar.items.map((item) => [item.href, item])),
-    [moduleSidebar.items],
+    () => new Map(visibleItems.map((item) => [item.href, item])),
+    [visibleItems],
   );
 
   const routeActiveKeys = useMemo(
@@ -472,7 +482,7 @@ function ModuleSidebarItems({
     categories.length,
     spaceTight,
     pathname,
-    moduleSidebar.items.length,
+    visibleItems.length,
   ]);
 
   const toggleCategory = (key: string) => {
@@ -487,7 +497,7 @@ function ModuleSidebarItems({
   if (categories.length === 0) {
     return (
       <>
-        {moduleSidebar.items.map((item) => {
+        {visibleItems.map((item) => {
           const active = isModuleSidebarItemActive(pathname, item);
           const Icon = item.icon ?? moduleSidebar.icon;
           return (
@@ -513,7 +523,7 @@ function ModuleSidebarItems({
   const categorizedHrefs = new Set(
     categories.flatMap((category) => category.itemHrefs),
   );
-  const leadingItems = moduleSidebar.items.filter(
+  const leadingItems = visibleItems.filter(
     (item) => !categorizedHrefs.has(item.href),
   );
 
@@ -540,6 +550,12 @@ function ModuleSidebarItems({
     <div ref={fitAnchorRef} className="contents">
       {leadingItems.map((item) => renderItem(item.href))}
       {categories.map((category) => {
+        const visibleHrefs = category.itemHrefs.filter((href) =>
+          itemByHref.has(href),
+        );
+        if (visibleHrefs.length === 0) {
+          return null;
+        }
         const expanded = isCategoryExpanded(category.key);
         return (
           <Fragment key={category.key}>
@@ -553,7 +569,7 @@ function ModuleSidebarItems({
               />
             )}
             {expanded
-              ? category.itemHrefs.map((href) => renderItem(href))
+              ? visibleHrefs.map((href) => renderItem(href))
               : null}
           </Fragment>
         );
@@ -583,6 +599,7 @@ export function AppSidebar({
   const collapsed = !open;
   const hasBrandAssets = hasVenueBrandAssets(venue);
   const moduleSidebar = getModuleSidebarForPath(pathname);
+  const { canOpenHref } = usePageAccess();
   const ModuleIcon = moduleSidebar?.icon;
   const [installOpen, setInstallOpen] = useState(false);
 
@@ -750,7 +767,9 @@ export function AppSidebar({
             />
           </SettingsNavContextMenu>
         ) : null}
-        {moduleSidebar?.bottomItems?.map((item) => {
+        {moduleSidebar?.bottomItems
+          ?.filter((item) => canOpenHref(item.href))
+          .map((item) => {
           const Icon = item.icon ?? Settings;
           return (
             <SettingsNavContextMenu

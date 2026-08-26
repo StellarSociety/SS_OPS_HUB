@@ -11,7 +11,12 @@ import {
   type AttendanceDayResult,
   type AttendancePunchRaw,
 } from "@/lib/hr/attendance-import";
-import { canAdminLookups, canAccessStaff, canApproveAttendance, canEditStaff } from "@/lib/hr/permissions";
+import {
+  canAdminLookups,
+  canAccessAttendanceValidation,
+  canApproveAttendance,
+  canEditStaff,
+} from "@/lib/hr/permissions";
 import {
   getHrVenueSetting,
   refreshAttendanceMonths,
@@ -718,7 +723,7 @@ export async function loadAttendanceValidationRowsForRange(params: {
   | { ok: false; error: string }
 > {
   const { supabase, venue, permissions } = await getAuthContext();
-  if (!canAccessStaff(permissions, venue.id)) {
+  if (!canAccessAttendanceValidation(permissions, venue.id)) {
     return { ok: false, error: "No access." };
   }
 

@@ -1,7 +1,7 @@
 import { UpdatedDocsRequestSendButton } from "@/components/hr/updated-docs-request-send-button";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, type LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { formatDateOnly } from "@/lib/hr/derived";
 import type { ExpiryItem } from "@/lib/hr/types";
@@ -13,6 +13,8 @@ type ExpiryWidgetsProps = {
   title?: string;
   titleClassName?: string;
   compact?: boolean;
+  emptyDescription?: string;
+  icon?: LucideIcon;
 };
 
 const defaultTitleClass = "font-serif text-base text-[#3D421F]";
@@ -39,15 +41,21 @@ export function ExpiryWidgets({
   title = "Upcoming expiries",
   titleClassName = defaultTitleClass,
   compact = false,
+  emptyDescription,
+  icon: Icon = AlertTriangle,
 }: ExpiryWidgetsProps) {
+  const emptyText =
+    emptyDescription ??
+    `No items expiring within ${leadDays} days.`;
+
   if (items.length === 0) {
     return (
       <Card className="p-3">
-        <h2 className={titleClassName}>{title}</h2>
-        <p className="mt-1.5 text-xs text-black/50">
-          No passport, ID, insurance, or training items expiring within{" "}
-          {leadDays} days.
-        </p>
+        <div className="mb-1 flex items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5 text-amber-600" />
+          <h2 className={titleClassName}>{title}</h2>
+        </div>
+        <p className="mt-1.5 text-xs text-black/50">{emptyText}</p>
       </Card>
     );
   }
@@ -57,7 +65,7 @@ export function ExpiryWidgets({
   return (
     <Card className="p-3">
       <div className="mb-2 flex items-center gap-1.5">
-        <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+        <Icon className="h-3.5 w-3.5 text-amber-600" />
         <h2 className={titleClassName}>{title}</h2>
         <span className="ml-auto text-[11px] text-black/50">
           Next {leadDays} days · {items.length} item

@@ -1,0 +1,24 @@
+---
+description: Staff directory grant only opens that page; other assigned HR pages may read staff details
+alwaysApply: true
+---
+
+# Staff directory access vs staff details
+
+The `hr` / `staff` grant **only** controls opening Staff directory (`/hr/staff…` and `/hr/<staff-uuid>`).
+
+It is **not** a prerequisite for other HR pages. If a user is assigned Validation, Leave, Schedules, Payroll, etc., those pages must work even when they display name, emp number, photo, department, or other fields sourced from the `staff` table.
+
+## Do
+
+- Gate Staff directory **pages** with `canAccessStaff` (layout, `/hr/[id]`, `canOpenAppPath`).
+- Let assigned-feature checks (`canAccessAttendanceValidation`, `canAccessLeave`, `canAccessSchedules`, …) load staff rows on their own.
+- RLS `SELECT` on `staff` (and identity lookups those pages need) must include the assigned feature keys, not only `hr/staff`.
+- Emp-number `StaffDirectoryLink`s: link only when the viewer can open the directory; otherwise render the emp number as plain text (no "No access" popup).
+- Hide Staff directory in sidebar / shortcuts when the user lacks the grant.
+
+## Do not
+
+- Put `canAccessStaff` / `canViewStaff` on Validation, Leave, Schedules, or other non-directory loaders just because they join `staff`.
+- Grant Staff directory in order to "make Validation work".
+- Show a directory link that bounces users who were never assigned that page.

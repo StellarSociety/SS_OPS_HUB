@@ -177,11 +177,10 @@ export function canAccessAttendance(
   venueId: string,
 ): boolean {
   return (
-    hasHrFeatureAccess(permissions, "attendance_validation", venueId) ||
+    canAccessAttendanceValidation(permissions, venueId) ||
     hasHrFeatureAccess(permissions, "attendance_insights", venueId) ||
     hasHrFeatureAccess(permissions, "attendance", venueId) ||
-    canAccessLeave(permissions, venueId) ||
-    canAccessStaff(permissions, venueId)
+    canAccessLeave(permissions, venueId)
   );
 }
 
@@ -336,6 +335,23 @@ export function canApproveAttendance(
     HR_FEATURES.attendanceValidator,
     "view",
     venueId,
+  );
+}
+
+/**
+ * Validation page + row loader. Independent of Staff directory — assigned
+ * Validation / Attendance Validator grants are enough.
+ */
+export function canAccessAttendanceValidation(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(
+      permissions,
+      HR_FEATURES.attendanceValidation,
+      venueId,
+    ) || canApproveAttendance(permissions, venueId)
   );
 }
 

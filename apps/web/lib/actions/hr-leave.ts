@@ -22,11 +22,14 @@ import {
   groupScheduledLeaveRanges,
   isScheduleLeaveLabel,
   isoDateOnly,
+  leaveBalanceUsageDates,
   listPhReplacementCreditDates,
+  MANUAL_LEAVE_ADJUSTMENT_FIELDS,
   mergeLeavePolicy,
   normalizeLeaveCalendarStatus,
   normalizeScheduleLeaveCode,
   overlayBalanceUsageFromSchedule,
+  pendingLeaveDatesForFamily,
   PH_WORKED_LABEL_CODES,
   policyCodeToScheduleLeaveCode,
   resolveAnnualLeaveEvalDate,
@@ -102,6 +105,27 @@ async function getAuthContext() {
 function toNumber(v: unknown): number {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+async function profileNamesById(
+  ids: Array<string | null | undefined>,
+): Promise<Map<string, string>> {
+  const unique = [
+    ...new Set(ids.filter((id): id is string => Boolean(id))),
+  ];
+  const map = new Map<string, string>();
+  if (unique.length === 0) return map;
+  const { data: profiles } = await createServiceClient()
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", unique);
+  for (const profile of profiles ?? []) {
+    const name =
+      String(profile.full_name ?? "").trim() ||
+      String(profile.email ?? "").trim();
+    if (name) map.set(String(profile.id), name);
+  }
+  return map;
 }
 
 /** Leave-day quantities — persist/display to 2 decimal places (UAE AL pro-rata). */
@@ -315,7 +339,7 @@ function isOnProbation(status: string | null | undefined): boolean {
  * Does not overwrite used/scheduled/pending/adjusted/carried_forward on existing rows;
  * refreshes entitled/accrued from policy when those usage fields are all zero.
  * PH-REPL entitled/accrued always sync from roster × public holidays
- * (worked on PH → credit; not worked → no credit).
+ * (worked on PH after joining, through today → credit; not worked → no credit).
  */
 export async function ensureLeaveBalancesForYear(
   leaveYear?: number,
@@ -360,6 +384,8 @@ export async function ensureLeaveBalancesForYear(
         countPhReplacementCredits({
           holidayDates: holidaySet,
           scheduleDays: daysByStaff.get(member.id) ?? [],
+          joiningDate: member.joining_date,
+          terminationDate: member.termination_date,
         }),
       );
     }
@@ -731,6 +757,29 @@ export async function syncPhReplacementBalancesForStaff(params: {
   const phCreditsByStaff = new Map<string, number>();
   for (const id of staffIds) phCreditsByStaff.set(id, 0);
 
+  const { data: staffDateRows, error: staffDateError } = await service
+    .from("staff")
+    .select("id, joining_date, termination_date")
+    .eq("home_venue_id", params.venueId)
+    .in("id", staffIds);
+  if (staffDateError) {
+    return { error: staffDateError.message, updated: 0, created: 0 };
+  }
+  const staffDates = new Map<
+    string,
+    { joiningDate: string | null; terminationDate: string | null }
+  >();
+  for (const row of staffDateRows ?? []) {
+    staffDates.set(row.id as string, {
+      joiningDate: row.joining_date
+        ? String(row.joining_date).slice(0, 10)
+        : null,
+      terminationDate: row.termination_date
+        ? String(row.termination_date).slice(0, 10)
+        : null,
+    });
+  }
+
   if (holidayDates.length > 0) {
     // Chunk staff ids — PostgREST .in() has practical URL limits.
     const chunkSize = 80;
@@ -760,11 +809,14 @@ export async function syncPhReplacementBalancesForStaff(params: {
       }
     }
     for (const staffId of staffIds) {
+      const dates = staffDates.get(staffId);
       phCreditsByStaff.set(
         staffId,
         countPhReplacementCredits({
           holidayDates: holidaySet,
           scheduleDays: daysByStaff.get(staffId) ?? [],
+          joiningDate: dates?.joiningDate,
+          terminationDate: dates?.terminationDate,
         }),
       );
     }
@@ -1042,19 +1094,29 @@ export async function getEmployeeLeaveBalances(input: {
       .from("hr_leave_balance_adjustments")
       .select("*")
       .in("balance_id", balanceIds)
+      .in("field", [...MANUAL_LEAVE_ADJUSTMENT_FIELDS])
       .order("created_at", { ascending: false })
       .limit(50);
-    adjustments = (adj ?? []).map((a) => ({
-      id: String(a.id),
-      venue_id: String(a.venue_id),
-      balance_id: String(a.balance_id),
-      field: String(a.field),
-      previous_value: toNumber(a.previous_value),
-      new_value: toNumber(a.new_value),
-      reason: String(a.reason),
-      author_id: a.author_id ? String(a.author_id) : null,
-      created_at: String(a.created_at),
-    }));
+
+    const authorNameById = await profileNamesById(
+      (adj ?? []).map((a) => (a.author_id ? String(a.author_id) : null)),
+    );
+
+    adjustments = (adj ?? []).map((a) => {
+      const authorId = a.author_id ? String(a.author_id) : null;
+      return {
+        id: String(a.id),
+        venue_id: String(a.venue_id),
+        balance_id: String(a.balance_id),
+        field: String(a.field),
+        previous_value: toNumber(a.previous_value),
+        new_value: toNumber(a.new_value),
+        reason: String(a.reason),
+        author_id: authorId,
+        author_name: authorId ? (authorNameById.get(authorId) ?? null) : null,
+        created_at: String(a.created_at),
+      };
+    });
   }
 
   const [scheduleDays, labelsFromDb] = await Promise.all([
@@ -1116,7 +1178,9 @@ export async function getEmployeeLeaveBalances(input: {
     listActiveLeaveTypes(service),
     service
       .from("hr_leave_requests")
-      .select("id, leave_type_id, start_date, end_date, status")
+      .select(
+        "id, leave_type_id, start_date, end_date, status, approved_at, updated_by, updated_at",
+      )
       .eq("venue_id", venue.id)
       .eq("employee_id", input.staffId)
       .lte("start_date", `${year}-12-31`)
@@ -1130,13 +1194,21 @@ export async function getEmployeeLeaveBalances(input: {
     }),
   ]);
 
-  const attendanceApprovedByDate = new Map<string, boolean>();
+  const attendanceByDate = new Map<
+    string,
+    {
+      approved: boolean;
+      updatedBy: string | null;
+      updatedAt: string | null;
+    }
+  >();
   for (const day of attendanceDays) {
     const workDate = String(day.work_date).slice(0, 10);
-    attendanceApprovedByDate.set(
-      workDate,
-      day.approval_status === ATTENDANCE_APPROVED_STATUS,
-    );
+    attendanceByDate.set(workDate, {
+      approved: day.approval_status === ATTENDANCE_APPROVED_STATUS,
+      updatedBy: day.updated_by ? String(day.updated_by) : null,
+      updatedAt: day.updated_at ? String(day.updated_at) : null,
+    });
   }
 
   const typeById = new Map(leaveTypes.map((t) => [t.id, t] as const));
@@ -1147,6 +1219,9 @@ export async function getEmployeeLeaveBalances(input: {
     start_date: string;
     end_date: string;
     status: string;
+    approved_at: string | null;
+    updated_by: string | null;
+    updated_at: string | null;
   };
   const requests = (requestsResult.data ?? []) as RequestMatch[];
   if (requestsResult.error) {
@@ -1155,6 +1230,8 @@ export async function getEmployeeLeaveBalances(input: {
       requestsResult.error.message,
     );
   }
+
+  const approverIdByRange = new Map<ScheduledLeaveRange, string>();
 
   for (const range of scheduledLeaves) {
     const match = requests.find((req) => {
@@ -1181,10 +1258,39 @@ export async function getEmployeeLeaveBalances(input: {
     const rangeDates = eachIsoDateInRange(range.fromDate, range.toDate);
     const allAttendanceApproved =
       rangeDates.length > 0 &&
-      rangeDates.every((date) => attendanceApprovedByDate.get(date) === true);
+      rangeDates.every((date) => attendanceByDate.get(date)?.approved === true);
     if (allAttendanceApproved) {
       range.approvalStatus = "approved";
     }
+
+    if (range.approvalStatus === "approved") {
+      const requestApproved =
+        match &&
+        normalizeLeaveCalendarStatus(match.status) === "approved" &&
+        (match.approved_at || match.updated_at);
+      if (requestApproved) {
+        range.approvedAt = match.approved_at || match.updated_at;
+        if (match.updated_by) approverIdByRange.set(range, match.updated_by);
+      } else {
+        let latestAt: string | null = null;
+        let latestBy: string | null = null;
+        for (const date of rangeDates) {
+          const day = attendanceByDate.get(date);
+          if (!day?.approved || !day.updatedAt) continue;
+          if (!latestAt || day.updatedAt > latestAt) {
+            latestAt = day.updatedAt;
+            latestBy = day.updatedBy;
+          }
+        }
+        range.approvedAt = latestAt;
+        if (latestBy) approverIdByRange.set(range, latestBy);
+      }
+    }
+  }
+
+  const approverNames = await profileNamesById([...approverIdByRange.values()]);
+  for (const [range, userId] of approverIdByRange) {
+    range.approvedByName = approverNames.get(userId) ?? null;
   }
 
   // Live used / scheduled from roster; pending from requests not yet on the roster.
@@ -1689,6 +1795,116 @@ export async function updateLeaveBalanceAdjustment(input: {
   return {};
 }
 
+/** Remove an adjustment audit row and reverse its effect on the live balance. */
+export async function deleteLeaveBalanceAdjustment(input: {
+  adjustmentId: string;
+}): Promise<{ error?: string }> {
+  const { user, venue, permissions } = await getAuthContext();
+
+  if (!canEditStaff(permissions, venue.id) && !canAdminLookups(permissions, venue.id)) {
+    return { error: "You do not have permission to delete leave adjustments." };
+  }
+
+  const service = createServiceClient();
+  const { data: adjRow, error: adjError } = await service
+    .from("hr_leave_balance_adjustments")
+    .select("*")
+    .eq("id", input.adjustmentId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (adjError || !adjRow) {
+    return { error: adjError?.message ?? "Adjustment not found." };
+  }
+
+  const field = String(adjRow.field);
+  if (field !== "adjusted" && field !== "carried_forward") {
+    return { error: "This adjustment cannot be deleted." };
+  }
+
+  const { data: later } = await service
+    .from("hr_leave_balance_adjustments")
+    .select("id")
+    .eq("venue_id", venue.id)
+    .eq("balance_id", String(adjRow.balance_id))
+    .eq("field", field)
+    .gt("created_at", String(adjRow.created_at))
+    .limit(1)
+    .maybeSingle();
+
+  if (later) {
+    return { error: "Delete the newer adjustment on this balance first." };
+  }
+
+  const { data: balRow, error: balError } = await service
+    .from("hr_leave_balances")
+    .select("*")
+    .eq("id", String(adjRow.balance_id))
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+
+  if (balError || !balRow) {
+    return { error: balError?.message ?? "Balance not found." };
+  }
+
+  const bal = normalizeBalance(balRow as Record<string, unknown>);
+  if (field === "carried_forward" && !canCarryForwardLeaveCode(bal.leave_type_code)) {
+    return {
+      error: "Only AL and Public Holiday (PH-REPL) can carry days between years.",
+    };
+  }
+
+  const previousValue = toDays(adjRow.previous_value);
+  const newValue = toDays(adjRow.new_value);
+  const valueDelta = previousValue - newValue;
+  const currentFieldValue =
+    field === "carried_forward" ? bal.carried_forward : bal.adjusted;
+  const nextFieldValue = currentFieldValue + valueDelta;
+
+  if (field === "carried_forward" && nextFieldValue < 0) {
+    return { error: "Carried over days cannot go below zero." };
+  }
+
+  const now = new Date().toISOString();
+
+  if (valueDelta !== 0) {
+    const { error: updBalError } = await service
+      .from("hr_leave_balances")
+      .update({ [field]: nextFieldValue, updated_at: now })
+      .eq("id", bal.id);
+
+    if (updBalError) return { error: updBalError.message };
+  }
+
+  const { error: delError } = await service
+    .from("hr_leave_balance_adjustments")
+    .delete()
+    .eq("id", input.adjustmentId)
+    .eq("venue_id", venue.id);
+
+  if (delError) return { error: delError.message };
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "delete",
+    module_key: HR_MODULE_KEY,
+    entity: "hr_leave_balance_adjustments",
+    entity_id: input.adjustmentId,
+    venue_id: venue.id,
+    after: {
+      field,
+      previous_value: previousValue,
+      new_value: newValue,
+      reason: String(adjRow.reason ?? ""),
+      balance_field_before: currentFieldValue,
+      balance_field_after: nextFieldValue,
+    },
+  });
+
+  revalidatePath("/hr/attendance/leave", "layout");
+  return {};
+}
+
 /** Dates the employee earned PH-REPL by working on a public holiday. */
 export async function getStaffPhReplacementCredits(input: {
   staffId: string;
@@ -1715,7 +1931,7 @@ export async function getStaffPhReplacementCredits(input: {
 
   const { data: staffRow, error: staffError } = await supabase
     .from("staff")
-    .select("id, emp_no, full_name")
+    .select("id, emp_no, full_name, joining_date, termination_date")
     .eq("id", input.staffId)
     .eq("home_venue_id", venue.id)
     .maybeSingle();
@@ -1750,6 +1966,12 @@ export async function getStaffPhReplacementCredits(input: {
   const creditedDates = listPhReplacementCreditDates({
     holidayDates,
     scheduleDays: dayRows,
+    joiningDate: staffRow.joining_date
+      ? String(staffRow.joining_date).slice(0, 10)
+      : null,
+    terminationDate: staffRow.termination_date
+      ? String(staffRow.termination_date).slice(0, 10)
+      : null,
   });
   const creditedSet = new Set(creditedDates);
 
@@ -1938,6 +2160,126 @@ export async function getStaffLeaveUsageDays(input: {
     staffName: String(staffRow.full_name),
     empNo: String(staffRow.emp_no),
     days,
+  };
+}
+
+export type AllowanceDetailsField =
+  | "used"
+  | "scheduled"
+  | "pending"
+  | "available";
+
+/** Roster / request dates behind an Allowances-by-kind cell. */
+export async function getStaffAllowanceDetails(input: {
+  staffId: string;
+  leaveYear?: number;
+  leaveTypeCode: string;
+}): Promise<{
+  error?: string;
+  year: number;
+  leaveTypeCode: string;
+  staffName: string | null;
+  empNo: string | null;
+  used: LeaveUsageDayEntry[];
+  scheduled: LeaveUsageDayEntry[];
+  pending: LeaveUsageDayEntry[];
+}> {
+  const { supabase, venue, permissions } = await getAuthContext();
+  const year = input.leaveYear ?? currentLeaveYear();
+  const leaveTypeCode = input.leaveTypeCode.trim().toUpperCase();
+  const empty = {
+    year,
+    leaveTypeCode,
+    staffName: null as string | null,
+    empNo: null as string | null,
+    used: [] as LeaveUsageDayEntry[],
+    scheduled: [] as LeaveUsageDayEntry[],
+    pending: [] as LeaveUsageDayEntry[],
+  };
+
+  if (!canAccessLeave(permissions, venue.id)) {
+    return {
+      ...empty,
+      error: "You do not have permission to view leave balances.",
+    };
+  }
+
+  const { data: staffRow, error: staffError } = await supabase
+    .from("staff")
+    .select("id, emp_no, full_name")
+    .eq("id", input.staffId)
+    .eq("home_venue_id", venue.id)
+    .maybeSingle();
+
+  if (staffError || !staffRow) {
+    return {
+      ...empty,
+      error: staffError?.message ?? "Employee not found.",
+    };
+  }
+
+  const policy = await getLeavePolicySettings();
+  const service = createServiceClient();
+  const [scheduleDays, leaveTypes, requestsResult] = await Promise.all([
+    listStaffScheduleDays(supabase, venue.id, {
+      staffIds: [input.staffId],
+      fromDate: `${year}-01-01`,
+      toDate: `${year}-12-31`,
+    }),
+    listActiveLeaveTypes(service),
+    service
+      .from("hr_leave_requests")
+      .select("leave_type_id, start_date, end_date, status")
+      .eq("venue_id", venue.id)
+      .eq("employee_id", input.staffId)
+      .lte("start_date", `${year}-12-31`)
+      .gte("end_date", `${year}-01-01`)
+      .not("status", "eq", "cancelled"),
+  ]);
+
+  const refs = scheduleDays.map((d) => ({
+    label_code: d.label_code,
+    work_date: String(d.work_date).slice(0, 10),
+  }));
+  const split = leaveBalanceUsageDates({
+    leaveTypeCode,
+    scheduleDays: refs,
+    policy,
+  });
+  const family =
+    policyCodeToScheduleLeaveCode(leaveTypeCode) ??
+    normalizeScheduleLeaveCode(leaveTypeCode);
+  const typeById = new Map(leaveTypes.map((t) => [t.id, t] as const));
+  const pendingDates = pendingLeaveDatesForFamily({
+    familyCode: family,
+    leaveYear: year,
+    scheduleDays: refs,
+    requests: (requestsResult.data ?? []).map((req) => {
+      const type = typeById.get(req.leave_type_id as string);
+      return {
+        scheduleCode: type ? scheduleCodeForType(type) : "",
+        startDate: String(req.start_date).slice(0, 10),
+        endDate: String(req.end_date).slice(0, 10),
+        status: String(req.status),
+      };
+    }),
+  });
+
+  const toEntries = (
+    dates: string[],
+    labelCode: string,
+    detail: string,
+  ): LeaveUsageDayEntry[] =>
+    dates.map((date) => ({ date, labelCode, detail }));
+
+  return {
+    year,
+    leaveTypeCode,
+    staffName: String(staffRow.full_name),
+    empNo: String(staffRow.emp_no),
+    used: toEntries(split.usedDates, leaveTypeCode, "Used"),
+    scheduled: toEntries(split.scheduledDates, leaveTypeCode, "Scheduled"),
+    pending: toEntries(pendingDates, family, "Pending approval"),
   };
 }
 
@@ -2525,7 +2867,12 @@ export async function saveLeaveCalendarEntry(input: {
   }
 
   const labelCode = normalizeScheduleLeaveCode(input.labelCode.trim().toUpperCase());
-  if (!isScheduleLeaveLabel(labelCode) && labelCode !== "LP") {
+  const isRosterOnlyLabel = labelCode === "ABS";
+  if (
+    !isScheduleLeaveLabel(labelCode) &&
+    labelCode !== "LP" &&
+    !isRosterOnlyLabel
+  ) {
     return { error: "Unknown leave type." };
   }
   if (
@@ -2566,12 +2913,6 @@ export async function saveLeaveCalendarEntry(input: {
     };
   }
 
-  const leaveTypes = await listActiveLeaveTypes(service);
-  const leaveType = findLeaveTypeForScheduleLabel(leaveTypes, labelCode);
-  if (!leaveType) {
-    return { error: `No leave type configured for ${labelCode}.` };
-  }
-
   const days = countInclusiveDays(input.fromDate, input.toDate);
   const notes = input.notes?.trim() || null;
   const now = new Date().toISOString();
@@ -2593,6 +2934,17 @@ export async function saveLeaveCalendarEntry(input: {
       previousLabel: input.previousLabelCode,
     });
     if (synced.error) return synced;
+  }
+
+  // ABS is roster/payroll only — no leave-type ledger or request.
+  if (isRosterOnlyLabel) {
+    return {};
+  }
+
+  const leaveTypes = await listActiveLeaveTypes(service);
+  const leaveType = findLeaveTypeForScheduleLabel(leaveTypes, labelCode);
+  if (!leaveType) {
+    return { error: `No leave type configured for ${labelCode}.` };
   }
 
   let requestId = input.requestId ?? null;

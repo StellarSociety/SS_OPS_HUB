@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -32,14 +32,19 @@ import { toast } from "@/components/ui/toast";
 import {
   adjustLeaveBalance,
   approveLeaveCalendarEntry,
+  deleteLeaveBalanceAdjustment,
+  getStaffAllowanceDetails,
+  getStaffPhReplacementCredits,
   rejectLeaveCalendarEntry,
   updateLeaveBalanceAdjustment,
+  type AllowanceDetailsField,
 } from "@/lib/actions/hr-leave";
 import {
   availableBalance,
   canCarryForwardLeaveCode,
   findLeaveType,
   formatLeaveDays,
+  isManualLeaveAdjustmentField,
   isUsageOnlyLeaveCode,
   roundDays,
   leaveCalendarStatusLabel,
@@ -47,6 +52,8 @@ import {
   scheduleLeaveDisplayName,
   type LeaveCalendarEvent,
   type LeaveCalendarStatus,
+  type LeaveUsageDayEntry,
+  type PhReplacementCreditEntry,
   type ScheduledLeaveLabelStyle,
   type ScheduledLeaveRange,
   type AnnualLeaveCalculationBreakdown,
@@ -350,22 +357,38 @@ export function LeaveEmployeeDetail({
   const [editAdjReason, setEditAdjReason] = useState("");
   const [editAdjMessage, setEditAdjMessage] = useState<string | null>(null);
   const [editAdjPending, startEditAdjTransition] = useTransition();
+  const [phCreditsOpen, setPhCreditsOpen] = useState(false);
+  const [phCreditsPending, startPhCredits] = useTransition();
+  const [phCreditsError, setPhCreditsError] = useState<string | null>(null);
+  const [phCredits, setPhCredits] = useState<PhReplacementCreditEntry[]>([]);
+  const [allowanceDetailsOpen, setAllowanceDetailsOpen] = useState(false);
+  const [allowanceDetailsField, setAllowanceDetailsField] =
+    useState<AllowanceDetailsField>("available");
+  const [allowanceDetailsCode, setAllowanceDetailsCode] = useState("AL");
+  const [allowanceDetailsPending, startAllowanceDetails] = useTransition();
+  const [allowanceDetailsError, setAllowanceDetailsError] = useState<
+    string | null
+  >(null);
+  const [allowanceDetailsDays, setAllowanceDetailsDays] = useState<{
+    used: LeaveUsageDayEntry[];
+    scheduled: LeaveUsageDayEntry[];
+    pending: LeaveUsageDayEntry[];
+  } | null>(null);
 
   const byCode = new Map(balances.map((b) => [b.leave_type_code, b]));
   const labelByCode = new Map(scheduleLabels.map((l) => [l.code, l]));
+  const recentManualAdjustments = adjustments
+    .filter((a) => isManualLeaveAdjustmentField(a.field))
+    .slice(0, 8);
   const scheduledLeaveDays = scheduledLeaves.reduce((sum, r) => sum + r.days, 0);
   const joinedLabel = formatDayMonthYear(staff.joining_date);
   const terminatedLabel = formatDayMonthYear(staff.termination_date);
-  const adjustBalance = byCode.get(adjustCode);
   const adjustType = findLeaveType(policy, adjustCode);
   const adjustSupportsCarry = canCarryForwardLeaveCode(adjustCode);
   const effectiveAdjustField =
     adjustField === "carried_forward" && !adjustSupportsCarry
       ? "adjusted"
       : adjustField;
-  const adjustAvailable = adjustBalance
-    ? availableBalance(adjustBalance)
-    : null;
   const primaryAllowances = PRIMARY_ALLOWANCE_CODES.map((code) =>
     byCode.get(code),
   ).filter((bal): bal is HrLeaveBalance => Boolean(bal));
@@ -548,6 +571,70 @@ export function LeaveEmployeeDetail({
       }
       cancelEditAdjustment();
       toast.saved("Adjustment updated.");
+      router.refresh();
+    });
+  }
+
+  function openPhCredits() {
+    setPhCredits([]);
+    setPhCreditsError(null);
+    setPhCreditsOpen(true);
+    startPhCredits(async () => {
+      const result = await getStaffPhReplacementCredits({
+        staffId: staff.id,
+        leaveYear: year,
+      });
+      if (result.error) {
+        setPhCreditsError(result.error);
+        return;
+      }
+      setPhCredits(result.credits);
+    });
+  }
+
+  function openAllowanceDetails(
+    code: string,
+    field: AllowanceDetailsField,
+  ) {
+    setAllowanceDetailsCode(code);
+    setAllowanceDetailsField(field);
+    setAllowanceDetailsDays(null);
+    setAllowanceDetailsError(null);
+    setAllowanceDetailsOpen(true);
+    startAllowanceDetails(async () => {
+      const result = await getStaffAllowanceDetails({
+        staffId: staff.id,
+        leaveYear: year,
+        leaveTypeCode: code,
+      });
+      if (result.error) {
+        setAllowanceDetailsError(result.error);
+        return;
+      }
+      setAllowanceDetailsDays({
+        used: result.used,
+        scheduled: result.scheduled,
+        pending: result.pending,
+      });
+    });
+  }
+
+  function runDeleteAdjustment(a: HrLeaveBalanceAdjustment) {
+    const change = a.new_value - a.previous_value;
+    const ok = window.confirm(
+      `Delete this ${a.field} adjustment (${change > 0 ? "+" : ""}${fmt(change)})? The live balance will be reversed.`,
+    );
+    if (!ok) return;
+    startEditAdjTransition(async () => {
+      const result = await deleteLeaveBalanceAdjustment({
+        adjustmentId: a.id,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      if (editingAdjustmentId === a.id) cancelEditAdjustment();
+      toast.saved("Adjustment deleted.");
       router.refresh();
     });
   }
@@ -839,23 +926,28 @@ export function LeaveEmployeeDetail({
                 </th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Days already taken (past) on the roster / approved usage."
+                  title="Days already taken (past) on the roster / approved usage. Click for dates."
                 >
                   Used
                 </th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Future leave days already marked on the roster (held against the balance)."
+                  title="Future leave days already marked on the roster (held against the balance). Click for dates."
                 >
                   Scheduled
                 </th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Leave request days waiting for approval (not on the roster yet)."
+                  title="Leave request days waiting for approval (not on the roster yet). Click for dates."
                 >
                   Pending
                 </th>
-                <th className="px-3 py-2 font-medium text-right">Available</th>
+                <th
+                  className="px-3 py-2 font-medium text-right"
+                  title="Remaining days: Total − Used − Scheduled − Pending. Click for the breakdown."
+                >
+                  Available
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black/5">
@@ -892,10 +984,30 @@ export function LeaveEmployeeDetail({
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {usageOnly ? "—" : fmt(bal.entitled)}
+                      {usageOnly ? (
+                        "—"
+                      ) : bal.leave_type_code === "PH-REPL" ? (
+                        <EntitlementDatesLink
+                          value={bal.entitled}
+                          title="View public holiday dates that earned this credit"
+                          onOpen={openPhCredits}
+                        />
+                      ) : (
+                        fmt(bal.entitled)
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {usageOnly ? "—" : fmt(bal.accrued)}
+                      {usageOnly ? (
+                        "—"
+                      ) : bal.leave_type_code === "PH-REPL" ? (
+                        <EntitlementDatesLink
+                          value={bal.accrued}
+                          title="View public holiday dates that earned this credit"
+                          onOpen={openPhCredits}
+                        />
+                      ) : (
+                        fmt(bal.accrued)
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {canCarryForwardLeaveCode(bal.leave_type_code)
@@ -909,16 +1021,47 @@ export function LeaveEmployeeDetail({
                       {usageOnly ? "—" : fmt(totalPool)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {fmt(bal.used)}
+                      <DaysLink
+                        value={bal.used}
+                        title="View days used"
+                        onOpen={() =>
+                          openAllowanceDetails(bal.leave_type_code, "used")
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {fmt(bal.scheduled)}
+                      <DaysLink
+                        value={bal.scheduled}
+                        title="View days scheduled"
+                        onOpen={() =>
+                          openAllowanceDetails(bal.leave_type_code, "scheduled")
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {fmt(bal.pending)}
+                      <DaysLink
+                        value={bal.pending}
+                        title="View pending request days"
+                        onOpen={() =>
+                          openAllowanceDetails(bal.leave_type_code, "pending")
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums font-medium">
-                      {usageOnly ? "—" : fmt(availableBalance(bal))}
+                      {usageOnly ? (
+                        "—"
+                      ) : (
+                        <DaysLink
+                          value={availableBalance(bal)}
+                          title="View remaining days breakdown"
+                          onOpen={() =>
+                            openAllowanceDetails(
+                              bal.leave_type_code,
+                              "available",
+                            )
+                          }
+                        />
+                      )}
                     </td>
                   </tr>
                 );
@@ -956,39 +1099,14 @@ export function LeaveEmployeeDetail({
               )}
             />
           </button>
+          <p className="mt-1 max-w-2xl text-sm text-black/55">
+            Adjust the mid-year correction counter, or override carried-over
+            days from last year (AL and Public Holiday only). A reason is
+            required and kept in the audit history.
+          </p>
           {showManualAdjustment ? (
             <Card className="mt-3 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <p className="max-w-2xl text-sm text-black/55">
-              Adjust the mid-year correction counter, or override carried-over
-              days from last year (AL and Public Holiday only). A reason is
-              required and kept in the audit history.
-            </p>
-            {adjustBalance && adjustAvailable != null ? (
-              <div className="rounded-lg border border-black/10 bg-white px-3 py-2 text-right">
-                <p className="text-[11px] uppercase tracking-wide text-black/45">
-                  {adjustCode} available
-                </p>
-                <p className="font-serif text-xl tabular-nums text-[#3D421F]">
-                  {fmt(adjustAvailable)}
-                  <span className="ml-1 text-sm font-sans text-black/45">
-                    days
-                  </span>
-                </p>
-                <p className="text-xs text-black/45">
-                  Adjusted: {fmt(adjustBalance.adjusted)}
-                  {adjustSupportsCarry ? (
-                    <>
-                      {" "}
-                      · Carried over: {fmt(adjustBalance.carried_forward)}
-                    </>
-                  ) : null}
-                </p>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-12">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-12">
             <div className="space-y-1.5 lg:col-span-3">
               <Label className="text-sm text-[#3D421F]">Leave type</Label>
               <select
@@ -1138,13 +1256,13 @@ export function LeaveEmployeeDetail({
             ) : null}
           </div>
 
-          {adjustments.length > 0 ? (
+          {recentManualAdjustments.length > 0 ? (
             <div className="mt-5 border-t border-black/10 pt-4">
               <p className="text-xs font-medium uppercase tracking-wide text-black/45">
                 Recent adjustments
               </p>
               <ul className="mt-2 divide-y divide-black/5 rounded-lg border border-black/10 bg-white">
-                {adjustments.slice(0, 8).map((a) => {
+                {recentManualAdjustments.map((a) => {
                   const change = a.new_value - a.previous_value;
                   const isEditing = editingAdjustmentId === a.id;
                   if (isEditing) {
@@ -1180,9 +1298,14 @@ export function LeaveEmployeeDetail({
                               {fmt(previewChange)}
                             </span>
                           </div>
-                          <time className="text-xs text-black/40">
-                            {formatAdjustmentWhen(a.created_at)}
-                          </time>
+                          <div className="text-right">
+                            <p className="text-xs text-black/45">
+                              By {a.author_name ?? "unknown user"}
+                            </p>
+                            <time className="text-xs text-black/40">
+                              {formatAdjustmentWhen(a.created_at)}
+                            </time>
+                          </div>
                         </div>
                         <div className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_auto]">
                           <div className="space-y-1">
@@ -1247,7 +1370,7 @@ export function LeaveEmployeeDetail({
                   return (
                     <li
                       key={a.id}
-                      className="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2.5 text-sm"
+                      className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5 text-sm"
                     >
                       <div>
                         <span className="font-mono text-xs text-black/45">
@@ -1273,9 +1396,14 @@ export function LeaveEmployeeDetail({
                         <p className="mt-0.5 text-black/55">{a.reason}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <time className="text-xs text-black/40">
-                          {formatAdjustmentWhen(a.created_at)}
-                        </time>
+                        <div className="text-right">
+                          <p className="text-xs text-black/45">
+                            By {a.author_name ?? "unknown user"}
+                          </p>
+                          <time className="text-xs text-black/40">
+                            {formatAdjustmentWhen(a.created_at)}
+                          </time>
+                        </div>
                         <button
                           type="button"
                           aria-label="Edit adjustment"
@@ -1285,6 +1413,16 @@ export function LeaveEmployeeDetail({
                           className="inline-flex h-7 w-7 items-center justify-center rounded-md text-black/40 transition hover:bg-black/[0.04] hover:text-[#3D421F] disabled:opacity-40"
                         >
                           <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Delete adjustment"
+                          title="Delete adjustment"
+                          onClick={() => runDeleteAdjustment(a)}
+                          disabled={editAdjPending || editingAdjustmentId != null}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-rose-700/70 transition hover:bg-rose-50 hover:text-rose-800 disabled:opacity-40"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </li>
@@ -1336,19 +1474,20 @@ export function LeaveEmployeeDetail({
           <div className="mt-3 overflow-x-auto rounded-xl border border-black/10 bg-white">
             <div
               className={cn(
-                "grid min-w-[52rem] items-center gap-x-4 border-b border-black/10 bg-black/[0.02] px-4 py-2 text-[11px] font-medium uppercase tracking-wide text-black/45",
+                "grid min-w-[62rem] items-center gap-x-4 border-b border-black/10 bg-black/[0.02] px-4 py-2 text-[11px] font-medium uppercase tracking-wide text-black/45",
                 canManage
-                  ? "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_10rem]"
-                  : "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_3.5rem]",
+                  ? "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_10rem_10rem]"
+                  : "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_10rem_3.5rem]",
               )}
             >
               <span>Leave</span>
               <span className="text-right">Days</span>
               <span className="text-right">Timing</span>
               <span className="text-right">Approval</span>
+              <span className="text-right">Approved by</span>
               <span className="text-right">Actions</span>
             </div>
-            <ul className="min-w-[52rem] divide-y divide-black/5">
+            <ul className="min-w-[62rem] divide-y divide-black/5">
               {scheduledLeaves.map((range) => {
                 const label = labelByCode.get(range.labelCode);
                 const name =
@@ -1369,8 +1508,8 @@ export function LeaveEmployeeDetail({
                     className={cn(
                       "grid items-center gap-x-4 px-4 py-3",
                       canManage
-                        ? "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_10rem]"
-                        : "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_3.5rem]",
+                        ? "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_10rem_10rem]"
+                        : "grid-cols-[minmax(14rem,1.6fr)_5rem_6.5rem_8rem_10rem_3.5rem]",
                     )}
                   >
                     <div className="flex min-w-0 items-center gap-3">
@@ -1427,6 +1566,23 @@ export function LeaveEmployeeDetail({
                         {leaveCalendarStatusLabel(approvalStatus)}
                       </span>
                     </div>
+                    <div className="min-w-0 text-right">
+                      {isApproved &&
+                      (range.approvedByName || range.approvedAt) ? (
+                        <>
+                          <p className="truncate text-xs text-black/55">
+                            {range.approvedByName ?? "Unknown user"}
+                          </p>
+                          {range.approvedAt ? (
+                            <time className="text-xs text-black/40">
+                              {formatAdjustmentWhen(range.approvedAt)}
+                            </time>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="text-xs text-black/30">—</span>
+                      )}
+                    </div>
                     <div className="flex flex-nowrap items-center justify-end gap-1.5">
                       <button
                         type="button"
@@ -1449,22 +1605,20 @@ export function LeaveEmployeeDetail({
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
-                          {!isAbs ? (
-                            <button
-                              type="button"
-                              disabled={rowBusy || scheduleActionPending}
-                              onClick={() =>
-                                setEditingLeave(
-                                  scheduledRangeToEvent(range, staff),
-                                )
-                              }
-                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-black/[0.03] disabled:opacity-50"
-                              aria-label="Edit"
-                              title="Edit"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                          ) : null}
+                          <button
+                            type="button"
+                            disabled={rowBusy || scheduleActionPending}
+                            onClick={() =>
+                              setEditingLeave(
+                                scheduledRangeToEvent(range, staff),
+                              )
+                            }
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-black/[0.03] disabled:opacity-50"
+                            aria-label="Edit"
+                            title="Edit"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
                           <button
                             type="button"
                             disabled={
@@ -1530,6 +1684,477 @@ export function LeaveEmployeeDetail({
           onClose={() => setActivityLeave(null)}
         />
       ) : null}
+
+      {phCreditsOpen ? (
+        <PhReplacementCreditsDialog
+          year={year}
+          staffName={staff.full_name}
+          empNo={staff.emp_no}
+          credits={phCredits}
+          pending={phCreditsPending}
+          error={phCreditsError}
+          onClose={() => setPhCreditsOpen(false)}
+        />
+      ) : null}
+
+      {allowanceDetailsOpen ? (
+        <AllowanceDaysDialog
+          year={year}
+          staffName={staff.full_name}
+          empNo={staff.emp_no}
+          leaveTypeCode={allowanceDetailsCode}
+          leaveTypeName={leaveTypeDisplayName(
+            allowanceDetailsCode,
+            findLeaveType(policy, allowanceDetailsCode),
+          )}
+          field={allowanceDetailsField}
+          balance={byCode.get(allowanceDetailsCode) ?? null}
+          days={allowanceDetailsDays}
+          pending={allowanceDetailsPending}
+          error={allowanceDetailsError}
+          onClose={() => setAllowanceDetailsOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DaysLink({
+  value,
+  title,
+  onOpen,
+}: {
+  value: number;
+  title: string;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "rounded px-1 py-0.5 tabular-nums underline-offset-2 transition",
+        "text-[var(--venue-primary,#818a40)] hover:bg-[var(--venue-secondary,#F0F3DD)] hover:underline",
+      )}
+      title={title}
+      onClick={onOpen}
+    >
+      {fmt(value)}
+    </button>
+  );
+}
+
+function EntitlementDatesLink({
+  value,
+  title,
+  onOpen,
+}: {
+  value: number;
+  title: string;
+  onOpen: () => void;
+}) {
+  return <DaysLink value={value} title={title} onOpen={onOpen} />;
+}
+
+function allowanceFieldCopy(field: AllowanceDetailsField): {
+  title: string;
+  description: string;
+} {
+  switch (field) {
+    case "used":
+      return {
+        title: "Days used",
+        description: "Roster days already taken (before today).",
+      };
+    case "scheduled":
+      return {
+        title: "Days scheduled",
+        description: "Roster days from today onward, held against this balance.",
+      };
+    case "pending":
+      return {
+        title: "Days pending",
+        description:
+          "Leave request days waiting for approval and not yet on the roster.",
+      };
+    case "available":
+      return {
+        title: "Remaining days",
+        description:
+          "Total minus used, scheduled, and pending. Dates below are what has already been taken or held.",
+      };
+  }
+}
+
+function AllowanceDayList({
+  days,
+  emptyLabel,
+}: {
+  days: LeaveUsageDayEntry[];
+  emptyLabel: string;
+}) {
+  if (days.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-black/15 bg-black/[0.02] px-3 py-5 text-center text-sm text-black/45">
+        {emptyLabel}
+      </p>
+    );
+  }
+  return (
+    <ul className="max-h-56 divide-y divide-black/5 overflow-y-auto rounded-lg border border-black/10">
+      {days.map((day) => (
+        <li
+          key={`${day.date}:${day.labelCode}:${day.detail ?? ""}`}
+          className="flex items-baseline justify-between gap-3 px-3 py-2.5 text-sm"
+        >
+          <div className="min-w-0">
+            <p className="font-medium text-[#3D421F]">
+              {formatDayMonthYear(day.date) ?? day.date}
+            </p>
+            {day.detail ? (
+              <p className="truncate text-xs text-black/50">{day.detail}</p>
+            ) : null}
+          </div>
+          <span className="shrink-0 font-mono text-[11px] text-black/40">
+            {day.labelCode}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function BreakdownRow({
+  label,
+  value,
+  emphasize,
+}: {
+  label: string;
+  value: string;
+  emphasize?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-baseline justify-between gap-4 text-sm",
+        emphasize && "border-t border-black/10 pt-2 font-medium",
+      )}
+    >
+      <p className="text-[#3D421F]">{label}</p>
+      <p className="tabular-nums text-[#3D421F]">{value}</p>
+    </div>
+  );
+}
+
+function AllowanceDaysDialog({
+  year,
+  staffName,
+  empNo,
+  leaveTypeCode,
+  leaveTypeName,
+  field,
+  balance,
+  days,
+  pending,
+  error,
+  onClose,
+}: {
+  year: number;
+  staffName: string;
+  empNo: string;
+  leaveTypeCode: string;
+  leaveTypeName: string;
+  field: AllowanceDetailsField;
+  balance: HrLeaveBalance | null;
+  days: {
+    used: LeaveUsageDayEntry[];
+    scheduled: LeaveUsageDayEntry[];
+    pending: LeaveUsageDayEntry[];
+  } | null;
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const copy = allowanceFieldCopy(field);
+  const earnedPool =
+    balance && (balance.accrued > 0 || balance.entitled === 0)
+      ? balance.accrued
+      : (balance?.entitled ?? 0);
+  const totalPool = balance
+    ? earnedPool + balance.carried_forward + balance.adjusted
+    : 0;
+  const visibleDays =
+    field === "used"
+      ? (days?.used ?? [])
+      : field === "scheduled"
+        ? (days?.scheduled ?? [])
+        : field === "pending"
+          ? (days?.pending ?? [])
+          : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="allowance-days-title"
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl border border-black/10 bg-white p-5 shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-mono text-xs text-black/45">
+              {leaveTypeCode} · {year}
+            </p>
+            <h2
+              id="allowance-days-title"
+              className="font-serif text-xl text-[#3D421F]"
+            >
+              {copy.title}
+            </h2>
+            <p className="mt-1 truncate text-sm text-black/55">
+              {leaveTypeName} · {staffName}{" "}
+              <span className="font-mono text-xs">({empNo})</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-black/45 transition-colors hover:bg-black/[0.04] hover:text-[#3D421F]"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <p className="mt-3 text-sm text-black/55">{copy.description}</p>
+
+        {pending ? (
+          <p className="mt-4 text-sm text-black/45">Loading…</p>
+        ) : error ? (
+          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900/85">
+            {error}
+          </p>
+        ) : field === "available" && balance ? (
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2 rounded-lg border border-black/10 bg-black/[0.02] px-3 py-3">
+              <BreakdownRow
+                label={
+                  balance.accrued > 0 || balance.entitled === 0
+                    ? "Accrued"
+                    : "Entitled"
+                }
+                value={fmt(earnedPool)}
+              />
+              <BreakdownRow
+                label="Carried over"
+                value={fmt(balance.carried_forward)}
+              />
+              <BreakdownRow label="Adjusted" value={fmt(balance.adjusted)} />
+              <BreakdownRow
+                label="Total"
+                value={fmt(totalPool)}
+                emphasize
+              />
+              <BreakdownRow
+                label="Used"
+                value={balance.used === 0 ? fmt(0) : `−${fmt(balance.used)}`}
+              />
+              <BreakdownRow
+                label="Scheduled"
+                value={
+                  balance.scheduled === 0
+                    ? fmt(0)
+                    : `−${fmt(balance.scheduled)}`
+                }
+              />
+              <BreakdownRow
+                label="Pending"
+                value={
+                  balance.pending === 0 ? fmt(0) : `−${fmt(balance.pending)}`
+                }
+              />
+              {balance.expired !== 0 ? (
+                <BreakdownRow
+                  label="Expired"
+                  value={`−${fmt(Math.abs(balance.expired))}`}
+                />
+              ) : null}
+              <BreakdownRow
+                label="Available"
+                value={fmt(availableBalance(balance))}
+                emphasize
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+                Used ({days?.used.length ?? 0})
+              </p>
+              <AllowanceDayList
+                days={days?.used ?? []}
+                emptyLabel={`No used days in ${year}.`}
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+                Scheduled ({days?.scheduled.length ?? 0})
+              </p>
+              <AllowanceDayList
+                days={days?.scheduled ?? []}
+                emptyLabel={`No scheduled days in ${year}.`}
+              />
+            </div>
+            {(days?.pending.length ?? 0) > 0 || balance.pending > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+                  Pending ({days?.pending.length ?? 0})
+                </p>
+                <AllowanceDayList
+                  days={days?.pending ?? []}
+                  emptyLabel={`No pending request days in ${year}.`}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-4">
+            <AllowanceDayList
+              days={visibleDays ?? []}
+              emptyLabel={`No matching days in ${year}.`}
+            />
+            {!pending && !error ? (
+              <p className="mt-3 text-xs tabular-nums text-black/45">
+                {(visibleDays ?? []).length} day
+                {(visibleDays ?? []).length === 1 ? "" : "s"}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PhReplacementCreditsDialog({
+  year,
+  staffName,
+  empNo,
+  credits,
+  pending,
+  error,
+  onClose,
+}: {
+  year: number;
+  staffName: string;
+  empNo: string;
+  credits: PhReplacementCreditEntry[];
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ph-credits-title"
+        className="w-full max-w-md rounded-xl border border-black/10 bg-white p-5 shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-mono text-xs text-black/45">PH-REPL · {year}</p>
+            <h2
+              id="ph-credits-title"
+              className="font-serif text-xl text-[#3D421F]"
+            >
+              Public holiday credits
+            </h2>
+            <p className="mt-1 truncate text-sm text-black/55">
+              {staffName}{" "}
+              <span className="font-mono text-xs">({empNo})</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-black/45 transition-colors hover:bg-black/[0.04] hover:text-[#3D421F]"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <p className="mt-3 text-sm text-black/55">
+          Dates this employee worked a public holiday after joining. Future
+          rostered holidays do not count until the day is worked.
+        </p>
+
+        {pending ? (
+          <p className="mt-4 text-sm text-black/45">Loading…</p>
+        ) : error ? (
+          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900/85">
+            {error}
+          </p>
+        ) : credits.length === 0 ? (
+          <p className="mt-4 rounded-lg border border-dashed border-black/15 bg-black/[0.02] px-3 py-6 text-center text-sm text-black/45">
+            No PH replacement credits earned in {year}.
+          </p>
+        ) : (
+          <ul className="mt-4 max-h-72 divide-y divide-black/5 overflow-y-auto rounded-lg border border-black/10">
+            {credits.map((credit) => (
+              <li
+                key={credit.date}
+                className="flex items-baseline justify-between gap-3 px-3 py-2.5 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-[#3D421F]">
+                    {formatDayMonthYear(credit.date) ?? credit.date}
+                  </p>
+                  <p className="truncate text-xs text-black/50">
+                    {credit.holidayName?.trim() || "Public holiday"}
+                  </p>
+                </div>
+                <span className="shrink-0 font-mono text-[11px] text-black/40">
+                  {credit.labelCode}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {!pending && !error ? (
+          <p className="mt-3 text-xs tabular-nums text-black/45">
+            {credits.length} credit{credits.length === 1 ? "" : "s"} · one day
+            per public holiday worked
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

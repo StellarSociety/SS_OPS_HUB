@@ -20,7 +20,9 @@ import {
 import {
   DEFAULT_HR_EXPIRY_SETTINGS,
   HR_SETTINGS_KEYS,
+  partitionExpiryItems,
 } from "@/lib/hr/types";
+import { GraduationCap } from "lucide-react";
 
 export default async function StaffInsightsPage() {
   const { supabase, venue } = await getHrPageContext();
@@ -54,6 +56,8 @@ export default async function StaffInsightsPage() {
     staff,
     DEFAULT_ANNIVERSARY_LEAD_DAYS,
   );
+  const { documents: documentExpiries, trainings: trainingExpiries } =
+    partitionExpiryItems(expiryItems);
 
   return (
     <div className="space-y-4">
@@ -65,9 +69,18 @@ export default async function StaffInsightsPage() {
         />
 
         <ExpiryWidgets
-          items={expiryItems}
+          items={documentExpiries}
           leadDays={leadDays}
           title="Upcoming expiries"
+          emptyDescription={`No passport, ID, visa, or insurance items expiring within ${leadDays} days.`}
+        />
+
+        <ExpiryWidgets
+          items={trainingExpiries}
+          leadDays={leadDays}
+          title="Training expiries"
+          icon={GraduationCap}
+          emptyDescription={`No training certificates expiring within ${leadDays} days.`}
         />
       </div>
 

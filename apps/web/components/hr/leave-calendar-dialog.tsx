@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -64,8 +64,34 @@ export function LeaveCalendarDialog({
     [fromDate, toDate],
   );
 
+  const typeOptions = useMemo(() => {
+    const current = event?.labelCode;
+    if (!current || leaveTypes.some((t) => t.code === current)) {
+      return leaveTypes;
+    }
+    return [
+      {
+        code: current,
+        name: scheduleLeaveDisplayName(current),
+        bgColor: "#f5f5f4",
+        textColor: "#3D421F",
+        borderColor: "rgba(0,0,0,0.12)",
+      },
+      ...leaveTypes,
+    ];
+  }, [event?.labelCode, leaveTypes]);
+
   const selectedType =
-    leaveTypes.find((t) => t.code === labelCode) ?? leaveTypes[0];
+    typeOptions.find((t) => t.code === labelCode) ?? typeOptions[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !pending) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, pending, onClose]);
 
   if (!open || !event) return null;
 
@@ -229,7 +255,7 @@ export function LeaveCalendarDialog({
               onChange={(e) => setLabelCode(e.target.value)}
               className="h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20 disabled:opacity-60"
             >
-              {leaveTypes.map((t) => (
+              {typeOptions.map((t) => (
                 <option key={t.code} value={t.code}>
                   {t.code} — {t.name}
                 </option>

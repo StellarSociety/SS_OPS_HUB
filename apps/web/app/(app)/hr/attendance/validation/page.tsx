@@ -1,8 +1,13 @@
 import { AttendanceApprovalsTable } from "@/components/hr/attendance-approvals-table";
+import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
 import { validationEmployeeOptions } from "@/lib/hr/build-attendance-validation-rows";
-import { canApproveAttendance, canEditSchedules } from "@/lib/hr/permissions";
+import {
+  canAccessAttendanceValidation,
+  canApproveAttendance,
+  canEditSchedules,
+} from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
@@ -51,6 +56,9 @@ export default async function AttendanceValidationPage({
   const payrollRunId = params.payrollRunId?.trim() || null;
 
   const { supabase, user, venue, permissions } = await getHrPageContext();
+  if (!canAccessAttendanceValidation(permissions, venue.id)) {
+    return <AccessDeniedBounce />;
+  }
   const canEditRoster = canEditSchedules(permissions, venue.id);
   const canApprove = canApproveAttendance(permissions, venue.id);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { LayoutDashboard, Settings, Upload, Users } from "lucide-react";
+import { usePageAccess } from "@/components/providers/page-access-provider";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 
@@ -25,10 +26,11 @@ const links = [
 
 export function HrSubNav() {
   const pathname = useRelativePathname();
+  const { canOpenHref } = usePageAccess();
 
   return (
     <nav className="flex flex-wrap gap-1 border-b border-black/10 pb-3">
-      {links.map((link) => {
+      {links.filter((link) => canOpenHref(link.href)).map((link) => {
         const matchBase = "activePrefix" in link ? link.activePrefix! : link.href;
         const active = link.exact
           ? pathname === matchBase
