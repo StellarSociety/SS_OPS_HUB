@@ -409,6 +409,8 @@ export const moduleCatalog: ModuleDef[] = [
         label: "Attendance validation",
         href: "/hr/attendance/validation",
         group: "attendance",
+        description:
+          "Open Validation. Editor can correct roster labels. Approving days requires Attendance Validator under Sensitive content.",
       },
       {
         key: "attendance_insights",
@@ -468,6 +470,13 @@ export const moduleCatalog: ModuleDef[] = [
         label: "Schedule Approval",
         description:
           "Can be selected as a weekly schedule approver. Approvers revise the roster and confirm publish so Editors can download the schedule PDF.",
+        sensitive: true,
+      },
+      {
+        key: "attendance_validator",
+        label: "Attendance Validator",
+        description:
+          "Can approve attendance days on Validation. Payroll and leave use only approved days. Separate from weekly Schedule Approval — page Editors can still correct roster labels without this grant.",
         sensitive: true,
       },
       {

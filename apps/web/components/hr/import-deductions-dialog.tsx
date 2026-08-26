@@ -175,6 +175,15 @@ export function ImportDeductionsDialog({
     }
   }, [pending, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !pending) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, pending, onClose]);
+
   const filteredRows = useMemo(() => {
     const q = staffQuery.trim().toLowerCase();
     if (!q) return rows;
@@ -292,7 +301,7 @@ export function ImportDeductionsDialog({
     sourceMeta && !sourceMeta.available
       ? `${sourceMeta.label} deductions are not wired up yet. Uniform, Assets, and Visa runs are available today.`
       : source === "visa_runs"
-        ? "No outstanding visa employee charges. Uncheck “Company covered” on a visa penalty to queue it here."
+        ? "No outstanding visa payroll deductions. Tick Employee pays on a visa penalty to queue it here. Employee already paid (payback) appears under Import Benefits."
         : "No outstanding deductions for this filter. Charges stay listed until fully recovered.";
 
   return createPortal(
@@ -324,6 +333,7 @@ export function ImportDeductionsDialog({
             payroll. Any remainder stays visible on future runs until cleared.
             Uniform, Assets, and Visa runs (employee-charged penalties) are
             live; Insurance and Certifications appear as those modules ship.
+            Visa paybacks (employee already paid) import under Import Benefits.
           </p>
         </div>
 
@@ -499,7 +509,9 @@ export function ImportDeductionsDialog({
                           </td>
                           <td className="max-w-[14rem] px-3 py-2.5 text-black/55">
                             <span className="line-clamp-2">
-                              {row.reason || row.label}
+                              {row.category === "variable"
+                                ? `Pay back · ${row.reason || row.label}`
+                                : row.reason || row.label}
                             </span>
                           </td>
                           <td className="px-3 py-2.5">

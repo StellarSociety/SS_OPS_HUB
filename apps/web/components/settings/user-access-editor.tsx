@@ -154,6 +154,7 @@ const FEATURE_ICONS: Partial<Record<string, LucideIcon>> = {
   "hr:attendance_insights": LineChart,
   "hr:attendance": CalendarCheck,
   "hr:attendance_validation": ClipboardCheck,
+  "hr:attendance_validator": CircleCheckBig,
   "hr:leave": CalendarOff,
   "hr:benefits": HandCoins,
   "hr:payroll": Wallet,
@@ -914,7 +915,7 @@ export function UserAccessEditor({
                           </span>{" "}
                           — the user won&apos;t see it anywhere in this app.
                         </p>
-                        <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                           {sensitive.map((f) => {
                             const granted = config.sensitive.includes(f.key);
                             return (

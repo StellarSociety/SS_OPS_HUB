@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
@@ -10,6 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
@@ -19,29 +22,51 @@ import {
 } from "lucide-react";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { PayrollPaidDaysCalendarDialog } from "@/components/hr/payroll-paid-days-calendar-dialog";
 import { Button } from "@/components/ui/button";
+import { BenefitReopenControl } from "@/components/hr/benefit-reopen-control";
 import {
   finalizeBenefitRun,
+  getBenefitStaffWorkedDaysCalendar,
   recalculateBenefitRun,
   saveBenefitRunDraft,
   updateBenefitRunAsphKpiThreshold,
   updateBenefitRunDepartmentShares,
+  updateBenefitRunWithheldRetainDisposition,
+  type WithheldRetainDisposition,
   updateBenefitStaffOverride,
 } from "@/lib/actions/hr-benefits";
 import {
   BENEFIT_RUN_STATUS_LABELS,
+  canReopenBenefitRun,
+  isBenefitRunLocked,
+  allocateCutToRetainAndPool,
+  appliedDeductionsByStaffForMonth,
   floorPayoutToAed5,
   formatBenefitMonthLabel,
+  mergeBenefitPayout,
+  mergeBenefitRunPerson,
   sumAed5RoundingRemainder,
   type BenefitContributor,
   type BenefitKind,
+  type BenefitPayoutMap,
+  type BenefitRunRosterMap,
+  type BenefitDeductionEntry,
   type BenefitRunStatus,
   type BenefitRunTotals,
   type DisciplinaryWarningLevel,
   type GratuityDisciplinaryDeduction,
+  type BenefitPointTier,
   type WaiterCcTipOutMode,
+  normalizePersonName,
+  findBenefitPointTierForStaff,
+  findMappedBenefitPointTierForStaff,
+  resolveBenefitPointsForStaff,
+  DEFAULT_GRATUITY_POINT_TIERS,
 } from "@/lib/hr/benefits";
 import { exportBenefitRunPdf } from "@/lib/hr/benefit-run-export";
+import type { PayrollDayFraction } from "@/lib/hr/payroll";
 import { cn } from "@/lib/utils";
 import {
   segmentedSubNavLinkClass,
@@ -60,6 +85,57 @@ function formatMoney(amount: number | null | undefined): string {
 
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function TipBreakdownRow({
+  label,
+  value,
+  indent = 0,
+  tone = "row",
+  negative = false,
+}: {
+  label: string;
+  value: number;
+  indent?: 0 | 1 | 2;
+  tone?: "group" | "row" | "total";
+  negative?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-baseline justify-between gap-2 py-1",
+        tone === "group" && "border-b border-black/5",
+        tone === "total" &&
+          "mt-1 rounded-md bg-black/[0.06] px-2 py-1.5",
+      )}
+    >
+      <dt
+        className={cn(
+          "min-w-0 leading-snug",
+          indent === 1 && "pl-3",
+          indent === 2 && "pl-5",
+          tone === "group" && "font-medium text-[#3D421F]",
+          tone === "row" && "text-black/50",
+          tone === "total" && "font-medium text-[#3D421F]",
+        )}
+      >
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          "shrink-0 tabular-nums",
+          tone === "total"
+            ? "text-base font-semibold text-[#3D421F]"
+            : tone === "group"
+              ? "font-medium text-[#3D421F]"
+              : "font-medium text-black/65",
+        )}
+      >
+        {negative ? "−" : ""}
+        {formatMoney(value)}
+      </dd>
+    </div>
+  );
 }
 
 type PayoutDisplayMode = "rounded" | "exact";
@@ -84,7 +160,9 @@ export type BenefitAllocationView = {
   full_name: string | null;
   emp_no: string | null;
   photo_url: string | null;
+  department_id: string | null;
   department_name: string | null;
+  position_id: string | null;
   position_name: string | null;
   amount: number;
   points: number | null;
@@ -122,6 +200,27 @@ type ContributorSortKey =
   | "deduction"
   | "contributedToPool"
   | "retain";
+
+type CollectionDaysEntry = { days: number; dates: string[] };
+
+const EMPTY_COLLECTION_DAYS: {
+  byStaffId: Record<string, CollectionDaysEntry>;
+  byNormalizedName: Record<string, CollectionDaysEntry>;
+} = { byStaffId: {}, byNormalizedName: {} };
+
+function dayFractionsFromCollectionDates(
+  dates: string[],
+): PayrollDayFraction[] {
+  return dates.map((date) => ({
+    workDate: date,
+    labelCode: "SHIFT",
+    approved: true,
+    payFraction: 1,
+    unpaidFraction: 0,
+    isLeave: false,
+    paidStatus: "worked" as const,
+  }));
+}
 
 type DeptOrderItem = { key: string; label: string; percent?: number };
 
@@ -271,6 +370,11 @@ function retainOf(
 function poolShareOf(row: BenefitAllocationView): number {
   const meta = (row.meta ?? {}) as { poolShare?: number };
   return Math.max(0, Number(meta.poolShare) || 0);
+}
+
+function excludedFromRun(row: BenefitAllocationView): boolean {
+  const meta = (row.meta ?? {}) as { excluded?: unknown };
+  return meta.excluded === true;
 }
 
 function deductionPctOf(row: BenefitAllocationView): number {
@@ -458,62 +562,114 @@ function SortLabel<K extends string>({
 
 function PointsCell({
   row,
+  tiers,
   canEdit,
   disabled,
   onSave,
 }: {
   row: BenefitAllocationView;
+  tiers: BenefitPointTier[];
   canEdit: boolean;
   disabled: boolean;
-  onSave: (points: number) => void;
+  onSave: (points: number | null) => void;
 }) {
-  const display = row.points == null ? "" : String(row.points);
-  const overridden = Boolean(
-    (row.meta as { pointsOverridden?: boolean } | null)?.pointsOverridden,
-  );
+  const options = tiers.length > 0 ? tiers : DEFAULT_GRATUITY_POINT_TIERS;
+  const staffRef = {
+    position_id: row.position_id,
+    position_name: row.position_name,
+    department_name: row.department_name,
+  };
+  const mapped = findMappedBenefitPointTierForStaff(staffRef, options);
+  const displayed = findBenefitPointTierForStaff(staffRef, options);
+  const settingsPoints = resolveBenefitPointsForStaff(staffRef, options);
+  const current = row.points;
+  const overridden =
+    current != null && round2(current) !== round2(settingsPoints);
+  const currentTier =
+    current == null
+      ? undefined
+      : options.find((tier) => round2(tier.points) === round2(current));
+  const selectValue = overridden
+    ? (currentTier?.key ?? "__custom__")
+    : (displayed?.key ?? currentTier?.key ?? "");
+  const display = overridden
+    ? currentTier
+      ? String(currentTier.points)
+      : current == null
+        ? "—"
+        : String(current)
+    : displayed
+      ? String(displayed.points)
+      : current == null
+        ? "—"
+        : String(current);
 
   if (!canEdit) {
     return (
-      <span className="inline-block tabular-nums">
-        {row.points ?? "—"}
-        {overridden ? (
-          <span className="ml-1 text-[10px] font-medium uppercase text-black/35">
-            edit
-          </span>
-        ) : null}
+      <span
+        className={cn(
+          "inline-block tabular-nums",
+          overridden &&
+            "rounded-md border-2 border-orange-500 px-1.5 py-0.5",
+        )}
+        title={
+          overridden
+            ? "Overridden for this run"
+            : displayed
+              ? displayed.label
+              : undefined
+        }
+      >
+        {display}
       </span>
     );
   }
 
   return (
-    <input
-      key={`${row.staff_id}-${display}`}
-      type="number"
-      min={0}
-      step="0.1"
-      inputMode="decimal"
-      defaultValue={display}
+    <select
+      value={selectValue}
       disabled={disabled}
-      onBlur={(e) => {
-        const next = Number(e.target.value);
-        if (!Number.isFinite(next) || next < 0) {
-          e.target.value = display;
+      onChange={(e) => {
+        const key = e.target.value;
+        if (key === "__custom__") return;
+        const tier = options.find((t) => t.key === key);
+        if (!tier) return;
+        const next = round2(tier.points);
+        if (round2(next) === round2(settingsPoints)) {
+          if (!overridden && round2(Number(current) || 0) === next) return;
+          onSave(null);
           return;
         }
-        if (round2(next) === round2(Number(row.points) || 0)) return;
-        onSave(round2(next));
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          (e.target as HTMLInputElement).blur();
-        }
+        if (round2(Number(current) || 0) === next) return;
+        onSave(next);
       }}
       className={cn(
-        "mx-auto block h-8 w-16 rounded-md border border-black/10 bg-white px-2 text-center text-sm tabular-nums text-[#3D421F] outline-none focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20 disabled:bg-black/[0.03] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-        overridden && "border-[var(--venue-primary)]/40",
+        "mx-auto block h-8 max-w-[10.5rem] rounded-md border bg-white px-1.5 text-xs text-[#3D421F] outline-none focus:ring-2 disabled:bg-black/[0.03]",
+        overridden
+          ? "border-2 border-orange-500 focus:border-orange-500 focus:ring-orange-500/25"
+          : "border-black/10 focus:border-[var(--venue-primary)]/50 focus:ring-[var(--venue-primary)]/20",
       )}
-      aria-label={`Points for ${row.full_name ?? row.emp_no ?? "staff"}`}
-    />
+      aria-label={`Points tier for ${row.full_name ?? row.emp_no ?? "staff"}`}
+      title={
+        overridden
+          ? "Overridden for this run. Choose the settings tier to reset."
+          : mapped
+            ? `${mapped.label} (${mapped.points} pts) from Pay → Benefits — you can override for this run`
+            : displayed
+              ? `${displayed.label} (${displayed.points} pts)`
+              : "Choose a points tier for this run"
+      }
+    >
+      {!selectValue ? <option value="">Choose tier…</option> : null}
+      {options.map((tier) => (
+        <option key={tier.key} value={tier.key}>
+          {tier.points} · {tier.label}
+        </option>
+      ))}
+      {overridden && !currentTier && current != null ? (
+        <option value="__custom__">{current} · Custom</option>
+      ) : null}
+    </select>
   );
 }
 
@@ -570,12 +726,56 @@ function DeductionCell({
   );
 }
 
+function BenefitDeductionAmount({ amount }: { amount: number }) {
+  if (!(amount > 0)) return null;
+  return (
+    <span className="block tabular-nums text-xs font-semibold text-red-800/85">
+      −{formatMoney(amount)}
+    </span>
+  );
+}
+
+type WorkedDaysCalendarTarget = {
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  workedDays: number;
+  mode: "roster" | "collection";
+  collectionDates?: string[];
+};
+
+function WorkedDaysLink({
+  days,
+  onOpen,
+  title = "View worked / leave days for this benefit period",
+}: {
+  days: number | null | undefined;
+  onOpen?: () => void;
+  title?: string;
+}) {
+  if (days == null || Number.isNaN(Number(days))) return "—";
+  const n = Number(days);
+  const label = Number.isInteger(n) ? String(n) : String(round2(n));
+  if (!onOpen) return label;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="rounded underline-offset-2 transition hover:underline text-[var(--venue-primary,#818a40)] hover:bg-[var(--venue-primary,#818a40)]/10"
+      title={title}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function BenefitRunClient({
   kind,
   run,
   allocations,
   canEdit,
   disciplinaryOptions = [],
+  pointTiers = DEFAULT_GRATUITY_POINT_TIERS,
   departmentOrder = NO_DEPARTMENT_ORDER,
   policyDepartmentPercents = {},
   poolContributionRule = null,
@@ -587,6 +787,13 @@ export function BenefitRunClient({
   venueName = "Venue",
   venueLogoUrl = null,
   userDisplayName = "Unknown",
+  payouts = {},
+  rosters = {},
+  deductionEntries = [],
+  waiterCollectionDays = EMPTY_COLLECTION_DAYS,
+  allocationWorkedDaysByStaff = {},
+  waiveWithheldRetain = false,
+  withheldRetainToPool = false,
 }: {
   kind: BenefitKind;
   run: {
@@ -602,6 +809,7 @@ export function BenefitRunClient({
   allocations: BenefitAllocationView[];
   canEdit: boolean;
   disciplinaryOptions?: GratuityDisciplinaryDeduction[];
+  pointTiers?: BenefitPointTier[];
   departmentOrder?: DeptOrderItem[];
   /** Venue policy department % (Pay → Benefits), used to restore "Department %". */
   policyDepartmentPercents?: Record<string, number>;
@@ -621,6 +829,22 @@ export function BenefitRunClient({
   venueName?: string;
   venueLogoUrl?: string | null;
   userDisplayName?: string;
+  /** Historical payable amounts by kind|month|staff, for deduction rollover. */
+  payouts?: BenefitPayoutMap;
+  /** Who is on each month’s run, used to split deductions. */
+  rosters?: BenefitRunRosterMap;
+  deductionEntries?: BenefitDeductionEntry[];
+  /** Live count of days each waiter collected gratuity in this run’s period. */
+  waiterCollectionDays?: {
+    byStaffId: Record<string, CollectionDaysEntry>;
+    byNormalizedName: Record<string, CollectionDaysEntry>;
+  };
+  /** Live roster SHIFT+OFF counts for Allocations (PH excluded). */
+  allocationWorkedDaysByStaff?: Record<string, number>;
+  /** This run only: pay retain that would otherwise be withheld. */
+  waiveWithheldRetain?: boolean;
+  /** This run only: add withheld retain to the allocation share pool. */
+  withheldRetainToPool?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -663,6 +887,17 @@ export function BenefitRunClient({
       ? String(asphKpiThreshold)
       : "",
   );
+  const [workedDaysCalendar, setWorkedDaysCalendar] =
+    useState<WorkedDaysCalendarTarget | null>(null);
+  const [workedDaysCalendarLoading, setWorkedDaysCalendarLoading] =
+    useState(false);
+  const [workedDaysCalendarDays, setWorkedDaysCalendarDays] = useState<
+    PayrollDayFraction[]
+  >([]);
+  const workedDaysCalendarCacheRef = useRef(
+    new Map<string, PayrollDayFraction[]>(),
+  );
+  const workedDaysCalendarRequestRef = useRef(0);
 
   useEffect(() => {
     setAsphThresholdDraft(
@@ -686,8 +921,17 @@ export function BenefitRunClient({
       barCashToBarStaff?: number;
       disciplinaryFromContributors?: number;
       runnerHousekeeperFund?: number;
+      gross?: number;
       ose?: number;
+      oseFromPool?: number;
+      oseFromRetain?: number;
       activities?: number;
+      activitiesFromPool?: number;
+      activitiesFromRetain?: number;
+      withheldRetain?: number;
+      withheldRetainToPool?: number;
+      benefitDeductions?: number;
+      net?: number;
       byDepartment?: Record<string, number>;
     };
     contributors?: BenefitContributor[];
@@ -711,20 +955,113 @@ export function BenefitRunClient({
       (w) =>
         !/No recorded OS&E \/ staff activities collections/i.test(w) &&
         !/Bar waiter ".+" has tips but is not linked to staff/i.test(w) &&
+        !/Withheld retain .+ moved to (collections|the allocation share pool)/i.test(
+          w,
+        ) &&
         // Service charge has no departmental split — drop warnings kept on
         // runs calculated under the old department policy.
         !(kind === "service_charge" && /^Department ".+" has /i.test(w)),
     );
   }, [kind, warnings, totals.warnings]);
 
-  const canRecalc =
-    canEdit &&
-    !["applied_to_payroll", "cancelled"].includes(run.status);
+  const withheldRetainWarning = useMemo(() => {
+    const source =
+      warnings.length > 0 ? warnings : (totals.warnings ?? []);
+    return (
+      source.find((w) =>
+        /Withheld retain .+ moved to collections/i.test(w),
+      ) ?? null
+    );
+  }, [warnings, totals.warnings]);
+
+  const withheldRetainToPoolWarning = useMemo(() => {
+    const source =
+      warnings.length > 0 ? warnings : (totals.warnings ?? []);
+    return (
+      source.find((w) =>
+        /Withheld retain .+ moved to the allocation share pool/i.test(w),
+      ) ?? null
+    );
+  }, [warnings, totals.warnings]);
+
+  const canRecalc = canEdit && !isBenefitRunLocked(run.status);
   const canFinalize =
     canEdit &&
     ["draft", "calculated", "review"].includes(run.status);
   const canEditAllocations = canRecalc;
+  const canReopen = canEdit && canReopenBenefitRun(run.status);
   const monthDays = daysInBenefitMonth(run.benefit_month);
+
+  function setWithheldRetainDisposition(next: WithheldRetainDisposition) {
+    if (!canEditAllocations) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await updateBenefitRunWithheldRetainDisposition(
+        run.id,
+        next,
+      );
+      if (!result.ok) {
+        setError(result.error ?? "Could not update withheld retain.");
+        return;
+      }
+      setWarnings(result.warnings ?? []);
+      router.refresh();
+    });
+  }
+
+  function allocationWorkedDays(row: BenefitAllocationView): number | null {
+    if (row.staff_id in allocationWorkedDaysByStaff) {
+      return allocationWorkedDaysByStaff[row.staff_id] ?? 0;
+    }
+    return row.worked_days;
+  }
+
+  const payoutsWithThisRun = useMemo(() => {
+    let next: BenefitPayoutMap = { ...payouts };
+    for (const row of allocations) {
+      next = mergeBenefitPayout(
+        next,
+        kind,
+        run.benefit_month,
+        row.staff_id,
+        Number(row.amount) || 0,
+      );
+    }
+    return next;
+  }, [allocations, kind, payouts, run.benefit_month]);
+
+  const rostersWithThisRun = useMemo(() => {
+    let next: BenefitRunRosterMap = { ...rosters };
+    for (const row of allocations) {
+      next = mergeBenefitRunPerson(next, kind, run.benefit_month, {
+        staffId: row.staff_id,
+        amount: Number(row.amount) || 0,
+        empNo: row.emp_no,
+        fullName: row.full_name || "Staff",
+        departmentId: row.department_id,
+        departmentName: row.department_name,
+      });
+    }
+    return next;
+  }, [allocations, kind, rosters, run.benefit_month]);
+
+  const appliedByStaff = useMemo(
+    () =>
+      appliedDeductionsByStaffForMonth(
+        deductionEntries,
+        payoutsWithThisRun,
+        kind,
+        run.benefit_month,
+        rostersWithThisRun,
+      ),
+    [
+      deductionEntries,
+      kind,
+      payoutsWithThisRun,
+      rostersWithThisRun,
+      run.benefit_month,
+    ],
+  );
 
   useEffect(() => {
     const next = Object.fromEntries(
@@ -755,13 +1092,26 @@ export function BenefitRunClient({
     >();
 
     for (const row of allocations) {
-      const meta = (row.meta ?? {}) as { waiter?: unknown };
-      // Tip collectors retain outside the department pool — exclude from weight/%.
-      if (kind === "gratuity" && meta.waiter) continue;
+      if (excludedFromRun(row)) continue;
+
+      const meta = (row.meta ?? {}) as {
+        waiter?: { bar?: boolean } | null;
+      };
+      const waiter = meta.waiter;
+      const isBarCollector = Boolean(
+        waiter && typeof waiter === "object" && waiter.bar === true,
+      );
+      const isFloorCollector = Boolean(waiter) && !isBarCollector;
+      // Floor waiters keep retain under Contributors — not department pool headcount.
+      if (kind === "gratuity" && isFloorCollector && poolShareOf(row) <= 0) {
+        continue;
+      }
+
+      const days = Number(allocationWorkedDays(row)) || 0;
+      if (days <= 0) continue;
 
       const key = departmentKeyOf(row, departmentOrder);
       const points = Number(row.points) || 0;
-      const days = Number(row.worked_days) || 0;
       const discPct = deductionPctOf(row);
       const discMult = Math.max(0, 1 - discPct / 100);
       const weight = points * days * discMult;
@@ -787,6 +1137,7 @@ export function BenefitRunClient({
     });
   }, [
     allocations,
+    allocationWorkedDaysByStaff,
     departmentOrder,
     deptPercents,
     kind,
@@ -989,6 +1340,7 @@ export function BenefitRunClient({
 
   const contributors = useMemo(() => {
     type ContributorRow = BenefitContributor & {
+      withheld: boolean;
       workedDays: number | null;
       obtain: number;
       retain: number | null;
@@ -1009,36 +1361,67 @@ export function BenefitRunClient({
         alloc != null
           ? obtainOf(alloc)
           : round2((Number(row.cashCollected) || 0) + (Number(row.ccCollected) || 0));
-      // A collection source without a linked staff allocation has no payable
-      // Retain. Do not infer a payout from Obtain − Pool Contribution.
-      const retain =
-        alloc != null
+      const withheld = Boolean(row.withheld);
+      // Withheld retain is booked to collections, not paid. Still show the
+      // computed amount on the row. Unlinked sources stay null (no payout).
+      const retain = withheld
+        ? Number.isFinite(Number(row.retain))
+          ? Number(row.retain)
+          : 0
+        : alloc != null
           ? retainOf(alloc, obtain, Number(row.contributedToPool) || 0)
-          : null;
+          : row.retain != null && Number.isFinite(Number(row.retain))
+            ? Number(row.retain)
+            : null;
       const waiterMeta = alloc
         ? ((alloc.meta ?? {}) as {
             waiter?: {
               asph?: number | null;
               ccTipOutPercent?: number | null;
               asphKpiMet?: boolean | null;
+              collectionDays?: number;
+              collectionDates?: string[];
             } | null;
           }).waiter
         : null;
-      const asphRaw = Number(waiterMeta?.asph);
-      const tipOutRaw = Number(waiterMeta?.ccTipOutPercent);
+      const liveCollection =
+        (row.staffId
+          ? waiterCollectionDays.byStaffId[row.staffId]
+          : undefined) ??
+        waiterCollectionDays.byNormalizedName[normalizePersonName(row.name)];
+      const persistedDates = Array.isArray(row.collectionDates)
+        ? row.collectionDates
+        : Array.isArray(waiterMeta?.collectionDates)
+          ? waiterMeta.collectionDates
+          : [];
+      const collectionDates = liveCollection?.dates ?? persistedDates;
+      const collectionDays =
+        liveCollection?.days ??
+        (row.collectionDays != null ? Number(row.collectionDays) : null) ??
+        (waiterMeta?.collectionDays != null
+          ? Number(waiterMeta.collectionDays)
+          : null) ??
+        (collectionDates.length > 0 ? collectionDates.length : null);
+      const asphRaw = Number(waiterMeta?.asph ?? row.asph);
+      const tipOutRaw = Number(waiterMeta?.ccTipOutPercent ?? row.ccTipOutPercent);
+      const asphKpiMet =
+        typeof waiterMeta?.asphKpiMet === "boolean"
+          ? waiterMeta.asphKpiMet
+          : typeof row.asphKpiMet === "boolean"
+            ? row.asphKpiMet
+            : null;
       return {
         ...row,
-        workedDays: alloc?.worked_days ?? null,
+        withheld,
+        workedDays: collectionDays,
+        collectionDates,
         obtain,
         retain,
         deductionPct: alloc != null ? deductionPctOf(alloc) : 0,
         amount: alloc != null ? Number(alloc.amount) || 0 : null,
         asph: Number.isFinite(asphRaw) ? asphRaw : null,
         tipOutPercent: Number.isFinite(tipOutRaw) ? tipOutRaw : null,
-        asphKpiMet:
-          typeof waiterMeta?.asphKpiMet === "boolean"
-            ? waiterMeta.asphKpiMet
-            : null,
+        asphKpiMet,
         photoUrl: alloc?.photo_url ?? null,
         allocation: alloc ?? null,
       };
@@ -1058,6 +1441,8 @@ export function BenefitRunClient({
             cashPool?: number;
             ccTipOut?: number;
             barCcPool?: number;
+            collectionDays?: number;
+            collectionDates?: string[];
           } | null;
         };
         const waiter = meta.waiter;
@@ -1070,6 +1455,9 @@ export function BenefitRunClient({
             (Number(waiter.barCcPool) || 0),
         );
         if (cash <= 0 && cc <= 0 && toPool <= 0) continue;
+        const collectionDates = Array.isArray(waiter.collectionDates)
+          ? waiter.collectionDates
+          : [];
         base.push({
           staffId: row.staff_id,
           empNo: row.emp_no,
@@ -1079,12 +1467,33 @@ export function BenefitRunClient({
           cashCollected: cash,
           ccCollected: cc,
           contributedToPool: toPool,
+          collectionDays:
+            waiter.collectionDays != null
+              ? Number(waiter.collectionDays)
+              : collectionDates.length || undefined,
+          collectionDates,
         });
       }
     }
 
     return base.map(enrich);
-  }, [allocations, totals.contributors]);
+  }, [allocations, totals.contributors, waiterCollectionDays]);
+
+  const contributorCutsByStaff = useMemo(() => {
+    const map = new Map<string, { cut: number; net: number }>();
+    for (const row of contributors) {
+      if (!row.staffId || row.withheld) continue;
+      const applied = appliedByStaff.get(row.staffId) ?? 0;
+      const retain = Number(row.retain) || 0;
+      const pool = row.allocation ? poolShareOf(row.allocation) : 0;
+      const { retainCut } = allocateCutToRetainAndPool(applied, retain, pool);
+      map.set(row.staffId, {
+        cut: retainCut,
+        net: round2(Math.max(0, retain - retainCut)),
+      });
+    }
+    return map;
+  }, [appliedByStaff, contributors]);
 
   const sortedContributors = useMemo(() => {
     const dir = contributorSortDir === "asc" ? 1 : -1;
@@ -1112,7 +1521,12 @@ export function BenefitRunClient({
           case "tipOutPercent":
             return row.tipOutPercent ?? -Infinity;
           case "deduction":
-            return row.deductionPct;
+            return (
+              (row.staffId
+                ? contributorCutsByStaff.get(row.staffId)?.cut ?? 0
+                : 0) +
+              row.deductionPct / 1000
+            );
           case "contributedToPool":
             return row.contributedToPool;
           case "retain":
@@ -1132,7 +1546,12 @@ export function BenefitRunClient({
         }) * dir
       );
     });
-  }, [contributors, contributorSortKey, contributorSortDir]);
+  }, [
+    contributors,
+    contributorCutsByStaff,
+    contributorSortKey,
+    contributorSortDir,
+  ]);
 
   const contributorTotals = useMemo(() => {
     return contributors.reduce(
@@ -1142,11 +1561,20 @@ export function BenefitRunClient({
         acc.cashCollected += Number(row.cashCollected) || 0;
         acc.obtain += row.obtain;
         acc.contributedToPool += Number(row.contributedToPool) || 0;
-        acc.retain += Number(row.retain) || 0;
-        acc.roundedRetain += displayPayoutAmount(
-          Number(row.retain) || 0,
-          payoutMode,
-        );
+        const netRetain = row.withheld
+          ? 0
+          : row.staffId
+            ? contributorCutsByStaff.get(row.staffId)?.net ??
+              (Number(row.retain) || 0)
+            : Number(row.retain) || 0;
+        const cut = row.withheld
+          ? 0
+          : row.staffId
+            ? contributorCutsByStaff.get(row.staffId)?.cut ?? 0
+            : 0;
+        acc.deduction += cut;
+        acc.retain += netRetain;
+        acc.roundedRetain += displayPayoutAmount(netRetain, payoutMode);
         return acc;
       },
       {
@@ -1155,11 +1583,12 @@ export function BenefitRunClient({
         cashCollected: 0,
         obtain: 0,
         contributedToPool: 0,
+        deduction: 0,
         retain: 0,
         roundedRetain: 0,
       },
     );
-  }, [contributors, payoutMode]);
+  }, [contributors, contributorCutsByStaff, payoutMode]);
 
   const contributorStaffIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1178,19 +1607,294 @@ export function BenefitRunClient({
       kind === "gratuity"
         ? allocations.filter(
             (row) =>
-              !contributorStaffIds.has(row.staff_id) || poolShareOf(row) > 0,
+              !contributorStaffIds.has(row.staff_id) ||
+              poolShareOf(row) > 0 ||
+              excludedFromRun(row),
           )
         : allocations,
     [allocations, contributorStaffIds, kind],
   );
 
+  const contributorAlsoAllocated = useMemo(() => {
+    if (kind !== "gratuity") return [];
+    const allocated = new Map(
+      poolAllocationRows.map((row) => [row.staff_id, row]),
+    );
+    const seen = new Set<string>();
+    const rows: Array<{ staffId: string; empNo: string; name: string }> = [];
+    for (const row of contributors) {
+      if (!row.staffId || seen.has(row.staffId)) continue;
+      const alloc = allocated.get(row.staffId);
+      if (!alloc || excludedFromRun(alloc)) continue;
+      seen.add(row.staffId);
+      rows.push({
+        staffId: row.staffId,
+        empNo: (row.empNo ?? alloc.emp_no ?? "—").trim() || "—",
+        name: (row.name || alloc.full_name || row.staffId).trim(),
+      });
+    }
+    return rows.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
+  }, [contributors, kind, poolAllocationRows]);
+
+  const allocationCutsByStaff = useMemo(() => {
+    const map = new Map<string, { cut: number; net: number }>();
+    for (const row of poolAllocationRows) {
+      const applied = appliedByStaff.get(row.staff_id) ?? 0;
+      const amount = Number(row.amount) || 0;
+      if (!contributorStaffIds.has(row.staff_id)) {
+        const cut = round2(Math.min(applied, amount));
+        map.set(row.staff_id, {
+          cut,
+          net: round2(Math.max(0, amount - cut)),
+        });
+        continue;
+      }
+      const pool = poolShareOf(row);
+      const retain = retainOf(row, obtainOf(row), 0);
+      const { poolCut } = allocateCutToRetainAndPool(applied, retain, pool);
+      map.set(row.staff_id, {
+        cut: poolCut,
+        net: round2(Math.max(0, amount - poolCut)),
+      });
+    }
+    return map;
+  }, [appliedByStaff, contributorStaffIds, poolAllocationRows]);
+
+  const paidDistributionAmounts = useMemo(() => {
+    const amounts: number[] = [];
+    const counted = new Set<string>();
+    for (const row of poolAllocationRows) {
+      if (excludedFromRun(row)) continue;
+      const net =
+        allocationCutsByStaff.get(row.staff_id)?.net ??
+        (Number(row.amount) || 0);
+      amounts.push(net);
+      if (row.staff_id) counted.add(row.staff_id);
+    }
+    for (const row of contributors) {
+      if (row.withheld || row.retain == null) continue;
+      if (row.staffId && counted.has(row.staffId)) continue;
+      const net = row.staffId
+        ? contributorCutsByStaff.get(row.staffId)?.net ??
+          (Number(row.retain) || 0)
+        : Number(row.retain) || 0;
+      amounts.push(net);
+    }
+    return amounts;
+  }, [
+    allocationCutsByStaff,
+    contributorCutsByStaff,
+    poolAllocationRows,
+    contributors,
+  ]);
+
+  const roundingCollected = useMemo(() => {
+    if (payoutMode === "exact") return 0;
+    return sumAed5RoundingRemainder(paidDistributionAmounts);
+  }, [payoutMode, paidDistributionAmounts]);
+
+  const withheldRetainToPoolAmount = useMemo(() => {
+    const stored = Number(totals.pool?.withheldRetainToPool);
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    return 0;
+  }, [totals.pool?.withheldRetainToPool]);
+
+  const disciplinaryFromContributors = useMemo(() => {
+    const stored = Number(totals.pool?.disciplinaryFromContributors);
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    let fromMeta = 0;
+    for (const row of allocations) {
+      const meta = (row.meta ?? {}) as { disciplinaryRetainCut?: number };
+      const cut = Number(meta.disciplinaryRetainCut) || 0;
+      if (cut > 0) fromMeta = round2(fromMeta + cut);
+    }
+    return fromMeta;
+  }, [allocations, totals.pool?.disciplinaryFromContributors]);
+
+  const withheldRetain = useMemo(() => {
+    if (waiveWithheldRetain || withheldRetainToPool) return 0;
+    const stored = Number(totals.pool?.withheldRetain);
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    return round2(
+      contributors
+        .filter((row) => row.withheld)
+        .reduce((sum, row) => sum + (Number(row.retain) || 0), 0),
+    );
+  }, [
+    contributors,
+    totals.pool?.withheldRetain,
+    waiveWithheldRetain,
+    withheldRetainToPool,
+  ]);
+
+  const distributedTotal = useMemo(() => {
+    return round2(
+      paidDistributionAmounts.reduce(
+        (sum, amount) => sum + displayPayoutAmount(amount, payoutMode),
+        0,
+      ),
+    );
+  }, [paidDistributionAmounts, payoutMode]);
+
+  const barCashCollected = Number(totals.barCashCollected) || 0;
+  const barCcCollected = Number(totals.barCcCollected) || 0;
+  const waiterCashCollected = Number(totals.waiterCashCollected) || 0;
+  const waiterCcCollected = Number(totals.waiterCcCollected) || 0;
+  const allBarCollections = round2(barCashCollected + barCcCollected);
+  const totalTips = round2(
+    waiterCashCollected + waiterCcCollected + allBarCollections,
+  );
+  const barCcPoolPercent = Number(poolContributionRule?.barCcPoolPercent) || 0;
+  const barCcBarStaffPercent =
+    Number(poolContributionRule?.barCcBarStaffPercent) || 0;
+  const barCcToPool = Number(totals.pool?.barCcToPool) || 0;
+  const barCcToBarStaff =
+    Number(totals.pool?.barCcToBarStaff) > 0
+      ? Number(totals.pool.barCcToBarStaff)
+      : Math.max(0, round2(barCcCollected - barCcToPool));
+  const waiterCashTipOut = Number(totals.pool?.waiterCashTipOut) || 0;
+  const waiterCcTipOut = Number(totals.pool?.waiterCcTipOut) || 0;
+  const waiterCashRetain = round2(waiterCashCollected - waiterCashTipOut);
+  const waiterCcRetain = round2(waiterCcCollected - waiterCcTipOut);
+  const waiterCashPoolPct =
+    Number(poolContributionRule?.waiterCashPoolPercent) || 0;
+  const waiterCashRetainPct = Math.max(0, round2(100 - waiterCashPoolPct));
+  const waiterCcPoolPct =
+    poolContributionRule?.waiterCcTipOutMode === "collection_percent"
+      ? Number(poolContributionRule.waiterCcCollectionTipOutPercent) || 0
+      : null;
+  const barCashToBarStaff =
+    Number(totals.pool?.barCashToBarStaff) > 0
+      ? Number(totals.pool.barCashToBarStaff)
+      : barCashCollected;
+  const generalPoolGross =
+    Number(totals.pool?.gross) > 0
+      ? Number(totals.pool.gross)
+      : round2(waiterCashTipOut + waiterCcTipOut + barCcToPool);
+  const runnerHkFund = Number(totals.pool?.runnerHousekeeperFund) || 0;
+  const barStaffFund = round2(barCcToBarStaff + barCashToBarStaff);
+  const oseTotal = Number(totals.pool?.ose) || 0;
+  const activitiesTotal = Number(totals.pool?.activities) || 0;
+  const oseFromPool =
+    totals.pool?.oseFromPool != null &&
+    Number.isFinite(Number(totals.pool.oseFromPool))
+      ? Number(totals.pool.oseFromPool)
+      : round2(
+          (generalPoolGross * (Number(deductionPercents.osePercent) || 0)) /
+            100,
+        );
+  const oseFromRetain =
+    totals.pool?.oseFromRetain != null &&
+    Number.isFinite(Number(totals.pool.oseFromRetain))
+      ? Number(totals.pool.oseFromRetain)
+      : round2(oseTotal - oseFromPool);
+  const activitiesFromPool =
+    totals.pool?.activitiesFromPool != null &&
+    Number.isFinite(Number(totals.pool.activitiesFromPool))
+      ? Number(totals.pool.activitiesFromPool)
+      : round2(
+          (generalPoolGross *
+            (Number(deductionPercents.activitiesPercent) || 0)) /
+            100,
+        );
+  const activitiesFromRetain =
+    totals.pool?.activitiesFromRetain != null &&
+    Number.isFinite(Number(totals.pool.activitiesFromRetain))
+      ? Number(totals.pool.activitiesFromRetain)
+      : round2(activitiesTotal - activitiesFromPool);
+
+  const departmentPoolNet =
+    Number(totals.poolNet) || Number(totals.pool?.net) || 0;
+  const allocationsShare = round2(
+    departmentPoolNet + barStaffFund + runnerHkFund,
+  );
+  const waitersRetainPaid = round2(contributorTotals.retain);
+  const deductedThisRun = useMemo(() => {
+    let allocationCuts = 0;
+    for (const row of poolAllocationRows) {
+      if (excludedFromRun(row)) continue;
+      allocationCuts = round2(
+        allocationCuts + (allocationCutsByStaff.get(row.staff_id)?.cut ?? 0),
+      );
+    }
+    return round2(allocationCuts + contributorTotals.deduction);
+  }, [
+    allocationCutsByStaff,
+    contributorTotals.deduction,
+    poolAllocationRows,
+  ]);
+  const collectionsTotal = round2(
+    oseTotal +
+      activitiesTotal +
+      roundingCollected +
+      withheldRetain +
+      deductedThisRun,
+  );
+
   const summaryCards =
     kind === "gratuity"
       ? [
-          { label: "Waiter cash tips", value: formatMoney(totals.waiterCashCollected) },
-          { label: "Waiter CC tips", value: formatMoney(totals.waiterCcCollected) },
-          { label: "Pool net", value: formatMoney(totals.poolNet) },
-          { label: "Distributed", value: formatMoney(totals.totalDistributed) },
+          {
+            label: "All bar collections",
+            value: formatMoney(allBarCollections),
+            hint: `${formatMoney(barCashCollected)} cash · ${formatMoney(barCcCollected)} card — collected by bar staff, not floor waiters.`,
+            details: [
+              `Bar CC → general pool (${barCcPoolPercent}%) ${formatMoney(barCcToPool)}`,
+              `Bar CC → bar staff (${barCcBarStaffPercent}%) ${formatMoney(barCcToBarStaff)}`,
+            ],
+          },
+          {
+            label: "Waiter cash tips",
+            opBefore: "+",
+            value: formatMoney(waiterCashCollected),
+            hint: "Cash gratuity collected by floor waiters this period.",
+          },
+          {
+            label: "Waiter CC tips",
+            opBefore: "+",
+            value: formatMoney(waiterCcCollected),
+            hint: "Card gratuity collected by floor waiters this period.",
+          },
+          {
+            label: "Total tips",
+            opBefore: "=",
+            highlight: true,
+            hint: "Bar collections + waiter cash + waiter CC for this period.",
+            value: formatMoney(totalTips),
+          },
+          {
+            label: "Allocations Share",
+            value: formatMoney(allocationsShare),
+            hint: "Department pool after OS&E / staff activities, plus bar staff fund and runner / HK.",
+            details: [
+              `Department pool ${formatMoney(departmentPoolNet)}`,
+              ...(withheldRetainToPoolAmount > 0
+                ? [
+                    `Withheld retain → pool ${formatMoney(withheldRetainToPoolAmount)}`,
+                  ]
+                : []),
+              ...(disciplinaryFromContributors > 0
+                ? [
+                    `Disciplinary → pool ${formatMoney(disciplinaryFromContributors)}`,
+                  ]
+                : []),
+              `Bar staff fund ${formatMoney(barStaffFund)}`,
+              `Runner / HK ${formatMoney(runnerHkFund)}`,
+              ...(deductedThisRun > 0
+                ? [`Deducted ${formatMoney(deductedThisRun)}`]
+                : []),
+            ],
+          },
+          {
+            label: "Total distributed",
+            value: formatMoney(distributedTotal),
+            hint:
+              withheldRetainToPoolAmount > 0
+                ? "Actually paid this run after the AED 5 floor. Includes waiter retain, department pool (including withheld retain moved to the pool), bar staff fund, and runner / HK. Rounding leftover stays in collections."
+                : "Actually paid this run after the AED 5 floor. Includes waiter retain, department pool, bar staff fund, and runner / HK. Rounding leftover and withheld retain stay in collections.",
+          },
         ]
       : (() => {
           const collected = Number(totals.serviceChargeCollected) || 0;
@@ -1219,7 +1923,7 @@ export function BenefitRunClient({
               value: formatMoney(expensesReserve),
             },
             {
-              label: "Distributed",
+              label: "Total distributed",
               value: formatMoney(totals.totalDistributed),
             },
           ];
@@ -1246,6 +1950,20 @@ export function BenefitRunClient({
 
     const dir = sortDir === "asc" ? 1 : -1;
     return [...filtered].sort((a, b) => {
+      const extra =
+        sortKey === "deduction"
+          ? (allocationCutsByStaff.get(a.staff_id)?.cut ?? 0) -
+            (allocationCutsByStaff.get(b.staff_id)?.cut ?? 0)
+          : 0;
+      if (sortKey === "deduction" && extra !== 0) {
+        return extra * -dir;
+      }
+      if (sortKey === "worked_days") {
+        const av = allocationWorkedDays(a) ?? -Infinity;
+        const bv = allocationWorkedDays(b) ?? -Infinity;
+        if (av === bv) return 0;
+        return av < bv ? -dir : dir;
+      }
       const av = sortValue(a, sortKey);
       const bv = sortValue(b, sortKey);
       if (typeof av === "number" && typeof bv === "number") {
@@ -1259,7 +1977,15 @@ export function BenefitRunClient({
         }) * dir
       );
     });
-  }, [poolAllocationRows, search, sortKey, sortDir, departmentOrder]);
+  }, [
+    allocationCutsByStaff,
+    poolAllocationRows,
+    search,
+    sortKey,
+    sortDir,
+    departmentOrder,
+    allocationWorkedDaysByStaff,
+  ]);
 
   const departmentGroups = useMemo(() => {
     const map = new Map<
@@ -1298,24 +2024,20 @@ export function BenefitRunClient({
   const footerTotals = useMemo(() => {
     return filteredSorted.reduce(
       (acc, row) => {
-        const amount = Number(row.amount) || 0;
-        acc.points += Number(row.points) || 0;
-        acc.workedDays += Number(row.worked_days) || 0;
-        acc.amount += amount;
-        acc.roundedAmount += displayPayoutAmount(amount, payoutMode);
+        const cuts = allocationCutsByStaff.get(row.staff_id);
+        const amount = cuts?.net ?? (Number(row.amount) || 0);
+        if (!excludedFromRun(row)) {
+          acc.points += Number(row.points) || 0;
+          acc.workedDays += Number(allocationWorkedDays(row)) || 0;
+          acc.deduction += cuts?.cut ?? 0;
+          acc.amount += amount;
+          acc.roundedAmount += displayPayoutAmount(amount, payoutMode);
+        }
         return acc;
       },
-      { points: 0, workedDays: 0, amount: 0, roundedAmount: 0 },
+      { points: 0, workedDays: 0, deduction: 0, amount: 0, roundedAmount: 0 },
     );
-  }, [filteredSorted, payoutMode]);
-
-  const roundingCollected = useMemo(() => {
-    if (payoutMode === "exact") return 0;
-    return sumAed5RoundingRemainder([
-      ...poolAllocationRows.map((row) => Number(row.amount) || 0),
-      ...contributors.map((row) => Number(row.retain) || 0),
-    ]);
-  }, [poolAllocationRows, contributors, payoutMode]);
+  }, [allocationCutsByStaff, filteredSorted, payoutMode, allocationWorkedDaysByStaff]);
 
   const indvGratuityLabel =
     payoutMode === "rounded" ? "Indv Rounded Gratuity" : "Indv Exact Gratuity";
@@ -1360,6 +2082,7 @@ export function BenefitRunClient({
     patch: {
       tipPoints?: number | null;
       warningLevel?: DisciplinaryWarningLevel | null;
+      excluded?: boolean;
     },
   ) {
     setError(null);
@@ -1379,19 +2102,86 @@ export function BenefitRunClient({
     });
   }
 
-  const colCount = allocationView === "all" ? 9 : 8;
+  async function openWorkedDaysCalendar(target: WorkedDaysCalendarTarget) {
+    const requestId = ++workedDaysCalendarRequestRef.current;
+    setError(null);
+    setWorkedDaysCalendar(target);
+    if (target.mode === "collection") {
+      setWorkedDaysCalendarDays(
+        dayFractionsFromCollectionDates(target.collectionDates ?? []),
+      );
+      setWorkedDaysCalendarLoading(false);
+      return;
+    }
+    const cached = workedDaysCalendarCacheRef.current.get(target.staffId);
+    if (cached) {
+      setWorkedDaysCalendarDays(cached);
+      setWorkedDaysCalendarLoading(false);
+      return;
+    }
+
+    setWorkedDaysCalendarDays([]);
+    setWorkedDaysCalendarLoading(true);
+    try {
+      const result = await getBenefitStaffWorkedDaysCalendar({
+        runId: run.id,
+        staffId: target.staffId,
+      });
+      if (workedDaysCalendarRequestRef.current !== requestId) return;
+      if (!result.ok) {
+        setError(result.error);
+        setWorkedDaysCalendar(null);
+        setWorkedDaysCalendarLoading(false);
+        return;
+      }
+      workedDaysCalendarCacheRef.current.set(
+        target.staffId,
+        result.dayFractions,
+      );
+      setWorkedDaysCalendar((current) =>
+        current?.staffId === target.staffId
+          ? {
+              ...current,
+              empNo: result.empNo || current.empNo,
+              fullName: result.fullName || current.fullName,
+            }
+          : current,
+      );
+      setWorkedDaysCalendarDays(result.dayFractions);
+    } catch {
+      if (workedDaysCalendarRequestRef.current !== requestId) return;
+      setError("Could not load worked days for this employee.");
+      setWorkedDaysCalendar(null);
+    } finally {
+      if (workedDaysCalendarRequestRef.current === requestId) {
+        setWorkedDaysCalendarLoading(false);
+      }
+    }
+  }
+
+  const colCount = allocationView === "all" ? 10 : 9;
   const showDepartmentColumn = allocationView === "all";
 
   function renderAllocationRow(row: BenefitAllocationView) {
-    const amount = Number(row.amount) || 0;
+    const cuts = allocationCutsByStaff.get(row.staff_id);
+    const amount = cuts?.net ?? (Number(row.amount) || 0);
     const payoutAmount = displayPayoutAmount(amount, payoutMode);
+    const deductionAmount = cuts?.cut ?? 0;
+    const excluded = excludedFromRun(row);
     return (
       <tr
         key={row.id}
-        className="hover:bg-[var(--venue-secondary,#F0F3DD)]/25"
+        className={cn(
+          "hover:bg-[var(--venue-secondary,#F0F3DD)]/25",
+          excluded && "opacity-55",
+        )}
       >
         <td className="px-3 py-2.5 tabular-nums text-black/60">
-          {row.emp_no ?? "—"}
+          {row.emp_no && row.staff_id ? (
+            <StaffDirectoryLink staffId={row.staff_id} empNo={row.emp_no} />
+          ) : (
+            (row.emp_no ?? "—")
+          )}
         </td>
         <td className="px-3 py-2.5 font-medium text-[#3D421F]">
           {row.full_name ?? row.staff_id.slice(0, 8)}
@@ -1407,6 +2197,7 @@ export function BenefitRunClient({
         <td className="px-3 py-2.5 text-center">
           <PointsCell
             row={row}
+            tiers={pointTiers}
             canEdit={canEditAllocations}
             disabled={pending}
             onSave={(tipPoints) =>
@@ -1415,24 +2206,62 @@ export function BenefitRunClient({
           />
         </td>
         <td className="px-3 py-2.5 text-center tabular-nums">
-          {row.worked_days ?? "—"}
-        </td>
-        <td className="px-3 py-2.5 text-right">
-          <DeductionCell
-            row={row}
-            options={disciplinaryOptions}
-            canEdit={canEditAllocations}
-            disabled={pending}
-            onSave={(warningLevel) =>
-              saveOverride(row.staff_id, { warningLevel })
+          <WorkedDaysLink
+            days={allocationWorkedDays(row)}
+            title="View SHIFT + OFF days for this benefit period. PH does not count."
+            onOpen={
+              row.staff_id
+                ? () =>
+                    openWorkedDaysCalendar({
+                      staffId: row.staff_id,
+                      empNo: row.emp_no ?? "—",
+                      fullName: row.full_name ?? row.staff_id.slice(0, 8),
+                      workedDays: Number(allocationWorkedDays(row)) || 0,
+                      mode: "roster",
+                    })
+                : undefined
             }
           />
+        </td>
+        <td className="px-3 py-2.5 text-right">
+          <div className="flex flex-col items-end gap-0.5">
+            <DeductionCell
+              row={row}
+              options={disciplinaryOptions}
+              canEdit={canEditAllocations}
+              disabled={pending}
+              onSave={(warningLevel) =>
+                saveOverride(row.staff_id, { warningLevel })
+              }
+            />
+            <BenefitDeductionAmount amount={deductionAmount} />
+          </div>
         </td>
         <td className={moneyColGrayTd}>
           {formatMoney(amount)}
         </td>
         <td className={moneyColRoundedTd}>
           {formatMoney(payoutAmount)}
+        </td>
+        <td
+          className="px-3 py-2.5 text-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={excluded}
+            disabled={!canEditAllocations || pending}
+            onChange={(e) =>
+              saveOverride(row.staff_id, { excluded: e.target.checked })
+            }
+            className="h-4 w-4 rounded border-black/20 accent-[var(--venue-primary,#818a40)]"
+            aria-label={
+              excluded
+                ? `Include ${row.full_name ?? "this employee"} in this benefit run`
+                : `Exclude ${row.full_name ?? "this employee"} from this benefit run`
+            }
+            title="Tick to exclude from this run. Their share is redistributed."
+          />
         </td>
       </tr>
     );
@@ -1553,7 +2382,7 @@ export function BenefitRunClient({
                       position: row.position_name ?? "",
                       department: departmentLabelOf(row, departmentOrder),
                       points: row.points,
-                      workedDays: row.worked_days,
+                      workedDays: allocationWorkedDays(row),
                       deductionPercent: deductionPctOf(row),
                       retain: Number(row.amount) || 0,
                     })),
@@ -1595,6 +2424,14 @@ export function BenefitRunClient({
               Finalize for payroll
             </Button>
           ) : null}
+          {canReopen ? (
+            <BenefitReopenControl
+              kind={kind}
+              runId={run.id}
+              appliedToPayroll={run.status === "applied_to_payroll"}
+              appearance="button"
+            />
+          ) : null}
         </div>
       </div>
 
@@ -1604,30 +2441,204 @@ export function BenefitRunClient({
         </p>
       ) : null}
 
-      {displayWarnings.length > 0 ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <p className="font-medium">Calculation warnings</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-900/85">
-            {displayWarnings.map((w) => (
-              <li key={w}>{w}</li>
+      {displayWarnings.length > 0 ||
+      withheldRetainWarning ||
+      waiveWithheldRetain ||
+      withheldRetainToPool ? (
+        <div className="space-y-2">
+          {withheldRetainWarning ? (
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <div className="min-w-0">
+                <p className="font-medium">Calculation warnings</p>
+                <p className="mt-1 text-amber-900/85">{withheldRetainWarning}</p>
+                <p className="mt-1 text-xs text-amber-900/70">
+                  Waive on this run only to pay the retain to the collector, or
+                  move it to the allocation share pool. Venue entitlement
+                  policy is unchanged.
+                </p>
+              </div>
+              {canEditAllocations ? (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="border border-amber-800/20"
+                    disabled={pending}
+                    onClick={() => setWithheldRetainDisposition("waive")}
+                  >
+                    {pending ? "Working…" : "Waive for this run"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="border border-amber-800/20"
+                    disabled={pending}
+                    onClick={() => setWithheldRetainDisposition("pool")}
+                  >
+                    {pending ? "Working…" : "Move to allocation pool"}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : waiveWithheldRetain ? (
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+              <div className="min-w-0">
+                <p className="font-medium">Withheld retain waived</p>
+                <p className="mt-1 text-emerald-900/80">
+                  Retain for staff not entitled under venue policy is paid on
+                  this run and is not booked to collections.
+                </p>
+              </div>
+              {canEditAllocations ? (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="border border-emerald-800/20"
+                    disabled={pending}
+                    onClick={() => setWithheldRetainDisposition("collections")}
+                  >
+                    {pending ? "Working…" : "Keep in collections"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="border border-emerald-800/20"
+                    disabled={pending}
+                    onClick={() => setWithheldRetainDisposition("pool")}
+                  >
+                    {pending ? "Working…" : "Move to allocation pool"}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : withheldRetainToPool ? (
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+              <div className="min-w-0">
+                <p className="font-medium">Withheld retain moved to pool</p>
+                <p className="mt-1 text-emerald-900/80">
+                  {withheldRetainToPoolWarning ??
+                    "Retain for staff not entitled under venue policy is added to the allocation share pool on this run and is not booked to collections."}
+                </p>
+                <p className="mt-1 text-xs text-emerald-900/70">
+                  Venue entitlement policy is unchanged.
+                </p>
+              </div>
+              {canEditAllocations ? (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="border border-emerald-800/20"
+                    disabled={pending}
+                    onClick={() => setWithheldRetainDisposition("collections")}
+                  >
+                    {pending ? "Working…" : "Keep in collections"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="border border-emerald-800/20"
+                    disabled={pending}
+                    onClick={() => setWithheldRetainDisposition("waive")}
+                  >
+                    {pending ? "Working…" : "Waive for this run"}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {displayWarnings.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <p className="font-medium">Calculation warnings</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-900/85">
+                {displayWarnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {contributorAlsoAllocated.length > 0 ? (
+        <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-950">
+          <p className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="size-4 shrink-0 text-rose-700" aria-hidden />
+            Alert
+          </p>
+          <p className="mt-1 text-rose-900/85">
+            These employees are listed under Contributors and Allocations.
+            Tip collectors should not also receive a pool share — they would be
+            paid twice.
+          </p>
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-rose-900/85">
+            {contributorAlsoAllocated.map((row) => (
+              <li key={row.staffId}>
+                {row.empNo !== "—" ? `${row.empNo} · ` : ""}
+                {row.name}
+              </li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={cn(
+          "grid gap-3 sm:grid-cols-2",
+          kind === "gratuity"
+            ? "lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] lg:items-stretch"
+            : summaryCards.length >= 6
+              ? "lg:grid-cols-6"
+              : summaryCards.length >= 5
+                ? "lg:grid-cols-5"
+                : "lg:grid-cols-4",
+        )}
+      >
         {summaryCards.map((card) => (
-          <div
-            key={card.label}
-            className="rounded-xl border border-black/10 bg-white px-4 py-3 shadow-sm"
-          >
-            <p className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-              {card.label}
-            </p>
-            <p className="mt-1 text-lg font-semibold tabular-nums text-[#3D421F]">
-              {card.value}
-            </p>
-          </div>
+          <Fragment key={card.label}>
+            {"opBefore" in card && card.opBefore ? (
+              <div
+                className="hidden items-center justify-center self-center select-none text-2xl font-semibold leading-none text-[#3D421F]/45 lg:flex"
+                aria-hidden
+              >
+                {card.opBefore}
+              </div>
+            ) : null}
+            <div
+              className={cn(
+                "flex flex-col items-center justify-center rounded-xl border px-4 py-3 text-center shadow-sm",
+                "highlight" in card && card.highlight
+                  ? "border-[var(--venue-primary,#818a40)]/30 bg-[var(--venue-secondary,#F0F3DD)]"
+                  : "border-black/10 bg-white",
+              )}
+            >
+              <p className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+                {card.label}
+              </p>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-[#3D421F]">
+                {card.value}
+              </p>
+              {"hint" in card && card.hint ? (
+                <p className="mt-1 text-[11px] leading-snug text-black/50">
+                  {card.hint}
+                </p>
+              ) : null}
+              {"details" in card && Array.isArray(card.details) ? (
+                <ul className="mt-1.5 w-full space-y-0.5 text-[11px] leading-snug text-black/55">
+                  {card.details.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </Fragment>
         ))}
       </div>
 
@@ -1635,123 +2646,195 @@ export function BenefitRunClient({
         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,1.5fr)] lg:items-stretch">
           <div className="flex h-full flex-col rounded-xl border border-black/10 bg-white p-3 shadow-sm">
             <h3 className="font-serif text-base text-[#3D421F]">
-              Waiters collections
+              Total tips
             </h3>
-            <dl className="mt-2 flex-1 space-y-0.5 text-sm">
-              {(
-                [
-                  ["Waiter cash tip-out", totals.pool.waiterCashTipOut],
-                  ["Waiter CC tip-out", totals.pool.waiterCcTipOut],
-                  [
-                    "Bar CC collected",
-                    Number(totals.barCcCollected) || 0,
-                  ],
-                  [
-                    `Bar CC → general pool (${Number(poolContributionRule?.barCcPoolPercent) || 0}%)`,
-                    totals.pool.barCcToPool,
-                  ],
-                  [
-                    `Bar CC → bar staff (${Number(poolContributionRule?.barCcBarStaffPercent) || 0}%)`,
-                    Number(totals.pool.barCcToBarStaff) > 0
-                      ? Number(totals.pool.barCcToBarStaff)
-                      : Math.max(
-                          0,
-                          round2(
-                            (Number(totals.barCcCollected) || 0) -
-                              (Number(totals.pool.barCcToPool) || 0),
-                          ),
-                        ),
-                  ],
-                  [
-                    "Bar cash collected",
-                    Number(totals.barCashCollected) || 0,
-                  ],
-                  [
-                    "Contributor deductions → pool",
-                    totals.pool.disciplinaryFromContributors,
-                  ],
-                ] as const
-              ).map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex items-baseline justify-between gap-2 border-b border-black/5 py-1 last:border-b-0"
-                >
-                  <dt className="min-w-0 truncate text-black/55">{label}</dt>
-                  <dd className="shrink-0 tabular-nums font-medium text-[#3D421F]">
-                    {formatMoney(value)}
-                  </dd>
-                </div>
-              ))}
+            <dl className="mt-2 flex-1 text-sm">
+              <p className="text-sm font-semibold uppercase tracking-wide text-red-700">
+                Collected
+              </p>
+              <TipBreakdownRow
+                label="All bar collections"
+                value={allBarCollections}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label="Cash"
+                value={barCashCollected}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label={
+                  poolContributionRule?.barCashEqualSplit
+                    ? "→ bar staff (equal split)"
+                    : "→ bar staff"
+                }
+                value={barCashToBarStaff}
+                indent={2}
+              />
+              <TipBreakdownRow label="Card" value={barCcCollected} indent={1} />
+              <TipBreakdownRow
+                label={`→ general pool (${barCcPoolPercent}%)`}
+                value={barCcToPool}
+                indent={2}
+              />
+              <TipBreakdownRow
+                label={`→ bar staff (${barCcBarStaffPercent}%)`}
+                value={barCcToBarStaff}
+                indent={2}
+              />
+              <TipBreakdownRow
+                label="Waiter cash tips"
+                value={waiterCashCollected}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label={`→ after tip-out (${waiterCashRetainPct}%)`}
+                value={waiterCashRetain}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label={`→ general pool (${waiterCashPoolPct}%)`}
+                value={waiterCashTipOut}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label="Waiter CC tips"
+                value={waiterCcCollected}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label="→ after tip-out"
+                value={waiterCcRetain}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label={
+                  waiterCcPoolPct == null
+                    ? "→ general pool (ASPH tip-out)"
+                    : `→ general pool (${waiterCcPoolPct}%)`
+                }
+                value={waiterCcTipOut}
+                indent={1}
+              />
+
+              <p className="mt-3 text-sm font-semibold uppercase tracking-wide text-red-700">
+                Divided to
+              </p>
+              <TipBreakdownRow
+                label="Allocations Share"
+                value={allocationsShare}
+                tone="group"
+              />
+              {withheldRetainToPoolAmount > 0 ? (
+                <TipBreakdownRow
+                  label="withheld retain → pool"
+                  value={withheldRetainToPoolAmount}
+                  indent={1}
+                />
+              ) : null}
+              {disciplinaryFromContributors > 0 ? (
+                <TipBreakdownRow
+                  label="disciplinary → pool"
+                  value={disciplinaryFromContributors}
+                  indent={1}
+                />
+              ) : null}
+              {deductedThisRun > 0 ? (
+                <TipBreakdownRow
+                  label="Deducted"
+                  value={deductedThisRun}
+                  indent={1}
+                  negative
+                />
+              ) : null}
+              <TipBreakdownRow
+                label="Collections"
+                value={collectionsTotal}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label="Waiters retain"
+                value={waitersRetainPaid}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label="Rounding collection"
+                value={roundingCollected}
+                tone="group"
+                negative
+              />
+              <TipBreakdownRow
+                label="Total tips"
+                value={totalTips}
+                tone="total"
+              />
             </dl>
-            <div className="mt-auto border-t border-black/10 pt-2">
-              <div className="flex items-baseline justify-between gap-2 text-sm">
-                <span className="font-medium text-[#3D421F]">Pool total</span>
-                <span className="tabular-nums font-semibold text-[#3D421F]">
-                  {formatMoney(
-                    round2(
-                      (Number(totals.pool.waiterCashTipOut) || 0) +
-                        (Number(totals.pool.waiterCcTipOut) || 0) +
-                        (Number(totals.pool.barCcToPool) || 0) +
-                        (Number(totals.pool.disciplinaryFromContributors) ||
-                          0),
-                    ),
-                  )}
-                </span>
-              </div>
-              {/* Match Deductions button row height so Totals align */}
-              <div className="mt-2 h-9" aria-hidden />
-            </div>
           </div>
 
           <div className="flex h-full flex-col rounded-xl border border-black/10 bg-white p-3 shadow-sm">
-            <h3 className="font-serif text-base text-[#3D421F]">Deductions</h3>
-            <dl className="mt-2 flex-1 space-y-0.5 text-sm">
-              {(
-                [
-                  [
-                    `OS&E deduction (${Number(deductionPercents.osePercent) || 0}%)`,
-                    totals.pool.ose,
-                  ],
-                  [
-                    `Staff activities (${Number(deductionPercents.activitiesPercent) || 0}%)`,
-                    totals.pool.activities,
-                  ],
-                  [
-                    `Runner / HK fund (${Number(deductionPercents.runnerHousekeeperPercent) || 0}%)`,
-                    totals.pool.runnerHousekeeperFund,
-                  ],
-                  [
-                    "Rounding collection · floor to AED 5",
-                    roundingCollected,
-                  ],
-                ] as const
-              ).map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex items-baseline justify-between gap-2 border-b border-black/5 py-1 last:border-b-0"
-                >
-                  <dt className="min-w-0 text-black/55">{label}</dt>
-                  <dd className="shrink-0 tabular-nums font-medium text-[#3D421F]">
-                    {formatMoney(value)}
-                  </dd>
-                </div>
-              ))}
+            <h3 className="font-serif text-base text-[#3D421F]">Collections</h3>
+            <dl className="mt-2 flex-1 text-sm">
+              <TipBreakdownRow
+                label={`OS&E deduction (${Number(deductionPercents.osePercent) || 0}%)`}
+                value={oseTotal}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label="from general pool"
+                value={oseFromPool}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label="from waiters retain"
+                value={oseFromRetain}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label={`Staff activities (${Number(deductionPercents.activitiesPercent) || 0}%)`}
+                value={activitiesTotal}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label="from general pool"
+                value={activitiesFromPool}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label="from waiters retain"
+                value={activitiesFromRetain}
+                indent={1}
+              />
+              <TipBreakdownRow
+                label="Rounding collection · floor to AED 5"
+                value={roundingCollected}
+                tone="group"
+              />
+              <TipBreakdownRow
+                label={
+                  withheldRetainToPool
+                    ? "Withheld retain · moved to pool"
+                    : waiveWithheldRetain
+                      ? "Withheld retain · waived"
+                      : "Withheld retain · not entitled"
+                }
+                value={withheldRetain}
+                tone="group"
+              />
+              {deductedThisRun > 0 ? (
+                <TipBreakdownRow
+                  label="Deducted"
+                  value={deductedThisRun}
+                  tone="group"
+                />
+              ) : null}
+              <TipBreakdownRow
+                label="Total"
+                value={collectionsTotal}
+                tone="total"
+              />
             </dl>
             <div className="mt-auto border-t border-black/10 pt-2">
-              <div className="flex items-baseline justify-between gap-2 text-sm">
-                <span className="font-medium text-[#3D421F]">Total</span>
-                <span className="tabular-nums font-semibold text-[#3D421F]">
-                  {formatMoney(
-                    round2(
-                      (Number(totals.pool.ose) || 0) +
-                        (Number(totals.pool.activities) || 0) +
-                        (Number(totals.pool.runnerHousekeeperFund) || 0) +
-                        roundingCollected,
-                    ),
-                  )}
-                </span>
-              </div>
-              <div className="mt-2 flex h-9 justify-end">
+              <div className="flex h-9 justify-end">
                 <Button
                   type="button"
                   size="sm"
@@ -1778,7 +2861,12 @@ export function BenefitRunClient({
                 <thead>
                   <tr className="text-[11px] font-medium uppercase tracking-wide text-black/45">
                     <th className="pb-1.5 pr-2 font-medium">Department</th>
-                    <th className="pb-1.5 px-1 text-right font-medium">Staff</th>
+                    <th
+                      className="pb-1.5 px-1 text-right font-medium"
+                      title="Pool recipients with SHIFT + OFF days this month"
+                    >
+                      Staff
+                    </th>
                     <th className="pb-1.5 px-1 text-right font-medium">%</th>
                     <th className="pb-1.5 px-1 text-right font-medium">Share</th>
                     <th className="pb-1.5 px-1 text-right font-medium">
@@ -1932,17 +3020,17 @@ export function BenefitRunClient({
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-black/10">
-                    <td className="pt-2 font-medium text-[#3D421F]">
+                  <tr className="border-t border-black/10 bg-black/[0.06]">
+                    <td className="px-1 py-2 font-medium text-[#3D421F]">
                       Departments
                     </td>
-                    <td className="px-1 pt-2 text-right tabular-nums font-semibold text-[#3D421F]">
+                    <td className="px-1 py-2 text-right tabular-nums font-semibold text-[#3D421F]">
                       {departmentShareRows.reduce(
                         (s, r) => s + r.staffCount,
                         0,
                       )}
                     </td>
-                    <td className="px-1 pt-2 text-right tabular-nums font-semibold text-[#3D421F]">
+                    <td className="px-1 py-2 text-right tabular-nums font-semibold text-[#3D421F]">
                       {round2(
                         departmentShareRows.reduce(
                           (s, r) =>
@@ -1957,7 +3045,7 @@ export function BenefitRunClient({
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-1 pt-2 text-right tabular-nums font-semibold text-[#3D421F]">
+                    <td className="px-1 py-2 text-right tabular-nums font-semibold text-[#3D421F]">
                       {formatMoney(
                         departmentShareRows.reduce(
                           (s, r) => s + r.amount,
@@ -1965,8 +3053,8 @@ export function BenefitRunClient({
                         ),
                       )}
                     </td>
-                    <td className="px-1 pt-2 text-right text-black/35">—</td>
-                    <td className="pt-2 pl-1 text-right text-black/35">—</td>
+                    <td className="px-1 py-2 text-right text-black/35">—</td>
+                    <td className="py-2 pl-1 text-right text-black/35">—</td>
                   </tr>
                 </tfoot>
               </table>
@@ -2174,7 +3262,7 @@ export function BenefitRunClient({
                   </th>
                   <th className="px-3 py-2.5 font-medium text-center">
                     <SortLabel
-                      label="Worked days"
+                      label="Collection days"
                       sortKey="workedDays"
                       activeKey={contributorSortKey}
                       sortDir={contributorSortDir}
@@ -2299,7 +3387,14 @@ export function BenefitRunClient({
                             department={row.departmentName}
                             position={row.position}
                           />
-                          <span>{row.empNo ?? "—"}</span>
+                          {row.empNo && row.staffId ? (
+                            <StaffDirectoryLink
+                              staffId={row.staffId}
+                              empNo={row.empNo}
+                            />
+                          ) : (
+                            <span>{row.empNo ?? "—"}</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-2.5 font-medium text-[#3D421F]">
@@ -2312,7 +3407,25 @@ export function BenefitRunClient({
                         {row.departmentName ?? "—"}
                       </td>
                       <td className="px-3 py-2.5 text-center tabular-nums">
-                        {row.workedDays ?? "—"}
+                        <WorkedDaysLink
+                          days={row.workedDays}
+                          title="View days this waiter collected gratuity"
+                          onOpen={
+                            row.workedDays != null
+                              ? () =>
+                                  openWorkedDaysCalendar({
+                                    staffId:
+                                      row.staffId ??
+                                      `name:${normalizePersonName(row.name)}`,
+                                    empNo: row.empNo ?? "—",
+                                    fullName: row.name,
+                                    workedDays: Number(row.workedDays) || 0,
+                                    mode: "collection",
+                                    collectionDates: row.collectionDates ?? [],
+                                  })
+                              : undefined
+                          }
+                        />
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {formatMoney(row.ccCollected)}
@@ -2364,34 +3477,69 @@ export function BenefitRunClient({
                         {formatMoney(row.contributedToPool)}
                       </td>
                       <td className="px-3 py-2.5 text-right">
-                        {row.allocation ? (
-                          <DeductionCell
-                            row={row.allocation}
-                            options={disciplinaryOptions}
-                            canEdit={canEditAllocations}
-                            disabled={pending}
-                            onSave={(warningLevel) => {
-                              const alloc = row.allocation;
-                              if (!alloc) return;
-                              saveOverride(alloc.staff_id, { warningLevel });
-                            }}
+                        <div className="flex flex-col items-end gap-0.5">
+                          {row.allocation ? (
+                            <DeductionCell
+                              row={row.allocation}
+                              options={disciplinaryOptions}
+                              canEdit={canEditAllocations}
+                              disabled={pending}
+                              onSave={(warningLevel) => {
+                                const alloc = row.allocation;
+                                if (!alloc) return;
+                                saveOverride(alloc.staff_id, { warningLevel });
+                              }}
+                            />
+                          ) : row.deductionPct > 0 ? (
+                            <span className="tabular-nums text-black/70">
+                              {row.deductionPct}%
+                            </span>
+                          ) : (
+                            <span className="text-black/40">—</span>
+                          )}
+                          <BenefitDeductionAmount
+                            amount={
+                              row.staffId
+                                ? contributorCutsByStaff.get(row.staffId)?.cut ?? 0
+                                : 0
+                            }
                           />
-                        ) : row.deductionPct > 0 ? (
-                          <span className="tabular-nums text-black/70">
-                            {row.deductionPct}%
-                          </span>
-                        ) : (
-                          <span className="text-black/40">—</span>
-                        )}
+                        </div>
                       </td>
                       <td className={`${moneyColGrayTd} font-medium`}>
-                        {row.retain == null ? "—" : formatMoney(row.retain)}
+                        {row.retain == null ? (
+                          "—"
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>
+                              {formatMoney(
+                                row.withheld
+                                  ? row.retain
+                                  : row.staffId
+                                    ? contributorCutsByStaff.get(row.staffId)
+                                        ?.net ?? row.retain
+                                    : row.retain,
+                              )}
+                            </span>
+                            {row.withheld ? (
+                              <span className="text-[10px] font-medium uppercase leading-none text-black/40">
+                                kept
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </td>
                       <td className={moneyColRoundedTd}>
-                        {row.retain == null
+                        {row.retain == null || row.withheld
                           ? "—"
                           : formatMoney(
-                              displayPayoutAmount(row.retain, payoutMode),
+                              displayPayoutAmount(
+                                row.staffId
+                                  ? contributorCutsByStaff.get(row.staffId)?.net ??
+                                      row.retain
+                                  : row.retain,
+                                payoutMode,
+                              ),
                             )}
                       </td>
                     </tr>
@@ -2426,7 +3574,11 @@ export function BenefitRunClient({
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {formatMoney(contributorTotals.contributedToPool)}
                     </td>
-                    <td className="px-3 py-2.5" />
+                    <td className="px-3 py-2.5 text-right tabular-nums text-red-800/80">
+                      {contributorTotals.deduction > 0
+                        ? formatMoney(contributorTotals.deduction)
+                        : ""}
+                    </td>
                     <td className={`${moneyColGrayTh} font-medium tabular-nums`}>
                       {formatMoney(contributorTotals.retain)}
                     </td>
@@ -2448,7 +3600,9 @@ export function BenefitRunClient({
             <p className="text-sm text-black/55">
               {kind === "service_charge"
                 ? "Eligible staff share of the service charge pool for this period."
-                : "Pool recipients other than tip collectors (listed under Contributors)."}
+                : "Pool recipients other than tip collectors (listed under Contributors)."}{" "}
+              Tick Exclude to leave someone off this run — their share is
+              redistributed.
             </p>
             <PolicyDisclosure label="Distribution Policy">
               {kind === "service_charge" ? (
@@ -2682,6 +3836,9 @@ export function BenefitRunClient({
                 <th className={moneyColRoundedTh}>
                   {indvGratuityLabel}
                 </th>
+                <th className="px-3 py-2.5 font-medium text-center">
+                  Exclude
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black/5">
@@ -2704,9 +3861,12 @@ export function BenefitRunClient({
                 departmentGroups.map((group) => {
                   const sub = group.rows.reduce(
                     (acc, row) => {
-                      const amount = Number(row.amount) || 0;
+                      if (excludedFromRun(row)) return acc;
+                      const cuts = allocationCutsByStaff.get(row.staff_id);
+                      const amount = cuts?.net ?? (Number(row.amount) || 0);
                       acc.points += Number(row.points) || 0;
-                      acc.workedDays += Number(row.worked_days) || 0;
+                      acc.workedDays += Number(allocationWorkedDays(row)) || 0;
+                      acc.deduction += cuts?.cut ?? 0;
                       acc.amount += amount;
                       acc.roundedAmount += displayPayoutAmount(
                         amount,
@@ -2717,6 +3877,7 @@ export function BenefitRunClient({
                     {
                       points: 0,
                       workedDays: 0,
+                      deduction: 0,
                       amount: 0,
                       roundedAmount: 0,
                     },
@@ -2747,13 +3908,16 @@ export function BenefitRunClient({
                         <td className="px-3 py-2 text-center tabular-nums">
                           {round2(sub.workedDays)}
                         </td>
-                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2 text-right tabular-nums text-red-800/80">
+                          {sub.deduction > 0 ? formatMoney(sub.deduction) : ""}
+                        </td>
                         <td className={`${moneyColGrayTd} py-2`}>
                           {formatMoney(sub.amount)}
                         </td>
                         <td className={`${moneyColRoundedTd} py-2`}>
                           {formatMoney(sub.roundedAmount)}
                         </td>
+                        <td className="px-3 py-2" />
                       </tr>
                       {group.rows.map((row) => renderAllocationRow(row))}
                     </FragmentGroup>
@@ -2781,13 +3945,18 @@ export function BenefitRunClient({
                   <td className="px-3 py-2.5 text-center tabular-nums">
                     {round2(footerTotals.workedDays)}
                   </td>
-                  <td className="px-3 py-2.5" />
+                  <td className="px-3 py-2.5 text-right tabular-nums text-red-800/80">
+                    {footerTotals.deduction > 0
+                      ? formatMoney(footerTotals.deduction)
+                      : ""}
+                  </td>
                   <td className={`${moneyColGrayTh} font-semibold tabular-nums`}>
                     {formatMoney(footerTotals.amount)}
                   </td>
                   <td className={`${moneyColRoundedTh} font-semibold tabular-nums`}>
                     {formatMoney(footerTotals.roundedAmount)}
                   </td>
+                  <td className="px-3 py-2.5" />
                 </tr>
               </tfoot>
             ) : null}
@@ -2937,6 +4106,36 @@ export function BenefitRunClient({
             document.body,
           )
         : null}
+
+      <PayrollPaidDaysCalendarDialog
+        open={workedDaysCalendar != null}
+        onClose={() => {
+          workedDaysCalendarRequestRef.current += 1;
+          setWorkedDaysCalendar(null);
+          setWorkedDaysCalendarLoading(false);
+        }}
+        empNo={workedDaysCalendar?.empNo ?? "—"}
+        fullName={workedDaysCalendar?.fullName ?? "Employee"}
+        periodStart={run.period_start.slice(0, 10)}
+        periodEnd={run.period_end.slice(0, 10)}
+        dayFractions={workedDaysCalendarDays}
+        paidDays={workedDaysCalendar?.workedDays ?? 0}
+        loading={workedDaysCalendarLoading}
+        periodKindLabel="Benefit period"
+        daysKindLabel={
+          workedDaysCalendar?.mode === "collection"
+            ? "Collection days"
+            : "Worked days (SHIFT + OFF)"
+        }
+        classifyMode={
+          workedDaysCalendar?.mode === "roster" ? "benefits" : "payroll"
+        }
+        emptyMessage={
+          workedDaysCalendar?.mode === "collection"
+            ? "No gratuity collection days for this waiter in the benefit period."
+            : "No roster data for this benefit period yet."
+        }
+      />
     </div>
   );
 }

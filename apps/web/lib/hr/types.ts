@@ -395,9 +395,21 @@ export type VisaComplianceStatus =
 export type VisaPenalty = {
   id: string;
   description: string;
+  /** Gross (VAT-inclusive). */
   amount: number;
+  /**
+   * Net (ex-VAT). When set, this is the stored typed net and must not be
+   * re-derived from {@link amount} on load.
+   */
+  netAmount?: number | null;
   /** When true, company covers the cost; otherwise deducted from payroll. */
   companyCovered: boolean;
+  /**
+   * Employee already paid the fine; company pays the amount back on payroll
+   * as a PAYBACK benefit (variable earning), never as a deduction.
+   * Only meaningful when {@link companyCovered} is true.
+   */
+  reimburseEmployee?: boolean;
 };
 
 /** Fixed expense line categories for the Visa expenses report. */
@@ -428,11 +440,15 @@ export type StaffVisaRecord = {
   issueDate: string | null;
   expiryDate: string | null;
   valueSpend: number | null;
+  /** Net (ex-VAT) companion of {@link valueSpend}. Preserved when the user typed net. */
+  valueSpendNet?: number | null;
   /**
    * Gross cancelation charge (AED, VAT-inclusive), separate from issue valueSpend.
    * Rolled into expenses as {@link VISA_EXPENSE_CATEGORY.cancelations} by cancel date month.
    */
   cancelationSpend: number | null;
+  /** Net (ex-VAT) companion of {@link cancelationSpend}. */
+  cancelationSpendNet?: number | null;
   penalties: VisaPenalty[];
   visaStatus: string;
   disputeReference: string;
@@ -471,6 +487,8 @@ export type VisaEmployeeRow = {
   valueSpend: number | null;
   /** Gross cancelation charge from the latest visa record. */
   cancelationSpend: number | null;
+  /** Net cancelation charge from the latest visa record. */
+  cancelationSpendNet?: number | null;
   /** Company-absorbed penalties on the latest visa record (AED gross). */
   penaltiesCompanyAbsorbed: number;
   /** Employee-absorbed (payroll) penalties on the latest visa record (AED gross). */
@@ -1170,6 +1188,7 @@ export const HR_FEATURES = {
   lookups: "lookups",
   salary: "salary",
   scheduleApproval: "schedule_approval",
+  attendanceValidator: "attendance_validator",
   payroll: "payroll",
   payslips: "payslips",
   benefits: "benefits",
@@ -1205,6 +1224,7 @@ export const HR_SETTINGS_KEYS = {
   leavePolicy: "leave_policy",
   payroll: "payroll",
   payrollApprovals: "payroll_approvals",
+  payrollFinalApprovalEmail: "payroll_final_approval_email",
   payrollAdjustmentCodes: "payroll_adjustment_codes",
   benefitsGratuity: "benefits_gratuity",
   benefitsServiceCharge: "benefits_service_charge",
@@ -1595,6 +1615,15 @@ export type HrPayrollApprovalsSettings = {
     /** When true, send the payroll package email right after Final Approval. */
     autoSendOnFinalApproval: boolean;
   };
+};
+
+/** Email sent to selected approvers when requesting Final Approval. */
+export type HrPayrollFinalApprovalEmailSettings = {
+  fromEmail: string;
+  templates: PayrollEmailTemplate[];
+  defaultTemplateId: string;
+  attachPdf: boolean;
+  attachExcel: boolean;
 };
 
 /** Config-driven mailbox transport (SMTP + optional IMAP Sent append). */
@@ -3402,6 +3431,91 @@ export const DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS: HrPayrollApprovalsSettings =
       attachOther: false,
       autoSendOnFinalApproval: true,
     },
+  };
+
+export const FINAL_APPROVAL_EMAIL_TEMPLATE_CODES = [
+  ...PAYROLL_EMAIL_TEMPLATE_CODES,
+  {
+    code: "{{APPROVER_NAME}}",
+    description: "Selected approver’s name",
+  },
+  {
+    code: "{{APPROVER_EMAIL}}",
+    description: "Selected approver’s email",
+  },
+  {
+    code: "{{PAYROLL_RUN_URL}}",
+    description: "Link to this payroll run in SS Ops Hub",
+  },
+] as const;
+
+export const DEFAULT_FINAL_APPROVAL_EMAIL_TEMPLATE_ID = "default";
+
+export const DEFAULT_FINAL_APPROVAL_EMAIL_SUBJECT =
+  "Final Approval requested — {{PAYROLL_MONTH}} {{PAYROLL_YEAR}} — {{VENUE_NAME}}";
+
+export const DEFAULT_FINAL_APPROVAL_EMAIL_MESSAGE = `Dear {{APPROVER_NAME}},
+
+Please review and approve the {{PAYROLL_MONTH}} {{PAYROLL_YEAR}} payroll for {{VENUE_NAME}}.
+
+Payroll information
+
+* Payroll period: {{PAYROLL_PERIOD}}
+* Total employees: {{TOTAL_EMPLOYEES}}
+* Total net payroll: AED {{TOTAL_NET_PAYROLL}}
+* Scheduled salary payment date: {{PAYMENT_DATE}}
+
+The payroll file is attached. Open the run in SS Ops Hub to approve:
+
+{{PAYROLL_RUN_URL}}
+
+Kind regards,
+
+{{USER_NAME}}
+Human Resources`;
+
+export function createFinalApprovalEmailTemplate(
+  partial?: Partial<PayrollEmailTemplate>,
+): PayrollEmailTemplate {
+  return {
+    id:
+      partial?.id?.trim() ||
+      `tpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    name: String(partial?.name ?? "New template").trim() || "New template",
+    subject:
+      String(partial?.subject ?? DEFAULT_FINAL_APPROVAL_EMAIL_SUBJECT).trim() ||
+      DEFAULT_FINAL_APPROVAL_EMAIL_SUBJECT,
+    message: String(
+      partial?.message ?? DEFAULT_FINAL_APPROVAL_EMAIL_MESSAGE,
+    ),
+    requiresAcknowledgement: partial?.requiresAcknowledgement === true,
+  };
+}
+
+export const DEFAULT_FINAL_APPROVAL_EMAIL_TEMPLATE: PayrollEmailTemplate =
+  createFinalApprovalEmailTemplate({
+    id: DEFAULT_FINAL_APPROVAL_EMAIL_TEMPLATE_ID,
+    name: "Default",
+    subject: DEFAULT_FINAL_APPROVAL_EMAIL_SUBJECT,
+    message: DEFAULT_FINAL_APPROVAL_EMAIL_MESSAGE,
+  });
+
+export function resolveFinalApprovalEmailTemplate(
+  settings: HrPayrollFinalApprovalEmailSettings,
+): PayrollEmailTemplate {
+  const byId = settings.templates.find(
+    (t) => t.id === settings.defaultTemplateId,
+  );
+  return byId ?? settings.templates[0] ?? DEFAULT_FINAL_APPROVAL_EMAIL_TEMPLATE;
+}
+
+export const DEFAULT_HR_PAYROLL_FINAL_APPROVAL_EMAIL_SETTINGS: HrPayrollFinalApprovalEmailSettings =
+  {
+    fromEmail: "",
+    templates: [DEFAULT_FINAL_APPROVAL_EMAIL_TEMPLATE],
+    defaultTemplateId: DEFAULT_FINAL_APPROVAL_EMAIL_TEMPLATE_ID,
+    attachPdf: true,
+    attachExcel: true,
   };
 
 export type PayrollApprovalRequestStatus =

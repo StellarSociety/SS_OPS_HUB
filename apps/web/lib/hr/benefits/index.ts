@@ -3,6 +3,8 @@ export {
   BENEFIT_KIND_LABELS,
   BENEFIT_RUN_STATUSES,
   BENEFIT_RUN_STATUS_LABELS,
+  canReopenBenefitRun,
+  isBenefitRunLocked,
   DEFAULT_GRATUITY_DEPARTMENT_SHARES,
   DEFAULT_GRATUITY_DISCIPLINARY,
   DEFAULT_GRATUITY_POINT_TIERS,
@@ -36,21 +38,37 @@ export {
   resolveServiceChargePeriod,
 } from "./period";
 
-export { calculateGratuityRun } from "./calculate-gratuity";
+export { calculateGratuityRun, missedGratuityPoolRecipientWarning } from "./calculate-gratuity";
 export { calculateServiceChargeRun } from "./calculate-service-charge";
 export {
   finalizeBenefitAllocations,
+  loadBenefitWorkedDaysByStaff,
   loadForecastVenueAsphForMonth,
+  loadWaiterGratuityCollectionDaysByStaff,
   persistCalculatedBenefitRun,
+  reopenBenefitAllocations,
 } from "./persist-run";
 export {
   matchWaitersToStaff,
   namesLikelyMatch,
   normalizePersonName,
 } from "./match";
-export { resolveBenefitPointsForStaff } from "./points";
-export { floorPayoutToAed5, sumAed5RoundingRemainder } from "./rounding";
-export { countBenefitsWorkedDays, isBenefitsWorkedDay } from "./worked-days";
+export {
+  findBenefitPointTierForStaff,
+  findMappedBenefitPointTierForStaff,
+  resolveBenefitPointsForStaff,
+} from "./points";
+export {
+  floorPayoutToAed5,
+  payrollBenefitPayoutAmount,
+  sumAed5RoundingRemainder,
+} from "./rounding";
+export {
+  BENEFITS_WORKED_DAYS_RULE,
+  countBenefitsWorkedDays,
+  countBenefitsWorkedDaysFromSchedule,
+  isBenefitsWorkedDay,
+} from "./worked-days";
 export {
   anniversaryInYear,
   buildFlightTicketEntitlement,
@@ -87,3 +105,60 @@ export {
   type BenefitStaffOverride,
   type BenefitStaffOverridesMap,
 } from "./staff-overrides";
+export {
+  BENEFIT_DEDUCTION_KIND_LABELS,
+  BENEFIT_DEDUCTION_KINDS,
+  BENEFIT_DEDUCTION_LATER_SPLIT_LABELS,
+  BENEFIT_DEDUCTION_LATER_SPLIT_MODES,
+  BENEFIT_DEDUCTION_STATUS_LABELS,
+  allocateCutToRetainAndPool,
+  collectedBenefitDeductionCuts,
+  allocationPayoutFields,
+  contributorsFromRunTotals,
+  netBenefitPayout,
+  paidPayoutNets,
+  paidPayoutNetsByStaff,
+  sumPaidDistributedAfterFloor,
+  countPaidRecipientsAfterFloor,
+  appliedDeductionForMonth,
+  appliedDeductionsByStaffForMonth,
+  benefitPayoutKey,
+  benefitRosterKey,
+  compareMonthKeys,
+  currentMonthKey,
+  deductionStaffOf,
+  defaultBenefitDeductionMonthKey,
+  employeeDeductionBalances,
+  employeeDeductionBalancesByMonth,
+  formatBenefitDeductionTarget,
+  listMatchingRunPeople,
+  lookupBenefitPayout,
+  mapBenefitDeductionRow,
+  mergeBenefitPayout,
+  mergeBenefitRunPerson,
+  newBenefitDeductionId,
+  normalizeMonthKey,
+  round2 as roundBenefitDeduction,
+  scheduleBenefitDeduction,
+  shiftMonthKey,
+  splitEvenly,
+  type BenefitDeductionDepartmentOption,
+  type BenefitDeductionEntry,
+  type BenefitDeductionKind,
+  type BenefitDeductionLaterSplitMode,
+  type BenefitDeductionSchedule,
+  type BenefitDeductionStaffOption,
+  type BenefitDeductionStaffRef,
+  type BenefitDeductionStatus,
+  type BenefitDeductionTarget,
+  type BenefitPayoutMap,
+  type BenefitRunPerson,
+  type BenefitRunRosterMap,
+  type CreateBenefitDeductionInput,
+  type DeductionStaffDirectoryEntry,
+  type EmployeeDeductionBalance,
+  type MonthDeductionBalances,
+  type StaffDeductionSchedule,
+} from "./deductions";
+// deduction-payouts is server-only — import from
+// `@/lib/hr/benefits/deduction-payouts` in Server Components only.

@@ -1,3 +1,4 @@
+import { payrollBenefitPayoutAmount } from "@/lib/hr/benefits/rounding";
 import {
   computeSalaryBreakdown,
   isInAccommodation,
@@ -22,8 +23,9 @@ import {
   eachIsoDate,
   formatPayrollMonthLabel,
   isPayrollLeaver,
+  isTerminatedBeforePayrollMonth,
   maxIsoDate,
-  minIsoDate,
+  payrollEmployeeWindowEnd,
 } from "./period";
 import type {
   CalculatedEmployeePayroll,
@@ -131,6 +133,10 @@ export type ManualAdjustmentInput = {
 
 function empKey(empNo: string | null | undefined): string {
   return (empNo ?? "").trim().toLowerCase();
+}
+
+function workDateKey(value: string | null | undefined): string {
+  return String(value ?? "").trim().slice(0, 10);
 }
 
 function benefitMonthKey(b: BenefitAllocationInput): string | null {
@@ -286,7 +292,9 @@ export function calculateVenuePayroll(input: {
     { label: string; shiftTemplateId: string | null }
   >();
   for (const day of scheduleDays) {
-    scheduleByEmpDate.set(`${empKey(day.emp_no)}:${day.work_date}`, {
+    const dateKey = workDateKey(day.work_date);
+    if (!dateKey) continue;
+    scheduleByEmpDate.set(`${empKey(day.emp_no)}:${dateKey}`, {
       label: day.label_code,
       shiftTemplateId: day.shift_template_id ?? null,
     });
@@ -294,7 +302,12 @@ export function calculateVenuePayroll(input: {
 
   const attendanceByEmpDate = new Map<string, AttendanceDayInput>();
   for (const day of attendanceDays) {
-    attendanceByEmpDate.set(`${empKey(day.emp_no)}:${day.work_date}`, day);
+    const dateKey = workDateKey(day.work_date);
+    if (!dateKey) continue;
+    attendanceByEmpDate.set(`${empKey(day.emp_no)}:${dateKey}`, {
+      ...day,
+      work_date: dateKey,
+    });
   }
 
   const benefitsByStaff = new Map<string, BenefitAllocationInput[]>();
@@ -318,16 +331,16 @@ export function calculateVenuePayroll(input: {
     const joining = s.joining_date?.trim() || null;
     const termination = s.termination_date?.trim() || null;
 
-    // Not employed overlapping the period
+    // Not employed overlapping the period. Month-end leavers (terminated after
+    // periodEnd but still in that calendar month) were settled in that month
+    // and must not appear on the next 25→24 run.
     if (joining && joining > period.periodEnd) continue;
-    if (termination && termination < period.periodStart) continue;
+    if (isTerminatedBeforePayrollMonth(termination, period)) continue;
 
     const windowStart = joining
       ? maxIsoDate(period.periodStart, joining)
       : period.periodStart;
-    const windowEnd = termination
-      ? minIsoDate(period.periodEnd, termination)
-      : period.periodEnd;
+    const windowEnd = payrollEmployeeWindowEnd(termination, period);
 
     if (windowStart > windowEnd) continue;
 
@@ -661,7 +674,8 @@ export function calculateVenuePayroll(input: {
 
     // Benefits (tips / service charge hooks)
     for (const b of benefitsByStaff.get(s.id) ?? []) {
-      if (!included || b.amount === 0) continue;
+      const amount = payrollBenefitPayoutAmount(b.benefit_type, b.amount);
+      if (!included || amount === 0) continue;
       const code =
         b.benefit_type === "tips"
           ? "TIPS"
@@ -677,7 +691,7 @@ export function calculateVenuePayroll(input: {
         category: "variable",
         code,
         label: benefitLineLabel(b.benefit_type, monthKey),
-        amount: round2(b.amount),
+        amount,
         source: "benefits",
         meta: monthKey ? { benefitMonth: monthKey } : undefined,
         sortOrder: sort++,
@@ -703,11 +717,19 @@ export function calculateVenuePayroll(input: {
       const percentOfDailyRate = resolved.ok
         ? resolved.value.percentOfDailyRate
         : adj.percentOfDailyRate ?? null;
+      const codeUpper = adj.code.toUpperCase();
+      const lineAmount =
+        codeUpper === "TIPS" || codeUpper === "SERVICE_CHARGE"
+          ? payrollBenefitPayoutAmount(
+              codeUpper === "SERVICE_CHARGE" ? "service_charge" : "tips",
+              amount,
+            )
+          : round2(Math.abs(amount));
       lines.push({
         category: adj.category,
         code: adj.code,
         label: adj.label,
-        amount: round2(Math.abs(amount)),
+        amount: lineAmount,
         quantity: daysApplied,
         rate: dailyRate,
         source: adj.source ?? "adjustment",

@@ -30,8 +30,14 @@ import {
   type PayrollActionResult,
   type PayrollCsvResult,
 } from "@/lib/actions/hr-payroll";
-import type { HrPayrollApprovalsSettings } from "@/lib/hr/types";
-import { HR_SETTINGS_PAY_APPROVALS_HREF } from "@/lib/hr/settings-nav";
+import type {
+  HrPayrollApprovalsSettings,
+  HrPayrollFinalApprovalEmailSettings,
+} from "@/lib/hr/types";
+import {
+  HR_SETTINGS_EMAILS_FINAL_APPROVAL_HREF,
+  HR_SETTINGS_PAY_APPROVALS_HREF,
+} from "@/lib/hr/settings-nav";
 import type { PayrollStatus } from "@/lib/hr/payroll";
 import { isPayrollLocked } from "@/lib/hr/payroll";
 import { downloadBase64File, downloadTextFile } from "@/lib/sales/vouchers-export";
@@ -71,6 +77,7 @@ type PayrollWorkflowStepperProps = {
   canEdit: boolean;
   currentUserId: string | null;
   approvalsSettings: HrPayrollApprovalsSettings;
+  finalApprovalEmailSettings?: HrPayrollFinalApprovalEmailSettings;
   approvalCandidates: PayrollApproverCandidate[];
   pendingApprovals: PendingPayrollApproval[];
   userNames?: Record<string, string>;
@@ -162,17 +169,27 @@ function ModalShell({
   children,
   footer,
   closeDisabled = false,
+  className,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
   closeDisabled?: boolean;
+  className?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
   }, []);
+  useEffect(() => {
+    if (!mounted) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !closeDisabled) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mounted, closeDisabled, onClose]);
   if (!mounted) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -185,7 +202,12 @@ function ModalShell({
           if (!closeDisabled) onClose();
         }}
       />
-      <div className="relative z-10 flex max-h-[min(90vh,40rem)] w-full max-w-md flex-col rounded-xl border border-black/10 bg-white p-5 shadow-lg">
+      <div
+        className={cn(
+          "relative z-10 flex max-h-[min(90vh,40rem)] w-full max-w-md flex-col rounded-xl border border-black/10 bg-white p-5 shadow-lg",
+          className,
+        )}
+      >
         <div className="flex shrink-0 items-start justify-between gap-3">
           <h3 className="font-serif text-lg text-[#3D421F]">{title}</h3>
           <button
@@ -216,6 +238,7 @@ export function PayrollWorkflowStepper({
   canEdit,
   currentUserId,
   approvalsSettings,
+  finalApprovalEmailSettings,
   approvalCandidates,
   pendingApprovals,
   userNames = {},
@@ -236,6 +259,13 @@ export function PayrollWorkflowStepper({
   >(null);
   const [selectedApprovers, setSelectedApprovers] = useState<Set<string>>(
     () => new Set(),
+  );
+  const [sendEmail, setSendEmail] = useState(true);
+  const [attachPdf, setAttachPdf] = useState(
+    () => finalApprovalEmailSettings?.attachPdf ?? true,
+  );
+  const [attachExcel, setAttachExcel] = useState(
+    () => finalApprovalEmailSettings?.attachExcel ?? true,
   );
   const [otherFile, setOtherFile] = useState<{
     filename: string;
@@ -648,6 +678,11 @@ export function PayrollWorkflowStepper({
         ? approvalsSettings.hrReviewApproverUserIds
         : approvalsSettings.finalApprovalApproverUserIds;
     setSelectedApprovers(new Set(pool));
+    if (step === "final_approval") {
+      setSendEmail(true);
+      setAttachPdf(finalApprovalEmailSettings?.attachPdf ?? true);
+      setAttachExcel(finalApprovalEmailSettings?.attachExcel ?? true);
+    }
     setDialog(step);
   }
 
@@ -902,6 +937,11 @@ export function PayrollWorkflowStepper({
               ? "Request HR Review"
               : "Request Final Approval"
           }
+          className={
+            dialog === "final_approval"
+              ? "max-h-[min(90vh,48rem)] max-w-lg"
+              : undefined
+          }
           onClose={() => setDialog(null)}
         >
           <p className="text-sm text-black/55">
@@ -935,6 +975,55 @@ export function PayrollWorkflowStepper({
               Payroll Approvals.
             </p>
           ) : null}
+
+          {dialog === "final_approval" ? (
+            <div className="mt-4 space-y-2 rounded-lg border border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/35 px-3 py-3">
+              <label className="flex items-start gap-2 text-sm text-[#3D421F]">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 rounded border-black/20"
+                  checked={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.checked)}
+                />
+                <span>
+                  <span className="block font-medium">Send email</span>
+                  <span className="mt-0.5 block text-xs text-black/55">
+                    Uses Venue Settings → Email config and the template under{" "}
+                    <Link
+                      href={HR_SETTINGS_EMAILS_FINAL_APPROVAL_HREF}
+                      className="font-medium underline-offset-2 hover:underline"
+                    >
+                      HR Settings → Emails → PAY → Final Approval
+                    </Link>
+                    .
+                  </span>
+                </span>
+              </label>
+              <div className="ml-6 space-y-1.5">
+                <label className="flex items-center gap-2 text-sm text-[#3D421F]">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-black/20"
+                    checked={attachPdf}
+                    disabled={!sendEmail}
+                    onChange={(e) => setAttachPdf(e.target.checked)}
+                  />
+                  PDF
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[#3D421F]">
+                  <input
+                    type="checkbox"
+                    className="size-4 rounded border-black/20"
+                    checked={attachExcel}
+                    disabled={!sendEmail}
+                    onChange={(e) => setAttachExcel(e.target.checked)}
+                  />
+                  Excel
+                </label>
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-4 flex justify-end gap-2">
             <Button
               type="button"
@@ -958,6 +1047,11 @@ export function PayrollWorkflowStepper({
                       runId,
                       step: dialog,
                       approverUserIds: [...selectedApprovers],
+                      sendEmail: dialog === "final_approval" && sendEmail,
+                      attachPdf:
+                        dialog === "final_approval" && sendEmail && attachPdf,
+                      attachExcel:
+                        dialog === "final_approval" && sendEmail && attachExcel,
                     }),
                 )
               }

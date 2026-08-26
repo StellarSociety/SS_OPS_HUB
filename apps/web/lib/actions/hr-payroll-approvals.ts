@@ -20,12 +20,15 @@ import {
   loadPayrollApprovalsSettingsForVenue,
   mergePayrollApprovalsSettings,
 } from "@/lib/hr/payroll/approvals-settings";
+import { loadPayrollFinalApprovalEmailSettingsForVenue } from "@/lib/hr/payroll/final-approval-email-settings";
+import { buildPayrollExportPackage } from "@/lib/hr/payroll/export-artifacts";
 import { buildHrTemplateEmailHtml } from "@/lib/hr/email-logo";
 import { acknowledgementCtaForSend } from "@/lib/hr/acknowledgement-store";
 import {
   DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
+  resolveFinalApprovalEmailTemplate,
   resolvePayrollEmailTemplate,
   type HrPayrollApprovalsSettings,
   type PayrollApprovalRequest,
@@ -33,6 +36,8 @@ import {
   type PayrollEmailTemplate,
 } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { toScopedHref } from "@/lib/venue/scope-routing";
 import {
   exportPayrollGl,
   generateWpsFile,
@@ -82,6 +87,7 @@ async function getAuth() {
 function revalidateApprovals(runId?: string) {
   revalidatePath("/hr/settings/pay/approvals", "page");
   revalidatePath("/hr/settings/emails/pay/payroll", "page");
+  revalidatePath("/hr/settings/emails/pay/final-approval", "page");
   revalidatePath("/hr/settings/emails", "layout");
   revalidatePath("/hr/settings", "layout");
   revalidatePath("/hr/payroll", "page");
@@ -222,6 +228,9 @@ export async function requestPayrollApproval(params: {
   runId: string;
   step: PayrollApprovalStep;
   approverUserIds: string[];
+  sendEmail?: boolean;
+  attachPdf?: boolean;
+  attachExcel?: boolean;
 }): Promise<PayrollActionResult> {
   const auth = await getAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
@@ -243,9 +252,22 @@ export async function requestPayrollApproval(params: {
     return { ok: false, error: "Select at least one approver." };
   }
 
+  const sendEmail = params.sendEmail === true && step === "final_approval";
+  const attachPdf = sendEmail && params.attachPdf === true;
+  const attachExcel = sendEmail && params.attachExcel === true;
+
+  if ((attachPdf || attachExcel) && !canViewSalary(permissions, venue.id)) {
+    return {
+      ok: false,
+      error: "Salary view is required to attach payroll PDF or Excel.",
+    };
+  }
+
   const { data: run } = await supabase
     .from("hr_payroll_runs")
-    .select("id, status, payroll_month")
+    .select(
+      "id, status, payroll_month, period_start, period_end, payment_date, totals",
+    )
     .eq("id", params.runId)
     .eq("venue_id", venue.id)
     .maybeSingle();
@@ -303,6 +325,45 @@ export async function requestPayrollApproval(params: {
       ok: false,
       error: "One or more selected users are not configured approvers.",
     };
+  }
+
+  let attachments: {
+    filename: string;
+    content: string;
+    content_type?: string;
+  }[] = [];
+  if (attachPdf || attachExcel) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .maybeSingle();
+    const senderName =
+      String(profile?.full_name ?? "").trim() ||
+      String(profile?.email ?? user.email ?? "").trim() ||
+      "User";
+    const built = await buildPayrollExportPackage({
+      supabase,
+      venueId: venue.id,
+      venueName: venue.name ?? "Venue",
+      runId: params.runId,
+      userDisplayName: senderName,
+    });
+    if (!built.ok) return built;
+    if (attachPdf) {
+      attachments.push({
+        filename: built.package.pdf.filename,
+        content: built.package.pdf.base64,
+        content_type: built.package.pdf.mimeType,
+      });
+    }
+    if (attachExcel) {
+      attachments.push({
+        filename: built.package.xlsx.filename,
+        content: built.package.xlsx.base64,
+        content_type: built.package.xlsx.mimeType,
+      });
+    }
   }
 
   const service = createServiceClient();
@@ -365,13 +426,39 @@ export async function requestPayrollApproval(params: {
     console.error("[payroll] approval notify failed:", notifyError.message);
   }
 
+  let emailWarning: string | undefined;
+  if (sendEmail) {
+    const emailed = await sendFinalApprovalRequestEmails({
+      supabase,
+      venue,
+      user,
+      run: {
+        id: String(run.id),
+        payroll_month: String(run.payroll_month),
+        period_start: String(run.period_start),
+        period_end: String(run.period_end),
+        payment_date: run.payment_date ? String(run.payment_date) : null,
+        totals: run.totals,
+      },
+      selectedUserIds: selected,
+      attachments,
+    });
+    if (!emailed.ok) {
+      emailWarning = `Request created, but email failed: ${emailed.error}`;
+    }
+  }
+
   await service.from("hr_payroll_run_events").insert({
     venue_id: venue.id,
     run_id: params.runId,
     actor_id: user.id,
     from_status: run.status,
     to_status: run.status,
-    comment: `${stepLabel} requested`,
+    comment: emailWarning
+      ? `${stepLabel} requested (email failed)`
+      : sendEmail
+        ? `${stepLabel} requested (email sent)`
+        : `${stepLabel} requested`,
   });
 
   await writeAuditLog({
@@ -385,7 +472,7 @@ export async function requestPayrollApproval(params: {
   });
 
   revalidateApprovals(params.runId);
-  return { ok: true };
+  return emailWarning ? { ok: true, warning: emailWarning } : { ok: true };
 }
 
 export async function approvePayrollStep(params: {
@@ -527,6 +614,154 @@ function formatEmailMoney(amount: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function payrollRunPublicUrl(venue: { is_global: boolean; slug: string }, runId: string): string {
+  const appBase = (
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  ).replace(/\/$/, "");
+  const path = toScopedHref(
+    `/hr/payroll/${runId}`,
+    venue.is_global ? "global" : "venue",
+    venue.slug,
+  );
+  return `${appBase}${path}`;
+}
+
+async function sendFinalApprovalRequestEmails(opts: {
+  supabase: SupabaseClient;
+  venue: {
+    id: string;
+    name: string;
+    slug: string;
+    is_global: boolean;
+  };
+  user: { id: string; email?: string | null };
+  run: {
+    id: string;
+    payroll_month: string;
+    period_start: string;
+    period_end: string;
+    payment_date: string | null;
+    totals: unknown;
+  };
+  selectedUserIds: string[];
+  attachments: {
+    filename: string;
+    content: string;
+    content_type?: string;
+  }[];
+}): Promise<PayrollActionResult> {
+  const emailSettings = await loadPayrollFinalApprovalEmailSettingsForVenue(
+    opts.supabase,
+    opts.venue.id,
+  );
+  const activeTemplate = resolveFinalApprovalEmailTemplate(emailSettings);
+
+  const users = await listUsers(opts.supabase);
+  const recipients = opts.selectedUserIds
+    .map((id) => users.find((u) => u.id === id))
+    .filter((u): u is NonNullable<typeof u> => Boolean(u?.email?.trim()));
+  if (recipients.length === 0) {
+    return {
+      ok: false,
+      error: "Selected approvers have no email address.",
+    };
+  }
+
+  const monthRaw = String(opts.run.payroll_month);
+  const monthLabel = formatPayrollMonthLabel(monthRaw);
+  const monthParts = monthLabel.split(" ");
+  const payrollMonthName =
+    monthParts.length > 1 ? monthParts.slice(0, -1).join(" ") : monthLabel;
+  const payrollYear =
+    monthParts.length > 1
+      ? monthParts[monthParts.length - 1]!
+      : monthRaw.slice(0, 4);
+  const periodStart = String(opts.run.period_start).slice(0, 10);
+  const periodEnd = String(opts.run.period_end).slice(0, 10);
+  const paymentDate = opts.run.payment_date
+    ? String(opts.run.payment_date).slice(0, 10)
+    : periodEnd;
+  const totals = (opts.run.totals ?? {}) as Record<string, unknown>;
+  const includedCount = Number(
+    totals.includedCount ?? totals.employeeCount ?? 0,
+  );
+  const netPayroll = Number(totals.netPayroll ?? 0);
+
+  const { data: profile } = await opts.supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", opts.user.id)
+    .maybeSingle();
+  const userName =
+    String(profile?.full_name ?? "").trim() ||
+    String(profile?.email ?? opts.user.email ?? "").trim() ||
+    "User";
+
+  const runUrl = payrollRunPublicUrl(opts.venue, opts.run.id);
+  const errors: string[] = [];
+
+  for (const recipient of recipients) {
+    const vars: Record<string, string> = {
+      USER_NAME: userName,
+      APPROVER_NAME: recipient.full_name?.trim() || recipient.email,
+      APPROVER_EMAIL: recipient.email,
+      PAYROLL_MONTH: payrollMonthName,
+      PAYROLL_YEAR: payrollYear,
+      PAYROLL_PERIOD: `${periodStart} → ${periodEnd}`,
+      TOTAL_EMPLOYEES: String(
+        Number.isFinite(includedCount) ? includedCount : 0,
+      ),
+      TOTAL_NET_PAYROLL: formatEmailMoney(
+        Number.isFinite(netPayroll) ? netPayroll : 0,
+      ),
+      PAYMENT_DATE: paymentDate,
+      VENUE_NAME: opts.venue.name ?? "Venue",
+      PERIOD_START: periodStart,
+      PERIOD_END: periodEnd,
+      PAYROLL_RUN_URL: runUrl,
+      payroll_month: monthLabel,
+      venue_name: opts.venue.name ?? "Venue",
+      period_start: periodStart,
+      period_end: periodEnd,
+    };
+
+    const subject = applyEmailPlaceholders(activeTemplate.subject, vars);
+    const bodyText = applyEmailPlaceholders(activeTemplate.message, vars);
+    const { html, inlineAttachments } = await buildHrTemplateEmailHtml({
+      body: bodyText,
+      venue: opts.venue,
+    });
+
+    try {
+      await sendAppEmail(
+        {
+          to: recipient.email,
+          fromOverride: emailSettings.fromEmail,
+          subject,
+          html,
+          attachments: [...inlineAttachments, ...opts.attachments],
+        },
+        { venueId: opts.venue.id, supabase: opts.supabase },
+      );
+    } catch (e) {
+      errors.push(
+        `${recipient.email}: ${e instanceof Error ? e.message : "send failed"}`,
+      );
+    }
+  }
+
+  if (errors.length === recipients.length) {
+    return { ok: false, error: errors.join("; ") };
+  }
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      error: `Sent to some recipients. Failed: ${errors.join("; ")}`,
+    };
+  }
+  return { ok: true };
 }
 
 export async function emailPayrollExport(

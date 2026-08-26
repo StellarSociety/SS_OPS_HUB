@@ -38,6 +38,19 @@ function nextDeductionStatus(remaining: number): "pending" | "cleared" {
   return remaining > 0 ? "pending" : "cleared";
 }
 
+/** Variable pending charges (e.g. visa paybacks) are earnings, not deductions. */
+export function isPendingPayrollPaybackCategory(
+  category: string | null | undefined,
+): boolean {
+  return String(category ?? "") === "variable";
+}
+
+function adjustmentSourceForPendingCategory(
+  category: string | null | undefined,
+): "benefits" | "manual" {
+  return isPendingPayrollPaybackCategory(category) ? "benefits" : "manual";
+}
+
 /**
  * Apply (or update) specific amounts on a payroll run.
  * Amounts may be partial — remaining balance stays pending for later months.
@@ -129,12 +142,22 @@ export async function applyPendingDeductionAmounts(opts: {
     }
 
     const reason =
-      String(row.reason ?? "").trim() || "Pending payroll deduction";
+      String(row.reason ?? "").trim() ||
+      (isPendingPayrollPaybackCategory(String(row.category))
+        ? "Visa payback"
+        : "Pending payroll deduction");
     const code =
-      String(row.code ?? "UNIFORM").trim().toUpperCase() || "UNIFORM";
+      String(row.code ?? "").trim().toUpperCase() ||
+      (isPendingPayrollPaybackCategory(String(row.category))
+        ? "PAYBACK"
+        : "UNIFORM");
     const label =
-      String(row.label ?? "Uniform / equipment").trim() ||
-      "Uniform / equipment";
+      String(row.label ?? "").trim() ||
+      (isPendingPayrollPaybackCategory(String(row.category))
+        ? "Payback"
+        : "Uniform / equipment");
+    const category = String(row.category ?? "deduction");
+    const source = adjustmentSourceForPendingCategory(category);
 
     if (existing?.adjustment_id) {
       const { error: adjError } = await service
@@ -144,6 +167,8 @@ export async function applyPendingDeductionAmounts(opts: {
           reason,
           label,
           code,
+          category,
+          source,
         })
         .eq("id", existing.adjustment_id)
         .eq("run_id", opts.runId);
@@ -165,14 +190,14 @@ export async function applyPendingDeductionAmounts(opts: {
           run_id: opts.runId,
           run_employee_id: runEmpByStaff.get(String(row.staff_id)) ?? null,
           staff_id: row.staff_id,
-          category: row.category ?? "deduction",
+          category,
           code,
           label,
           amount: applyAmount,
           percent_of_daily_rate: null,
           days_applied: null,
           reason,
-          source: "manual",
+          source,
           created_by: opts.actorId ?? null,
         })
         .select("id")

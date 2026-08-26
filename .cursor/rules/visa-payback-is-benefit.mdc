@@ -1,0 +1,18 @@
+---
+description: Visa "Employee already paid" is a PAYBACK benefit, never a payroll deduction
+globs: apps/web/{lib,components}/hr/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Visa payback is a benefit
+
+When a visa penalty is marked **Employee already paid** (`companyCovered` + `reimburseEmployee`):
+
+- Queue it as payroll code **`PAYBACK`**, category **`variable`**
+- Treat it as a **benefit / variable earning** (increases net pay)
+- Import it from payroll **Import Benefits**, not Import Deductions
+- Adjustment `source` should be **`benefits`**
+
+**Employee pays** (`companyCovered: false`) remains a deduction (`VISA_PROCESSING_FEES`) and stays on Import Deductions.
+
+Do not classify paybacks as `REIMBURSEMENT` or as `category: "deduction"`.

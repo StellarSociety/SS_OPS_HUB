@@ -1,10 +1,11 @@
 "use client";
 
-import { HandCoins, Percent, PiggyBank, Plane } from "lucide-react";
+import { HandCoins, MinusCircle, Percent, PiggyBank, Plane } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import {
   HR_BENEFITS_COLLECTIONS_HREF,
+  HR_BENEFITS_DEDUCTIONS_HREF,
   HR_BENEFITS_FLIGHT_TICKET_HREF,
   HR_BENEFITS_GRATUITY_HREF,
   HR_BENEFITS_SERVICE_CHARGE_HREF,
@@ -21,6 +22,11 @@ const TABS = [
     href: HR_BENEFITS_SERVICE_CHARGE_HREF,
     label: "Service Charge",
     icon: Percent,
+  },
+  {
+    href: HR_BENEFITS_DEDUCTIONS_HREF,
+    label: "Deductions",
+    icon: MinusCircle,
   },
   {
     href: HR_BENEFITS_FLIGHT_TICKET_HREF,

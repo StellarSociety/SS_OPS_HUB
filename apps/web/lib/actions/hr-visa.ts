@@ -249,7 +249,9 @@ const penaltySchema = z.object({
   id: z.string().uuid().optional(),
   description: z.string().trim().max(500),
   amount: z.coerce.number().min(0).max(999_999_999),
+  netAmount: z.coerce.number().min(0).max(999_999_999).nullable().optional(),
   companyCovered: z.boolean(),
+  reimburseEmployee: z.boolean().optional(),
 });
 
 const staffVisaRecordSchema = z.object({
@@ -264,7 +266,19 @@ const staffVisaRecordSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable(),
   valueSpend: z.coerce.number().min(0).max(999_999_999).nullable(),
+  valueSpendNet: z.coerce
+    .number()
+    .min(0)
+    .max(999_999_999)
+    .nullable()
+    .optional(),
   cancelationSpend: z.coerce.number().min(0).max(999_999_999).nullable().optional(),
+  cancelationSpendNet: z.coerce
+    .number()
+    .min(0)
+    .max(999_999_999)
+    .nullable()
+    .optional(),
   penalties: z.array(penaltySchema).optional(),
   visaStatus: z.string().trim().max(80),
   disputeReference: z.string().trim().max(200).optional(),
@@ -370,7 +384,9 @@ function mapPenalties(
     id: p.id?.trim() || crypto.randomUUID(),
     description: p.description.trim(),
     amount: p.amount,
+    netAmount: p.netAmount ?? null,
     companyCovered: p.companyCovered,
+    reimburseEmployee: Boolean(p.reimburseEmployee) && p.companyCovered,
   }));
 }
 
@@ -464,7 +480,9 @@ export async function addStaffVisaRecord(
     issueDate: parsed.data.issueDate,
     expiryDate: parsed.data.expiryDate,
     valueSpend: parsed.data.valueSpend,
+    valueSpendNet: parsed.data.valueSpendNet ?? null,
     cancelationSpend: parsed.data.cancelationSpend ?? null,
+    cancelationSpendNet: parsed.data.cancelationSpendNet ?? null,
     penalties: mapPenalties(parsed.data.penalties),
     visaStatus: status,
     disputeReference: parsed.data.disputeReference?.trim() || "",
@@ -628,7 +646,9 @@ export async function updateStaffVisaRecord(
     issueDate: input.issueDate,
     expiryDate: input.expiryDate,
     valueSpend: input.valueSpend,
+    valueSpendNet: input.valueSpendNet,
     cancelationSpend: input.cancelationSpend,
+    cancelationSpendNet: input.cancelationSpendNet,
     penalties: input.penalties,
     visaStatus: input.visaStatus,
     disputeReference: input.disputeReference,
@@ -676,10 +696,15 @@ export async function updateStaffVisaRecord(
     issueDate: parsed.data.issueDate,
     expiryDate: parsed.data.expiryDate,
     valueSpend: parsed.data.valueSpend,
+    valueSpendNet: parsed.data.valueSpendNet ?? null,
     cancelationSpend:
       parsed.data.cancelationSpend !== undefined
         ? parsed.data.cancelationSpend
         : previous.cancelationSpend,
+    cancelationSpendNet:
+      parsed.data.cancelationSpendNet !== undefined
+        ? parsed.data.cancelationSpendNet
+        : previous.cancelationSpendNet,
     penalties: mapPenalties(parsed.data.penalties),
     visaStatus: status,
     disputeReference: parsed.data.disputeReference?.trim() || "",
@@ -740,6 +765,12 @@ const applyVisaCancelationSchema = z.object({
   staffId: z.string().uuid(),
   cancelDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   cancelationSpend: z.coerce.number().min(0).max(999_999_999),
+  cancelationSpendNet: z.coerce
+    .number()
+    .min(0)
+    .max(999_999_999)
+    .nullable()
+    .optional(),
 });
 
 /** Apply cancelation date + charge on the latest visa record (status → Visa Canceled). */
@@ -796,6 +827,7 @@ export async function applyVisaCancelation(
     ...latest,
     cancelDate: parsed.data.cancelDate,
     cancelationSpend: parsed.data.cancelationSpend,
+    cancelationSpendNet: parsed.data.cancelationSpendNet ?? null,
     visaStatus: "Visa Canceled",
   };
 

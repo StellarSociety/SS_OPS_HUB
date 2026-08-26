@@ -26,6 +26,18 @@ export const VISA_RUN_DEDUCTION_CODE = "VISA_PROCESSING_FEES";
 export const VISA_RUN_DEDUCTION_LABEL_FALLBACK =
   "Visa Processing Fees/ Employee Fines";
 
+/**
+ * Payroll earning when the employee already paid a fine and the company
+ * pays them back. This is a variable benefit (PAYBACK), never a deduction.
+ */
+export const VISA_RUN_PAYBACK_CODE = "PAYBACK";
+export const VISA_RUN_PAYBACK_LABEL_FALLBACK = "Payback";
+/** @deprecated Use {@link VISA_RUN_PAYBACK_CODE}. */
+export const VISA_RUN_REIMBURSEMENT_CODE = VISA_RUN_PAYBACK_CODE;
+/** @deprecated Use {@link VISA_RUN_PAYBACK_LABEL_FALLBACK}. */
+export const VISA_RUN_REIMBURSEMENT_LABEL_FALLBACK =
+  VISA_RUN_PAYBACK_LABEL_FALLBACK;
+
 function roundMoney(value: number): number {
   return Math.round(Math.abs(value) * 100) / 100;
 }
@@ -37,6 +49,10 @@ function isUuid(value: string): boolean {
 export type VisaRunDeductionIdentity = {
   code: string;
   label: string;
+};
+
+export type VisaRunPayrollIdentity = VisaRunDeductionIdentity & {
+  category: "deduction" | "variable";
 };
 
 /**
@@ -66,12 +82,74 @@ export async function resolveVisaRunDeductionIdentity(opts: {
   };
 }
 
+export async function resolveVisaRunPaybackIdentity(opts: {
+  service?: ServiceClient | SupabaseClient;
+  venueId: string;
+}): Promise<VisaRunPayrollIdentity> {
+  const service = (opts.service ?? createServiceClient()) as ServiceClient;
+  const raw = await getHrVenueSetting<
+    Partial<HrPayrollAdjustmentCodesSettings>
+  >(
+    service as unknown as SupabaseClient,
+    opts.venueId,
+    HR_SETTINGS_KEYS.payrollAdjustmentCodes,
+    {},
+  );
+  const catalog = mergePayrollAdjustmentCodes(raw);
+  const entry = findAdjustmentCode(VISA_RUN_PAYBACK_CODE, catalog);
+  return {
+    category: "variable",
+    code: entry?.code ?? VISA_RUN_PAYBACK_CODE,
+    label: entry?.label?.trim() || VISA_RUN_PAYBACK_LABEL_FALLBACK,
+  };
+}
+
+/** @deprecated Use {@link resolveVisaRunPaybackIdentity}. */
+export const resolveVisaRunReimbursementIdentity = resolveVisaRunPaybackIdentity;
+
 export type VisaEmployeeCharge = {
   penaltyId: string;
   staffId: string;
   amount: number;
   reason: string;
+  kind: "deduction" | "payback";
 };
+
+/** Penalties that should appear on payroll: employee deductions or paybacks. */
+export function employeeChargedPenaltiesFromRecords(
+  staffId: string,
+  records: StaffVisaRecord[],
+): VisaEmployeeCharge[] {
+  const out: VisaEmployeeCharge[] = [];
+  for (const record of records) {
+    for (const penalty of record.penalties) {
+      const amount = roundMoney(Number(penalty.amount ?? 0));
+      if (!(amount > 0)) continue;
+      const penaltyId = String(penalty.id ?? "").trim();
+      if (!isUuid(penaltyId)) continue;
+      const description = penalty.description.trim() || "Visa penalty / fine";
+      if (!penalty.companyCovered) {
+        out.push({
+          penaltyId,
+          staffId,
+          amount,
+          reason: description,
+          kind: "deduction",
+        });
+        continue;
+      }
+      if (!penalty.reimburseEmployee) continue;
+      out.push({
+        penaltyId,
+        staffId,
+        amount,
+        reason: description,
+        kind: "payback",
+      });
+    }
+  }
+  return out;
+}
 
 /** Ensure every penalty has a stable UUID id (needed for source_id links). */
 export function stabilizeVisaPenaltyIds(
@@ -91,30 +169,6 @@ export function stabilizeVisaPenaltyIds(
     return { ...record, penalties };
   });
   return { records: next, changed };
-}
-
-export function employeeChargedPenaltiesFromRecords(
-  staffId: string,
-  records: StaffVisaRecord[],
-): VisaEmployeeCharge[] {
-  const out: VisaEmployeeCharge[] = [];
-  for (const record of records) {
-    for (const penalty of record.penalties) {
-      if (penalty.companyCovered) continue;
-      const amount = roundMoney(Number(penalty.amount ?? 0));
-      if (!(amount > 0)) continue;
-      const penaltyId = String(penalty.id ?? "").trim();
-      if (!isUuid(penaltyId)) continue;
-      const reason = penalty.description.trim() || "Visa penalty / fine";
-      out.push({
-        penaltyId,
-        staffId,
-        amount,
-        reason,
-      });
-    }
-  }
-  return out;
 }
 
 /**
@@ -139,6 +193,18 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
       service,
       venueId: opts.venueId,
     }));
+  const paybackIdentity = await resolveVisaRunPaybackIdentity({
+    service,
+    venueId: opts.venueId,
+  });
+  const payrollIdentityFor = (kind: VisaEmployeeCharge["kind"]) =>
+    kind === "payback"
+      ? paybackIdentity
+      : {
+          category: "deduction" as const,
+          code: identity.code,
+          label: identity.label,
+        };
   const { records: stableRecords } = stabilizeVisaPenaltyIds(opts.records);
   const desired = employeeChargedPenaltiesFromRecords(
     opts.staffId,
@@ -148,7 +214,7 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
   const { data: existing, error } = await service
     .from("hr_pending_payroll_deductions")
     .select(
-      "id, source_id, amount, original_amount, remaining_amount, status, reason, code, label",
+      "id, source_id, amount, original_amount, remaining_amount, status, reason, code, label, category",
     )
     .eq("venue_id", opts.venueId)
     .eq("staff_id", opts.staffId)
@@ -174,6 +240,7 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
       reason: string | null;
       code: string | null;
       label: string | null;
+      category: string | null;
     }
   >();
   for (const row of existing ?? []) {
@@ -190,6 +257,7 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
       reason: (row.reason as string | null) ?? null,
       code: (row.code as string | null) ?? null,
       label: (row.label as string | null) ?? null,
+      category: (row.category as string | null) ?? null,
     });
   }
 
@@ -198,6 +266,7 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
   let cancelled = 0;
 
   for (const charge of desired) {
+    const payroll = payrollIdentityFor(charge.kind);
     const row = bySourceId.get(charge.penaltyId);
     if (!row) {
       const { error: insertError } = await service
@@ -205,9 +274,9 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
         .insert({
           venue_id: opts.venueId,
           staff_id: opts.staffId,
-          category: "deduction",
-          code: identity.code,
-          label: identity.label,
+          category: payroll.category,
+          code: payroll.code,
+          label: payroll.label,
           amount: charge.amount,
           original_amount: charge.amount,
           remaining_amount: charge.amount,
@@ -239,8 +308,9 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
     const nextStatus = nextRemaining > 0 ? "pending" : "cleared";
 
     const identityMatches =
-      String(row.code ?? "") === identity.code &&
-      String(row.label ?? "") === identity.label;
+      String(row.code ?? "") === payroll.code &&
+      String(row.label ?? "") === payroll.label &&
+      String(row.category ?? "deduction") === payroll.category;
     const reasonMatches = String(row.reason ?? "") === charge.reason;
 
     if (
@@ -260,8 +330,9 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
           .from("hr_pending_payroll_deductions")
           .update({
             reason: charge.reason,
-            code: identity.code,
-            label: identity.label,
+            category: payroll.category,
+            code: payroll.code,
+            label: payroll.label,
             updated_at: new Date().toISOString(),
           })
           .eq("id", row.id);
@@ -279,8 +350,9 @@ export async function syncStaffVisaRunPendingDeductions(opts: {
         remaining_amount: nextRemaining,
         reason: charge.reason,
         status: nextStatus,
-        code: identity.code,
-        label: identity.label,
+        category: payroll.category,
+        code: payroll.code,
+        label: payroll.label,
         updated_at: new Date().toISOString(),
       })
       .eq("id", row.id);
@@ -432,9 +504,18 @@ export async function migrateLegacyVisaRunDeductionIdentity(opts: {
     if (runEmpError) throw new Error(runEmpError.message);
     runEmployeeIds = (runEmps ?? []).map((r) => String(r.id));
     if (runEmployeeIds.length === 0) {
+      const payback = await migrateLegacyVisaRunPaybackIdentity({
+        service,
+        venueId: opts.venueId,
+        staffId: opts.staffId,
+      });
       return {
-        pending: pending + (pendingLabelUpdated?.length ?? 0),
-        adjustments: (adjUpdated?.length ?? 0) + (adjLabelUpdated?.length ?? 0),
+        pending:
+          pending + (pendingLabelUpdated?.length ?? 0) + payback.pending,
+        adjustments:
+          (adjUpdated?.length ?? 0) +
+          (adjLabelUpdated?.length ?? 0) +
+          payback.adjustments,
         lines: 0,
       };
     }
@@ -469,17 +550,139 @@ export async function migrateLegacyVisaRunDeductionIdentity(opts: {
   }
   const { data: lineLabelUpdated, error: lineLabelError } =
     await lineLabelQuery;
-  if (
-    lineLabelError &&
-    !/does not exist|schema cache/i.test(lineLabelError.message)
-  ) {
+  if (lineLabelError && !/does not exist|schema cache/i.test(lineLabelError.message)) {
     throw new Error(lineLabelError.message);
   }
 
+  const payback = await migrateLegacyVisaRunPaybackIdentity({
+    service,
+    venueId: opts.venueId,
+    staffId: opts.staffId,
+  });
+
   return {
-    pending: pending + (pendingLabelUpdated?.length ?? 0),
-    adjustments: (adjUpdated?.length ?? 0) + (adjLabelUpdated?.length ?? 0),
+    pending:
+      pending + (pendingLabelUpdated?.length ?? 0) + payback.pending,
+    adjustments:
+      (adjUpdated?.length ?? 0) +
+      (adjLabelUpdated?.length ?? 0) +
+      payback.adjustments,
     lines: (lineUpdated?.length ?? 0) + (lineLabelUpdated?.length ?? 0),
+  };
+}
+
+/**
+ * Remap visa-run "employee already paid" charges from legacy reimbursement /
+ * deduction identity onto PAYBACK (variable benefit).
+ */
+async function migrateLegacyVisaRunPaybackIdentity(opts: {
+  service: ServiceClient;
+  venueId: string;
+  staffId?: string;
+}): Promise<{ pending: number; adjustments: number }> {
+  const identity = await resolveVisaRunPaybackIdentity({
+    service: opts.service,
+    venueId: opts.venueId,
+  });
+  const now = new Date().toISOString();
+
+  let pendingQuery = opts.service
+    .from("hr_pending_payroll_deductions")
+    .select("id, code, label, category")
+    .eq("venue_id", opts.venueId)
+    .eq("source", "visa_runs")
+    .neq("status", "cancelled");
+  if (opts.staffId) pendingQuery = pendingQuery.eq("staff_id", opts.staffId);
+
+  const { data: pendingRows, error: pendingError } = await pendingQuery;
+  if (pendingError) {
+    if (/does not exist|schema cache/i.test(pendingError.message)) {
+      return { pending: 0, adjustments: 0 };
+    }
+    throw new Error(pendingError.message);
+  }
+
+  const isPaybackRow = (row: {
+    code: string | null;
+    category: string | null;
+  }) => {
+    const category = String(row.category ?? "deduction");
+    const code = String(row.code ?? "").toUpperCase();
+    return category === "variable" || code === "REIMBURSEMENT";
+  };
+
+  const toRemap = (pendingRows ?? []).filter((row) => {
+    if (!isPaybackRow(row)) return false;
+    const code = String(row.code ?? "").toUpperCase();
+    const category = String(row.category ?? "deduction");
+    const label = String(row.label ?? "");
+    return (
+      code !== identity.code ||
+      category !== identity.category ||
+      label !== identity.label
+    );
+  });
+
+  // Variable visa-run rows (and legacy reimbursement codes) become PAYBACK.
+  const remapIds = toRemap.map((row) => String(row.id));
+  if (remapIds.length > 0) {
+    const { error: remapError } = await opts.service
+      .from("hr_pending_payroll_deductions")
+      .update({
+        category: identity.category,
+        code: identity.code,
+        label: identity.label,
+        updated_at: now,
+      })
+      .in("id", remapIds);
+    if (remapError) throw new Error(remapError.message);
+  }
+
+  const paybackPendingIds = (pendingRows ?? [])
+    .filter((row) => isPaybackRow(row))
+    .map((row) => String(row.id));
+
+  if (paybackPendingIds.length === 0) {
+    return { pending: remapIds.length, adjustments: 0 };
+  }
+
+  const { data: apps, error: appsError } = await opts.service
+    .from("hr_payroll_deduction_applications")
+    .select("adjustment_id")
+    .in("pending_deduction_id", paybackPendingIds);
+  if (appsError) {
+    if (/does not exist|schema cache/i.test(appsError.message)) {
+      return { pending: remapIds.length, adjustments: 0 };
+    }
+    throw new Error(appsError.message);
+  }
+
+  const adjustmentIds = [
+    ...new Set(
+      (apps ?? [])
+        .map((a) => a.adjustment_id as string | null)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  if (adjustmentIds.length === 0) {
+    return { pending: remapIds.length, adjustments: 0 };
+  }
+
+  const { data: adjUpdated, error: adjError } = await opts.service
+    .from("hr_payroll_adjustments")
+    .update({
+      category: identity.category,
+      code: identity.code,
+      label: identity.label,
+      source: "benefits",
+    })
+    .in("id", adjustmentIds)
+    .select("id");
+  if (adjError) throw new Error(adjError.message);
+
+  return {
+    pending: remapIds.length,
+    adjustments: adjUpdated?.length ?? 0,
   };
 }
 

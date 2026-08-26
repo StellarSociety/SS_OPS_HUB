@@ -323,6 +323,22 @@ export function canApproveSchedules(
   );
 }
 
+/**
+ * Layer 4 — can approve attendance days on Validation.
+ * Independent of weekly Schedule Approval and of Schedules / Staff editors.
+ */
+export function canApproveAttendance(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasHrPermission(
+    permissions,
+    HR_FEATURES.attendanceValidator,
+    "view",
+    venueId,
+  );
+}
+
 export function canAdminLookups(
   permissions: UserPermission[],
   venueId: string,

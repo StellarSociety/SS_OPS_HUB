@@ -195,7 +195,7 @@ export function PayrollMonthPicker({
         </label>
         <div
           className={cn(
-            "inline-flex h-10 items-stretch overflow-hidden rounded-lg border bg-white transition-colors",
+            "flex h-10 w-full items-stretch overflow-hidden rounded-lg border bg-white transition-colors",
             open
               ? "border-[var(--venue-primary)]/45 shadow-sm"
               : "border-black/10 hover:border-black/20",

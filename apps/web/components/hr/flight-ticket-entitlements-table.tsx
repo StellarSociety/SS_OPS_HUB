@@ -11,6 +11,7 @@ import {
 } from "@/lib/hr/benefits/flight-ticket";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
+import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { WorkingStatusBadge } from "@/components/hr/working-status-badge";
 import {
@@ -121,8 +122,14 @@ function EntitlementRow({
               {row.fullName}
             </div>
             <div className="truncate text-xs text-black/45">
-              {row.empNo}
-              {row.departmentName ? ` · ${row.departmentName}` : ""}
+              {row.empNo ? (
+                <StaffDirectoryLink staffId={row.staffId} empNo={row.empNo} />
+              ) : (
+                "—"
+              )}
+              {row.departmentName ? (
+                <span>{` · ${row.departmentName}`}</span>
+              ) : null}
             </div>
             {row.workingStatusName || row.employmentStatusName ? (
               <div className="mt-1 flex flex-wrap items-center gap-1.5">

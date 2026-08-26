@@ -16,6 +16,7 @@ import {
   type HrLeavePolicySettings,
   type HrSalaryDefaults,
 } from "@/lib/hr/types";
+import { mapAllocationsToPayrollAmounts } from "@/lib/hr/benefits/deduction-payouts";
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   calculateVenuePayroll,
@@ -23,15 +24,21 @@ import {
   type PayrollInclusionOverride,
   type PayrollStaffInput,
 } from "./calculate";
-import { mergePayrollSettings, resolvePayrollPeriod } from "./period";
+import {
+  mergePayrollSettings,
+  payrollDataFetchToDate,
+  payrollMonthContainingDate,
+  resolvePayrollPeriod,
+} from "./period";
 import { sumVenueNetRevenueForPeriod } from "./period-revenue";
-import type {
-  CalculatedEmployeePayroll,
-  HrPayrollSettings,
-  PayrollPaymentMethod,
-  PayrollRunTotals,
+import {
+  canEditPayrollRun,
+  emptyPayrollTotals,
+  type CalculatedEmployeePayroll,
+  type HrPayrollSettings,
+  type PayrollPaymentMethod,
+  type PayrollRunTotals,
 } from "./types";
-import { emptyPayrollTotals } from "./types";
 import {
   mergePayrollAdjustmentCodes,
   type HrPayrollAdjustmentCodesSettings,
@@ -68,6 +75,59 @@ export function resolveEmployeePaymentMethod(
   const cleaned = iban?.replace(/\s+/g, "").trim() ?? "";
   if (cleaned) return "wps";
   return settings.noBankPaymentMethod;
+}
+
+type BenefitRunJoin = {
+  benefit_month?: string;
+  benefit_kind?: string;
+  totals?: unknown;
+};
+
+async function mapAppliedBenefitsForPayroll(
+  service: SupabaseClient,
+  venueId: string,
+  rows: Array<Record<string, unknown>>,
+) {
+  const parsed = rows.map((b) => {
+    const runRaw = b.run as BenefitRunJoin | BenefitRunJoin[] | null;
+    const run = Array.isArray(runRaw) ? runRaw[0] : runRaw;
+    const benefit_month = run?.benefit_month
+      ? String(run.benefit_month).slice(0, 10)
+      : null;
+    return {
+      staff_id: String(b.staff_id ?? ""),
+      benefit_type: String(b.benefit_type ?? ""),
+      amount: Number(b.amount) || 0,
+      benefit_month,
+      period_start: b.period_start
+        ? String(b.period_start).slice(0, 10)
+        : null,
+      meta: b.meta,
+      benefit_kind: run?.benefit_kind ? String(run.benefit_kind) : null,
+      run_totals: run?.totals,
+    };
+  });
+  if (parsed.length === 0) return [];
+  const amounts = await mapAllocationsToPayrollAmounts(
+    service,
+    venueId,
+    parsed.map((b) => ({
+      staffId: b.staff_id,
+      benefitType: b.benefit_type,
+      amount: b.amount,
+      meta: b.meta,
+      benefitKind: b.benefit_kind,
+      benefitMonth: b.benefit_month,
+      runTotals: b.run_totals,
+    })),
+  );
+  return parsed.map((b, i) => ({
+    staff_id: b.staff_id,
+    benefit_type: b.benefit_type,
+    amount: amounts[i] ?? b.amount,
+    benefit_month: b.benefit_month,
+    period_start: b.period_start,
+  }));
 }
 
 function toStaffInput(
@@ -137,19 +197,20 @@ export async function persistCalculatedPayrollRun(opts: {
   const staffIds = staffInputs.map((s) => s.id);
   const empNos = staffInputs.map((s) => s.emp_no);
 
-  // Pending deductions are applied via payroll → Import Deductions (selective).
+  // Pending deductions are applied via payroll → Import Deductions.
+  // Visa paybacks (employee already paid) are applied via Import Benefits.
 
   const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
     await Promise.all([
       listScheduleDaysByDateRange(supabase, venueId, {
         fromDate: period.periodStart,
-        toDate: period.periodEnd,
+        toDate: payrollDataFetchToDate(period),
       }),
       listAttendanceDaysForStaff(supabase, venueId, {
         staffIds,
         empNos,
         fromDate: period.periodStart,
-        toDate: period.periodEnd,
+        toDate: payrollDataFetchToDate(period),
       }),
       listShiftTemplates(supabase, venueId, { includeInactive: true }),
       service
@@ -159,7 +220,7 @@ export async function persistCalculatedPayrollRun(opts: {
       service
         .from("hr_benefit_allocations")
         .select(
-          "staff_id, benefit_type, amount, status, period_start, run:hr_benefit_runs(benefit_month)",
+          "staff_id, benefit_type, amount, status, period_start, meta, run:hr_benefit_runs(benefit_month, benefit_kind, totals)",
         )
         .eq("venue_id", venueId)
         .lte("period_start", period.periodEnd)
@@ -188,24 +249,11 @@ export async function persistCalculatedPayrollRun(opts: {
     source: "adjustment" as const,
   }));
 
-  const benefits = (benefitsRes.data ?? []).map((b) => {
-    const runRaw = b.run as
-      | { benefit_month?: string }
-      | { benefit_month?: string }[]
-      | null;
-    const run = Array.isArray(runRaw) ? runRaw[0] : runRaw;
-    return {
-      staff_id: b.staff_id as string,
-      benefit_type: b.benefit_type as string,
-      amount: Number(b.amount),
-      benefit_month: run?.benefit_month
-        ? String(run.benefit_month).slice(0, 10)
-        : null,
-      period_start: b.period_start
-        ? String(b.period_start).slice(0, 10)
-        : null,
-    };
-  });
+  const benefits = await mapAppliedBenefitsForPayroll(
+    service,
+    venueId,
+    (benefitsRes.data ?? []) as Array<Record<string, unknown>>,
+  );
 
   // Keep every prior include/exclude choice across full rebuild (recalculate / save).
   // New staff who appear for the first time still use calculated defaults.
@@ -684,7 +732,7 @@ export async function persistSingleEmployeePayroll(opts: {
     await Promise.all([
       listScheduleDaysByDateRange(supabase, venueId, {
         fromDate: period.periodStart,
-        toDate: period.periodEnd,
+        toDate: payrollDataFetchToDate(period),
         staffIds: [staff.id],
         empNos: [staff.emp_no],
       }),
@@ -692,7 +740,7 @@ export async function persistSingleEmployeePayroll(opts: {
         staffIds: [staff.id],
         empNos: [staff.emp_no],
         fromDate: period.periodStart,
-        toDate: period.periodEnd,
+        toDate: payrollDataFetchToDate(period),
       }),
       listShiftTemplates(supabase, venueId, { includeInactive: true }),
       service
@@ -703,7 +751,7 @@ export async function persistSingleEmployeePayroll(opts: {
       service
         .from("hr_benefit_allocations")
         .select(
-          "staff_id, benefit_type, amount, status, period_start, run:hr_benefit_runs(benefit_month)",
+          "staff_id, benefit_type, amount, status, period_start, meta, run:hr_benefit_runs(benefit_month, benefit_kind, totals)",
         )
         .eq("venue_id", venueId)
         .eq("staff_id", staffId)
@@ -733,24 +781,11 @@ export async function persistSingleEmployeePayroll(opts: {
     source: "adjustment" as const,
   }));
 
-  const benefits = (benefitsRes.data ?? []).map((b) => {
-    const runRaw = b.run as
-      | { benefit_month?: string }
-      | { benefit_month?: string }[]
-      | null;
-    const run = Array.isArray(runRaw) ? runRaw[0] : runRaw;
-    return {
-      staff_id: b.staff_id as string,
-      benefit_type: b.benefit_type as string,
-      amount: Number(b.amount),
-      benefit_month: run?.benefit_month
-        ? String(run.benefit_month).slice(0, 10)
-        : null,
-      period_start: b.period_start
-        ? String(b.period_start).slice(0, 10)
-        : null,
-    };
-  });
+  const benefits = await mapAppliedBenefitsForPayroll(
+    service,
+    venueId,
+    (benefitsRes.data ?? []) as Array<Record<string, unknown>>,
+  );
 
   const { employees, exceptions } = calculateVenuePayroll({
     period,
@@ -777,7 +812,55 @@ export async function persistSingleEmployeePayroll(opts: {
   });
 
   const e = employees[0];
-  if (!e) throw new Error("Employee calculation returned no result.");
+  if (!e) {
+    // No longer overlaps this named month (e.g. month-end leaver already
+    // settled on the prior run). Drop them instead of failing the save.
+    await service
+      .from("hr_payroll_adjustments")
+      .update({ run_employee_id: null })
+      .eq("run_id", runId)
+      .eq("staff_id", staffId);
+    await Promise.all([
+      service
+        .from("hr_payroll_lines")
+        .delete()
+        .eq("run_id", runId)
+        .eq("run_employee_id", runEmployeeId),
+      service
+        .from("hr_payroll_payments")
+        .delete()
+        .eq("run_id", runId)
+        .eq("run_employee_id", runEmployeeId),
+      service
+        .from("hr_payroll_exceptions")
+        .delete()
+        .eq("run_id", runId)
+        .eq("staff_id", staffId),
+      service
+        .from("hr_payroll_settlements")
+        .delete()
+        .eq("run_id", runId)
+        .eq("staff_id", staffId),
+    ]);
+    const { error: delErr } = await service
+      .from("hr_payroll_run_employees")
+      .delete()
+      .eq("id", runEmployeeId);
+    if (delErr) throw new Error(delErr.message);
+
+    const totals = await recomputeRunTotalsFromDb(service, runId);
+    const { error: runErr } = await service
+      .from("hr_payroll_runs")
+      .update({
+        totals,
+        updated_by: userId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", runId)
+      .eq("venue_id", venueId);
+    if (runErr) throw new Error(runErr.message);
+    return { totals };
+  }
 
   const { error: empUpdateErr } = await service
     .from("hr_payroll_run_employees")
@@ -943,4 +1026,87 @@ export async function persistSingleEmployeePayroll(opts: {
   if (runErr) throw new Error(runErr.message);
 
   return { totals };
+}
+
+/**
+ * After Validation approval / roster edits, refresh any open payroll run that
+ * already includes these employees. Prevents paid-days calendars from showing
+ * stale “unpaid / not cleared” after attendance was approved.
+ *
+ * Best-effort: never throws to the caller. Skips locked / payment-processing
+ * runs and staff who are not yet on the run (they appear on the next full
+ * recalculate).
+ */
+export async function syncOpenPayrollAfterStaffDayChanges(opts: {
+  service: ReturnType<typeof createServiceClient>;
+  venueId: string;
+  userId: string;
+  days: Array<{ staffId: string | null; workDate: string }>;
+}): Promise<void> {
+  const days = opts.days.filter(
+    (day) =>
+      Boolean(day.staffId?.trim()) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(day.workDate.trim()),
+  );
+  if (days.length === 0) return;
+
+  const settings = await loadPayrollSettings(
+    opts.service as unknown as SupabaseClient,
+    opts.venueId,
+  );
+
+  const staffByMonth = new Map<string, Set<string>>();
+  for (const day of days) {
+    const month = payrollMonthContainingDate(day.workDate.trim(), settings);
+    const set = staffByMonth.get(month) ?? new Set<string>();
+    set.add(day.staffId!.trim());
+    staffByMonth.set(month, set);
+  }
+
+  const monthKeys = [...staffByMonth.keys()];
+  const { data: runs, error } = await opts.service
+    .from("hr_payroll_runs")
+    .select("id, payroll_month, status")
+    .eq("venue_id", opts.venueId)
+    .in("payroll_month", monthKeys);
+
+  if (error) {
+    console.error("[payroll] sync open runs lookup:", error.message);
+    return;
+  }
+
+  for (const run of runs ?? []) {
+    if (!canEditPayrollRun(String(run.status ?? ""))) continue;
+    const payrollMonth = String(run.payroll_month).slice(0, 10);
+    const staffIds = staffByMonth.get(payrollMonth);
+    if (!staffIds?.size) continue;
+
+    const period = resolvePayrollPeriod(payrollMonth, settings);
+    for (const staffId of staffIds) {
+      try {
+        const { data: existing, error: existingErr } = await opts.service
+          .from("hr_payroll_run_employees")
+          .select("id")
+          .eq("run_id", run.id)
+          .eq("staff_id", staffId)
+          .maybeSingle();
+        if (existingErr) throw new Error(existingErr.message);
+        if (!existing?.id) continue;
+
+        await persistSingleEmployeePayroll({
+          service: opts.service,
+          venueId: opts.venueId,
+          runId: String(run.id),
+          staffId,
+          period,
+          userId: opts.userId,
+        });
+      } catch (err) {
+        console.error(
+          "[payroll] sync after attendance/roster:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  }
 }

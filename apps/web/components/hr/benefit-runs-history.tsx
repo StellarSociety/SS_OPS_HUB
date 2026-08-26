@@ -1,7 +1,12 @@
+"use client";
+
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
+import { BenefitReopenControl } from "@/components/hr/benefit-reopen-control";
 import {
   BENEFIT_RUN_STATUS_LABELS,
+  canReopenBenefitRun,
   formatBenefitMonthLabel,
+  isBenefitRunLocked,
   type BenefitKind,
   type BenefitRunStatus,
   type BenefitRunTotals,
@@ -15,6 +20,71 @@ function formatMoney(amount: number | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(amount));
+}
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function asAmount(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Bar + waiter cash + waiter CC. Falls back to stored totalTips. */
+function totalTipsOf(
+  totals: Partial<BenefitRunTotals> & Record<string, unknown>,
+): number | null {
+  const stored = Number(totals.totalTips);
+  const waiterCash = totals.waiterCashCollected;
+  const waiterCc = totals.waiterCcCollected;
+  const barCash = totals.barCashCollected;
+  const barCc = totals.barCcCollected;
+  if (
+    waiterCash == null &&
+    waiterCc == null &&
+    barCash == null &&
+    barCc == null
+  ) {
+    return Number.isFinite(stored) ? stored : null;
+  }
+  return round2(
+    asAmount(waiterCash) +
+      asAmount(waiterCc) +
+      asAmount(barCash) +
+      asAmount(barCc),
+  );
+}
+
+/** Paid after the AED 5 floor and benefit deductions — same as Total distributed. */
+function paidDistributedOf(
+  totals: Partial<BenefitRunTotals> & Record<string, unknown>,
+): number | null {
+  const storedPaid = Number(totals.totalDistributedPaid);
+  if (Number.isFinite(storedPaid)) return storedPaid;
+  const exact = Number(totals.totalDistributed);
+  if (!Number.isFinite(exact)) return null;
+  const pool = totals.pool as { roundingCollected?: unknown } | undefined;
+  const rounding = asAmount(pool?.roundingCollected);
+  return round2(Math.max(0, exact - rounding));
+}
+
+/** OS&E + activities + rounding + withheld retain + deducted — Collections total. */
+function collectionsTotalOf(
+  totals: Partial<BenefitRunTotals> & Record<string, unknown>,
+): number | null {
+  const stored = Number(totals.collectionsTotal);
+  if (Number.isFinite(stored)) return stored;
+  const pool = (totals.pool ?? {}) as Record<string, unknown>;
+  const parts = [
+    pool.ose,
+    pool.activities,
+    pool.roundingCollected,
+    pool.withheldRetain,
+    pool.benefitDeductions,
+  ];
+  if (parts.every((n) => n == null)) return null;
+  return round2(parts.reduce((sum, n) => sum + asAmount(n), 0));
 }
 
 function statusLabel(status: string): string {
@@ -53,9 +123,11 @@ const KIND_COPY: Record<
 export function BenefitRunsHistory({
   kind,
   rows,
+  canEdit = false,
 }: {
   kind: BenefitKind;
   rows: BenefitRunListRow[];
+  canEdit?: boolean;
 }) {
   const copy = KIND_COPY[kind];
 
@@ -65,6 +137,7 @@ export function BenefitRunsHistory({
         <h2 className="font-serif text-lg text-[#3D421F]">{copy.title}</h2>
         <p className="text-sm text-black/55">
           Open a run to review pool totals, staff allocations, and distribution.
+          After it is sent to payroll, view it or reopen to apply alterations.
         </p>
       </div>
 
@@ -77,6 +150,16 @@ export function BenefitRunsHistory({
               <th className="px-3 py-2.5 font-medium">Distribution</th>
               <th className="px-3 py-2.5 font-medium">Status</th>
               <th className="px-3 py-2.5 font-medium text-right">Recipients</th>
+              {kind === "gratuity" ? (
+                <th className="px-3 py-2.5 font-medium text-right">
+                  Total tips
+                </th>
+              ) : null}
+              {kind === "gratuity" ? (
+                <th className="px-3 py-2.5 font-medium text-right">
+                  Collections
+                </th>
+              ) : null}
               <th className="px-3 py-2.5 font-medium text-right">Distributed</th>
               <th className="px-3 py-2.5 font-medium" />
             </tr>
@@ -85,7 +168,7 @@ export function BenefitRunsHistory({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={kind === "gratuity" ? 9 : 7}
                   className="px-3 py-12 text-center text-sm text-black/45"
                 >
                   {copy.empty}
@@ -93,7 +176,11 @@ export function BenefitRunsHistory({
               </tr>
             ) : (
               rows.map((run) => {
-                const totals = (run.totals ?? {}) as Partial<BenefitRunTotals>;
+                const totals = (run.totals ?? {}) as Partial<BenefitRunTotals> &
+                  Record<string, unknown>;
+                const totalTips = totalTipsOf(totals);
+                const collectionsTotal = collectionsTotalOf(totals);
+                const paidDistributed = paidDistributedOf(totals);
                 return (
                   <tr
                     key={run.id}
@@ -117,16 +204,36 @@ export function BenefitRunsHistory({
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {totals.recipientCount ?? "—"}
                     </td>
+                    {kind === "gratuity" ? (
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {formatMoney(totalTips)}
+                      </td>
+                    ) : null}
+                    {kind === "gratuity" ? (
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {formatMoney(collectionsTotal)}
+                      </td>
+                    ) : null}
                     <td className="px-3 py-2.5 text-right tabular-nums">
-                      {formatMoney(totals.totalDistributed)}
+                      {formatMoney(paidDistributed ?? totals.totalDistributed)}
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <Link
-                        href={`${copy.hrefBase}/${run.id}`}
-                        className="text-sm font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 hover:underline"
-                      >
-                        Open
-                      </Link>
+                      <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                        <Link
+                          href={`${copy.hrefBase}/${run.id}`}
+                          className="text-sm font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 hover:underline"
+                        >
+                          {isBenefitRunLocked(run.status) ? "View" : "Open"}
+                        </Link>
+                        {canEdit && canReopenBenefitRun(run.status) ? (
+                          <BenefitReopenControl
+                            kind={kind}
+                            runId={run.id}
+                            appliedToPayroll={run.status === "applied_to_payroll"}
+                            appearance="link"
+                          />
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );

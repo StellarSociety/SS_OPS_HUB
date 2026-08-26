@@ -5,10 +5,19 @@ import {
 } from "@/components/hr/benefit-run-client";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
 import {
+  applyStaffOverrides,
+  loadBenefitWorkedDaysByStaff,
   loadForecastVenueAsphForMonth,
+  loadWaiterGratuityCollectionDaysByStaff,
   mergeGratuitySettings,
+  missedGratuityPoolRecipientWarning,
+  readStaffOverridesFromSnapshot,
+  BENEFITS_WORKED_DAYS_RULE,
+  type BenefitContributor,
   type HrGratuitySettings,
 } from "@/lib/hr/benefits";
+import { loadStaffForBenefits } from "@/lib/hr/benefits/persist-run";
+import { listBenefitDeductions, loadBenefitPayoutMap } from "@/lib/hr/benefits/deduction-payouts";
 import { canAccessBenefits, canEditBenefits } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { getHrVenueSetting } from "@/lib/hr/store";
@@ -78,18 +87,52 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
         ? null
         : forecastAsph;
 
-  const policyStored = await getHrVenueSetting<Partial<HrGratuitySettings>>(
-    supabase,
-    venue.id,
-    HR_SETTINGS_KEYS.benefitsGratuity,
-    {},
-  );
+  const [
+    policyStored,
+    payoutData,
+    deductionList,
+    collectionDays,
+    allocationWorkedDaysByStaff,
+    rosterStaff,
+  ] = await Promise.all([
+      getHrVenueSetting<Partial<HrGratuitySettings>>(
+        supabase,
+        venue.id,
+        HR_SETTINGS_KEYS.benefitsGratuity,
+        {},
+      ),
+      loadBenefitPayoutMap(supabase, venue.id),
+      listBenefitDeductions(supabase, venue.id),
+      loadWaiterGratuityCollectionDaysByStaff(
+        createServiceClient(),
+        venue.id,
+        String(run.period_start).slice(0, 10),
+        String(run.period_end).slice(0, 10),
+      ).catch((err) => {
+        console.error("[hr/benefits/gratuity/run] collection days", err);
+        return { byStaffId: {}, byNormalizedName: {} };
+      }),
+      loadBenefitWorkedDaysByStaff(
+        createServiceClient(),
+        venue.id,
+        String(run.period_start).slice(0, 10),
+        String(run.period_end).slice(0, 10),
+        BENEFITS_WORKED_DAYS_RULE,
+      ).catch((err) => {
+        console.error("[hr/benefits/gratuity/run] allocation worked days", err);
+        return {} as Record<string, number>;
+      }),
+      loadStaffForBenefits(createServiceClient(), venue.id).catch((err) => {
+        console.error("[hr/benefits/gratuity/run] roster staff", err);
+        return [];
+      }),
+    ]);
   const policySettings = mergeGratuitySettings(policyStored);
 
   const { data: allocationRows } = await supabase
     .from("hr_benefit_allocations")
     .select(
-      "id, staff_id, amount, points, worked_days, status, meta, staff:staff_id(full_name, emp_no, photo_url, department:departments(name), position:positions(name))",
+      "id, staff_id, amount, points, worked_days, status, meta, staff:staff_id(full_name, emp_no, photo_url, department_id, position_id, department:departments(name), position:positions(name))",
     )
     .eq("venue_id", venue.id)
     .eq("run_id", runId)
@@ -97,23 +140,45 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
 
   const allocations: BenefitAllocationView[] = (allocationRows ?? []).map(
     (row) => {
-      const staff = row.staff as
+      const staffRaw = row.staff as
         | {
             full_name?: string;
             emp_no?: string;
             photo_url?: string | null;
-            department?: { name?: string } | null;
-            position?: { name?: string } | null;
+            department_id?: string | null;
+            position_id?: string | null;
+            department?: { name?: string } | { name?: string }[] | null;
+            position?: { name?: string } | { name?: string }[] | null;
           }
+        | Array<{
+            full_name?: string;
+            emp_no?: string;
+            photo_url?: string | null;
+            department_id?: string | null;
+            position_id?: string | null;
+            department?: { name?: string } | { name?: string }[] | null;
+            position?: { name?: string } | { name?: string }[] | null;
+          }>
         | null;
+      const staff = Array.isArray(staffRaw) ? (staffRaw[0] ?? null) : staffRaw;
+      const department = staff?.department;
+      const position = staff?.position;
+      const departmentName = Array.isArray(department)
+        ? department[0]?.name
+        : department?.name;
+      const positionName = Array.isArray(position)
+        ? position[0]?.name
+        : position?.name;
       return {
         id: row.id as string,
         staff_id: row.staff_id as string,
         full_name: staff?.full_name ?? null,
         emp_no: staff?.emp_no ?? null,
         photo_url: staff?.photo_url ?? null,
-        department_name: staff?.department?.name ?? null,
-        position_name: staff?.position?.name ?? null,
+        department_id: staff?.department_id ?? null,
+        department_name: departmentName ?? null,
+        position_id: staff?.position_id ?? null,
+        position_name: positionName ?? null,
         amount: Number(row.amount) || 0,
         points: row.points == null ? null : Number(row.points),
         worked_days: row.worked_days == null ? null : Number(row.worked_days),
@@ -122,6 +187,38 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
       };
     },
   );
+
+  const storedTotals =
+    run.totals && typeof run.totals === "object"
+      ? (run.totals as Record<string, unknown>)
+      : {};
+  const storedWarnings = Array.isArray(storedTotals.warnings)
+    ? storedTotals.warnings.filter(
+        (w): w is string => typeof w === "string" && w.trim().length > 0,
+      )
+    : [];
+  const contributorIds = (
+    (storedTotals.contributors as BenefitContributor[] | undefined) ?? []
+  )
+    .map((row) => row.staffId)
+    .filter((id): id is string => Boolean(id));
+  let totalsWarnings = storedWarnings;
+  if (!storedWarnings.some((w) => /left off Allocations/i.test(w))) {
+    const liveMissed = missedGratuityPoolRecipientWarning({
+      staff: applyStaffOverrides(
+        rosterStaff,
+        readStaffOverridesFromSnapshot(run.settings_snapshot),
+      ),
+      settings,
+      workedDaysFor: (staffId) =>
+        Number(allocationWorkedDaysByStaff[staffId]) || 0,
+      skipStaffIds: [
+        ...allocations.map((row) => row.staff_id),
+        ...contributorIds,
+      ],
+    });
+    if (liveMissed) totalsWarnings = [...storedWarnings, liveMissed];
+  }
 
   return (
     <BenefitRunClient
@@ -134,11 +231,12 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
         period_end: run.period_end,
         distribution_date: run.distribution_date,
         status: run.status,
-        totals: run.totals,
+        totals: { ...storedTotals, warnings: totalsWarnings },
         notes: run.notes,
       }}
       allocations={allocations}
       disciplinaryOptions={settings.disciplinaryDeductions}
+      pointTiers={policySettings.pointTiers}
       departmentOrder={settings.departmentShares.map((d) => ({
         key: d.key,
         label: d.label,
@@ -191,6 +289,13 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
       venueName={venue.name ?? "Venue"}
       venueLogoUrl={getVenueLogoUrl(venue)}
       userDisplayName={userDisplayName}
+      payouts={payoutData.payouts}
+      rosters={payoutData.rosters}
+      deductionEntries={deductionList.rows}
+      waiterCollectionDays={collectionDays}
+      allocationWorkedDaysByStaff={allocationWorkedDaysByStaff}
+      waiveWithheldRetain={snapshot.waiveWithheldRetain === true}
+      withheldRetainToPool={snapshot.withheldRetainToPool === true}
     />
   );
 }

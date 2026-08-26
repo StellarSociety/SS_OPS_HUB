@@ -13,9 +13,10 @@ import {
 import {
   DEFAULT_HR_PAYROLL_SETTINGS,
   eachIsoDate,
+  isTerminatedBeforePayrollMonth,
   maxIsoDate,
   mergePayrollSettings,
-  minIsoDate,
+  payrollEmployeeWindowEnd,
   payrollMonthContainingDate,
   resolvePayrollPeriod,
   type HrPayrollSettings,
@@ -121,11 +122,30 @@ function dayFractionsFromSnapshot(
   };
 }
 
+function latestWorkDate(
+  dayFractions: PayrollDayFraction[],
+  fallback: string,
+): string {
+  let end = fallback.slice(0, 10);
+  for (const day of dayFractions) {
+    const key = String(day.workDate ?? "").slice(0, 10);
+    if (key > end) end = key;
+  }
+  return end;
+}
+
+function snapshotHasNoUnclearedDays(
+  dayFractions: PayrollDayFraction[],
+): boolean {
+  return dayFractions.every((day) => day.approved);
+}
+
 /**
  * Staff Entry → Schedule shortcut.
  *
- * Hot path (target &lt;400ms after auth): one run lookup + one employee snapshot.
- * Live rebuild only when no payroll-run snapshot exists for that month.
+ * Hot path (target &lt;400ms after auth): one run lookup + one employee snapshot
+ * when every day is already cleared. Live rebuild when no snapshot exists or
+ * any day is still uncleared (avoids hiding later Validation approvals).
  */
 export async function getStaffCurrentPayrollSchedule(
   input: StaffPayrollScheduleInput | string,
@@ -193,7 +213,24 @@ export async function getStaffCurrentPayrollSchedule(
         runEmp?.snapshot,
         Number(runEmp?.paid_days ?? 0),
       );
-      if (parsed) {
+      const snap = asRecord(runEmp?.snapshot);
+      const snapTermination =
+        typeof snap?.terminationDate === "string"
+          ? snap.terminationDate.slice(0, 10)
+          : opts.terminationDate
+            ? String(opts.terminationDate).slice(0, 10)
+            : null;
+      const snapshotPeriod = {
+        payrollMonth: String(run.payroll_month).slice(0, 10),
+      };
+      // Month-end leavers settled in the prior calendar month must not reuse
+      // a stale next-month snapshot (e.g. 31 Jul still showing on August).
+      if (
+        snapTermination &&
+        isTerminatedBeforePayrollMonth(snapTermination, snapshotPeriod)
+      ) {
+        // Fall through to live rebuild / empty window.
+      } else if (parsed && snapshotHasNoUnclearedDays(parsed.dayFractions)) {
         console.info(
           `[staff-payroll-schedule] snapshot ${Date.now() - started}ms`,
           marks,
@@ -204,7 +241,10 @@ export async function getStaffCurrentPayrollSchedule(
           fullName: String(runEmp?.full_name || hintName),
           payrollMonth: String(run.payroll_month).slice(0, 10),
           periodStart: String(run.period_start).slice(0, 10),
-          periodEnd: String(run.period_end).slice(0, 10),
+          periodEnd: latestWorkDate(
+            parsed.dayFractions,
+            String(run.period_end).slice(0, 10),
+          ),
           dayFractions: parsed.dayFractions,
           paidDays: parsed.paidDays,
         };
@@ -340,7 +380,11 @@ export async function getStaffCurrentPayrollSchedule(
           altEmp?.snapshot,
           Number(altEmp?.paid_days ?? 0),
         );
-        if (parsed) {
+        if (
+          parsed &&
+          snapshotHasNoUnclearedDays(parsed.dayFractions) &&
+          !isTerminatedBeforePayrollMonth(termination, period)
+        ) {
           console.info(
             `[staff-payroll-schedule] snapshot-alt ${Date.now() - started}ms`,
             marks,
@@ -351,7 +395,10 @@ export async function getStaffCurrentPayrollSchedule(
             fullName: String(altEmp?.full_name || fullName),
             payrollMonth: String(altRun.payroll_month).slice(0, 10),
             periodStart: String(altRun.period_start).slice(0, 10),
-            periodEnd: String(altRun.period_end).slice(0, 10),
+            periodEnd: latestWorkDate(
+              parsed.dayFractions,
+              String(altRun.period_end).slice(0, 10),
+            ),
             dayFractions: parsed.dayFractions,
             paidDays: parsed.paidDays,
           };
@@ -371,14 +418,12 @@ export async function getStaffCurrentPayrollSchedule(
     });
 
     if (joining && joining > period.periodEnd) return emptyOk();
-    if (termination && termination < period.periodStart) return emptyOk();
+    if (isTerminatedBeforePayrollMonth(termination, period)) return emptyOk();
 
     const windowStart = joining
       ? maxIsoDate(period.periodStart, joining)
       : period.periodStart;
-    const windowEnd = termination
-      ? minIsoDate(period.periodEnd, termination)
-      : period.periodEnd;
+    const windowEnd = payrollEmployeeWindowEnd(termination, period);
 
     if (windowStart > windowEnd) return emptyOk();
 
@@ -388,15 +433,15 @@ export async function getStaffCurrentPayrollSchedule(
         .select("work_date, label_code, shift_template_id")
         .eq("venue_id", venue.id)
         .eq("staff_id", staffId)
-        .gte("work_date", period.periodStart)
-        .lte("work_date", period.periodEnd),
+        .gte("work_date", windowStart)
+        .lte("work_date", windowEnd),
       service
         .from("hr_attendance_days")
         .select("id, work_date, approval_status, clock_in, clock_out")
         .eq("venue_id", venue.id)
         .eq("staff_id", staffId)
-        .gte("work_date", period.periodStart)
-        .lte("work_date", period.periodEnd),
+        .gte("work_date", windowStart)
+        .lte("work_date", windowEnd),
       service
         .from("hr_shift_templates")
         .select("id, start_time, end_time")
@@ -506,7 +551,7 @@ export async function getStaffCurrentPayrollSchedule(
       fullName,
       payrollMonth: period.payrollMonth,
       periodStart: period.periodStart,
-      periodEnd: period.periodEnd,
+      periodEnd: windowEnd,
       dayFractions,
       paidDays,
     };

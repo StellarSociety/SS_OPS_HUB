@@ -7,6 +7,7 @@ import { toScopedHref } from "@/lib/venue/scope-routing";
 import {
   Briefcase,
   CalendarDays,
+  CalendarOff,
   ClipboardCheck,
   FilePlus2,
   FileText,
@@ -728,6 +729,19 @@ export function StaffEntryWorkspace({
                         {driveLoading ? "Opening…" : "Drive"}
                       </span>
                     </button>
+                    <ScopedLink
+                      href={`/hr/attendance/leave/balances?staffId=${encodeURIComponent(loadedStaffId)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={verticalSegmentedSubNavLinkClass(false)}
+                      title="Open leave management for this employee"
+                    >
+                      <CalendarOff
+                        className="h-5 w-5 shrink-0 opacity-80"
+                        aria-hidden
+                      />
+                      <span className="min-w-0 truncate">Leave</span>
+                    </ScopedLink>
                   </div>
                 ) : null}
               </div>
@@ -739,7 +753,6 @@ export function StaffEntryWorkspace({
             onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
             onSubmit={handleSubmit}
             readOnly={readOnly}
-            lockEmpNo={loadedStaffId != null}
             activeTab={activeTab}
             onRequestTab={setActiveTab}
             departments={departments}

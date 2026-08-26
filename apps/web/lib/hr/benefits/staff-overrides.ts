@@ -4,6 +4,8 @@ import type { DisciplinaryWarningLevel } from "./types";
 export type BenefitStaffOverride = {
   tipPoints?: number | null;
   warningLevel?: DisciplinaryWarningLevel | null;
+  /** When true, staff stays on the run at AED 0 and their share is redistributed. */
+  excluded?: boolean;
 };
 
 export type BenefitStaffOverridesMap = Record<string, BenefitStaffOverride>;
@@ -39,9 +41,24 @@ export function readStaffOverridesFromSnapshot(
           ? null
           : undefined;
 
+    const excludedRaw = row.excluded ?? row.excluded_from_run;
+    const excluded =
+      excludedRaw === true ||
+      excludedRaw === "true" ||
+      excludedRaw === 1 ||
+      excludedRaw === "1"
+        ? true
+        : excludedRaw === false ||
+            excludedRaw === "false" ||
+            excludedRaw === 0 ||
+            excludedRaw === "0"
+          ? false
+          : undefined;
+
     out[staffId] = {
       ...(tipPoints !== undefined ? { tipPoints } : {}),
       ...(warningLevel !== undefined ? { warningLevel } : {}),
+      ...(excluded !== undefined ? { excluded } : {}),
     };
   }
   return out;
@@ -64,6 +81,7 @@ export function applyStaffOverrides<
     id: string;
     tip_points?: number | null;
     warning_level?: DisciplinaryWarningLevel | null;
+    excluded_from_run?: boolean;
   },
 >(staff: T[], overrides: BenefitStaffOverridesMap): T[] {
   if (!overrides || Object.keys(overrides).length === 0) return staff;
@@ -78,6 +96,8 @@ export function applyStaffOverrides<
         o.warningLevel !== undefined
           ? o.warningLevel
           : (s.warning_level ?? null),
+      excluded_from_run:
+        o.excluded !== undefined ? o.excluded : (s.excluded_from_run ?? false),
     };
   });
 }

@@ -1,4 +1,5 @@
 import { BenefitPoolCollectionsPanel } from "@/components/hr/benefit-pool-collections-panel";
+import { buildExportUserLabel } from "@/lib/exports/user-label";
 import {
   listBenefitPoolCollections,
   listGratuityRunPoolHintsByMonth,
@@ -9,10 +10,20 @@ import { canEditBenefits } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { getHrVenueSetting } from "@/lib/hr/store";
 import { HR_SETTINGS_KEYS } from "@/lib/hr/types";
+import { getVenueLogoUrl } from "@/lib/venue/branding";
 
 export default async function HrBenefitsCollectionsPage() {
-  const { supabase, venue, permissions } = await getHrPageContext();
+  const { supabase, venue, permissions, user } = await getHrPageContext();
   const canEdit = canEditBenefits(permissions, venue.id);
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .maybeSingle();
+  const userDisplayName = buildExportUserLabel(
+    profile?.full_name,
+    profile?.email ?? user.email,
+  );
 
   const settingsRaw = await getHrVenueSetting<Partial<HrGratuitySettings>>(
     supabase,
@@ -45,18 +56,6 @@ export default async function HrBenefitsCollectionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-serif text-lg text-[#3D421F]">
-          Pool collections
-        </h2>
-        <p className="text-sm text-black/55">
-          Record monthly OS&amp;E deduction ({settings.poolOseDeductPercent}%),
-          Staff activities ({settings.poolStaffActivitiesDeductPercent}%), and
-          Rounding collection (floor to AED 5). OS&amp;E / activities override
-          policy percentages when no amounts are recorded for that month.
-        </p>
-      </div>
-
       {migrationRequired ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <p className="font-medium">Database migration required</p>
@@ -68,8 +67,16 @@ export default async function HrBenefitsCollectionsPage() {
             (and{" "}
             <code className="rounded bg-white/70 px-1">
               20260728070000_hr_benefit_pool_collections_rounding.sql
+            </code>
+            ,{" "}
+            <code className="rounded bg-white/70 px-1">
+              20260826024800_hr_benefit_pool_collections_withheld_retain.sql
+            </code>
+            ,{" "}
+            <code className="rounded bg-white/70 px-1">
+              20260826043700_hr_benefit_pool_collections_benefit_deduction.sql
             </code>{" "}
-            for rounding) then refresh this page.
+            for rounding / withheld retain / deducted) then refresh this page.
           </p>
         </div>
       ) : null}
@@ -82,6 +89,9 @@ export default async function HrBenefitsCollectionsPage() {
         activitiesPercent={settings.poolStaffActivitiesDeductPercent}
         periodStartDay={settings.periodStartDay}
         periodEndDay={settings.periodEndDay}
+        venueName={venue.name ?? "Venue"}
+        venueLogoUrl={getVenueLogoUrl(venue)}
+        userDisplayName={userDisplayName}
       />
     </div>
   );

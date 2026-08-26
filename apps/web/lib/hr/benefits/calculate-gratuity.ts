@@ -8,7 +8,7 @@ import {
   isBarRole,
   matchDepartmentShareKey,
 } from "./match";
-import { resolveBenefitPointsForStaff } from "./points";
+import { findMappedBenefitPointTierForStaff, resolveBenefitPointsForStaff } from "./points";
 import { resolvePoolDeductions } from "./pool-collections";
 import { sumAed5RoundingRemainder } from "./rounding";
 import { countBenefitsWorkedDays } from "./worked-days";
@@ -29,6 +29,8 @@ export type GratuityStaffInput = {
   tip_points?: number | null;
   /** When true, staff is a floor waiter (excluded from general pool redistribution). */
   is_floor_waiter?: boolean;
+  /** Manual exclude from this run — payout is 0 and share is redistributed. */
+  excluded_from_run?: boolean;
   employment_ended_as?: "resignation" | "termination" | null;
 };
 
@@ -41,6 +43,8 @@ export type GratuityWaiterSalesInput = {
   cc_gs: number;
   total_sales_gs: number;
   total_covers: number;
+  /** Distinct dates this waiter collected cash or CC gratuity. */
+  collectionDates?: string[];
 };
 
 export type GratuityScheduleDayInput = {
@@ -76,9 +80,29 @@ export type GratuityCalcResult = {
     runnerHousekeeperFund: number;
     gross: number;
     ose: number;
+    oseFromPool: number;
+    oseFromRetain: number;
     activities: number;
+    activitiesFromPool: number;
+    activitiesFromRetain: number;
     /** Remainders left over after flooring each individual payout to AED 5. */
     roundingCollected: number;
+    /**
+     * Retain computed for contributors who are not entitled to a payout
+     * (e.g. terminated). Kept by the venue and booked to collections.
+     * Zero when waived or redirected to the allocation share pool.
+     */
+    withheldRetain: number;
+    /**
+     * Withheld retain added to the department allocation pool this run.
+     * Zero unless `withheldRetainToPool` is set.
+     */
+    withheldRetainToPool: number;
+    /**
+     * Benefit deductions taken from staff payouts this run and booked
+     * to collections. Filled after allocation when deduction entries apply.
+     */
+    benefitDeductions: number;
     net: number;
     byDepartment: Record<string, number>;
   };
@@ -129,6 +153,62 @@ function entitled(
   return true;
 }
 
+function isExcludedFromRun(staff: { excluded_from_run?: boolean }): boolean {
+  return staff.excluded_from_run === true;
+}
+
+function isPlaceholderStaff(staff: {
+  full_name: string;
+  emp_no: string | null;
+}): boolean {
+  const name = staff.full_name.toLowerCase();
+  if (/\b(dummy|test user|testing user|super admin)\b/.test(name)) return true;
+  const emp = staff.emp_no?.trim() ?? "";
+  return /^(grp|test)/i.test(emp);
+}
+
+export function missedGratuityPoolRecipientWarning(input: {
+  staff: GratuityStaffInput[];
+  settings: HrGratuitySettings;
+  workedDaysFor: (staffId: string) => number;
+  skipStaffIds: Iterable<string>;
+}): string | null {
+  const skip = new Set(input.skipStaffIds);
+  const missed: Array<{
+    staff: GratuityStaffInput;
+    workedDays: number;
+  }> = [];
+  for (const s of input.staff) {
+    if (skip.has(s.id)) continue;
+    if (isExcludedFromRun(s)) continue;
+    if (!entitled(s, input.settings)) continue;
+    if (s.is_floor_waiter) continue;
+    if (isPlaceholderStaff(s)) continue;
+    const workedDays = input.workedDaysFor(s.id);
+    if (workedDays <= 0) continue;
+    missed.push({ staff: s, workedDays });
+  }
+  if (missed.length === 0) return null;
+
+  const shareList = input.settings.departmentShares
+    .map((d) => d.label)
+    .filter(Boolean)
+    .join(", ");
+  const names = missed
+    .map((row) => {
+      const emp = row.staff.emp_no?.trim();
+      const dept = row.staff.department_name?.trim() || "no department";
+      const daysLabel =
+        row.workedDays === 1
+          ? "1 worked day"
+          : `${row.workedDays} worked days`;
+      const who = emp ? `${row.staff.full_name} (${emp})` : row.staff.full_name;
+      return `${who} — ${dept}, ${daysLabel}`;
+    })
+    .join("; ");
+  return `These employees worked this period but were left off Allocations — their department is not on the distribution list (${shareList || "none"}), or they were not included on this run. Map the department or they will be missed: ${names}.`;
+}
+
 function pointsForStaff(
   staff: GratuityStaffInput,
   settings: HrGratuitySettings,
@@ -136,6 +216,8 @@ function pointsForStaff(
   if (staff.tip_points != null && Number.isFinite(staff.tip_points)) {
     return Number(staff.tip_points);
   }
+  const mapped = findMappedBenefitPointTierForStaff(staff, settings.pointTiers);
+  if (mapped) return mapped.points;
   return resolveBenefitPointsForStaff(staff, settings.pointTiers);
 }
 
@@ -164,11 +246,24 @@ export function calculateGratuityRun(input: {
    * rate across all departments (Redistribution mode).
    */
   equalizeDepartmentPointValue?: boolean;
+  /**
+   * This run only: pay retain to collectors who are otherwise not entitled
+   * (e.g. terminated) instead of booking it to collections.
+   */
+  waiveWithheldRetain?: boolean;
+  /**
+   * This run only: add withheld retain to the department allocation share
+   * pool instead of booking it to collections or paying the collector.
+   */
+  withheldRetainToPool?: boolean;
 }): GratuityCalcResult {
   const { settings, staff, waiterSales, scheduleDays } = input;
   const equalizeDepartmentPointValue = Boolean(
     input.equalizeDepartmentPointValue,
   );
+  const waiveWithheldRetain = Boolean(input.waiveWithheldRetain);
+  const withheldRetainToPool =
+    Boolean(input.withheldRetainToPool) && !waiveWithheldRetain;
   const warnings: string[] = [];
   const staffById = new Map(staff.map((s) => [s.id, s]));
 
@@ -211,8 +306,16 @@ export function calculateGratuityRun(input: {
       cashCollected: number;
       ccCollected: number;
       contributedToPool: number;
+      collectionDates: Set<string>;
     }
   >();
+
+  function addCollectionDates(target: Set<string>, dates: string[] | undefined) {
+    for (const date of dates ?? []) {
+      const key = String(date).slice(0, 10);
+      if (key) target.add(key);
+    }
+  }
 
   function addContributor(args: {
     key: string;
@@ -222,6 +325,7 @@ export function calculateGratuityRun(input: {
     cash: number;
     cc: number;
     toPool: number;
+    collectionDates?: string[];
   }) {
     if (args.cash <= 0 && args.cc <= 0 && args.toPool <= 0) return;
     const staff = args.staffId ? staffById.get(args.staffId) : null;
@@ -230,8 +334,11 @@ export function calculateGratuityRun(input: {
       prev.cashCollected = round2(prev.cashCollected + args.cash);
       prev.ccCollected = round2(prev.ccCollected + args.cc);
       prev.contributedToPool = round2(prev.contributedToPool + args.toPool);
+      addCollectionDates(prev.collectionDates, args.collectionDates);
       return;
     }
+    const collectionDates = new Set<string>();
+    addCollectionDates(collectionDates, args.collectionDates);
     contributorAcc.set(args.key, {
       staffId: args.staffId,
       empNo: staff?.emp_no ?? null,
@@ -241,6 +348,7 @@ export function calculateGratuityRun(input: {
       cashCollected: round2(args.cash),
       ccCollected: round2(args.cc),
       contributedToPool: round2(args.toPool),
+      collectionDates,
     });
   }
 
@@ -263,6 +371,12 @@ export function calculateGratuityRun(input: {
       barCcBarStaffFund = round2(barCcBarStaffFund + barShare);
       if (row.staff_id) {
         const prev = waiterMetaByStaff.get(row.staff_id) ?? {};
+        const prevDates = Array.isArray(prev.collectionDates)
+          ? (prev.collectionDates as string[])
+          : [];
+        const collectionDates = [
+          ...new Set([...prevDates, ...(row.collectionDates ?? [])]),
+        ].sort();
         waiterMetaByStaff.set(row.staff_id, {
           ...prev,
           bar: true,
@@ -271,6 +385,8 @@ export function calculateGratuityRun(input: {
           barCcPool: (Number(prev.barCcPool) || 0) + poolShare,
           barCcToBarStaff: (Number(prev.barCcToBarStaff) || 0) + barShare,
           barCashCollected: (Number(prev.barCashCollected) || 0) + cash,
+          collectionDays: collectionDates.length,
+          collectionDates,
         });
       }
       addContributor({
@@ -281,6 +397,7 @@ export function calculateGratuityRun(input: {
         cash,
         cc,
         toPool: round2(poolShare + barShare + cash),
+        collectionDates: row.collectionDates,
       });
       continue;
     }
@@ -339,6 +456,7 @@ export function calculateGratuityRun(input: {
       addRetained(row.staff_id, cashRetain + waiterCcRetain, {
         source: "waiter_retain",
       });
+      const collectionDates = [...(row.collectionDates ?? [])].sort();
       waiterMetaByStaff.set(row.staff_id, {
         waiter: true,
         cashCollected: cash,
@@ -358,6 +476,8 @@ export function calculateGratuityRun(input: {
         covers,
         asph: waiterAsph,
         tipOutMode: settings.waiterCcTipOutMode,
+        collectionDays: collectionDates.length,
+        collectionDates,
       });
     } else if (cash > 0 || cc > 0) {
       warnings.push(
@@ -372,6 +492,7 @@ export function calculateGratuityRun(input: {
       cash,
       cc,
       toPool: round2(cashPool + tipOut),
+      collectionDates: row.collectionDates,
     });
   }
 
@@ -446,12 +567,40 @@ export function calculateGratuityRun(input: {
   // Only the pool-side OS&E / activities leave the tip pool (retain-side cuts
   // come from contributor retain, not from poolGross).
   const poolGross = round2(tipPoolGross + disciplinaryFromContributors);
-  const generalNet = round2(
+  let generalNet = round2(
     tipPoolGross -
       poolDeductions.ose -
       poolDeductions.activities +
       disciplinaryFromContributors,
   );
+
+  // Same set as the post-allocation collections booking: retain that will
+  // not be paid because the collector is excluded or not entitled.
+  let withheldRetainComputed = 0;
+  for (const [staffId, retain] of retainedByStaff) {
+    if (retain <= 0) continue;
+    const s = staffById.get(staffId);
+    if (!s || isExcludedFromRun(s) || !entitled(s, settings)) {
+      withheldRetainComputed = round2(withheldRetainComputed + retain);
+    }
+  }
+
+  let withheldRetain = 0;
+  let withheldRetainAddedToPool = 0;
+  if (waiveWithheldRetain) {
+    withheldRetain = 0;
+  } else if (withheldRetainToPool && withheldRetainComputed > 0) {
+    withheldRetainAddedToPool = withheldRetainComputed;
+    generalNet = round2(generalNet + withheldRetainAddedToPool);
+    warnings.push(
+      `Withheld retain ${withheldRetainAddedToPool.toFixed(2)} AED from staff not entitled to this run — moved to the allocation share pool.`,
+    );
+  } else if (withheldRetainComputed > 0) {
+    withheldRetain = withheldRetainComputed;
+    warnings.push(
+      `Withheld retain ${withheldRetain.toFixed(2)} AED from staff not entitled to this run — moved to collections.`,
+    );
+  }
   const poolNet = generalNet;
 
   const byDepartment: Record<string, number> = {};
@@ -471,17 +620,19 @@ export function calculateGratuityRun(input: {
 
   const weights: WeightRow[] = [];
   for (const s of staff) {
+    if (isExcludedFromRun(s)) continue;
     if (!entitled(s, settings)) continue;
     if (s.is_floor_waiter) continue;
+    if (isPlaceholderStaff(s)) continue;
+
+    const labels = scheduleByStaff.get(s.id) ?? [];
+    const workedDays = countBenefitsWorkedDays(labels, settings);
+    if (workedDays <= 0) continue;
 
     const deptKey =
       matchDepartmentShareKey(s.department_name, settings.departmentShares) ??
       null;
     if (!deptKey || byDepartment[deptKey] == null) continue;
-
-    const labels = scheduleByStaff.get(s.id) ?? [];
-    const workedDays = countBenefitsWorkedDays(labels, settings);
-    if (workedDays <= 0) continue;
 
     const points = pointsForStaff(s, settings);
     const discMult = disciplinaryMultiplier(s.warning_level, settings);
@@ -489,6 +640,15 @@ export function calculateGratuityRun(input: {
     // Keep zero-weight rows (e.g. 100% disciplinary) so staff stay on the run.
     weights.push({ staff: s, deptKey, points, workedDays, weight, discMult });
   }
+
+  const missedWarning = missedGratuityPoolRecipientWarning({
+    staff,
+    settings,
+    workedDaysFor: (staffId) =>
+      countBenefitsWorkedDays(scheduleByStaff.get(staffId) ?? [], settings),
+    skipStaffIds: weights.map((row) => row.staff.id),
+  });
+  if (missedWarning) warnings.push(missedWarning);
 
   const weightsByDept = new Map<string, WeightRow[]>();
   for (const row of weights) {
@@ -602,6 +762,7 @@ export function calculateGratuityRun(input: {
   // Bar funds (SOP 6) — paid to bar staff regardless of department mode.
   // 6.1 cash: equal split. 6.2 CC bar share: points × worked days × disciplinary.
   const barStaff = staff.filter((s) => {
+    if (isExcludedFromRun(s)) return false;
     if (!entitled(s, settings)) return false;
     if (!isBarRole(s.position_name, s.department_name)) return false;
     const labels = scheduleByStaff.get(s.id) ?? [];
@@ -684,6 +845,7 @@ export function calculateGratuityRun(input: {
 
   // Runner / housekeeper fund — distribute to staff matched as runner/HK by position
   const runnerStaff = staff.filter((s) => {
+    if (isExcludedFromRun(s)) return false;
     if (!entitled(s, settings)) return false;
     const hay = `${s.position_name ?? ""} ${s.department_name ?? ""}`.toLowerCase();
     return /\brunner\b|\bhousekeep|\bhouseman\b|\bpublic area\b/.test(hay);
@@ -736,9 +898,10 @@ export function calculateGratuityRun(input: {
   for (const staffId of allStaffIds) {
     const s = staffById.get(staffId);
     if (!s) continue;
-    if (!entitled(s, settings)) continue;
-
+    if (isExcludedFromRun(s)) continue;
     const retain = retainedByStaff.get(staffId) ?? 0;
+    const isEntitled = entitled(s, settings);
+    if (!isEntitled && !(waiveWithheldRetain && retain > 0)) continue;
     const poolPay = poolPayByStaff.get(staffId) ?? 0;
     const amount = round2(retain + poolPay);
 
@@ -784,9 +947,49 @@ export function calculateGratuityRun(input: {
         disciplinaryPercent: discPct,
         disciplinaryMultiplier: discMult,
         pointsOverridden: s.tip_points != null,
+        withheldWaived: !isEntitled && waiveWithheldRetain && retain > 0,
         waiter: waiterMeta,
       },
     });
+  }
+
+  const allocatedStaffIds = new Set(allocations.map((a) => a.staff_id));
+
+  for (const s of staff) {
+    if (!isExcludedFromRun(s) || s.is_floor_waiter) continue;
+    if (allocatedStaffIds.has(s.id)) continue;
+    const labels = scheduleByStaff.get(s.id) ?? [];
+    const workedDays = countBenefitsWorkedDays(labels, settings);
+    const points = pointsForStaff(s, settings);
+    const discMult = disciplinaryMultiplier(s.warning_level, settings);
+    const discPct = disciplinaryPercent(s.warning_level, settings);
+    const deptKey = matchDepartmentShareKey(
+      s.department_name,
+      settings.departmentShares,
+    );
+    allocations.push({
+      staff_id: s.id,
+      benefit_type: "tips",
+      points,
+      worked_days: workedDays,
+      amount: 0,
+      meta: {
+        excluded: true,
+        obtain: 0,
+        retain: 0,
+        poolShare: 0,
+        departmentKey: deptKey,
+        departmentLabel:
+          settings.departmentShares.find((d) => d.key === deptKey)?.label ??
+          s.department_name,
+        warningLevel: s.warning_level ?? null,
+        disciplinaryPercent: discPct,
+        disciplinaryMultiplier: discMult,
+        pointsOverridden: s.tip_points != null,
+        waiter: waiterMetaByStaff.get(s.id) ?? null,
+      },
+    });
+    allocatedStaffIds.add(s.id);
   }
 
   allocations.sort((a, b) => b.amount - a.amount);
@@ -796,46 +999,66 @@ export function calculateGratuityRun(input: {
   );
 
   const contributors: BenefitContributor[] = [...contributorAcc.values()]
-    .map((row) => ({
-      staffId: row.staffId,
-      empNo: row.empNo,
-      name: row.name,
-      position: row.position,
-      departmentName: row.departmentName,
-      cashCollected: row.cashCollected,
-      ccCollected: row.ccCollected,
-      contributedToPool: row.contributedToPool,
-    }))
+    .map((row) => {
+      const collectionDates = [...row.collectionDates].sort();
+      const waiterMeta = row.staffId
+        ? waiterMetaByStaff.get(row.staffId)
+        : undefined;
+      const retainAmt = row.staffId
+        ? round2(retainedByStaff.get(row.staffId) ?? 0)
+        : 0;
+      const withheld = Boolean(
+        row.staffId && retainAmt > 0 && !allocatedStaffIds.has(row.staffId),
+      );
+      const asphRaw = Number(waiterMeta?.asph);
+      const tipOutRaw = Number(waiterMeta?.ccTipOutPercent);
+      return {
+        staffId: row.staffId,
+        empNo: row.empNo,
+        name: row.name,
+        position: row.position,
+        departmentName: row.departmentName,
+        cashCollected: row.cashCollected,
+        ccCollected: row.ccCollected,
+        contributedToPool: row.contributedToPool,
+        retain: retainAmt > 0 ? retainAmt : null,
+        withheld,
+        asph: Number.isFinite(asphRaw) ? asphRaw : null,
+        ccTipOutPercent: Number.isFinite(tipOutRaw) ? tipOutRaw : null,
+        asphKpiMet:
+          typeof waiterMeta?.asphKpiMet === "boolean"
+            ? waiterMeta.asphKpiMet
+            : null,
+        collectionDays: collectionDates.length,
+        collectionDates,
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
-  // Contributors are paid their retained tips; everyone else is paid a pool share.
-  // Both are floored to AED 5 on payout, so both leave a remainder behind.
-  const contributorStaffIds = new Set(
-    contributors
-      .map((c) => c.staffId)
-      .filter((id): id is string => Boolean(id)),
+  // Only people who actually receive a payout leave an AED 5 remainder.
+  // Withheld retain is collected in full, not floored as a payout.
+  const roundingCollected = sumAed5RoundingRemainder(
+    allocations.map((allocation) => allocation.amount),
   );
-  // amount = retain + pool share, so it is the payable figure for both
-  // retain-only contributors and staff paid from the pool / bar funds.
-  const payoutAmounts: number[] = allocations.map(
-    (allocation) => allocation.amount,
-  );
-  const allocatedStaffIds = new Set(allocations.map((a) => a.staff_id));
-  for (const staffId of contributorStaffIds) {
-    if (allocatedStaffIds.has(staffId)) continue;
-    payoutAmounts.push(retainedByStaff.get(staffId) ?? 0);
-  }
-  const roundingCollected = sumAed5RoundingRemainder(payoutAmounts);
 
+  const waiterCash = round2(waiterCashCollected);
+  const waiterCc = round2(waiterCcCollected);
+  const barCash = round2(barCashCollected);
+  const barCc = round2(barCcCollected);
   const totals: BenefitRunTotals = {
-    recipientCount: allocations.length,
+    recipientCount: allocations.filter(
+      (a) =>
+        (a.meta as { excluded?: boolean }).excluded !== true &&
+        (Number(a.amount) || 0) > 0,
+    ).length,
     poolGross,
     poolNet,
     totalDistributed,
-    waiterCashCollected: round2(waiterCashCollected),
-    waiterCcCollected: round2(waiterCcCollected),
-    barCashCollected: round2(barCashCollected),
-    barCcCollected: round2(barCcCollected),
+    totalTips: round2(waiterCash + waiterCc + barCash + barCc),
+    waiterCashCollected: waiterCash,
+    waiterCcCollected: waiterCc,
+    barCashCollected: barCash,
+    barCcCollected: barCc,
   };
 
   return {
@@ -853,8 +1076,15 @@ export function calculateGratuityRun(input: {
       runnerHousekeeperFund: round2(runnerHousekeeperFund),
       gross: poolGross,
       ose,
+      oseFromPool: round2(poolDeductions.ose),
+      oseFromRetain: round2(retainOse),
       activities,
+      activitiesFromPool: round2(poolDeductions.activities),
+      activitiesFromRetain: round2(retainActivities),
       roundingCollected,
+      withheldRetain,
+      withheldRetainToPool: withheldRetainAddedToPool,
+      benefitDeductions: 0,
       net: poolNet,
       byDepartment,
     },

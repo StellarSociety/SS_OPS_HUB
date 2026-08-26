@@ -143,20 +143,72 @@ export function minIsoDate(a: string, b: string): string {
   return a <= b ? a : b;
 }
 
+function calendarYearMonth(iso: string): string {
+  return iso.trim().slice(0, 7);
+}
+
+/**
+ * True when this termination was already a leaver of an earlier named payroll
+ * month. With a 25→24 window, 25–last-of-month belong to that calendar month
+ * (inclusive), not the next period those dates would otherwise fall into.
+ * Example: terminated 31 Jul → settled in July, skip August.
+ */
+export function isTerminatedBeforePayrollMonth(
+  termination: string | null | undefined,
+  period: Pick<PayrollPeriod, "payrollMonth">,
+): boolean {
+  const t = termination?.trim();
+  if (!t) return false;
+  return calendarYearMonth(t) < calendarYearMonth(period.payrollMonth);
+}
+
 /**
  * True when termination makes this employee a leaver for the named payroll month.
- * Covers in-period terminations and terminations after `periodEnd` that still
- * fall in the payroll calendar month (e.g. Jul 31 with a 25→24 window ending Jul 24).
+ * A leaver belongs to the calendar month of their termination date — including
+ * dates after `periodEnd` through month-end (e.g. 31 Jul with a window ending
+ * 24 Jul). The following month must not treat those dates as a new leaver.
  */
 export function isPayrollLeaver(
   termination: string | null | undefined,
   period: Pick<PayrollPeriod, "periodStart" | "periodEnd" | "payrollMonth">,
 ): boolean {
   const t = termination?.trim();
-  if (!t || t < period.periodStart) return false;
-  if (t <= period.periodEnd) return true;
-  const payrollYm = period.payrollMonth.slice(0, 7);
-  return t.slice(0, 7) === payrollYm;
+  if (!t) return false;
+  if (calendarYearMonth(t) !== calendarYearMonth(period.payrollMonth)) {
+    return false;
+  }
+  return t >= period.periodStart;
+}
+
+/** Last calendar day of the named payroll month (`YYYY-MM-01` or `YYYY-MM`). */
+export function lastCalendarDayOfPayrollMonth(payrollMonth: string): string {
+  const { year, month } = parsePayrollMonth(payrollMonth);
+  return isoDate(year, month, daysInMonth(year, month));
+}
+
+/**
+ * Pay-window end for one employee. Same-month leavers include days after
+ * `periodEnd` through their termination date (last day of month inclusive).
+ * Everyone else still caps at `periodEnd`.
+ */
+export function payrollEmployeeWindowEnd(
+  termination: string | null | undefined,
+  period: Pick<PayrollPeriod, "periodStart" | "periodEnd" | "payrollMonth">,
+): string {
+  const t = termination?.trim();
+  if (t && isPayrollLeaver(t, period)) return t;
+  if (t) return minIsoDate(period.periodEnd, t);
+  return period.periodEnd;
+}
+
+/** Roster/attendance fetch end so same-month leavers after `periodEnd` are covered. */
+export function payrollDataFetchToDate(
+  period: Pick<PayrollPeriod, "periodEnd" | "payrollMonth">,
+): string {
+  return maxIsoDate(
+    period.periodEnd,
+    lastCalendarDayOfPayrollMonth(period.payrollMonth),
+  );
 }
 
 export function formatPayrollMonthLabel(payrollMonth: string): string {
@@ -166,6 +218,26 @@ export function formatPayrollMonthLabel(payrollMonth: string): string {
     year: "numeric",
     timeZone: "UTC",
   });
+}
+
+const DUBAI_TZ = "Asia/Dubai";
+
+/** Calendar date `YYYY-MM-DD` in Asia/Dubai for a timestamp. */
+export function dubaiCalendarDateIso(asOf: Date | string): string | null {
+  const d = typeof asOf === "string" ? new Date(asOf) : asOf;
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DUBAI_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** Calendar month `YYYY-MM` in Asia/Dubai for a timestamp. */
+export function dubaiCalendarMonthKey(asOf: Date | string): string | null {
+  const iso = dubaiCalendarDateIso(asOf);
+  return iso ? iso.slice(0, 7) : null;
 }
 
 /** Shift a payroll month key (YYYY-MM-01 or YYYY-MM) by N calendar months. */

@@ -9,6 +9,22 @@ export function floorPayoutToAed5(amount: number): number {
   return Math.floor(n / 5) * 5;
 }
 
+const AED5_PAYROLL_BENEFIT_TYPES = new Set(["tips", "service_charge"]);
+
+/**
+ * Amount that lands on a payroll line. Tips and service charge follow the
+ * benefit-run Rounded payout (floor to AED 5); other benefits stay exact.
+ */
+export function payrollBenefitPayoutAmount(
+  benefitType: string,
+  amount: number,
+): number {
+  if (AED5_PAYROLL_BENEFIT_TYPES.has(benefitType)) {
+    return floorPayoutToAed5(amount);
+  }
+  return round2(Number(amount) || 0);
+}
+
 /**
  * Rounding collection: what stays behind after each individual payout is floored
  * to AED 5. Callers pass one amount per person actually paid out — pool share for

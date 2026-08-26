@@ -2,7 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { daysUntil, formatAed } from "@/lib/hr/derived";
-import { splitGrossAtVatRate } from "@/lib/hr/certification-costs";
+import {
+  splitGrossAtVatRate,
+  vatFromInclusivePair,
+} from "@/lib/hr/certification-costs";
 import { normalizeEmailStaffDocumentKeys } from "@/lib/hr/email-staff-documents";
 import {
   listAllStaff,
@@ -60,7 +63,9 @@ function normalizePenalty(
     id,
     description: String(raw.description ?? "").trim(),
     amount: money(raw.amount),
+    netAmount: moneyOrNull(raw.netAmount),
     companyCovered: Boolean(raw.companyCovered),
+    reimburseEmployee: Boolean(raw.reimburseEmployee),
   };
 }
 
@@ -81,7 +86,9 @@ export function normalizeVisaRecord(
     issueDate: isoDate(raw.issueDate),
     expiryDate: isoDate(raw.expiryDate),
     valueSpend: moneyOrNull(raw.valueSpend),
+    valueSpendNet: moneyOrNull(raw.valueSpendNet),
     cancelationSpend: moneyOrNull(raw.cancelationSpend),
+    cancelationSpendNet: moneyOrNull(raw.cancelationSpendNet),
     penalties,
     visaStatus: normalizeVisaStatusLabel(String(raw.visaStatus ?? "")) ?? "",
     disputeReference: String(raw.disputeReference ?? "").trim(),
@@ -281,6 +288,10 @@ export function buildVisaEmployeeRow(
         : money(staff.visa_expenses);
   const cancelationSpend =
     latest?.cancelationSpend != null ? money(latest.cancelationSpend) : null;
+  const cancelationSpendNet =
+    latest?.cancelationSpendNet != null
+      ? money(latest.cancelationSpendNet)
+      : null;
   const penalties = latest?.penalties ?? [];
   const penaltiesCompanyAbsorbed = sumCompanyCoveredPenalties(penalties);
   const penaltiesEmployeeAbsorbed = sumEmployeeAbsorbedPenalties(penalties);
@@ -325,6 +336,7 @@ export function buildVisaEmployeeRow(
     cancelDate,
     valueSpend,
     cancelationSpend,
+    cancelationSpendNet,
     penaltiesCompanyAbsorbed,
     penaltiesEmployeeAbsorbed,
     penaltiesEmployeePayrollApplied,
@@ -940,17 +952,43 @@ export async function loadVisaExpensesPage(
 
   const byMonth = new Map<string, Map<string, Acc>>();
 
+  function penaltyNet(p: VisaPenalty): number {
+    const gross = money(p.amount);
+    if (p.netAmount != null && money(p.netAmount) > 0) {
+      return money(p.netAmount);
+    }
+    return splitGrossAtVatRate(gross).net;
+  }
+
+  function sumCompanyCoveredPenaltyNets(penalties: VisaPenalty[]): number {
+    return roundMoney(
+      penalties
+        .filter((p) => p.companyCovered)
+        .reduce((sum, p) => sum + penaltyNet(p), 0),
+    );
+  }
+
   function addExpense(params: {
     staff: StaffWithLookups;
     category: (typeof VISA_EXPENSE_CATEGORY)[keyof typeof VISA_EXPENSE_CATEGORY];
     value: number;
+    net?: number | null;
     eventDate: string;
     reference?: string;
   }) {
     const grossValue = money(params.value);
     if (grossValue <= 0) return;
 
-    const costs = splitGrossAtVatRate(grossValue);
+    const storedNet =
+      params.net != null && money(params.net) > 0 ? money(params.net) : 0;
+    const costs =
+      storedNet > 0
+        ? {
+            gross: grossValue,
+            net: storedNet,
+            vat: vatFromInclusivePair(grossValue, storedNet),
+          }
+        : splitGrossAtVatRate(grossValue);
     const monthKey = params.eventDate.slice(0, 7);
     const categoryName = params.category;
     const categoryKey = categoryName.toLowerCase();
@@ -1027,6 +1065,9 @@ export async function loadVisaExpensesPage(
         const issueDate = resolveIssueDate(record, s);
         const processing = money(record.valueSpend);
         const companyPenalties = sumCompanyCoveredPenalties(record.penalties);
+        const companyPenaltyNets = sumCompanyCoveredPenaltyNets(
+          record.penalties,
+        );
 
         if (issueDate) {
           if (processing > 0) {
@@ -1034,6 +1075,7 @@ export async function loadVisaExpensesPage(
               staff: s,
               category: VISA_EXPENSE_CATEGORY.processing,
               value: processing,
+              net: record.valueSpendNet,
               eventDate: issueDate,
               reference: record.visaNumber,
             });
@@ -1043,6 +1085,7 @@ export async function loadVisaExpensesPage(
               staff: s,
               category: VISA_EXPENSE_CATEGORY.penalties,
               value: companyPenalties,
+              net: companyPenaltyNets,
               eventDate: issueDate,
               reference: record.visaNumber,
             });
@@ -1056,6 +1099,7 @@ export async function loadVisaExpensesPage(
             staff: s,
             category: VISA_EXPENSE_CATEGORY.cancelations,
             value: cancelSpend,
+            net: record.cancelationSpendNet,
             eventDate: cancelDate,
             reference: record.visaNumber,
           });

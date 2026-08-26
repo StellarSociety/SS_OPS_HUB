@@ -227,24 +227,16 @@ export function ServiceChargeSettingsForm({
           />
         </Section>
 
-        <Section title="Worked days">
-          <div className="space-y-2">
-            <CheckboxRow
-              name="include_regular_days_off"
-              defaultChecked={settings.includeRegularDaysOffInWorkedDays}
-              label="Include regular days off"
-            />
-            <CheckboxRow
-              name="include_public_holidays"
-              defaultChecked={settings.includePublicHolidaysInWorkedDays}
-              label="Include public holidays"
-            />
-            <CheckboxRow
-              name="exclude_leave"
-              defaultChecked={settings.excludeLeaveFromWorkedDays}
-              label="Exclude leave days"
-            />
-          </div>
+        <Section
+          title="Worked days"
+          description="Pool weight uses SHIFT + OFF only. Public holidays (PH / PH-REPL) and leave do not count."
+        >
+          <input type="hidden" name="include_regular_days_off" value="on" />
+          <input type="hidden" name="exclude_leave" value="on" />
+          <p className="text-sm text-black/60">
+            This is a fixed rule, not a setting. Recalculate a run to refresh
+            stored worked-day weights after roster changes.
+          </p>
         </Section>
 
         <Section title="Disciplinary deductions">

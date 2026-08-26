@@ -24,16 +24,15 @@ import {
   parsePayrollMonth,
   payrollMonthKey,
   formatPayrollMonthLabel,
+  dubaiCalendarDateIso,
+  dubaiCalendarMonthKey,
   summarizePayrollLeave,
   type HrPayrollSettings,
   type PayrollLineCategory,
   type PayrollStatus,
 } from "@/lib/hr/payroll";
-import {
-  buildPayrollExport,
-  buildPayrollExportFilename,
-  dayFractionsFromSnapshot,
-} from "@/lib/hr/payroll/wps";
+import { buildPayrollExportPackage } from "@/lib/hr/payroll/export-artifacts";
+import { dayFractionsFromSnapshot } from "@/lib/hr/payroll/wps";
 import { resolveEmployeePaymentMethod } from "@/lib/hr/payroll/persist-run";
 import type { PayslipPdfLeaveKind } from "@/lib/hr/payslip-pdf";
 import { sortPayslipLines } from "@/lib/hr/payslip-line-order";
@@ -51,9 +50,12 @@ import {
   payrollDeductionSourceLabel,
   applyPendingDeductionAmounts,
   unapplyPendingPayrollDeductions,
+  isPendingPayrollPaybackCategory,
   type PayrollDeductionImportSourceId,
 } from "@/lib/hr/payroll/pending-deductions";
 import { ensureVenueVisaRunPendingDeductions, migrateLegacyVisaRunDeductionIdentity } from "@/lib/hr/payroll/visa-run-pending-deductions";
+import { mapAllocationsToPayrollAmounts } from "@/lib/hr/benefits/deduction-payouts";
+import { payrollBenefitPayoutAmount } from "@/lib/hr/benefits/rounding";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 
@@ -1064,130 +1066,15 @@ export async function generateWpsFile(
     return { ok: false, error: "No permission." };
   }
 
-  const { data: run } = await supabase
-    .from("hr_payroll_runs")
-    .select("id, payment_date, payroll_month, status")
-    .eq("id", runId)
-    .eq("venue_id", venue.id)
-    .maybeSingle();
-
-  if (!run) return { ok: false, error: "Run not found." };
-
-  const [{ data: employees }, { data: adjustments }] = await Promise.all([
-    supabase
-      .from("hr_payroll_run_employees")
-      .select("*")
-      .eq("run_id", runId)
-      .eq("included", true),
-    supabase
-      .from("hr_payroll_adjustments")
-      .select("staff_id, category, percent_of_daily_rate, days_applied, amount")
-      .eq("run_id", runId),
-  ]);
-
-  const calcLike = (employees ?? []).map((e) => {
-    const snapshot = e.snapshot as {
-      effectivePaidDays?: number;
-      dayFractions?: unknown;
-    } | null;
-    return {
-      staffId: e.staff_id as string,
-      empNo: e.emp_no as string,
-      fullName: e.full_name as string,
-      departmentId: null,
-      departmentName: e.department_name as string | null,
-      positionId: null,
-      positionName: null,
-      included: true,
-      excludeReason: null,
-      isNewJoiner: Boolean(e.is_new_joiner),
-      isLeaver: Boolean(e.is_leaver),
-      employmentStatus: null,
-      wpsEmployeeId: e.wps_employee_id as string | null,
-      iban: e.iban as string | null,
-      bankName: e.bank_name as string | null,
-      swiftCode: e.swift_code as string | null,
-      wagePackage:
-        e.wage_package != null && !Number.isNaN(Number(e.wage_package))
-          ? Number(e.wage_package)
-          : null,
-      basicSalary:
-        e.basic_salary != null && !Number.isNaN(Number(e.basic_salary))
-          ? Number(e.basic_salary)
-          : null,
-      accomAllowance:
-        e.accom_allowance != null && !Number.isNaN(Number(e.accom_allowance))
-          ? Number(e.accom_allowance)
-          : null,
-      transpAllowance:
-        e.transp_allowance != null && !Number.isNaN(Number(e.transp_allowance))
-          ? Number(e.transp_allowance)
-          : null,
-      salaryToPay:
-        e.salary_to_pay != null && !Number.isNaN(Number(e.salary_to_pay))
-          ? Number(e.salary_to_pay)
-          : null,
-      companyAccommodation: Boolean(e.company_accommodation),
-      dailyRate:
-        e.daily_rate != null && !Number.isNaN(Number(e.daily_rate))
-          ? Number(e.daily_rate)
-          : null,
-      calendarDays: Number(e.calendar_days) || 0,
-      paidDays: Number(e.paid_days),
-      effectivePaidDays: Number(snapshot?.effectivePaidDays ?? e.paid_days),
-      unpaidDays: Number(e.unpaid_days),
-      halfPayDays: Number(e.half_pay_days) || 0,
-      fixedEarnings: Number(e.fixed_earnings),
-      variableEarnings: Number(e.variable_earnings),
-      totalDeductions: Number(e.total_deductions),
-      grossEarnings: Number(e.gross_earnings),
-      netSalary: Number(e.net_salary),
-      lines: [],
-      dayFractions: dayFractionsFromSnapshot(snapshot),
-    };
+  const built = await buildPayrollExportPackage({
+    supabase,
+    venueId: venue.id,
+    venueName: venue.name ?? "Venue",
+    runId,
   });
+  if (!built.ok) return built;
 
-  const monthKey = String(run.payroll_month).slice(0, 7);
-  const [year, monthNum] = monthKey.split("-").map(Number);
-  const payrollMonthLabel = Number.isFinite(year) && Number.isFinite(monthNum)
-    ? new Date(year, monthNum - 1, 1).toLocaleString("en-GB", {
-        month: "long",
-        year: "numeric",
-      })
-    : monthKey;
-
-  const companyName = payrollCompanyLegalName(venue.name ?? "Venue");
-  const payrollSettings = await loadPayrollSettings(supabase, venue.id);
-
-  const { buffer, rows, errors } = await buildPayrollExport({
-    companyName,
-    payrollMonthLabel,
-    employees: calcLike,
-    noBankPaymentMethod: payrollSettings.noBankPaymentMethod,
-    adjustments: (adjustments ?? []).map((a) => ({
-      staffId: a.staff_id as string,
-      category: a.category as string,
-      percentOfDailyRate:
-        a.percent_of_daily_rate != null
-          ? Number(a.percent_of_daily_rate)
-          : null,
-      daysApplied: a.days_applied != null ? Number(a.days_applied) : null,
-      amount: a.amount != null ? Number(a.amount) : null,
-    })),
-  });
-
-  if (rows.length === 0) {
-    return {
-      ok: false,
-      error:
-        errors.length > 0
-          ? `Payroll export is empty. ${errors.slice(0, 8).join(" ")}${
-              errors.length > 8 ? ` (+${errors.length - 8} more)` : ""
-            }`
-          : "Payroll export is empty — no included employees on this run.",
-    };
-  }
-
+  const { package: pack } = built;
   const service = createServiceClient();
   await service
     .from("hr_payroll_payments")
@@ -1202,31 +1089,22 @@ export async function generateWpsFile(
     venue_id: venue.id,
     run_id: runId,
     actor_id: user.id,
-    from_status: run.status,
-    to_status: run.status,
-    comment: `Payroll export generated (${rows.length} row(s)${
-      errors.length > 0 ? `, ${errors.length} warning(s)` : ""
+    from_status: pack.runStatus,
+    to_status: pack.runStatus,
+    comment: `Payroll export generated (${pack.rows.length} row(s)${
+      pack.errors.length > 0 ? `, ${pack.errors.length} warning(s)` : ""
     })`,
-    changes_summary: { warnings: errors, rowCount: rows.length },
+    changes_summary: { warnings: pack.errors, rowCount: pack.rows.length },
   });
 
   revalidatePayroll(runId);
   return {
     ok: true,
-    base64: buffer.toString("base64"),
-    filename: buildPayrollExportFilename(venue.name ?? "Venue", monthKey),
-    mimeType:
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    warnings: errors.length > 0 ? errors : undefined,
+    base64: pack.xlsx.base64,
+    filename: pack.xlsx.filename,
+    mimeType: pack.xlsx.mimeType,
+    warnings: pack.errors.length > 0 ? pack.errors : undefined,
   };
-}
-
-/** Legal entity line for payroll export headers (e.g. Orilla → Orilla Restaurant LLC). */
-function payrollCompanyLegalName(venueName: string): string {
-  const name = venueName.trim() || "Venue";
-  if (/\bllc\b/i.test(name)) return name;
-  if (/\brestaurant\b/i.test(name)) return `${name} LLC`;
-  return `${name} Restaurant LLC`;
 }
 
 function parseNoBankPaymentMethod(
@@ -2437,7 +2315,8 @@ export type PayrollBenefitImportType =
   | "service_charge"
   | "compensation"
   | "other"
-  | "flight_ticket";
+  | "flight_ticket"
+  | "payback";
 
 export type PayrollBenefitImportRow = {
   allocationId: string;
@@ -2451,7 +2330,23 @@ export type PayrollBenefitImportRow = {
   periodStart: string;
   periodEnd: string;
   alreadyApplied: boolean;
+  /** Benefit allocations vs visa/other payroll paybacks. */
+  origin: "allocation" | "payback";
+  detail: string | null;
 };
+
+function splitBenefitImportRows(rows: PayrollBenefitImportRow[]): {
+  allocations: PayrollBenefitImportRow[];
+  paybacks: PayrollBenefitImportRow[];
+} {
+  const allocations: PayrollBenefitImportRow[] = [];
+  const paybacks: PayrollBenefitImportRow[] = [];
+  for (const row of rows) {
+    if (row.origin === "payback") paybacks.push(row);
+    else allocations.push(row);
+  }
+  return { allocations, paybacks };
+}
 
 const BENEFIT_TYPE_TO_KIND: Record<string, string> = {
   tips: "gratuity",
@@ -2503,91 +2398,102 @@ export async function listBenefitsForPayrollImport(input: {
   }
 
   const service = createServiceClient();
-
-  let runQuery = service
-    .from("hr_benefit_runs")
-    .select("id, benefit_kind, benefit_month, period_start, period_end, status")
-    .eq("venue_id", venue.id)
-    .eq("benefit_month", monthDate)
-    .in("status", [
-      "calculated",
-      "review",
-      "finalized",
-      "applied_to_payroll",
-    ]);
-
-  if (input.benefitType !== "all") {
-    const kind = BENEFIT_TYPE_TO_KIND[input.benefitType];
-    if (kind) runQuery = runQuery.eq("benefit_kind", kind);
-  }
-
-  const { data: benefitRuns, error: runsError } = await runQuery;
-  if (runsError) {
-    if (/hr_benefit_runs|schema cache|does not exist/i.test(runsError.message)) {
-      return {
-        ok: false,
-        error:
-          "Benefits tables are not available yet. Finalize a Benefits run first.",
-      };
-    }
-    return { ok: false, error: runsError.message };
-  }
-
-  const runIds = (benefitRuns ?? []).map((r) => r.id as string);
-  const settings = await loadPayrollSettings(supabase, venue.id);
-  const period = resolvePayrollPeriod(monthDate, settings);
+  const includeAllocations =
+    input.benefitType === "all" || input.benefitType !== "payback";
+  const includePaybacks =
+    input.benefitType === "all" || input.benefitType === "payback";
 
   let usable: Array<Record<string, unknown>> = [];
+  const benefitRunById = new Map<
+    string,
+    { benefit_kind?: string; benefit_month?: string; totals?: unknown }
+  >();
 
-  if (runIds.length > 0) {
-    let allocQuery = service
-      .from("hr_benefit_allocations")
-      .select(
-        "id, staff_id, benefit_type, amount, status, period_start, period_end, run_id",
-      )
+  if (includeAllocations) {
+    let runQuery = service
+      .from("hr_benefit_runs")
+      .select("id, benefit_kind, benefit_month, period_start, period_end, status, totals")
       .eq("venue_id", venue.id)
-      .in("run_id", runIds)
-      .in("status", ["finalized", "applied_to_payroll", "draft"]);
+      .eq("benefit_month", monthDate)
+      .in("status", [
+        "calculated",
+        "review",
+        "finalized",
+        "applied_to_payroll",
+      ]);
 
     if (input.benefitType !== "all") {
-      allocQuery = allocQuery.eq("benefit_type", input.benefitType);
+      const kind = BENEFIT_TYPE_TO_KIND[input.benefitType];
+      if (kind) runQuery = runQuery.eq("benefit_kind", kind);
     }
 
-    const { data: allocations, error: allocError } = await allocQuery;
-    if (allocError) return { ok: false, error: allocError.message };
-    usable = (allocations ?? []) as Array<Record<string, unknown>>;
-  } else {
-    // Fallback: period-overlap allocations when no benefit run row exists
-    let allocQuery = service
-      .from("hr_benefit_allocations")
-      .select(
-        "id, staff_id, benefit_type, amount, status, period_start, period_end, run_id",
-      )
-      .eq("venue_id", venue.id)
-      .lte("period_start", period.periodEnd)
-      .gte("period_end", period.periodStart)
-      .in("status", ["finalized", "applied_to_payroll"]);
-
-    if (input.benefitType !== "all") {
-      allocQuery = allocQuery.eq("benefit_type", input.benefitType);
-    }
-
-    const { data: allocations, error: allocError } = await allocQuery;
-    if (allocError) {
+    const { data: benefitRuns, error: runsError } = await runQuery;
+    if (runsError) {
       if (
-        /hr_benefit_allocations|schema cache|does not exist/i.test(
-          allocError.message,
-        )
+        !/hr_benefit_runs|schema cache|does not exist/i.test(runsError.message)
       ) {
-        return {
-          ok: false,
-          error:
-            "Benefits tables are not available yet. Finalize a Benefits run first.",
-        };
+        return { ok: false, error: runsError.message };
       }
-      return { ok: false, error: allocError.message };
+    } else {
+      const runIds = (benefitRuns ?? []).map((r) => r.id as string);
+      for (const r of benefitRuns ?? []) {
+        benefitRunById.set(String(r.id), {
+          benefit_kind: r.benefit_kind ? String(r.benefit_kind) : undefined,
+          benefit_month: r.benefit_month
+            ? String(r.benefit_month).slice(0, 10)
+            : undefined,
+          totals: r.totals,
+        });
+      }
+      const settings = await loadPayrollSettings(supabase, venue.id);
+      const period = resolvePayrollPeriod(monthDate, settings);
+
+      if (runIds.length > 0) {
+        let allocQuery = service
+          .from("hr_benefit_allocations")
+          .select(
+            "id, staff_id, benefit_type, amount, status, period_start, period_end, run_id, meta",
+          )
+          .eq("venue_id", venue.id)
+          .in("run_id", runIds)
+          .in("status", ["finalized", "applied_to_payroll", "draft"]);
+
+        if (input.benefitType !== "all") {
+          allocQuery = allocQuery.eq("benefit_type", input.benefitType);
+        }
+
+        const { data: allocations, error: allocError } = await allocQuery;
+        if (allocError) return { ok: false, error: allocError.message };
+        usable = (allocations ?? []) as Array<Record<string, unknown>>;
+      } else {
+        let allocQuery = service
+          .from("hr_benefit_allocations")
+          .select(
+            "id, staff_id, benefit_type, amount, status, period_start, period_end, run_id, meta",
+          )
+          .eq("venue_id", venue.id)
+          .lte("period_start", period.periodEnd)
+          .gte("period_end", period.periodStart)
+          .in("status", ["finalized", "applied_to_payroll"]);
+
+        if (input.benefitType !== "all") {
+          allocQuery = allocQuery.eq("benefit_type", input.benefitType);
+        }
+
+        const { data: allocations, error: allocError } = await allocQuery;
+        if (allocError) {
+          if (
+            !/hr_benefit_allocations|schema cache|does not exist/i.test(
+              allocError.message,
+            )
+          ) {
+            return { ok: false, error: allocError.message };
+          }
+        } else {
+          usable = (allocations ?? []) as Array<Record<string, unknown>>;
+        }
+      }
     }
-    usable = (allocations ?? []) as Array<Record<string, unknown>>;
   }
 
   usable = usable.filter((a) => {
@@ -2596,6 +2502,29 @@ export async function listBenefitsForPayrollImport(input: {
     if (status === "applied_to_payroll" || status === "finalized") return true;
     return amount > 0 && status === "draft";
   });
+
+  const missingRunIds = [
+    ...new Set(
+      usable
+        .map((a) => String(a.run_id ?? ""))
+        .filter((id) => id && !benefitRunById.has(id)),
+    ),
+  ];
+  if (missingRunIds.length > 0) {
+    const { data: extraRuns } = await service
+      .from("hr_benefit_runs")
+      .select("id, benefit_kind, benefit_month, totals")
+      .in("id", missingRunIds);
+    for (const r of extraRuns ?? []) {
+      benefitRunById.set(String(r.id), {
+        benefit_kind: r.benefit_kind ? String(r.benefit_kind) : undefined,
+        benefit_month: r.benefit_month
+          ? String(r.benefit_month).slice(0, 10)
+          : undefined,
+        totals: r.totals,
+      });
+    }
+  }
 
   const staffIds = [
     ...new Set(usable.map((a) => a.staff_id as string).filter(Boolean)),
@@ -2620,8 +2549,28 @@ export async function listBenefitsForPayrollImport(input: {
     }
   }
 
+  const payrollAmounts =
+    usable.length > 0
+      ? await mapAllocationsToPayrollAmounts(
+          service,
+          venue.id,
+          usable.map((a) => {
+            const run = benefitRunById.get(String(a.run_id ?? ""));
+            return {
+              staffId: String(a.staff_id ?? ""),
+              benefitType: String(a.benefit_type ?? ""),
+              amount: Number(a.amount) || 0,
+              meta: a.meta,
+              benefitKind: run?.benefit_kind ?? null,
+              benefitMonth: run?.benefit_month ?? null,
+              runTotals: run?.totals,
+            };
+          }),
+        )
+      : [];
+
   const rows: PayrollBenefitImportRow[] = usable
-    .map((a) => {
+    .map((a, i) => {
       const staff = staffById.get(a.staff_id as string);
       return {
         allocationId: a.id as string,
@@ -2630,14 +2579,65 @@ export async function listBenefitsForPayrollImport(input: {
         fullName: staff?.full_name ?? "Unknown",
         departmentName: staff?.department_name ?? null,
         benefitType: a.benefit_type as PayrollBenefitImportType,
-        amount: Number(a.amount) || 0,
+        amount:
+          payrollAmounts[i] ??
+          payrollBenefitPayoutAmount(
+            String(a.benefit_type),
+            Number(a.amount) || 0,
+          ),
         status: String(a.status),
         periodStart: String(a.period_start).slice(0, 10),
         periodEnd: String(a.period_end).slice(0, 10),
         alreadyApplied: String(a.status) === "applied_to_payroll",
+        origin: "allocation" as const,
+        detail: null,
       };
     })
     .sort((a, b) => a.empNo.localeCompare(b.empNo));
+
+  if (includePaybacks) {
+    const paybacks = await listDeductionsForPayrollImport({
+      runId: input.runId,
+      source: "all",
+      role: "payback",
+    });
+    if (paybacks.ok) {
+      const targetMonth = monthDate.slice(0, 7);
+      for (const row of paybacks.rows) {
+        const recordedMonth = dubaiCalendarMonthKey(row.createdAt);
+        if (recordedMonth !== targetMonth) continue;
+        const issued =
+          dubaiCalendarDateIso(row.createdAt) ?? row.createdAt.slice(0, 10);
+        const recordedLabel = issued
+          ? new Date(`${issued}T00:00:00Z`).toLocaleString("en-GB", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+              timeZone: "UTC",
+            })
+          : null;
+        const reason = row.reason || row.label || "Visa penalty";
+        rows.push({
+          allocationId: row.deductionId,
+          staffId: row.staffId,
+          empNo: row.empNo,
+          fullName: row.fullName,
+          departmentName: row.departmentName,
+          benefitType: "payback",
+          amount: row.maxApplyAmount,
+          status: row.status,
+          periodStart: issued,
+          periodEnd: issued,
+          alreadyApplied: row.alreadyApplied,
+          origin: "payback",
+          detail: recordedLabel
+            ? `${reason} · recorded ${recordedLabel}`
+            : reason,
+        });
+      }
+      rows.sort((a, b) => a.empNo.localeCompare(b.empNo));
+    }
+  }
 
   return { ok: true, rows };
 }
@@ -2702,23 +2702,25 @@ export async function importBenefitsToPayrollRun(input: {
     return { ok: false, error: "No matching benefit rows to import." };
   }
 
-  // Apply selected
-  const { error: applyError } = await service
-    .from("hr_benefit_allocations")
-    .update({
-      status: "applied_to_payroll",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("venue_id", venue.id)
-    .in(
-      "id",
-      selectedRows.map((r) => r.allocationId),
-    );
+  const selectedSplit = splitBenefitImportRows(selectedRows);
+  const unselectedSplit = splitBenefitImportRows(unselectedPreviouslyApplied);
 
-  if (applyError) return { ok: false, error: applyError.message };
+  if (selectedSplit.allocations.length > 0) {
+    const { error: applyError } = await service
+      .from("hr_benefit_allocations")
+      .update({
+        status: "applied_to_payroll",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("venue_id", venue.id)
+      .in(
+        "id",
+        selectedSplit.allocations.map((r) => r.allocationId),
+      );
+    if (applyError) return { ok: false, error: applyError.message };
+  }
 
-  // Un-apply deselected that were previously on payroll
-  if (unselectedPreviouslyApplied.length > 0) {
+  if (unselectedSplit.allocations.length > 0) {
     const { error: revertError } = await service
       .from("hr_benefit_allocations")
       .update({
@@ -2729,14 +2731,37 @@ export async function importBenefitsToPayrollRun(input: {
       .eq("venue_id", venue.id)
       .in(
         "id",
-        unselectedPreviouslyApplied.map((r) => r.allocationId),
+        unselectedSplit.allocations.map((r) => r.allocationId),
       );
     if (revertError) return { ok: false, error: revertError.message };
   }
 
+  if (selectedSplit.paybacks.length > 0) {
+    await applyPendingDeductionAmounts({
+      service,
+      venueId: venue.id,
+      runId: input.runId,
+      actorId: user.id,
+      items: selectedSplit.paybacks.map((r) => ({
+        deductionId: r.allocationId,
+        amount: r.amount,
+      })),
+    });
+  }
+  if (unselectedSplit.paybacks.length > 0) {
+    await unapplyPendingPayrollDeductions({
+      service,
+      venueId: venue.id,
+      runId: input.runId,
+      ids: unselectedSplit.paybacks.map((r) => r.allocationId),
+    });
+  }
+
   // Mark matching benefit runs as applied when any allocation is applied
   const kinds = new Set(
-    selectedRows.map((r) => BENEFIT_TYPE_TO_KIND[r.benefitType]).filter(Boolean),
+    selectedSplit.allocations
+      .map((r) => BENEFIT_TYPE_TO_KIND[r.benefitType])
+      .filter(Boolean),
   );
   for (const kind of kinds) {
     await service
@@ -2779,6 +2804,9 @@ export async function importBenefitsToPayrollRun(input: {
   if (!recalc.ok) return recalc;
 
   revalidatePath("/hr/benefits");
+  revalidatePath("/hr/payroll");
+  revalidatePath(`/hr/payroll/${input.runId}`);
+  revalidatePath("/hr/assets/visa", "layout");
   return { ok: true };
 }
 
@@ -2830,21 +2858,54 @@ export async function refreshImportedBenefitsOnPayrollRun(input: {
     return { ok: false, error: "No imported benefits to refresh." };
   }
 
-  // Touch applied rows so updated benefit amounts are the source of truth,
-  // then recalculate payroll lines from those allocations.
   const service = createServiceClient();
-  const { error: touchError } = await service
-    .from("hr_benefit_allocations")
-    .update({
-      status: "applied_to_payroll",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("venue_id", venue.id)
-    .in(
-      "id",
-      applied.map((r) => r.allocationId),
-    );
-  if (touchError) return { ok: false, error: touchError.message };
+  const { allocations, paybacks } = splitBenefitImportRows(applied);
+
+  if (allocations.length > 0) {
+    const { error: touchError } = await service
+      .from("hr_benefit_allocations")
+      .update({
+        status: "applied_to_payroll",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("venue_id", venue.id)
+      .in(
+        "id",
+        allocations.map((r) => r.allocationId),
+      );
+    if (touchError) return { ok: false, error: touchError.message };
+  }
+
+  if (paybacks.length > 0) {
+    await ensureVenueVisaRunPendingDeductions({
+      service,
+      venueId: venue.id,
+      userId: user.id,
+    });
+    const refreshed = await listDeductionsForPayrollImport({
+      runId: input.runId,
+      source: "all",
+      role: "payback",
+    });
+    if (refreshed.ok) {
+      const byId = new Map(refreshed.rows.map((r) => [r.deductionId, r]));
+      await applyPendingDeductionAmounts({
+        service,
+        venueId: venue.id,
+        runId: input.runId,
+        actorId: user.id,
+        items: paybacks
+          .map((row) => {
+            const latest = byId.get(row.allocationId);
+            return {
+              deductionId: row.allocationId,
+              amount: latest?.maxApplyAmount ?? row.amount,
+            };
+          })
+          .filter((item) => item.amount > 0),
+      });
+    }
+  }
 
   await writeAuditLog({
     actor_id: user.id,
@@ -2864,6 +2925,9 @@ export async function refreshImportedBenefitsOnPayrollRun(input: {
   if (!recalc.ok) return recalc;
 
   revalidatePath("/hr/benefits");
+  revalidatePath("/hr/payroll");
+  revalidatePath(`/hr/payroll/${input.runId}`);
+  revalidatePath("/hr/assets/visa", "layout");
   return { ok: true };
 }
 
@@ -2916,19 +2980,32 @@ export async function clearImportedBenefitsFromPayrollRun(input: {
   }
 
   const service = createServiceClient();
-  const { error: revertError } = await service
-    .from("hr_benefit_allocations")
-    .update({
-      status: "finalized",
-      payroll_line_id: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("venue_id", venue.id)
-    .in(
-      "id",
-      applied.map((r) => r.allocationId),
-    );
-  if (revertError) return { ok: false, error: revertError.message };
+  const { allocations, paybacks } = splitBenefitImportRows(applied);
+
+  if (allocations.length > 0) {
+    const { error: revertError } = await service
+      .from("hr_benefit_allocations")
+      .update({
+        status: "finalized",
+        payroll_line_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("venue_id", venue.id)
+      .in(
+        "id",
+        allocations.map((r) => r.allocationId),
+      );
+    if (revertError) return { ok: false, error: revertError.message };
+  }
+
+  if (paybacks.length > 0) {
+    await unapplyPendingPayrollDeductions({
+      service,
+      venueId: venue.id,
+      runId: input.runId,
+      ids: paybacks.map((r) => r.allocationId),
+    });
+  }
 
   const kindsByType = new Map<string, string>();
   for (const row of applied) {
@@ -2978,6 +3055,9 @@ export async function clearImportedBenefitsFromPayrollRun(input: {
   if (!recalc.ok) return recalc;
 
   revalidatePath("/hr/benefits");
+  revalidatePath("/hr/payroll");
+  revalidatePath(`/hr/payroll/${input.runId}`);
+  revalidatePath("/hr/assets/visa", "layout");
   return { ok: true };
 }
 
@@ -3019,6 +3099,7 @@ export type PayrollDeductionImportRow = {
   statusLabel: string;
   alreadyApplied: boolean;
   sourceAvailable: boolean;
+  category: string;
 };
 
 function availableDeductionSourceIds(): Set<string> {
@@ -3061,6 +3142,8 @@ function deductionImportStatus(opts: {
 export async function listDeductionsForPayrollImport(input: {
   runId: string;
   source: PayrollDeductionImportType;
+  /** Default: deductions only. Paybacks are imported via Import Benefits. */
+  role?: "deduction" | "payback";
 }): Promise<
   | { ok: true; rows: PayrollDeductionImportRow[] }
   | { ok: false; error: string }
@@ -3268,7 +3351,12 @@ export async function listDeductionsForPayrollImport(input: {
         statusLabel,
         alreadyApplied: appliedThis > 0,
         sourceAvailable: available.has(source),
+        category: String(row.category ?? "deduction"),
       };
+    })
+    .filter((row) => {
+      const isPayback = isPendingPayrollPaybackCategory(row.category);
+      return (input.role ?? "deduction") === "payback" ? isPayback : !isPayback;
     })
     .sort((a, b) => a.empNo.localeCompare(b.empNo));
 

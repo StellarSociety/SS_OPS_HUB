@@ -361,6 +361,41 @@ export async function updateStaff(
   }
 }
 
+async function syncRelatedStaffEmpNo(
+  service: ReturnType<typeof createServiceClient>,
+  opts: {
+    staffId: string;
+    venueId: string;
+    oldEmpNo: string;
+    newEmpNo: string;
+  },
+): Promise<string | null> {
+  const byStaff = [
+    "hr_schedule_days",
+    "hr_attendance_punches",
+    "hr_attendance_days",
+  ] as const;
+  for (const table of byStaff) {
+    const { error } = await service
+      .from(table)
+      .update({ emp_no: opts.newEmpNo })
+      .eq("staff_id", opts.staffId);
+    if (error) return error.message;
+  }
+
+  for (const table of ["hr_attendance_punches", "hr_attendance_days"] as const) {
+    const { error } = await service
+      .from(table)
+      .update({ emp_no: opts.newEmpNo })
+      .eq("venue_id", opts.venueId)
+      .eq("emp_no", opts.oldEmpNo)
+      .is("staff_id", null);
+    if (error) return error.message;
+  }
+
+  return null;
+}
+
 async function updateStaffInner(
   staffId: string,
   formData: FormData,
@@ -380,6 +415,9 @@ async function updateStaffInner(
     return { error: "You do not have permission to edit staff." };
   }
 
+  const empNo = String(formData.get("emp_no") ?? "").trim();
+  if (!empNo) return { error: "Employee number is required." };
+
   const payload = formDataToStaffPayload(formData);
   const emailError = validateStaffEmails(payload);
   if (emailError) return { error: emailError };
@@ -391,14 +429,46 @@ async function updateStaffInner(
     permissions,
     venue.id,
   );
+  updates.emp_no = empNo;
   const service = createServiceClient();
+
+  const oldEmpNo = String(before.emp_no ?? "").trim();
+  if (empNo !== oldEmpNo) {
+    const { data: existing } = await service
+      .from("staff")
+      .select("id")
+      .eq("home_venue_id", venue.id)
+      .eq("emp_no", empNo)
+      .neq("id", staffId)
+      .maybeSingle();
+    if (existing) {
+      return { error: `Employee number "${empNo}" already exists.` };
+    }
+  }
 
   const { error } = await service
     .from("staff")
     .update(updates)
     .eq("id", staffId);
 
-  if (error) return { error: error.message };
+  if (error) {
+    if (error.code === "23505") {
+      return { error: `Employee number "${empNo}" already exists.` };
+    }
+    return { error: error.message };
+  }
+
+  if (empNo !== oldEmpNo) {
+    const syncError = await syncRelatedStaffEmpNo(service, {
+      staffId,
+      venueId: venue.id,
+      oldEmpNo,
+      newEmpNo: empNo,
+    });
+    if (syncError) {
+      console.error("[hr] sync related emp_no:", syncError);
+    }
+  }
 
   const visaStatusChanged =
     "visa_status" in updates &&
@@ -1309,6 +1379,7 @@ function formDataToStaffPayload(formData: FormData) {
     position_id: str("position_id"),
     employment_status_id: str("employment_status_id"),
     nationality_id: str("nationality_id"),
+    emp_no: str("emp_no"),
     first_name: str("first_name"),
     last_name: str("last_name"),
     full_name: str("full_name") ?? "",
@@ -1748,6 +1819,26 @@ async function saveScheduleDayChangesInner(params: {
   // Client already patches the session cache — skip revalidatePath so save
   // does not remount the page. PH-REPL credits resync on Leave Balances load;
   // do not import next/server `after` here (breaks the server-action bundle).
+
+  try {
+    const { syncOpenPayrollAfterStaffDayChanges } = await import(
+      "@/lib/hr/payroll/persist-run"
+    );
+    await syncOpenPayrollAfterStaffDayChanges({
+      service,
+      venueId: venue.id,
+      userId: user.id,
+      days: changes.map((change) => ({
+        staffId: change.staffId,
+        workDate: change.workDate,
+      })),
+    });
+  } catch (err) {
+    console.error(
+      "[hr] payroll sync after roster save:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   return { ok: true as const, count: changes.length };
 }

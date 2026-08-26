@@ -11,7 +11,7 @@ import {
   type AttendanceDayResult,
   type AttendancePunchRaw,
 } from "@/lib/hr/attendance-import";
-import { canAdminLookups, canAccessStaff, canEditSchedules, canEditStaff } from "@/lib/hr/permissions";
+import { canAdminLookups, canAccessStaff, canApproveAttendance, canEditStaff } from "@/lib/hr/permissions";
 import {
   getHrVenueSetting,
   refreshAttendanceMonths,
@@ -526,11 +526,8 @@ async function approveAttendanceDaysInner(params: {
   }
 
   const { user, venue, permissions } = await getAuthContext();
-  if (
-    !canEditStaff(permissions, venue.id) &&
-    !canEditSchedules(permissions, venue.id)
-  ) {
-    return { error: "You do not have permission to update approvals." };
+  if (!canApproveAttendance(permissions, venue.id)) {
+    return { error: "You do not have permission to approve attendance." };
   }
 
   const approvalStatus = params.approvalStatus ?? ATTENDANCE_APPROVED_STATUS;
@@ -612,6 +609,26 @@ async function approveAttendanceDaysInner(params: {
         err instanceof Error ? err.message : err,
       );
     }
+  }
+
+  try {
+    const { syncOpenPayrollAfterStaffDayChanges } = await import(
+      "@/lib/hr/payroll/persist-run"
+    );
+    await syncOpenPayrollAfterStaffDayChanges({
+      service,
+      venueId: venue.id,
+      userId: user.id,
+      days: result.rows.map((row) => ({
+        staffId: row.staffId,
+        workDate: row.workDate,
+      })),
+    });
+  } catch (err) {
+    console.error(
+      "[hr] payroll sync after attendance approval:",
+      err instanceof Error ? err.message : err,
+    );
   }
 
   return {

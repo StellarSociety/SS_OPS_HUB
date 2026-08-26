@@ -2,7 +2,7 @@ import { AttendanceApprovalsTable } from "@/components/hr/attendance-approvals-t
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { buildExportUserLabel } from "@/lib/exports/user-label";
 import { validationEmployeeOptions } from "@/lib/hr/build-attendance-validation-rows";
-import { canEditSchedules } from "@/lib/hr/permissions";
+import { canApproveAttendance, canEditSchedules } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import {
   DEFAULT_SCHEDULE_DAY_LABELS,
@@ -52,6 +52,7 @@ export default async function AttendanceValidationPage({
 
   const { supabase, user, venue, permissions } = await getHrPageContext();
   const canEditRoster = canEditSchedules(permissions, venue.id);
+  const canApprove = canApproveAttendance(permissions, venue.id);
 
   try {
     const holidayYear =
@@ -161,6 +162,7 @@ export default async function AttendanceValidationPage({
           scheduleLabels={labelOptions}
           publicHolidayByDate={publicHolidayByDate}
           canEditRoster={canEditRoster}
+          canApprove={canApprove}
           initialStaffId={initialStaffId}
           initialFromDate={payrollFrom}
           initialToDate={payrollTo}

@@ -27,8 +27,10 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
 import {
+  loadVatInclusivePair,
   splitGrossAtVatRate,
   splitNetAtVatRate,
+  vatFromInclusivePair,
 } from "@/lib/hr/certification-costs";
 import { DETACHED_FILE_FORM_ID } from "@/lib/hr/detached-file-form";
 import { uploadStaffDocumentViaApi } from "@/lib/hr/workdrive/client-upload";
@@ -115,6 +117,7 @@ type PenaltyDraft = {
   amount: string;
   netAmount: string;
   companyCovered: boolean;
+  reimburseEmployee: boolean;
 };
 
 function newKey() {
@@ -134,24 +137,37 @@ function isCanceled(status: string): boolean {
   return status.trim().toLowerCase().includes("cancel");
 }
 
+function taxField(grossRaw: string, netRaw: string): string {
+  const g = parseMoney(grossRaw);
+  const n = parseMoney(netRaw);
+  if (g <= 0 && n <= 0) return "";
+  return vatFromInclusivePair(g, n).toFixed(2);
+}
+
+function parseMoneyOrNull(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  return parseMoney(raw);
+}
+
 function penaltiesToDraft(penalties: VisaPenalty[]): PenaltyDraft[] {
   return penalties.map((p) => {
-    const amount =
-      p.amount != null && p.amount > 0 ? String(p.amount) : "";
-    const { net } = syncFromGross(amount);
+    const pair = loadVatInclusivePair(p.amount, p.netAmount);
     return {
       key: p.id || newKey(),
       description: p.description,
-      amount,
-      netAmount: net,
+      amount: pair.gross,
+      netAmount: pair.net,
       companyCovered: p.companyCovered,
+      reimburseEmployee: Boolean(p.reimburseEmployee) && p.companyCovered,
     };
   });
 }
 
 function draftToPenalties(penalties: PenaltyDraft[]): VisaPenalty[] {
   return penalties
-    .filter((p) => p.description.trim() || p.amount.trim())
+    .filter(
+      (p) => p.description.trim() || p.amount.trim() || p.netAmount.trim(),
+    )
     .map((p) => {
       const key = p.key.trim();
       const id =
@@ -163,8 +179,10 @@ function draftToPenalties(penalties: PenaltyDraft[]): VisaPenalty[] {
       return {
         id,
         description: p.description.trim(),
-        amount: Number(p.amount) || 0,
+        amount: parseMoney(p.amount),
+        netAmount: parseMoneyOrNull(p.netAmount),
         companyCovered: p.companyCovered,
+        reimburseEmployee: p.companyCovered && p.reimburseEmployee,
       };
     });
 }
@@ -250,26 +268,24 @@ export function VisaEmployeeEditDialog({
     setIssueDate(record.issueDate ?? "");
     setExpiryDate(record.expiryDate ?? "");
     {
-      const gross =
-        record.valueSpend != null && record.valueSpend > 0
-          ? String(record.valueSpend)
-          : "";
-      const synced = syncFromGross(gross);
-      setValueSpend(synced.gross);
-      setValueSpendNet(synced.net);
+      const pair = loadVatInclusivePair(
+        record.valueSpend,
+        record.valueSpendNet,
+      );
+      setValueSpend(pair.gross);
+      setValueSpendNet(pair.net);
     }
     setVisaStatus(record.visaStatus ?? "");
     setDisputeReference(record.disputeReference ?? "");
     setDisputeComments(record.disputeComments ?? "");
     setCancelDate(record.cancelDate ?? "");
     {
-      const gross =
-        record.cancelationSpend != null && record.cancelationSpend > 0
-          ? String(record.cancelationSpend)
-          : "";
-      const synced = syncFromGross(gross);
-      setCancelationSpend(synced.gross);
-      setCancelationSpendNet(synced.net);
+      const pair = loadVatInclusivePair(
+        record.cancelationSpend,
+        record.cancelationSpendNet,
+      );
+      setCancelationSpend(pair.gross);
+      setCancelationSpendNet(pair.net);
     }
     setComments(record.comments ?? "");
     setPenalties(penaltiesToDraft(record.penalties ?? []));
@@ -348,10 +364,6 @@ export function VisaEmployeeEditDialog({
   const showDispute = isDispute(visaStatus);
   const showCancel = isCanceled(visaStatus);
   const showNoc = isSelfOwned(visaStatus);
-  const grossAmount = parseMoney(valueSpend);
-  const { vat: valueTax } = splitGrossAtVatRate(grossAmount);
-  const cancelGrossAmount = parseMoney(cancelationSpend);
-  const { vat: cancelTax } = splitGrossAtVatRate(cancelGrossAmount);
   const editingRecord = isEditing
     ? (records.find((r) => r.id === editingRecordId) ?? null)
     : null;
@@ -565,14 +577,15 @@ export function VisaEmployeeEditDialog({
       visaNumber: visaNumber.trim() || undefined,
       issueDate: issueDate || null,
       expiryDate: expiryDate || null,
-      valueSpend: valueSpend.trim() === "" ? null : Number(valueSpend) || 0,
+      valueSpend: parseMoneyOrNull(valueSpend),
+      valueSpendNet: parseMoneyOrNull(valueSpendNet),
       penalties: draftToPenalties(penalties),
       visaStatus: visaStatus.trim(),
       disputeReference: disputeReference.trim() || undefined,
       disputeComments: disputeComments.trim() || undefined,
       cancelDate: cancelDate || null,
-      cancelationSpend:
-        cancelationSpend.trim() === "" ? null : Number(cancelationSpend) || 0,
+      cancelationSpend: parseMoneyOrNull(cancelationSpend),
+      cancelationSpendNet: parseMoneyOrNull(cancelationSpendNet),
       comments: comments.trim() || undefined,
     };
 
@@ -1095,7 +1108,7 @@ export function VisaEmployeeEditDialog({
                     type="number"
                     min={0}
                     step="0.01"
-                    value={grossAmount > 0 ? valueTax.toFixed(2) : ""}
+                    value={taxField(valueSpend, valueSpendNet)}
                     readOnly
                     disabled
                     placeholder="0"
@@ -1200,9 +1213,7 @@ export function VisaEmployeeEditDialog({
                         type="number"
                         min={0}
                         step="0.01"
-                        value={
-                          cancelGrossAmount > 0 ? cancelTax.toFixed(2) : ""
-                        }
+                        value={taxField(cancelationSpend, cancelationSpendNet)}
                         readOnly
                         disabled
                         placeholder="0"
@@ -1266,6 +1277,7 @@ export function VisaEmployeeEditDialog({
                           amount: "",
                           netAmount: "",
                           companyCovered: true,
+                          reimburseEmployee: false,
                         },
                       ])
                     }
@@ -1283,11 +1295,6 @@ export function VisaEmployeeEditDialog({
               ) : (
                 <div className="space-y-2">
                   {penalties.map((p) => {
-                    const fineGross = parseMoney(p.amount);
-                    const fineTax =
-                      fineGross > 0
-                        ? splitGrossAtVatRate(fineGross).vat
-                        : 0;
                     return (
                       <div
                         key={p.key}
@@ -1350,9 +1357,7 @@ export function VisaEmployeeEditDialog({
                                 type="number"
                                 min={0}
                                 step="0.01"
-                                value={
-                                  fineGross > 0 ? fineTax.toFixed(2) : ""
-                                }
+                                value={taxField(p.amount, p.netAmount)}
                                 readOnly
                                 disabled
                                 placeholder="0"
@@ -1404,32 +1409,79 @@ export function VisaEmployeeEditDialog({
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1">
-                          <label className="inline-flex items-center gap-2 text-xs text-[#3D421F]">
-                            <input
-                              type="checkbox"
-                              checked={p.companyCovered}
-                              onChange={(e) =>
-                                setPenalties((prev) =>
-                                  prev.map((item) =>
-                                    item.key === p.key
-                                      ? {
-                                          ...item,
-                                          companyCovered: e.target.checked,
-                                        }
-                                      : item,
-                                  ),
-                                )
-                              }
-                              className="h-4 w-4 rounded border-black/20"
-                              disabled={busy}
-                            />
-                            Company covered
-                          </label>
+                        <div className="space-y-1.5 pl-1">
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <label className="inline-flex items-center gap-2 text-xs text-[#3D421F]">
+                              <input
+                                type="checkbox"
+                                checked={p.companyCovered}
+                                onChange={() =>
+                                  setPenalties((prev) =>
+                                    prev.map((item) =>
+                                      item.key === p.key
+                                        ? { ...item, companyCovered: true }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                                className="h-4 w-4 rounded border-black/30 accent-[#818a40]"
+                                disabled={busy}
+                              />
+                              Company covered
+                            </label>
+                            <label className="inline-flex items-center gap-2 text-xs text-[#3D421F]">
+                              <input
+                                type="checkbox"
+                                checked={!p.companyCovered}
+                                onChange={() =>
+                                  setPenalties((prev) =>
+                                    prev.map((item) =>
+                                      item.key === p.key
+                                        ? {
+                                            ...item,
+                                            companyCovered: false,
+                                            reimburseEmployee: false,
+                                          }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                                className="h-4 w-4 rounded border-black/30 accent-[#818a40]"
+                                disabled={busy}
+                              />
+                              Employee pays
+                            </label>
+                            <label className="inline-flex items-center gap-2 text-xs text-[#3D421F]">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  p.companyCovered && p.reimburseEmployee
+                                }
+                                onChange={(e) =>
+                                  setPenalties((prev) =>
+                                    prev.map((item) =>
+                                      item.key === p.key
+                                        ? {
+                                            ...item,
+                                            companyCovered: true,
+                                            reimburseEmployee: e.target.checked,
+                                          }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                                className="h-4 w-4 rounded border-black/30 accent-[#818a40]"
+                                disabled={busy}
+                              />
+                              Employee already paid
+                            </label>
+                          </div>
                           <p className="text-[11px] text-black/40">
-                            {p.companyCovered
-                              ? "Counted as company visa expense"
-                              : "Queued for payroll → Import Deductions (Visa runs)"}
+                            {!p.companyCovered
+                              ? "Queued for payroll → Import Deductions (Visa runs)"
+                              : p.reimburseEmployee
+                                ? "Company expense · queued for payroll → Import Benefits (Payback)"
+                                : "Counted as company visa expense"}
                           </p>
                         </div>
                       </div>

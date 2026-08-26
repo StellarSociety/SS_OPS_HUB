@@ -77,7 +77,11 @@ export default async function HrBenefitsServiceChargePage() {
         periodEndDay={settings.periodEndDay}
       />
 
-      <BenefitRunsHistory kind="service_charge" rows={rows} />
+      <BenefitRunsHistory
+        kind="service_charge"
+        rows={rows}
+        canEdit={canEdit && !migrationRequired}
+      />
     </div>
   );
 }

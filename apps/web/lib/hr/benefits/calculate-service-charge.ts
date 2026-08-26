@@ -3,7 +3,7 @@ import type {
   DisciplinaryWarningLevel,
   HrServiceChargeSettings,
 } from "./types";
-import { resolveBenefitPointsForStaff } from "./points";
+import { findMappedBenefitPointTierForStaff, resolveBenefitPointsForStaff } from "./points";
 import { countBenefitsWorkedDays } from "./worked-days";
 
 export type ServiceChargeStaffInput = {
@@ -15,6 +15,7 @@ export type ServiceChargeStaffInput = {
   termination_date: string | null;
   warning_level?: DisciplinaryWarningLevel | null;
   tip_points?: number | null;
+  excluded_from_run?: boolean;
   employment_ended_as?: "resignation" | "termination" | null;
 };
 
@@ -81,6 +82,8 @@ function pointsForStaff(
   if (staff.tip_points != null && Number.isFinite(staff.tip_points)) {
     return Number(staff.tip_points);
   }
+  const mapped = findMappedBenefitPointTierForStaff(staff, settings.pointTiers);
+  if (mapped) return mapped.points;
   return resolveBenefitPointsForStaff(staff, settings.pointTiers);
 }
 
@@ -126,7 +129,12 @@ export function calculateServiceChargeRun(input: {
   };
 
   const weights: WeightRow[] = [];
+  const excludedStaff: ServiceChargeStaffInput[] = [];
   for (const s of staff) {
+    if (s.excluded_from_run) {
+      excludedStaff.push(s);
+      continue;
+    }
     if (!entitled(s, settings)) continue;
     const labels = scheduleByStaff.get(s.id) ?? [];
     const workedDays = countBenefitsWorkedDays(labels, settings);
@@ -184,6 +192,39 @@ export function calculateServiceChargeRun(input: {
     }),
   );
 
+  for (const s of excludedStaff) {
+    if (!entitled(s, settings)) continue;
+    const labels = scheduleByStaff.get(s.id) ?? [];
+    const workedDays = countBenefitsWorkedDays(labels, settings);
+    const points = pointsForStaff(s, settings);
+    const discMult = disciplinaryMultiplier(s.warning_level, settings);
+    const discPct = disciplinaryPercent(s.warning_level, settings);
+    allocations.push({
+      staff_id: s.id,
+      benefit_type: "service_charge",
+      points,
+      worked_days: workedDays,
+      amount: 0,
+      meta: {
+        excluded: true,
+        departmentLabel: s.department_name,
+        poolNet,
+        collected,
+        staffPoolGross,
+        expensesReserve,
+        staffDistributablePercent: staffPct,
+        pointValue: round2(pointValue),
+        weight: 0,
+        obtain: 0,
+        poolShare: 0,
+        warningLevel: s.warning_level ?? null,
+        disciplinaryPercent: discPct,
+        disciplinaryMultiplier: discMult,
+        pointsOverridden: s.tip_points != null,
+      },
+    });
+  }
+
   if (poolNet > 0 && totalPoolWeight <= 0) {
     warnings.push(
       `Staff pool has ${poolNet.toFixed(2)} AED but no eligible staff with worked days for this period.`,
@@ -197,7 +238,9 @@ export function calculateServiceChargeRun(input: {
 
   return {
     totals: {
-      recipientCount: allocations.length,
+      recipientCount: allocations.filter(
+        (a) => (a.meta as { excluded?: boolean }).excluded !== true,
+      ).length,
       poolGross: staffPoolGross,
       poolNet,
       totalDistributed,

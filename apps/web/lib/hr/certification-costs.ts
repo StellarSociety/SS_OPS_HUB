@@ -27,6 +27,44 @@ export function splitNetAtVatRate(
   return { net: n, vat, gross };
 }
 
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** VAT as the difference of a stored/typed gross–net pair. */
+export function vatFromInclusivePair(gross: number, net: number): number {
+  const vat = roundMoney(gross - net);
+  return vat > 0 ? vat : 0;
+}
+
+/**
+ * Restore a saved gross/net pair without re-deriving the side the user typed.
+ * Only fill a missing side from the other (legacy rows).
+ */
+export function loadVatInclusivePair(
+  gross: number | null | undefined,
+  net: number | null | undefined,
+): { gross: string; net: string } {
+  const g =
+    gross != null && Number.isFinite(gross) && gross > 0
+      ? roundMoney(gross)
+      : 0;
+  const n =
+    net != null && Number.isFinite(net) && net > 0 ? roundMoney(net) : 0;
+  if (g > 0 && n > 0) {
+    return { gross: g.toFixed(2), net: n.toFixed(2) };
+  }
+  if (g > 0) {
+    const split = splitGrossAtVatRate(g);
+    return { gross: split.gross.toFixed(2), net: split.net.toFixed(2) };
+  }
+  if (n > 0) {
+    const split = splitNetAtVatRate(n);
+    return { gross: split.gross.toFixed(2), net: split.net.toFixed(2) };
+  }
+  return { gross: "", net: "" };
+}
+
 /** Fill missing net/VAT from gross (VAT-inclusive) when needed. */
 export function ensureCertificationCostBreakdown(input: {
   cost_value: number;

@@ -29,11 +29,36 @@ export const BENEFIT_RUN_STATUS_LABELS: Record<BenefitRunStatus, string> = {
   cancelled: "Cancelled",
 };
 
+/** Finalized / applied runs are view-only until explicitly reopened. */
+export function isBenefitRunLocked(status: string): boolean {
+  return (
+    status === "finalized" ||
+    status === "applied_to_payroll" ||
+    status === "cancelled"
+  );
+}
+
+export function canReopenBenefitRun(status: string): boolean {
+  return status === "finalized" || status === "applied_to_payroll";
+}
+
 export type BenefitRunTotals = {
   recipientCount?: number;
   poolGross?: number;
   poolNet?: number;
   totalDistributed?: number;
+  /**
+   * Actually paid after benefit deductions and the AED 5 floor.
+   * Matches Total distributed on the run page.
+   */
+  totalDistributedPaid?: number;
+  /** Bar + waiter cash + waiter CC collected this period. */
+  totalTips?: number;
+  /**
+   * OS&E + staff activities + rounding + withheld retain + benefit deductions.
+   * Matches Collections → Total on the run page.
+   */
+  collectionsTotal?: number;
   waiterCashCollected?: number;
   waiterCcCollected?: number;
   barCashCollected?: number;
@@ -58,6 +83,20 @@ export type BenefitContributor = {
   ccCollected: number;
   /** Amount tipped into the general pool (cash tip-out + CC tip-out / bar CC pool). */
   contributedToPool: number;
+  /** Net retain after tip-out / runner / OS&E / activities (0 when nothing was kept). */
+  retain?: number | null;
+  /**
+   * True when retain was computed but the person is not entitled to a payout
+   * (e.g. terminated). The amount is booked to collections instead.
+   */
+  withheld?: boolean;
+  asph?: number | null;
+  ccTipOutPercent?: number | null;
+  asphKpiMet?: boolean | null;
+  /** Distinct sale dates with cash or CC gratuity > 0. */
+  collectionDays?: number;
+  /** ISO dates corresponding to collectionDays (for the Contributors calendar). */
+  collectionDates?: string[];
 };
 
 export type BenefitPeriodMode = "calendar_month" | "payroll_period";
@@ -138,7 +177,7 @@ export type HrGratuitySettings = {
 
   // --- Points / worked days / discipline (§5) ---
   pointTiers: BenefitPointTier[];
-  /** Regular days off and PHs count as worked (SOP: included). */
+  /** Regular days off count as worked (SOP: included). Public holidays do not. */
   includeRegularDaysOffInWorkedDays: boolean;
   includePublicHolidaysInWorkedDays: boolean;
   /** Leave (vacation, unpaid, sick, annual) excluded from worked days. */
@@ -228,7 +267,7 @@ export const DEFAULT_HR_GRATUITY_SETTINGS: HrGratuitySettings = {
   departmentShares: DEFAULT_GRATUITY_DEPARTMENT_SHARES.map((d) => ({ ...d })),
   pointTiers: DEFAULT_GRATUITY_POINT_TIERS.map((t) => ({ ...t })),
   includeRegularDaysOffInWorkedDays: true,
-  includePublicHolidaysInWorkedDays: true,
+  includePublicHolidaysInWorkedDays: false,
   excludeLeaveFromWorkedDays: true,
   disciplinaryDeductions: DEFAULT_GRATUITY_DISCIPLINARY.map((d) => ({ ...d })),
 
@@ -251,7 +290,7 @@ export const DEFAULT_HR_SERVICE_CHARGE_SETTINGS: HrServiceChargeSettings = {
   staffDistributablePercent: 50,
   pointTiers: DEFAULT_GRATUITY_POINT_TIERS.map((t) => ({ ...t })),
   includeRegularDaysOffInWorkedDays: true,
-  includePublicHolidaysInWorkedDays: true,
+  includePublicHolidaysInWorkedDays: false,
   excludeLeaveFromWorkedDays: true,
   disciplinaryDeductions: DEFAULT_GRATUITY_DISCIPLINARY.map((d) => ({ ...d })),
   resignationEntitled: true,
@@ -376,18 +415,10 @@ export function mergeGratuitySettings(
       p.disciplinaryDeductions,
       base.disciplinaryDeductions,
     ),
-    includeRegularDaysOffInWorkedDays: asBool(
-      p.includeRegularDaysOffInWorkedDays,
-      base.includeRegularDaysOffInWorkedDays,
-    ),
-    includePublicHolidaysInWorkedDays: asBool(
-      p.includePublicHolidaysInWorkedDays,
-      base.includePublicHolidaysInWorkedDays,
-    ),
-    excludeLeaveFromWorkedDays: asBool(
-      p.excludeLeaveFromWorkedDays,
-      base.excludeLeaveFromWorkedDays,
-    ),
+    // SHIFT + OFF only. PH / PH-REPL and leave never count.
+    includeRegularDaysOffInWorkedDays: true,
+    includePublicHolidaysInWorkedDays: false,
+    excludeLeaveFromWorkedDays: true,
     asphKpiEnabled: asBool(p.asphKpiEnabled, base.asphKpiEnabled),
     barCashEqualSplit: asBool(p.barCashEqualSplit, base.barCashEqualSplit),
     resignationEntitled: asBool(p.resignationEntitled, base.resignationEntitled),
@@ -424,18 +455,10 @@ export function mergeServiceChargeSettings(
       p.disciplinaryDeductions,
       base.disciplinaryDeductions,
     ),
-    includeRegularDaysOffInWorkedDays: asBool(
-      p.includeRegularDaysOffInWorkedDays,
-      base.includeRegularDaysOffInWorkedDays,
-    ),
-    includePublicHolidaysInWorkedDays: asBool(
-      p.includePublicHolidaysInWorkedDays,
-      base.includePublicHolidaysInWorkedDays,
-    ),
-    excludeLeaveFromWorkedDays: asBool(
-      p.excludeLeaveFromWorkedDays,
-      base.excludeLeaveFromWorkedDays,
-    ),
+    // SHIFT + OFF only. PH / PH-REPL and leave never count.
+    includeRegularDaysOffInWorkedDays: true,
+    includePublicHolidaysInWorkedDays: false,
+    excludeLeaveFromWorkedDays: true,
     resignationEntitled: asBool(p.resignationEntitled, base.resignationEntitled),
     terminationEntitled: asBool(p.terminationEntitled, base.terminationEntitled),
     notes: String(p.notes ?? base.notes),

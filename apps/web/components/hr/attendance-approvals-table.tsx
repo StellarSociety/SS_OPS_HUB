@@ -109,6 +109,8 @@ type Props = {
   /** YYYY-MM-DD → holiday name (same purple highlight as Schedules). */
   publicHolidayByDate?: Record<string, string>;
   canEditRoster: boolean;
+  /** Layer 4 Attendance Validator — can approve days (independent of roster edits). */
+  canApprove: boolean;
   /** Prefill department + employee from leave detail / deep links. */
   initialStaffId?: string | null;
   /** Prefill day range (e.g. current payroll period) from deep links. */
@@ -840,6 +842,7 @@ export function AttendanceApprovalsTable({
   scheduleLabels,
   publicHolidayByDate = {},
   canEditRoster,
+  canApprove,
   initialStaffId = null,
   initialFromDate = null,
   initialToDate = null,
@@ -1717,7 +1720,7 @@ export function AttendanceApprovalsTable({
             </button>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {canEditRoster ? (
+            {canApprove ? (
               <>
                 <Button
                   type="button"
@@ -1746,19 +1749,21 @@ export function AttendanceApprovalsTable({
                       ? `Approve Attendance (${selectedCount})`
                       : "Approve Attendance"}
                 </Button>
-                <Button
-                  type="button"
-                  disabled={pending || !hasDrafts}
-                  onClick={saveDrafts}
-                  className="h-10 px-4"
-                >
-                  {busyAction === "save"
-                    ? "Saving…"
-                    : hasDrafts
-                      ? `Save ${draftCount} edit${draftCount === 1 ? "" : "s"}`
-                      : "Save"}
-                </Button>
               </>
+            ) : null}
+            {canEditRoster ? (
+              <Button
+                type="button"
+                disabled={pending || !hasDrafts}
+                onClick={saveDrafts}
+                className="h-10 px-4"
+              >
+                {busyAction === "save"
+                  ? "Saving…"
+                  : hasDrafts
+                    ? `Save ${draftCount} edit${draftCount === 1 ? "" : "s"}`
+                    : "Save"}
+              </Button>
             ) : null}
             <Button
               type="button"
@@ -2210,7 +2215,7 @@ export function AttendanceApprovalsTable({
                 </th>
                 <th className="w-[3.25rem] whitespace-nowrap px-3 py-2.5 text-center font-medium">
                   <span className="sr-only">Select</span>
-                  {canEditRoster && selectableKeys.length > 0 ? (
+                  {canApprove && selectableKeys.length > 0 ? (
                     <input
                       type="checkbox"
                       checked={allSelectableSelected}
@@ -2521,11 +2526,11 @@ export function AttendanceApprovalsTable({
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center justify-end gap-2">
-                        {canSelect && rowSelectionKey ? (
+                        {canApprove && canSelect && rowSelectionKey ? (
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            disabled={pending || !canEditRoster}
+                            disabled={pending}
                             onChange={() => toggleRowSelected(rowSelectionKey)}
                             aria-label={`Select ${formatIsoDateShort(row.workDate)} for approval`}
                             className="h-4 w-4 shrink-0 rounded border-black/25 text-[var(--venue-primary)] focus:ring-[var(--venue-primary)]/30"

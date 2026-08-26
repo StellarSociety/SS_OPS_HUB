@@ -32,6 +32,7 @@ type DayVisual =
   | "half_pay_leave"
   | "unpaid_leave"
   | "off"
+  | "public_holiday"
   | "unpaid"
   | "out_of_period"
   | "empty";
@@ -64,6 +65,11 @@ const DAY_STYLES: Record<
     cell: "bg-zinc-200 text-zinc-600 border-zinc-300",
     label: "Off / rest",
     legend: "bg-zinc-300",
+  },
+  public_holiday: {
+    cell: "bg-violet-200 text-violet-900 border-violet-300",
+    label: "Public holiday",
+    legend: "bg-violet-300",
   },
   unpaid: {
     cell: "bg-rose-100 text-rose-800 border-rose-200",
@@ -157,12 +163,26 @@ function buildPeriodGrid(
   return cells;
 }
 
+function isPublicHolidayCode(code: string | null | undefined): boolean {
+  const normalized = (code ?? "").trim().toUpperCase().replace(/\s+/g, "-");
+  return (
+    normalized === "PH" ||
+    normalized === "PH-REPL" ||
+    normalized === "PHRL"
+  );
+}
+
 function classifyDay(
   day: PayrollDayFraction | undefined,
   inPeriod: boolean,
+  mode: "payroll" | "benefits" = "payroll",
 ): DayVisual {
   if (!inPeriod) return "out_of_period";
   if (!day) return "empty";
+
+  if (mode === "benefits" && isPublicHolidayCode(day.labelCode)) {
+    return "public_holiday";
+  }
 
   if (day.isLeave) {
     if (!day.approved) return "unpaid";
@@ -212,6 +232,10 @@ export function PayrollPaidDaysCalendarDialog({
   loading = false,
   payrollMonth = null,
   onNavigateMonth,
+  periodKindLabel = "Payroll period",
+  daysKindLabel = "Paid days",
+  emptyMessage = "No day-level roster data for this payroll period yet.",
+  classifyMode = "payroll",
 }: {
   open: boolean;
   onClose: () => void;
@@ -227,6 +251,13 @@ export function PayrollPaidDaysCalendarDialog({
   payrollMonth?: string | null;
   /** When set, shows prev/next arrows above the calendar. */
   onNavigateMonth?: (direction: -1 | 1) => void;
+  /** Caption before the date range (e.g. “Benefit period”). */
+  periodKindLabel?: string;
+  /** Caption before the day total (e.g. “Worked days”). */
+  daysKindLabel?: string;
+  emptyMessage?: string;
+  /** Benefits mode: PH / PH-REPL are shown separately and do not count as worked. */
+  classifyMode?: "payroll" | "benefits";
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -242,24 +273,35 @@ export function PayrollPaidDaysCalendarDialog({
     return map;
   }, [dayFractions]);
 
+  const displayEnd = useMemo(() => {
+    let end = periodEnd.slice(0, 10);
+    for (const day of dayFractions) {
+      const key = String(day.workDate ?? "").slice(0, 10);
+      if (key > end) end = key;
+    }
+    return end;
+  }, [dayFractions, periodEnd]);
+
   const cells = useMemo(
     () =>
-      periodStart && periodEnd ? buildPeriodGrid(periodStart, periodEnd) : [],
-    [periodStart, periodEnd],
+      periodStart && displayEnd
+        ? buildPeriodGrid(periodStart, displayEnd)
+        : [],
+    [periodStart, displayEnd],
   );
 
   const counts = useMemo(() => {
     const tallies: Partial<Record<DayVisual, number>> = {};
     const startKey = periodStart.slice(0, 10);
-    const endKey = periodEnd.slice(0, 10);
+    const endKey = displayEnd.slice(0, 10);
     for (const day of dayFractions) {
       const key = String(day.workDate ?? "").slice(0, 10);
       if (!startKey || !endKey || key < startKey || key > endKey) continue;
-      const visual = classifyDay(day, true);
+      const visual = classifyDay(day, true, classifyMode);
       tallies[visual] = (tallies[visual] ?? 0) + 1;
     }
     return tallies;
-  }, [dayFractions, periodStart, periodEnd]);
+  }, [dayFractions, periodStart, displayEnd, classifyMode]);
 
   const monthLabel = useMemo(() => {
     if (!payrollMonth) return null;
@@ -273,8 +315,8 @@ export function PayrollPaidDaysCalendarDialog({
   if (!open || !mounted) return null;
 
   const periodLabel =
-    periodStart && periodEnd
-      ? `${periodStart.slice(0, 10)} → ${periodEnd.slice(0, 10)}`
+    periodStart && displayEnd
+      ? `${periodStart.slice(0, 10)} → ${displayEnd.slice(0, 10)}`
       : "Current payroll period";
 
   const showMonthNav = Boolean(onNavigateMonth);
@@ -302,11 +344,11 @@ export function PayrollPaidDaysCalendarDialog({
               </span>
             </h3>
             <p className="mt-0.5 text-sm text-black/55">
-              Payroll period {periodLabel}
+              {periodKindLabel} {periodLabel}
               {!loading ? (
                 <>
                   <span className="mx-1.5 text-black/25">·</span>
-                  Paid days{" "}
+                  {daysKindLabel}{" "}
                   <span className="tabular-nums font-medium text-[#3D421F]">
                     {Number(paidDays).toFixed(2)}
                   </span>
@@ -366,10 +408,13 @@ export function PayrollPaidDaysCalendarDialog({
                 {(
                   [
                     "worked",
+                    "off",
+                    ...(classifyMode === "benefits"
+                      ? (["public_holiday"] as DayVisual[])
+                      : []),
                     "paid_leave",
                     "half_pay_leave",
                     "unpaid_leave",
-                    "off",
                     "unpaid",
                   ] as DayVisual[]
                 ).map((key) => (
@@ -398,7 +443,7 @@ export function PayrollPaidDaysCalendarDialog({
                 <div className="grid grid-cols-7 gap-1">
                   {cells.map((cell) => {
                     const day = byDate.get(cell.key);
-                    const visual = classifyDay(day, cell.inPeriod);
+                    const visual = classifyDay(day, cell.inPeriod, classifyMode);
                     const style = DAY_STYLES[visual];
                     return (
                       <div
@@ -416,7 +461,9 @@ export function PayrollPaidDaysCalendarDialog({
                           </span>
                         ) : null}
                         <span className="leading-none">{cell.day}</span>
-                        {cell.inPeriod && day?.isLeave && day.labelCode ? (
+                        {cell.inPeriod &&
+                        day?.labelCode &&
+                        (day.isLeave || visual === "public_holiday") ? (
                           <span className="mt-0.5 max-w-full truncate text-[8px] leading-none opacity-90">
                             {day.labelCode}
                           </span>
@@ -429,7 +476,7 @@ export function PayrollPaidDaysCalendarDialog({
 
               {dayFractions.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-black/15 px-3 py-4 text-center text-sm text-black/45">
-                  No day-level roster data for this payroll period yet.
+                  {emptyMessage}
                 </p>
               ) : null}
             </>

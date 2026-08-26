@@ -26,6 +26,7 @@ import {
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { parsePayrollRunTab, sumVenueNetRevenueForPeriod } from "@/lib/hr/payroll";
 import { loadPayrollApprovalsSettingsForVenue } from "@/lib/hr/payroll/approvals-settings";
+import { loadPayrollFinalApprovalEmailSettingsForVenue } from "@/lib/hr/payroll/final-approval-email-settings";
 import type { PayrollPeriodNetRevenue } from "@/lib/hr/payroll/period-revenue";
 import { loadPayrollAdjustmentCodes } from "@/lib/hr/payroll/persist-run";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -81,6 +82,7 @@ export default async function HrPayrollRunPage({
     payslipsRes,
     adjustmentCodes,
     approvalsSettings,
+    finalApprovalEmailSettings,
     candidatesResult,
     pendingApprovals,
   ] = await Promise.all([
@@ -144,6 +146,7 @@ export default async function HrPayrollRunPage({
       .order("version", { ascending: false }),
     loadPayrollAdjustmentCodes(supabase, venue.id),
     loadPayrollApprovalsSettingsForVenue(supabase, venue.id),
+    loadPayrollFinalApprovalEmailSettingsForVenue(supabase, venue.id),
     listPayrollApproverCandidates(),
     listPendingPayrollApprovalsForRun(runId),
   ]);
@@ -412,6 +415,7 @@ export default async function HrPayrollRunPage({
           adjustmentCodes={adjustmentCodes}
           currentUserId={user.id}
           approvalsSettings={approvalsSettings}
+          finalApprovalEmailSettings={finalApprovalEmailSettings}
           approvalCandidates={candidatesResult.candidates ?? []}
           pendingApprovals={pendingApprovals}
           userNames={userNames}

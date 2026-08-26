@@ -102,7 +102,14 @@ export function inferPointTierKey(
   if (/\b(supervisor|supervisory|sous|assistant manager)\b/.test(hay)) {
     return "supervisory";
   }
-  if (/\b(commis|helper|steward|dishwasher|cleaner)\b/.test(hay)) {
+  // Commis Chef 1/2/3 are general kitchen ranks. The 1.0 helper tier is
+  // trainees, runners, stewards, and bar backs — not "Commis Chef".
+  if (
+    /\b(commis trainee|helper|steward|dishwasher|cleaner|bar back)\b/.test(
+      hay,
+    ) ||
+    (/\brunner\b/.test(hay) && !/\bmanager\b/.test(hay))
+  ) {
     return "commis_helper";
   }
   if (/\b(wait|server)\b/.test(hay)) {
@@ -131,7 +138,14 @@ export function matchDepartmentShareKey(
   if (/beverage|bar|sommelier/.test(name)) return "beverage";
   if (/floor|foh|service|restaurant manager/.test(name)) return "floor_manager";
   if (/reception|host|reservation/.test(name)) return "reception";
-  if (/office|admin|accounts|hr|finance/.test(name)) return "office";
+  // Office catch-all for back-of-house support (matches schedule Office tab).
+  if (
+    /office|admin|accounts|hr|finance|human resources|social|marketing|entertainment/.test(
+      name,
+    )
+  ) {
+    return "office";
+  }
 
   return null;
 }

@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { Download } from "lucide-react";
+import { BenefitPoolCollectionsExportDialog } from "@/components/hr/benefit-pool-collections-export-dialog";
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
 import { PayrollMonthPicker } from "@/components/hr/payroll-month-picker";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
@@ -13,11 +15,13 @@ import {
 import {
   BENEFIT_RUN_STATUS_LABELS,
   formatBenefitMonthLabel,
+  isBenefitRunLocked,
   suggestedPoolCollectionsFromGratuityRun,
   type BenefitPoolCollectionsRow,
   type BenefitRunStatus,
   type GratuityRunPoolHint,
 } from "@/lib/hr/benefits";
+import { buildPoolCollectionsExportMonths } from "@/lib/hr/benefits/pool-collections-export";
 import { toScopedHref } from "@/lib/venue/scope-routing";
 
 function formatMoney(amount: number): string {
@@ -41,6 +45,19 @@ function monthKeyFromDate(dateStr: string): string {
   return dateStr.slice(0, 7);
 }
 
+/** Prefer the live gratuity-run total when the saved collections row is still 0. */
+function deductedAmountFromSources(
+  stored: number | null | undefined,
+  suggested: number | null | undefined,
+): string {
+  if (suggested != null && !(Number(stored) > 0)) {
+    return String(suggested);
+  }
+  if (stored != null) return String(stored);
+  if (suggested != null) return String(suggested);
+  return "";
+}
+
 function initialAmountsForMonth(
   monthKey: string,
   rows: BenefitPoolCollectionsRow[],
@@ -48,36 +65,66 @@ function initialAmountsForMonth(
   osePercent: number,
   activitiesPercent: number,
   autoFillFromGratuity: boolean,
-): { ose: string; activities: string; rounding: string; notes: string } {
+): {
+  ose: string;
+  activities: string;
+  rounding: string;
+  withheldRetain: string;
+  deducted: string;
+  notes: string;
+} {
   const existing = rows.find(
     (row) => monthKeyFromDate(row.benefit_month) === monthKey,
   );
+  const hint = gratuityRunByMonth[monthKey];
+  const suggested = hint
+    ? suggestedPoolCollectionsFromGratuityRun(
+        hint,
+        osePercent,
+        activitiesPercent,
+      )
+    : null;
+
   if (existing) {
     return {
       ose: String(existing.ose_amount),
       activities: String(existing.staff_activities_amount),
       rounding: String(existing.rounding_amount ?? 0),
+      withheldRetain: String(existing.withheld_retain_amount ?? 0),
+      deducted: deductedAmountFromSources(
+        existing.benefit_deduction_amount,
+        suggested?.benefitDeductionAmount,
+      ),
       notes: existing.notes ?? "",
     };
   }
 
-  const hint = gratuityRunByMonth[monthKey];
-  if (autoFillFromGratuity && hint) {
-    const suggested = suggestedPoolCollectionsFromGratuityRun(
-      hint,
-      osePercent,
-      activitiesPercent,
-    );
+  if (autoFillFromGratuity && suggested) {
     return {
       ose: String(suggested.oseAmount),
       activities: String(suggested.staffActivitiesAmount),
       rounding:
         suggested.roundingAmount == null ? "" : String(suggested.roundingAmount),
+      withheldRetain:
+        suggested.withheldRetainAmount == null
+          ? ""
+          : String(suggested.withheldRetainAmount),
+      deducted: deductedAmountFromSources(
+        null,
+        suggested.benefitDeductionAmount,
+      ),
       notes: "",
     };
   }
 
-  return { ose: "", activities: "", rounding: "", notes: "" };
+  return {
+    ose: "",
+    activities: "",
+    rounding: "",
+    withheldRetain: "",
+    deducted: "",
+    notes: "",
+  };
 }
 
 type BenefitPoolCollectionsPanelProps = {
@@ -88,6 +135,9 @@ type BenefitPoolCollectionsPanelProps = {
   activitiesPercent: number;
   periodStartDay: number;
   periodEndDay: number;
+  venueName: string;
+  venueLogoUrl?: string | null;
+  userDisplayName: string;
 };
 
 export function BenefitPoolCollectionsPanel({
@@ -98,6 +148,9 @@ export function BenefitPoolCollectionsPanel({
   activitiesPercent,
   periodStartDay,
   periodEndDay,
+  venueName,
+  venueLogoUrl,
+  userDisplayName,
 }: BenefitPoolCollectionsPanelProps) {
   const router = useRouter();
   const { scope, slug } = useVenueScope();
@@ -115,11 +168,27 @@ export function BenefitPoolCollectionsPanel({
     initialAmounts.activities,
   );
   const [roundingAmount, setRoundingAmount] = useState(initialAmounts.rounding);
+  const [withheldRetainAmount, setWithheldRetainAmount] = useState(
+    initialAmounts.withheldRetain,
+  );
+  const [deductedAmount, setDeductedAmount] = useState(initialAmounts.deducted);
   const [notes, setNotes] = useState(initialAmounts.notes);
   const [autoFillFromGratuity, setAutoFillFromGratuity] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [exportOpen, setExportOpen] = useState(false);
+
+  const exportMonths = useMemo(
+    () =>
+      buildPoolCollectionsExportMonths(
+        rows,
+        gratuityRunByMonth,
+        osePercent,
+        activitiesPercent,
+      ),
+    [rows, gratuityRunByMonth, osePercent, activitiesPercent],
+  );
 
   const existingForMonth = useMemo(
     () => rows.find((row) => monthKeyFromDate(row.benefit_month) === month),
@@ -148,6 +217,16 @@ export function BenefitPoolCollectionsPanel({
     setRoundingAmount(
       suggested.roundingAmount == null ? "" : String(suggested.roundingAmount),
     );
+    setWithheldRetainAmount(
+      suggested.withheldRetainAmount == null
+        ? ""
+        : String(suggested.withheldRetainAmount),
+    );
+    setDeductedAmount(
+      suggested.benefitDeductionAmount == null
+        ? ""
+        : String(suggested.benefitDeductionAmount),
+    );
   }
 
   function loadRow(row: BenefitPoolCollectionsRow) {
@@ -155,6 +234,20 @@ export function BenefitPoolCollectionsPanel({
     setOseAmount(String(row.ose_amount));
     setActivitiesAmount(String(row.staff_activities_amount));
     setRoundingAmount(String(row.rounding_amount ?? 0));
+    setWithheldRetainAmount(String(row.withheld_retain_amount ?? 0));
+    const hint = gratuityRunByMonth[monthKeyFromDate(row.benefit_month)];
+    setDeductedAmount(
+      deductedAmountFromSources(
+        row.benefit_deduction_amount,
+        hint
+          ? suggestedPoolCollectionsFromGratuityRun(
+              hint,
+              osePercent,
+              activitiesPercent,
+            ).benefitDeductionAmount
+          : null,
+      ),
+    );
     setNotes(row.notes ?? "");
     setError(null);
     setSuccess(null);
@@ -171,9 +264,23 @@ export function BenefitPoolCollectionsPanel({
     setSuccess(null);
 
     if (existing) {
+      const suggested = hint
+        ? suggestedPoolCollectionsFromGratuityRun(
+            hint,
+            osePercent,
+            activitiesPercent,
+          )
+        : null;
       setOseAmount(String(existing.ose_amount));
       setActivitiesAmount(String(existing.staff_activities_amount));
       setRoundingAmount(String(existing.rounding_amount ?? 0));
+      setWithheldRetainAmount(String(existing.withheld_retain_amount ?? 0));
+      setDeductedAmount(
+        deductedAmountFromSources(
+          existing.benefit_deduction_amount,
+          suggested?.benefitDeductionAmount,
+        ),
+      );
       return;
     }
 
@@ -185,6 +292,8 @@ export function BenefitPoolCollectionsPanel({
     setOseAmount("");
     setActivitiesAmount("");
     setRoundingAmount("");
+    setWithheldRetainAmount("");
+    setDeductedAmount("");
   }
 
   const fieldClass =
@@ -192,6 +301,30 @@ export function BenefitPoolCollectionsPanel({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="font-serif text-lg text-[#3D421F]">
+            Pool collections
+          </h2>
+          <p className="text-sm text-black/55">
+            Record monthly OS&amp;E deduction ({osePercent}%), Staff activities
+            ({activitiesPercent}%), Rounding collection (floor to AED 5),
+            Withheld retain (not entitled), and Deducted (staff benefit
+            deductions). OS&amp;E / activities override policy percentages when
+            no amounts are recorded for that month.
+          </p>
+        </div>
+        <Button
+          type="button"
+          className="h-10 shrink-0 gap-2 bg-[var(--venue-primary,#818a40)] px-3 text-white hover:opacity-90"
+          disabled={exportMonths.length === 0}
+          onClick={() => setExportOpen(true)}
+        >
+          <Download className="h-4 w-4" />
+          Export
+        </Button>
+      </div>
+
       {canEdit ? (
         <form
           className="space-y-4 rounded-xl border border-black/10 bg-white p-5 shadow-sm"
@@ -222,8 +355,9 @@ export function BenefitPoolCollectionsPanel({
             <p className="mt-1 text-sm text-black/55">
               Enter amounts aligned with the gratuity run deductions: OS&amp;E
               deduction ({osePercent}%), Staff activities ({activitiesPercent}
-              %), and Rounding collection (floor to AED 5). Saved OS&amp;E /
-              activities override policy percentages when runs are calculated.
+              %), Rounding collection (floor to AED 5), Withheld retain (not
+              entitled), and Deducted (staff benefit deductions). Saved OS&amp;E
+              / activities override policy percentages when runs are calculated.
             </p>
           </div>
 
@@ -268,7 +402,9 @@ export function BenefitPoolCollectionsPanel({
                   )}
                   className="font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 hover:underline"
                 >
-                  Open run
+                  {isBenefitRunLocked(gratuityRunForMonth.status)
+                    ? "View run"
+                    : "Open run"}
                 </Link>
               </p>
             ) : (
@@ -278,16 +414,18 @@ export function BenefitPoolCollectionsPanel({
             )}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <PayrollMonthPicker
-              id="collections_month"
-              label="Benefit month"
-              value={month}
-              onChange={resetFormForMonth}
-              periodStartDay={periodStartDay}
-              periodEndDay={periodEndDay}
-              disabled={pending}
-            />
+          <PayrollMonthPicker
+            id="collections_month"
+            label="Benefit month"
+            value={month}
+            onChange={resetFormForMonth}
+            periodStartDay={periodStartDay}
+            periodEndDay={periodEndDay}
+            disabled={pending}
+            className="max-w-sm"
+          />
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="space-y-1.5">
               <label
                 htmlFor="ose_amount"
@@ -370,6 +508,62 @@ export function BenefitPoolCollectionsPanel({
                     : "Remainders after flooring individual gratuity to the nearest AED 5."}
               </p>
             </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="withheld_retain_amount"
+                className="block text-xs font-medium text-black/55"
+              >
+                Withheld retain · not entitled
+              </label>
+              <input
+                id="withheld_retain_amount"
+                name="withheld_retain_amount"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={withheldRetainAmount}
+                onChange={(e) => setWithheldRetainAmount(e.target.value)}
+                disabled={pending}
+                className={fieldClass}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-black/45">
+                {suggestedFromRun?.withheldRetainAmount != null
+                  ? `From gratuity run: ${formatMoney(suggestedFromRun.withheldRetainAmount)} — retain kept when a collector is not entitled.`
+                  : gratuityRunForMonth
+                    ? "Recalculate the gratuity run to book retain that was not paid out."
+                    : "Retain kept when a tip collector is not entitled to a payout."}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="benefit_deduction_amount"
+                className="block text-xs font-medium text-black/55"
+              >
+                Deducted
+              </label>
+              <input
+                id="benefit_deduction_amount"
+                name="benefit_deduction_amount"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={deductedAmount}
+                onChange={(e) => setDeductedAmount(e.target.value)}
+                disabled={pending}
+                className={fieldClass}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-black/45">
+                {suggestedFromRun?.benefitDeductionAmount != null
+                  ? `From gratuity run: ${formatMoney(suggestedFromRun.benefitDeductionAmount)} — taken from staff payouts via benefit deductions.`
+                  : gratuityRunForMonth
+                    ? "Recalculate the gratuity run to book amounts deducted from staff payouts."
+                    : "Amounts taken from staff payouts via benefit deductions."}
+              </p>
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -422,8 +616,9 @@ export function BenefitPoolCollectionsPanel({
         <div>
           <h2 className="font-serif text-lg text-[#3D421F]">Recorded months</h2>
           <p className="text-sm text-black/55">
-            Amounts deducted from the general pool before departmental
-            redistribution.
+            Amounts kept from the gratuity settlement: OS&amp;E, staff
+            activities, rounding remainders, withheld retain that was not
+            paid, and amounts deducted from staff payouts.
           </p>
         </div>
 
@@ -441,6 +636,12 @@ export function BenefitPoolCollectionsPanel({
                 <th className="px-3 py-2.5 font-medium text-right">
                   Rounding · AED 5
                 </th>
+                <th className="px-3 py-2.5 font-medium text-right">
+                  Withheld retain
+                </th>
+                <th className="px-3 py-2.5 font-medium text-right">
+                  Deducted
+                </th>
                 <th className="px-3 py-2.5 font-medium text-right">Total</th>
                 <th className="px-3 py-2.5 font-medium">Notes</th>
                 {canEdit ? <th className="px-3 py-2.5 font-medium" /> : null}
@@ -450,7 +651,7 @@ export function BenefitPoolCollectionsPanel({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={canEdit ? 7 : 6}
+                    colSpan={canEdit ? 9 : 8}
                     className="px-3 py-12 text-center text-sm text-black/45"
                   >
                     No collections recorded yet. Enter amounts for a benefit
@@ -459,10 +660,20 @@ export function BenefitPoolCollectionsPanel({
                 </tr>
               ) : (
                 rows.map((row) => {
+                  const hint =
+                    gratuityRunByMonth[monthKeyFromDate(row.benefit_month)];
+                  const deducted = Number(
+                    deductedAmountFromSources(
+                      row.benefit_deduction_amount,
+                      hint?.benefitDeductions,
+                    ),
+                  );
                   const total =
                     row.ose_amount +
                     row.staff_activities_amount +
-                    (row.rounding_amount ?? 0);
+                    (row.rounding_amount ?? 0) +
+                    (row.withheld_retain_amount ?? 0) +
+                    (Number.isFinite(deducted) ? deducted : 0);
                   return (
                     <tr
                       key={row.id}
@@ -479,6 +690,12 @@ export function BenefitPoolCollectionsPanel({
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {formatMoney(row.rounding_amount ?? 0)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {formatMoney(row.withheld_retain_amount ?? 0)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {formatMoney(Number.isFinite(deducted) ? deducted : 0)}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums font-medium">
                         {formatMoney(total)}
@@ -539,6 +756,20 @@ export function BenefitPoolCollectionsPanel({
           </table>
         </div>
       </section>
+
+      {exportOpen ? (
+        <BenefitPoolCollectionsExportDialog
+          open
+          months={exportMonths}
+          venueName={venueName}
+          venueLogoUrl={venueLogoUrl}
+          userDisplayName={userDisplayName}
+          osePercent={osePercent}
+          activitiesPercent={activitiesPercent}
+          initialMonthKey={month}
+          onClose={() => setExportOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

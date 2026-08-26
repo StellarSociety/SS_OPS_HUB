@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Briefcase,
   CalendarDays,
+  CalendarOff,
   ClipboardCheck,
   FileText,
   FolderOpen,
@@ -559,6 +560,19 @@ export function StaffDetailView({
                   {driveLoading ? "Opening…" : "Drive"}
                 </span>
               </button>
+              <ScopedLink
+                href={`/hr/attendance/leave/balances?staffId=${encodeURIComponent(staff.id)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={verticalSegmentedSubNavLinkClass(false)}
+                title="Open leave management for this employee"
+              >
+                <CalendarOff
+                  className="h-5 w-5 shrink-0 opacity-80"
+                  aria-hidden
+                />
+                <span className="min-w-0 truncate">Leave</span>
+              </ScopedLink>
             </div>
           </div>
         </div>
@@ -569,7 +583,6 @@ export function StaffDetailView({
         onChange={(patch) => setValue((current) => ({ ...current, ...patch }))}
         onSubmit={handleSubmit}
         readOnly={readOnly}
-        lockEmpNo
         activeTab={activeTab}
         onRequestTab={setActiveTab}
         departments={departments}

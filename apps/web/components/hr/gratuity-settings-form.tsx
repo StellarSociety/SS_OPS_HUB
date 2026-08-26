@@ -434,28 +434,14 @@ export function GratuitySettingsForm({
 
         <Section
           title="Worked days"
-          description="Only actual worked days count toward distribution weight."
+          description="Pool weight uses SHIFT + OFF only. Public holidays (PH / PH-REPL) and leave do not count."
         >
-          <div className="space-y-2">
-            <CheckboxRow
-              name="include_regular_days_off"
-              defaultChecked={settings.includeRegularDaysOffInWorkedDays}
-              label="Include regular days off"
-              hint="SOP: included."
-            />
-            <CheckboxRow
-              name="include_public_holidays"
-              defaultChecked={settings.includePublicHolidaysInWorkedDays}
-              label="Include public holidays"
-              hint="SOP: included."
-            />
-            <CheckboxRow
-              name="exclude_leave"
-              defaultChecked={settings.excludeLeaveFromWorkedDays}
-              label="Exclude leave days"
-              hint="Vacation, annual, unpaid, sick leave excluded."
-            />
-          </div>
+          <input type="hidden" name="include_regular_days_off" value="on" />
+          <input type="hidden" name="exclude_leave" value="on" />
+          <p className="text-sm text-black/60">
+            This is a fixed rule, not a setting. Recalculate a run to refresh
+            stored worked-day weights after roster changes.
+          </p>
         </Section>
 
         <Section

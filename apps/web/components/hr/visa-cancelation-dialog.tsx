@@ -8,8 +8,10 @@ import {
   previewVisaRequestEmails,
 } from "@/lib/actions/hr-visa";
 import {
+  loadVatInclusivePair,
   splitGrossAtVatRate,
   splitNetAtVatRate,
+  vatFromInclusivePair,
 } from "@/lib/hr/certification-costs";
 import { upsertVisaRequestDraftBatch } from "@/lib/hr/visa-request-drafts-storage";
 import type { VisaEmployeeRow } from "@/lib/hr/types";
@@ -74,10 +76,14 @@ export function VisaCancelationDialog({
     if (!open || !row) return;
     setCancelDate(row.cancelDate || todayIso());
     const existing = row.cancelationSpend;
-    if (existing != null && existing > 0) {
-      const synced = syncFromGross(moneyField(existing));
-      setGross(synced.gross);
-      setNet(synced.net);
+    const existingNet = row.cancelationSpendNet;
+    if (
+      (existing != null && existing > 0) ||
+      (existingNet != null && existingNet > 0)
+    ) {
+      const pair = loadVatInclusivePair(existing, existingNet);
+      setGross(pair.gross);
+      setNet(pair.net);
     } else {
       setGross("");
       setNet("");
@@ -97,7 +103,8 @@ export function VisaCancelationDialog({
   if (!open || !row || typeof document === "undefined") return null;
 
   const grossAmount = parseMoney(gross);
-  const tax = grossAmount > 0 ? splitGrossAtVatRate(grossAmount).vat : 0;
+  const netAmount = parseMoney(net);
+  const tax = vatFromInclusivePair(grossAmount, netAmount);
 
   function handleSave() {
     if (!row) return;
@@ -116,6 +123,7 @@ export function VisaCancelationDialog({
         staffId: row.staff.id,
         cancelDate,
         cancelationSpend: grossAmount,
+        cancelationSpendNet: netAmount > 0 ? netAmount : null,
       });
       if (!result.ok) {
         setError(result.error);
@@ -257,7 +265,7 @@ export function VisaCancelationDialog({
                   id="visa-cancel-tax"
                   readOnly
                   tabIndex={-1}
-                  value={grossAmount > 0 ? tax.toFixed(2) : ""}
+                  value={grossAmount > 0 || netAmount > 0 ? tax.toFixed(2) : ""}
                   className="bg-black/[0.03]"
                 />
               </div>

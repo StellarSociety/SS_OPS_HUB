@@ -31,7 +31,9 @@ import { ImportDeductionsDialog } from "@/components/hr/import-deductions-dialog
 import { SalesImportProgressBar } from "@/components/sales/sales-import-progress-bar";
 import {
   DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS,
+  DEFAULT_HR_PAYROLL_FINAL_APPROVAL_EMAIL_SETTINGS,
   type HrPayrollApprovalsSettings,
+  type HrPayrollFinalApprovalEmailSettings,
 } from "@/lib/hr/types";
 import type {
   PendingPayrollApproval,
@@ -52,6 +54,7 @@ import {
   clearImportedBenefitsFromPayrollRun,
   importDeductionsToPayrollRun,
   clearImportedDeductionsFromPayrollRun,
+  refreshVisaRunDeductionsForImport,
   recalculatePayrollRun,
   setEmployeeIncluded,
   updatePayrollBudgetRevenue,
@@ -91,6 +94,7 @@ import {
 } from "@/lib/hr/working-status";
 import { downloadBase64File, downloadTextFile } from "@/lib/sales/vouchers-export";
 import { cn } from "@/lib/utils";
+import { floorPayoutToAed5 } from "@/lib/hr/benefits/rounding";
 import { registerPayrollRunSave } from "@/components/hr/payroll-run-save-registry";
 
 const lightSelectClass =
@@ -105,6 +109,11 @@ function formatPct(value: number | null | undefined): string {
 function shareOfTotal(part: number, total: number): number | null {
   if (!total || Number.isNaN(total) || Number.isNaN(part)) return null;
   return (part / total) * 100;
+}
+
+/** Displayed net is money going to the employee this run (excludes unpaid / zero-net). */
+function employeeIsGettingPaid(net: number): boolean {
+  return net > 0.005;
 }
 
 /** Amount + share % flush-right in department summary cells. */
@@ -154,10 +163,74 @@ function formatDate(value: string | null | undefined): string {
 }
 
 /** Signed payroll line amount — deductions reduce the net total. */
-function signedPayrollLineAmount(
-  line: Pick<PayrollLineRow, "category" | "amount">,
+function isAed5PayrollBenefitCode(code: string): boolean {
+  const c = code.toUpperCase();
+  return c === "TIPS" || c === "SERVICE_CHARGE";
+}
+
+function payrollLineDisplayAmount(
+  line: Pick<PayrollLineRow, "code" | "amount">,
 ): number {
-  const amount = Number(line.amount || 0);
+  const amount = Number(line.amount) || 0;
+  return isAed5PayrollBenefitCode(line.code)
+    ? floorPayoutToAed5(amount)
+    : amount;
+}
+
+/** Exact minus rounded remainder still sitting on stored TIPS / SERVICE_CHARGE lines. */
+function benefitPayoutRoundDown(
+  lines: Array<Pick<PayrollLineRow, "code" | "amount">>,
+): number {
+  let delta = 0;
+  for (const line of lines) {
+    if (!isAed5PayrollBenefitCode(line.code)) continue;
+    const amount = Number(line.amount) || 0;
+    delta += amount - floorPayoutToAed5(amount);
+  }
+  return Math.round((delta + Number.EPSILON) * 100) / 100;
+}
+
+/** Imported / benefit-module earnings that sit inside variable pay. */
+const BENEFIT_VARIABLE_CODES = new Set([
+  "TIPS",
+  "SERVICE_CHARGE",
+  "PAYBACK",
+  "FLIGHT_TICKET",
+  "BENEFIT_OTHER",
+]);
+
+function isBenefitVariableLine(
+  line: Pick<PayrollLineRow, "category" | "code" | "source">,
+): boolean {
+  if (line.category !== "variable" && line.category !== "addon") return false;
+  if (line.source === "benefits") return true;
+  return BENEFIT_VARIABLE_CODES.has(line.code.trim().toUpperCase());
+}
+
+/**
+ * Split displayed variable into benefits vs remaining variable (OT, bonus, etc.).
+ * `other` is the residual so the two parts still sum to stored variable.
+ */
+function splitDisplayedVariable(
+  storedVariable: number,
+  lines: Array<
+    Pick<PayrollLineRow, "category" | "code" | "source" | "amount">
+  >,
+): { benefits: number; other: number } {
+  let benefits = 0;
+  for (const line of lines) {
+    if (!isBenefitVariableLine(line)) continue;
+    benefits += payrollLineDisplayAmount(line);
+  }
+  benefits = Math.round((benefits + Number.EPSILON) * 100) / 100;
+  const other = Math.round((storedVariable - benefits + Number.EPSILON) * 100) / 100;
+  return { benefits, other };
+}
+
+function signedPayrollLineAmount(
+  line: Pick<PayrollLineRow, "category" | "amount" | "code">,
+): number {
+  const amount = payrollLineDisplayAmount(line);
   return line.category === "deduction" ? -amount : amount;
 }
 
@@ -520,6 +593,7 @@ function draftAdjustmentFromLine(
 export type PayrollExceptionRow = {
   id: string;
   emp_no: string | null;
+  department_name?: string | null;
   severity: string;
   exception_type: string;
   message: string;
@@ -619,6 +693,7 @@ type PayrollRunClientProps = {
   adjustmentCodes?: PayrollAdjustmentCodeConfig[];
   currentUserId?: string | null;
   approvalsSettings?: HrPayrollApprovalsSettings;
+  finalApprovalEmailSettings?: HrPayrollFinalApprovalEmailSettings;
   approvalCandidates?: PayrollApproverCandidate[];
   pendingApprovals?: PendingPayrollApproval[];
   userNames?: Record<string, string>;
@@ -660,6 +735,7 @@ export function PayrollRunClient({
   adjustmentCodes = DEFAULT_PAYROLL_ADJUSTMENT_CODES,
   currentUserId = null,
   approvalsSettings = DEFAULT_HR_PAYROLL_APPROVALS_SETTINGS,
+  finalApprovalEmailSettings = DEFAULT_HR_PAYROLL_FINAL_APPROVAL_EMAIL_SETTINGS,
   approvalCandidates = [],
   pendingApprovals = [],
   userNames = {},
@@ -878,7 +954,8 @@ export function PayrollRunClient({
         department: string;
         people: number;
         fixed: number;
-        variable: number;
+        benefits: number;
+        otherVariable: number;
         deductions: number;
         net: number;
       }
@@ -887,49 +964,70 @@ export function PayrollRunClient({
       if (!row.included) continue;
       const name = row.department_name?.trim() || "No department";
       const key = name.toLowerCase();
+      const empLines = linesByEmployee.get(row.id) ?? [];
+      const roundDown = benefitPayoutRoundDown(empLines);
       const fixed = Number(row.fixed_earnings) || 0;
-      const variable = Number(row.variable_earnings) || 0;
+      const storedVariable = (Number(row.variable_earnings) || 0) - roundDown;
+      const { benefits, other: otherVariable } = splitDisplayedVariable(
+        storedVariable,
+        empLines,
+      );
       const deductions = Number(row.total_deductions) || 0;
-      const net = Number(row.net_salary) || 0;
+      const net = (Number(row.net_salary) || 0) - roundDown;
+      const people = employeeIsGettingPaid(net) ? 1 : 0;
       const existing = byDept.get(key);
       if (existing) {
-        existing.people += 1;
+        existing.people += people;
         existing.fixed += fixed;
-        existing.variable += variable;
+        existing.benefits += benefits;
+        existing.otherVariable += otherVariable;
         existing.deductions += deductions;
         existing.net += net;
       } else {
         byDept.set(key, {
           department: name,
-          people: 1,
+          people,
           fixed,
-          variable,
+          benefits,
+          otherVariable,
           deductions,
           net,
         });
       }
     }
-    return [...byDept.values()].sort((a, b) =>
-      a.department.localeCompare(b.department, undefined, {
-        sensitivity: "base",
-      }),
-    );
-  }, [displayEmployees]);
+    return [...byDept.values()]
+      .filter(
+        (row) =>
+          row.people > 0 ||
+          Math.abs(row.fixed) > 0.005 ||
+          Math.abs(row.benefits) > 0.005 ||
+          Math.abs(row.otherVariable) > 0.005 ||
+          Math.abs(row.deductions) > 0.005 ||
+          Math.abs(row.net) > 0.005,
+      )
+      .sort((a, b) =>
+        a.department.localeCompare(b.department, undefined, {
+          sensitivity: "base",
+        }),
+      );
+  }, [displayEmployees, linesByEmployee]);
 
   const departmentTotals = useMemo(() => {
     let people = 0;
     let fixed = 0;
-    let variable = 0;
+    let benefits = 0;
+    let otherVariable = 0;
     let deductions = 0;
     let net = 0;
     for (const row of departmentSummary) {
       people += row.people;
       fixed += row.fixed;
-      variable += row.variable;
+      benefits += row.benefits;
+      otherVariable += row.otherVariable;
       deductions += row.deductions;
       net += row.net;
     }
-    return { people, fixed, variable, deductions, net };
+    return { people, fixed, benefits, otherVariable, deductions, net };
   }, [departmentSummary]);
 
   const attendanceHref = `/hr/attendance/validation?from=${encodeURIComponent(run.period_start.slice(0, 10))}&to=${encodeURIComponent(run.period_end.slice(0, 10))}&payrollRunId=${encodeURIComponent(run.id)}`;
@@ -986,6 +1084,7 @@ export function PayrollRunClient({
           canEdit={canEdit}
           currentUserId={currentUserId}
           approvalsSettings={approvalsSettings}
+          finalApprovalEmailSettings={finalApprovalEmailSettings}
           approvalCandidates={approvalCandidates}
           pendingApprovals={pendingApprovals}
           userNames={userNames}
@@ -1100,8 +1199,8 @@ export function PayrollRunClient({
               <span className="font-semibold text-[#3D421F]">
                 {formatPayrollMonthLabel(run.payroll_month)}
               </span>{" "}
-              — included employees with fixed, variable, deductions, and net
-              per department.
+              — employees receiving pay, with fixed, variable (benefits vs
+              other), deductions, and net per department.
             </p>
           </div>
           <ChevronDown
@@ -1116,21 +1215,54 @@ export function PayrollRunClient({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
               <tr>
-                <th className="px-3 py-2.5 font-medium">Department</th>
-                <th className="px-3 py-2.5 text-right font-medium">People</th>
-                <th className="px-3 py-2.5 text-right font-medium">Fixed</th>
-                <th className="px-3 py-2.5 text-right font-medium">Variable</th>
-                <th className="px-3 py-2.5 text-right font-medium">
+                <th rowSpan={2} className="px-3 py-2.5 font-medium align-bottom">
+                  Department
+                </th>
+                <th
+                  rowSpan={2}
+                  className="px-3 py-2.5 text-right font-medium align-bottom"
+                >
+                  People
+                </th>
+                <th
+                  rowSpan={2}
+                  className="px-3 py-2.5 text-right font-medium align-bottom"
+                >
+                  Fixed
+                </th>
+                <th
+                  colSpan={2}
+                  className="border-b border-black/10 px-3 pt-2 pb-1 text-center font-medium"
+                >
+                  Variable
+                </th>
+                <th
+                  rowSpan={2}
+                  className="px-3 py-2.5 text-right font-medium align-bottom"
+                >
                   Deductions
                 </th>
-                <th className="px-3 py-2.5 text-right font-medium">Net</th>
+                <th
+                  rowSpan={2}
+                  className="px-3 py-2.5 text-right font-medium align-bottom"
+                >
+                  Net
+                </th>
+              </tr>
+              <tr>
+                <th className="px-3 pb-2.5 pt-0 text-right font-medium">
+                  Benefits
+                </th>
+                <th className="px-3 pb-2.5 pt-0 text-right font-medium">
+                  Other
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black/5">
               {departmentSummary.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-3 py-8 text-center text-sm text-black/45"
                   >
                     No included employees yet.
@@ -1160,11 +1292,22 @@ export function PayrollRunClient({
                     </td>
                     <td className="px-3 py-2.5 text-right text-black/70">
                       <DeptMetric
-                        value={formatMoney(row.variable, canViewSalary)}
+                        value={formatMoney(row.benefits, canViewSalary)}
                         pct={formatPct(
                           shareOfTotal(
-                            row.variable,
-                            departmentTotals.variable,
+                            row.benefits,
+                            departmentTotals.benefits,
+                          ),
+                        )}
+                      />
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-black/70">
+                      <DeptMetric
+                        value={formatMoney(row.otherVariable, canViewSalary)}
+                        pct={formatPct(
+                          shareOfTotal(
+                            row.otherVariable,
+                            departmentTotals.otherVariable,
                           ),
                         )}
                       />
@@ -1214,7 +1357,17 @@ export function PayrollRunClient({
                   <td className="px-3 py-2.5 text-right">
                     <DeptMetric
                       value={formatMoney(
-                        departmentTotals.variable,
+                        departmentTotals.benefits,
+                        canViewSalary,
+                      )}
+                      pct="100.0%"
+                      emphasize
+                    />
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <DeptMetric
+                      value={formatMoney(
+                        departmentTotals.otherVariable,
                         canViewSalary,
                       )}
                       pct="100.0%"
@@ -1374,6 +1527,10 @@ export function PayrollRunClient({
       {tab === "exceptions" ? (
         <ExceptionsTab
           exceptions={exceptions}
+          employees={displayEmployees}
+          periodStart={run.period_start}
+          periodEnd={run.period_end}
+          runId={run.id}
           editable={editable}
           pending={pending}
           onWaive={(id) => {
@@ -1979,14 +2136,20 @@ function RunEmployeesTab({
       case "fixed_earnings":
         return contractedFixedTotal(row);
       case "variable_earnings":
-        return Number(row.variable_earnings);
+        return (
+          (Number(row.variable_earnings) || 0) -
+          benefitPayoutRoundDown(linesByEmployee.get(row.id) ?? [])
+        );
       case "total_deductions":
         return employeeDisplayedDeductions(
           row,
           adjustmentsByStaff.get(row.staff_id) ?? [],
         );
       case "net_salary":
-        return Number(row.net_salary);
+        return (
+          (Number(row.net_salary) || 0) -
+          benefitPayoutRoundDown(linesByEmployee.get(row.id) ?? [])
+        );
       case "included":
         return row.included;
     }
@@ -2030,7 +2193,9 @@ function RunEmployeesTab({
       if (!showExcludedEmployees && !row.included) {
         return false;
       }
-      const net = Number(row.net_salary) || 0;
+      const net =
+        (Number(row.net_salary) || 0) -
+        benefitPayoutRoundDown(linesByEmployee.get(row.id) ?? []);
       const isZeroNet = Math.abs(net) < 0.005;
       if (netFilter === "zero" && !isZeroNet) return false;
       if (netFilter === "nonzero" && isZeroNet) return false;
@@ -2066,6 +2231,7 @@ function RunEmployeesTab({
     joinerLeaverFilter,
     showUnpaidLeaveEmployees,
     showExcludedEmployees,
+    linesByEmployee,
   ]);
 
   const sorted = useMemo(() => {
@@ -2090,7 +2256,7 @@ function RunEmployeesTab({
       return cmp * dir;
     });
     return rows;
-  }, [filtered, sortKey, sortDir, adjustmentsByStaff]);
+  }, [filtered, sortKey, sortDir, adjustmentsByStaff, linesByEmployee]);
 
   const columnTotals = useMemo(() => {
     let paidDays = 0;
@@ -2109,9 +2275,12 @@ function RunEmployeesTab({
       paidLeaveDays += paidLeaveDaysForRow(row);
       unpaidDays += Number(row.unpaid_days) || 0;
       fixedEarnings += contractedFixedTotal(row);
-      variableEarnings += Number(row.variable_earnings) || 0;
+      const roundDown = benefitPayoutRoundDown(
+        linesByEmployee.get(row.id) ?? [],
+      );
+      variableEarnings += (Number(row.variable_earnings) || 0) - roundDown;
       totalDeductions += employeeDisplayedDeductions(row, empAdjustments);
-      netSalary += Number(row.net_salary) || 0;
+      netSalary += (Number(row.net_salary) || 0) - roundDown;
     }
     return {
       employeeCount: filtered.length,
@@ -2124,7 +2293,7 @@ function RunEmployeesTab({
       totalDeductions,
       netSalary,
     };
-  }, [filtered, adjustmentsByStaff]);
+  }, [filtered, adjustmentsByStaff, linesByEmployee]);
 
   const unpaidLeaveEmployeeCount = useMemo(
     () =>
@@ -2869,6 +3038,22 @@ function RunEmployeesTab({
   );
 }
 
+function employeePayWindowEnd(
+  periodEnd: string,
+  row: Pick<PayrollEmployeeRow, "is_leaver" | "termination_date" | "day_fractions">,
+): string {
+  let end = periodEnd.slice(0, 10);
+  if (row.is_leaver) {
+    const termination = row.termination_date?.slice(0, 10);
+    if (termination && termination > end) end = termination;
+  }
+  for (const day of row.day_fractions ?? []) {
+    const key = String(day.workDate ?? "").slice(0, 10);
+    if (key > end) end = key;
+  }
+  return end;
+}
+
 function FragmentRows({
   row,
   open,
@@ -2934,6 +3119,7 @@ function FragmentRows({
   const unpaidKinds = leaveSummary.kinds.filter((k) => k.bucket === "unpaid");
   const totalLeaveDays =
     leaveSummary.paidDays + leaveSummary.halfPayDays + leaveSummary.unpaidDays;
+  const payWindowEnd = employeePayWindowEnd(periodEnd, row);
 
   const sortedPayLines = [...empLines].sort(
     (a, b) => a.sort_order - b.sort_order,
@@ -2946,6 +3132,10 @@ function FragmentRows({
     (sum, line) => sum + signedPayrollLineAmount(line),
     0,
   );
+  const benefitRoundDown = benefitPayoutRoundDown(empLines);
+  const displayVariableEarnings =
+    (Number(row.variable_earnings) || 0) - benefitRoundDown;
+  const displayNetSalary = (Number(row.net_salary) || 0) - benefitRoundDown;
   const paidDaysAdjusted =
     Math.abs(row.effective_paid_days - row.paid_days) >= 0.005;
   const rateDiscountPercent = employeeRateDiscountPercent(empAdjustments);
@@ -2978,7 +3168,7 @@ function FragmentRows({
     ];
   }, [empAdjustments, sortedPayLines, row]);
 
-  const zeroNet = Math.abs(Number(row.net_salary) || 0) < 0.005;
+  const zeroNet = Math.abs(displayNetSalary) < 0.005;
 
   return (
     <>
@@ -3072,7 +3262,7 @@ function FragmentRows({
           {formatMoney(contractedFixedTotal(row), canViewSalary)}
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
-          {formatMoney(row.variable_earnings, canViewSalary)}
+          {formatMoney(displayVariableEarnings, canViewSalary)}
         </td>
         <td className="px-3 py-2 text-right tabular-nums">
           {formatMoney(
@@ -3081,7 +3271,7 @@ function FragmentRows({
           )}
         </td>
         <td className="bg-[var(--venue-secondary,#F0F3DD)]/50 px-3 py-2 text-right tabular-nums font-semibold text-[#3D421F]">
-          {formatMoney(row.net_salary, canViewSalary)}
+          {formatMoney(displayNetSalary, canViewSalary)}
         </td>
         <td
           className="px-3 py-2 text-center"
@@ -3119,10 +3309,10 @@ function FragmentRows({
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                   <Link
-                    href={`/hr/attendance/validation?staffId=${encodeURIComponent(row.staff_id)}&from=${encodeURIComponent(periodStart.slice(0, 10))}&to=${encodeURIComponent(periodEnd.slice(0, 10))}`}
+                    href={`/hr/attendance/validation?staffId=${encodeURIComponent(row.staff_id)}&from=${encodeURIComponent(periodStart.slice(0, 10))}&to=${encodeURIComponent(payWindowEnd)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    title={`Open attendance validation for ${row.full_name} (${periodStart.slice(0, 10)} → ${periodEnd.slice(0, 10)})`}
+                    title={`Open attendance validation for ${row.full_name} (${periodStart.slice(0, 10)} → ${payWindowEnd})`}
                     className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/20 bg-white/10 px-2.5 text-xs font-medium text-zinc-100 transition hover:bg-white/15"
                   >
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden />
@@ -3229,7 +3419,7 @@ function FragmentRows({
                   <p className="mt-0.5 text-[11px] text-zinc-400">
                     Period {formatDate(periodStart)}
                     {" → "}
-                    {formatDate(periodEnd)}
+                    {formatDate(payWindowEnd)}
                     {paidDaysAdjusted ? (
                       <>
                         {" · Paid days on payslip: "}
@@ -3471,7 +3661,7 @@ function FragmentRows({
         empNo={row.emp_no}
         fullName={row.full_name}
         periodStart={periodStart}
-        periodEnd={periodEnd}
+        periodEnd={payWindowEnd}
         dayFractions={row.day_fractions}
         paidDays={row.effective_paid_days}
       />
@@ -3538,15 +3728,43 @@ function LeaveBucketPanel({
 
 function ExceptionsTab({
   exceptions,
+  employees,
+  periodStart,
+  periodEnd,
+  runId,
   editable,
   pending,
   onWaive,
 }: {
   exceptions: PayrollExceptionRow[];
+  employees: PayrollEmployeeRow[];
+  periodStart: string;
+  periodEnd: string;
+  runId: string;
   editable: boolean;
   pending: boolean;
   onWaive: (id: string) => void;
 }) {
+  const employeeByEmp = useMemo(() => {
+    const map = new Map<
+      string,
+      { staffId: string; departmentName: string | null; fullName: string }
+    >();
+    for (const emp of employees) {
+      const key = emp.emp_no.trim().toLowerCase();
+      if (!key) continue;
+      map.set(key, {
+        staffId: emp.staff_id,
+        departmentName: emp.department_name,
+        fullName: emp.full_name,
+      });
+    }
+    return map;
+  }, [employees]);
+
+  const from = periodStart.slice(0, 10);
+  const to = periodEnd.slice(0, 10);
+
   return (
     <section className="space-y-3">
       <div>
@@ -3562,8 +3780,10 @@ function ExceptionsTab({
               <th className="px-3 py-2.5 font-medium">Severity</th>
               <th className="px-3 py-2.5 font-medium">Type</th>
               <th className="px-3 py-2.5 font-medium">Emp</th>
+              <th className="px-3 py-2.5 font-medium">Department</th>
               <th className="px-3 py-2.5 font-medium">Message</th>
               <th className="px-3 py-2.5 font-medium">Date</th>
+              <th className="px-3 py-2.5 font-medium">Validation</th>
               <th className="px-3 py-2.5 font-medium" />
             </tr>
           </thead>
@@ -3571,48 +3791,74 @@ function ExceptionsTab({
             {exceptions.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={8}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
                   No alerts for this run.
                 </td>
               </tr>
             ) : (
-              exceptions.map((ex) => (
-                <tr
-                  key={ex.id}
-                  className={cn(ex.waived && "opacity-50")}
-                >
-                  <td className="px-3 py-2 capitalize">
-                    <SeverityBadge severity={ex.severity} />
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {ex.exception_type}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {ex.emp_no ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 text-black/70">{ex.message}</td>
-                  <td className="px-3 py-2 text-black/50">
-                    {formatDate(ex.work_date)}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {!ex.waived && editable ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={pending}
-                        onClick={() => onWaive(ex.id)}
-                      >
-                        Waive
-                      </Button>
-                    ) : ex.waived ? (
-                      <span className="text-xs text-black/40">Waived</span>
-                    ) : null}
-                  </td>
-                </tr>
-              ))
+              exceptions.map((ex) => {
+                const person = ex.emp_no
+                  ? employeeByEmp.get(ex.emp_no.trim().toLowerCase())
+                  : undefined;
+                const dept = ex.department_name ?? person?.departmentName;
+                const validationHref = person
+                  ? `/hr/attendance/validation?staffId=${encodeURIComponent(person.staffId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&payrollRunId=${encodeURIComponent(runId)}`
+                  : null;
+                return (
+                  <tr
+                    key={ex.id}
+                    className={cn(ex.waived && "opacity-50")}
+                  >
+                    <td className="px-3 py-2 capitalize">
+                      <SeverityBadge severity={ex.severity} />
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {ex.exception_type}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs">
+                      {ex.emp_no ?? "—"}
+                    </td>
+                    <td className="px-3 py-2 text-black/60">
+                      {dept?.trim() || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-black/70">{ex.message}</td>
+                    <td className="px-3 py-2 text-black/50">
+                      {formatDate(ex.work_date)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {validationHref ? (
+                        <Link
+                          href={validationHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open attendance validation for ${person?.fullName ?? ex.emp_no} (${from} → ${to})`}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-black/15 bg-white px-2.5 text-xs font-medium text-[#3D421F] transition hover:bg-black/[0.03]"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                          Validation
+                        </Link>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {!ex.waived && editable ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() => onWaive(ex.id)}
+                        >
+                          Waive
+                        </Button>
+                      ) : ex.waived ? (
+                        <span className="text-xs text-black/40">Waived</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -3650,6 +3896,8 @@ function benefitTypeLabel(type: string): string {
       return "Compensations";
     case "flight_ticket":
       return "Flight ticket";
+    case "payback":
+      return "Payback";
     default:
       return "Other benefit";
   }
@@ -3697,6 +3945,7 @@ function ImportBenefitsDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [staffQuery, setStaffQuery] = useState("");
   const [reloadNonce, setReloadNonce] = useState(0);
+  const visaRefreshStarted = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -3704,6 +3953,7 @@ function ImportBenefitsDialog({
     setBenefitType("all");
     setStaffQuery("");
     setLoadError(null);
+    visaRefreshStarted.current = false;
   }, [open, defaultMonthValue]);
 
   useEffect(() => {
@@ -3756,6 +4006,29 @@ function ImportBenefitsDialog({
     }
   }, [pending, open]);
 
+  useEffect(() => {
+    if (!open || loading || visaRefreshStarted.current) return;
+    if (benefitType !== "all" && benefitType !== "payback") return;
+    visaRefreshStarted.current = true;
+    let cancelled = false;
+    void refreshVisaRunDeductionsForImport().then((result) => {
+      if (cancelled || !result.ok) return;
+      setReloadNonce((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, loading, benefitType]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !pending) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, pending, onClose]);
+
   const filteredRows = useMemo(() => {
     const q = staffQuery.trim().toLowerCase();
     if (!q) return rows;
@@ -3763,7 +4036,9 @@ function ImportBenefitsDialog({
       (r) =>
         r.empNo.toLowerCase().includes(q) ||
         r.fullName.toLowerCase().includes(q) ||
-        (r.departmentName?.toLowerCase().includes(q) ?? false),
+        (r.departmentName?.toLowerCase().includes(q) ?? false) ||
+        benefitTypeLabel(r.benefitType).toLowerCase().includes(q) ||
+        (r.detail?.toLowerCase().includes(q) ?? false),
     );
   }, [rows, staffQuery]);
 
@@ -3842,8 +4117,9 @@ function ImportBenefitsDialog({
             Import Benefits
           </h2>
           <p className="mt-1 text-sm text-black/55">
-            Pull finalized Tips / Service Charge amounts into this payroll as
-            variable lines. Net pay updates on recalculate; amounts appear on
+            Pull finalized Tips / Service Charge amounts and visa paybacks
+            (employee already paid) into this payroll as variable benefit
+            lines. Net pay updates on recalculate; amounts appear on
             payslips.
           </p>
         </div>
@@ -3880,6 +4156,7 @@ function ImportBenefitsDialog({
                 <option value="service_charge">Service charge</option>
                 <option value="flight_ticket">Flight ticket</option>
                 <option value="compensation">Compensations</option>
+                <option value="payback">Payback</option>
                 <option value="other">Other</option>
               </select>
             </div>
@@ -3964,8 +4241,10 @@ function ImportBenefitsDialog({
                         colSpan={5}
                         className="px-3 py-8 text-center text-sm text-black/45"
                       >
-                        No benefit allocations for this month. Finalize a
-                        Benefits run first.
+                        No benefit allocations for this month
+                        {benefitType === "all" || benefitType === "payback"
+                          ? ", and no visa paybacks queued. Tick Employee already paid on a visa penalty, or finalize a Benefits run."
+                          : ". Finalize a Benefits run first."}
                       </td>
                     </tr>
                   ) : (
@@ -3994,6 +4273,11 @@ function ImportBenefitsDialog({
                         </td>
                         <td className="px-3 py-2 text-black/60">
                           {benefitTypeLabel(row.benefitType)}
+                          {row.detail ? (
+                            <span className="mt-0.5 block text-xs text-black/45">
+                              {row.detail}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {formatMoney(row.amount, canViewSalary)}
@@ -5058,7 +5342,18 @@ function AdjustmentsTab({
               <th className="px-3 py-2.5 font-medium">Category</th>
               <th className="px-3 py-2.5 font-medium">Code</th>
               <th className="px-3 py-2.5 font-medium">Label</th>
-              <th className="px-3 py-2.5 font-medium text-right">Amount</th>
+              <th className="px-3 py-2.5 font-medium text-right">
+                <span className="block">Amount +</span>
+                <span className="mt-0.5 block text-[10px] font-normal normal-case tracking-normal text-black/40">
+                  To be added to payroll
+                </span>
+              </th>
+              <th className="px-3 py-2.5 font-medium text-right">
+                <span className="block">Amount −</span>
+                <span className="mt-0.5 block text-[10px] font-normal normal-case tracking-normal text-black/40">
+                  To be deducted from payroll
+                </span>
+              </th>
               <th className="px-3 py-2.5 font-medium">Reason</th>
               {editable ? (
                 <th className="px-3 py-2.5 font-medium text-right w-20" />
@@ -5069,7 +5364,7 @@ function AdjustmentsTab({
             {adjustments.length === 0 ? (
               <tr>
                 <td
-                  colSpan={editable ? 7 : 6}
+                  colSpan={editable ? 8 : 7}
                   className="px-3 py-10 text-center text-sm text-black/45"
                 >
                   No adjustments yet. Expand an employee on the Run tab and use
@@ -5091,11 +5386,15 @@ function AdjustmentsTab({
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">{adj.code}</td>
                     <td className="px-3 py-2">{adj.label}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {formatMoney(
-                        adj.category === "deduction" ? -adj.amount : adj.amount,
-                        canViewSalary,
-                      )}
+                    <td className="px-3 py-2 text-right tabular-nums text-emerald-800">
+                      {adj.category === "deduction"
+                        ? "—"
+                        : formatMoney(adj.amount, canViewSalary)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-rose-800">
+                      {adj.category === "deduction"
+                        ? formatMoney(adj.amount, canViewSalary)
+                        : "—"}
                     </td>
                     <td className="px-3 py-2 text-black/60">{adj.reason}</td>
                     {editable ? (

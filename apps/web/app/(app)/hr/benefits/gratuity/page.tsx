@@ -77,7 +77,11 @@ export default async function HrBenefitsGratuityPage() {
         periodEndDay={settings.periodEndDay}
       />
 
-      <BenefitRunsHistory kind="gratuity" rows={rows} />
+      <BenefitRunsHistory
+        kind="gratuity"
+        rows={rows}
+        canEdit={canEdit && !migrationRequired}
+      />
     </div>
   );
 }
