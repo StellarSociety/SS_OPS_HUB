@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { MOBILE_APP_BASE, safeMobileAppPath } from "@/lib/mobile/app-path";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { envAppUrl, joinAppUrl } from "@/lib/public-app-url";
 
 type AuthState = { error: string; authenticated?: boolean };
 
@@ -123,7 +124,7 @@ export async function requestPasswordReset(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/reset-password`;
+  const redirectTo = joinAppUrl("/reset-password", envAppUrl());
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo,

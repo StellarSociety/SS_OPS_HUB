@@ -2,6 +2,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { DEFAULT_PAYSLIP_FOOTER_DISCLAIMER } from "@/lib/hr/types";
 import { sortPayslipLines } from "@/lib/hr/payslip-line-order";
+import { absolutePublicAssetUrl } from "@/lib/public-app-url";
 
 export type PayslipPdfLeaveKind = {
   code: string;
@@ -201,15 +202,7 @@ export function buildPayslipPdfFilename(input: {
 }
 
 function absoluteAssetUrl(url: string): string {
-  if (/^https?:\/\//i.test(url) || url.startsWith("data:")) return url;
-  if (typeof window !== "undefined") {
-    return new URL(url, window.location.origin).toString();
-  }
-  const base = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(
-    /\/$/,
-    "",
-  );
-  return `${base}${url.startsWith("/") ? url : `/${url}`}`;
+  return absolutePublicAssetUrl(url);
 }
 
 function assetPathWithoutQuery(url: string): string {

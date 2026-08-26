@@ -1,5 +1,6 @@
 import { sendAppEmail } from "@/lib/email/transport";
 import { formatDateOnly } from "@/lib/hr/derived";
+import { publicAppUrl } from "@/lib/public-app-url";
 import type { NotificationRow, NotificationRecipient } from "./types";
 
 export function buildExpiryEmailHtml(params: {
@@ -82,7 +83,7 @@ export async function emailPendingNotificationsForRecipient(
 ): Promise<number> {
   if (notifications.length === 0) return 0;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = publicAppUrl();
   const subject =
     notifications.length === 1
       ? `Reminder: ${notifications[0].title}`

@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import { listUsers } from "@/lib/access/store";
 import { sendAppEmail } from "@/lib/email/transport";
+import { joinAppUrl } from "@/lib/public-app-url";
 import {
   canAccessPayroll,
   canAdminLookups,
@@ -617,15 +618,12 @@ function formatEmailMoney(amount: number): string {
 }
 
 function payrollRunPublicUrl(venue: { is_global: boolean; slug: string }, runId: string): string {
-  const appBase = (
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-  ).replace(/\/$/, "");
   const path = toScopedHref(
     `/hr/payroll/${runId}`,
     venue.is_global ? "global" : "venue",
     venue.slug,
   );
-  return `${appBase}${path}`;
+  return joinAppUrl(path);
 }
 
 async function sendFinalApprovalRequestEmails(opts: {

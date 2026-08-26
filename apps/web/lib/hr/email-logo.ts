@@ -23,6 +23,7 @@ import {
   type VenueBrandAssetSource,
 } from "@/lib/venue/branding";
 import { createServiceClient } from "@/lib/supabase/service";
+import { absolutePublicAssetUrl } from "@/lib/public-app-url";
 
 export type VenueEmailBrand = VenueBrandAssetSource & {
   id?: string;
@@ -43,11 +44,7 @@ const headerLogoAttachmentCache = new Map<
 >();
 
 function absoluteAssetUrl(url: string): string {
-  if (/^https?:\/\//i.test(url) || url.startsWith("data:")) return url;
-  const base = (
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-  ).replace(/\/$/, "");
-  return `${base}${url.startsWith("/") ? url : `/${url}`}`;
+  return absolutePublicAssetUrl(url);
 }
 
 async function readLocalPublicAsset(url: string): Promise<Buffer | null> {

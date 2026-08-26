@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies, headers } from "next/headers";
+import { envAppUrl } from "@/lib/public-app-url";
 
 const OAUTH_COOKIE = "ss-sentiment-google-oauth";
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -18,10 +19,7 @@ export type GoogleOAuthState = {
 };
 
 function envOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
-    /\/$/,
-    "",
-  );
+  return envAppUrl();
 }
 
 export async function requestAppOrigin(): Promise<string> {

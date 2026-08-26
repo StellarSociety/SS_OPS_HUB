@@ -3,7 +3,7 @@
  * Purpose: satisfy installability and keep icons/static shell available.
  * Does not cache HTML documents, auth responses, or API data.
  */
-const CACHE_NAME = "ss-ops-hub-pwa-v8";
+const CACHE_NAME = "ss-ops-hub-pwa-v10";
 const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",

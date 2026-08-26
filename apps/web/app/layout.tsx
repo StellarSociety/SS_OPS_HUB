@@ -12,6 +12,7 @@ import {
   PWA_ICON_512,
   PWA_THEME_COLOR,
 } from "@/lib/pwa/constants";
+import { publicAppUrl } from "@/lib/public-app-url";
 import "./globals.css";
 
 const inter = Inter({
@@ -39,6 +40,7 @@ const googleSans = Google_Sans({
 export async function generateMetadata(): Promise<Metadata> {
   const { appName } = await fetchGroupBrandingState();
   return {
+    metadataBase: new URL(publicAppUrl()),
     title: "Stellar Society — Operational Hub",
     description: "Internal operations hub for Stellar Society venues.",
     applicationName: appName,

@@ -119,6 +119,7 @@ const nextConfig: NextConfig = {
       // Staff WorkDrive docs (passport/EID PDFs) + InOutData.xls imports.
       bodySizeLimit: "512mb",
       allowedOrigins: [
+        "opshub.stellarsocietygroup.com",
         "ssopshub.vercel.app",
         "ss-ops-hub.vercel.app",
         "localhost:3000",

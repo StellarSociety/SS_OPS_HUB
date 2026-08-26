@@ -24,6 +24,7 @@ import type {
   SentimentReviewSource,
 } from "@/lib/sentiment/types";
 import { cn } from "@/lib/utils";
+import { joinAppUrl, PRODUCTION_APP_URL } from "@/lib/public-app-url";
 
 function statusBadge(status: SentimentReviewSource["status"]) {
   if (status === "connected") return "bg-emerald-50 text-emerald-800";
@@ -260,7 +261,7 @@ export function GoogleConnectionCard({
           enable Account Management, Business Information, and Google My
           Business API, and add both redirect URIs:{" "}
           <code className="text-[11px]">
-            https://ssopshub.vercel.app/api/sentiment/google/callback
+            {joinAppUrl("/api/sentiment/google/callback", PRODUCTION_APP_URL)}
           </code>{" "}
           and{" "}
           <code className="text-[11px]">

@@ -107,8 +107,8 @@ export function safeMobileAppPath(raw: string | null | undefined): string | null
   }
   if (trimmed.includes("\\")) return null;
   try {
-    const resolved = new URL(trimmed, "https://ssopshub.vercel.app");
-    if (resolved.origin !== "https://ssopshub.vercel.app") return null;
+    const resolved = new URL(trimmed, "http://ss.invalid");
+    if (resolved.origin !== "http://ss.invalid") return null;
     const pathname = resolved.pathname;
     if (!isMobileAppPath(pathname)) return null;
     return `${pathname}${resolved.search}`;

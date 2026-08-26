@@ -1,4 +1,5 @@
 import { DEFAULT_APP_NAME } from "@/lib/group/branding";
+import { joinAppUrl, publicAppUrl } from "@/lib/public-app-url";
 
 /** Same default as Global Settings → App name. */
 export const PWA_APP_NAME = DEFAULT_APP_NAME;
@@ -9,7 +10,7 @@ export const PWA_START_URL = "/m/";
 export const PWA_SCOPE = "/m/";
 
 export const PWA_INSTALL_PATH = "/install";
-export const PWA_INSTALL_URL = "https://ssopshub.vercel.app/install";
+export const PWA_INSTALL_URL = joinAppUrl("/install", publicAppUrl());
 
 export const PWA_THEME_COLOR = "#818a40";
 export const PWA_BACKGROUND_COLOR = "#E9E3D6";

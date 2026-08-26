@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/.env.local"
 OUT="$ROOT/.env.vercel.import"
-PROD_URL="${NEXT_PUBLIC_APP_URL_PROD:-https://ssopshub.vercel.app}"
+PROD_URL="${NEXT_PUBLIC_APP_URL_PROD:-https://opshub.stellarsocietygroup.com}"
 
 REQUIRED=(
   NEXT_PUBLIC_SUPABASE_URL

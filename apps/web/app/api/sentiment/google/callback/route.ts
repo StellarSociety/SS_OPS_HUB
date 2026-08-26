@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { encryptSecret } from "@/lib/email/secret";
+import { absoluteAppHref } from "@/lib/public-app-url";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { listAllGoogleLocations } from "@/lib/sentiment/google/business-profile";
@@ -36,13 +37,13 @@ export async function GET(request: Request) {
 
   if (oauthError) {
     return NextResponse.redirect(
-      new URL(settingsUrl(venueSlug, { google: "denied" }), url.origin),
+      absoluteAppHref(settingsUrl(venueSlug, { google: "denied" }), request.url),
     );
   }
 
   if (!code || !state || !cookieDecoded) {
     return NextResponse.redirect(
-      new URL(settingsUrl(venueSlug, { google: "invalid" }), url.origin),
+      absoluteAppHref(settingsUrl(venueSlug, { google: "invalid" }), request.url),
     );
   }
 
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
     state.nonce !== cookieDecoded.nonce
   ) {
     return NextResponse.redirect(
-      new URL(settingsUrl(venueSlug, { google: "invalid" }), url.origin),
+      absoluteAppHref(settingsUrl(venueSlug, { google: "invalid" }), request.url),
     );
   }
 
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user || user.id !== state.userId) {
-    return NextResponse.redirect(new URL("/login", url.origin));
+    return NextResponse.redirect(absoluteAppHref("/login", request.url));
   }
 
   try {
@@ -86,7 +87,7 @@ export async function GET(request: Request) {
 
     if (!tokens.refreshToken) {
       return NextResponse.redirect(
-        new URL(settingsUrl(venueSlug, { google: "norefresh" }), url.origin),
+        absoluteAppHref(settingsUrl(venueSlug, { google: "norefresh" }), request.url),
       );
     }
 
@@ -131,7 +132,7 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.redirect(
-      new URL(settingsUrl(venueSlug, { google: "connected" }), url.origin),
+      absoluteAppHref(settingsUrl(venueSlug, { google: "connected" }), request.url),
     );
   } catch (error) {
     const message =
@@ -149,7 +150,7 @@ export async function GET(request: Request) {
       // Ignore persistence of the error row if the table is not ready yet.
     }
     return NextResponse.redirect(
-      new URL(settingsUrl(venueSlug, { google: "error" }), url.origin),
+      absoluteAppHref(settingsUrl(venueSlug, { google: "error" }), request.url),
     );
   }
 }
