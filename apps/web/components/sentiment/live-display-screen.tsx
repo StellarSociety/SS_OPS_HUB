@@ -45,7 +45,7 @@ export function LiveDisplayScreen({ view }: { view: LiveDisplayView }) {
       <Header view={view} />
 
       <div className="mt-[clamp(0.55rem,1.5cqh,1.25rem)] grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] items-stretch gap-[clamp(0.7rem,2cqi,2rem)] @[900px]/live:grid-cols-[minmax(0,0.92fr)_minmax(0,1.22fr)] @[900px]/live:grid-rows-1">
-        <HeroColumn google={view.google} />
+        <HeroColumn google={view.google} tripadvisor={view.tripadvisor} />
         <ShareColumn channels={view.channels} />
       </div>
 
@@ -102,7 +102,15 @@ function Header({ view }: { view: LiveDisplayView }) {
   );
 }
 
-function HeroColumn({ google }: { google: LiveDisplayListingStats }) {
+function HeroColumn({
+  google,
+  tripadvisor,
+}: {
+  google: LiveDisplayListingStats;
+  tripadvisor: LiveDisplayListingStats;
+}) {
+  const showTripadvisor =
+    tripadvisor.reviewCount > 0 || tripadvisor.rating != null;
   return (
     <div className="flex min-h-0 min-w-0 flex-col justify-center @[900px]/live:pr-2">
       <h2 className="font-serif text-[clamp(1.45rem,4.2cqi,2.65rem)] leading-[1.05] tracking-tight text-[#3D421F]">
@@ -128,6 +136,11 @@ function HeroColumn({ google }: { google: LiveDisplayListingStats }) {
           <p className="mt-1 text-[clamp(8px,1.2cqi,11px)] font-semibold uppercase tracking-[0.16em] text-[#3D421F]/50">
             {formatCount(google.reviewCount)} Google reviews
           </p>
+          {showTripadvisor ? (
+            <p className="mt-0.5 text-[clamp(8px,1.2cqi,11px)] font-semibold uppercase tracking-[0.16em] text-[#3D421F]/50">
+              {formatCount(tripadvisor.reviewCount)} Tripadvisor reviews
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
