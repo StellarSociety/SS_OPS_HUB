@@ -28,6 +28,7 @@ export type LiveDisplayView = {
   venueLogoUrl: string | null;
   updatedLabel: string;
   google: LiveDisplayListingStats;
+  tripadvisor: LiveDisplayListingStats;
   channels: LiveDisplayChannelCard[];
   thisMonth: LiveDisplayListingStats;
   overall: LiveDisplayListingStats;

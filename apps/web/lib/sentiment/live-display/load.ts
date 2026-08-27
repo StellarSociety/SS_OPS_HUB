@@ -108,6 +108,7 @@ export async function loadLiveDisplayView(
     venueLogoUrl: getVenueLogoUrl(venue),
     updatedLabel: formatLiveUpdatedLabel(latestSyncAt(sources)),
     google,
+    tripadvisor,
     channels: [googleCard, tripadvisorCard].filter(
       (card): card is LiveDisplayChannelCard => Boolean(card),
     ),
