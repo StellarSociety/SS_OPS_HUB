@@ -274,7 +274,7 @@ export function StaffDatabase({
       },
       {
         key: "passport_expiry",
-        label: "Passport expiry",
+        label: "Passport Expiry Date",
         kind: "date",
         sortValue: (s) => dateSort(s.passport_expiry),
         text: (s) => formatDateOnly(s.passport_expiry),
@@ -287,6 +287,14 @@ export function StaffDatabase({
         sortValue: (s) => s.eid_no ?? "",
         text: (s) => s.eid_no ?? "",
         render: (s) => s.eid_no ?? "—",
+      },
+      {
+        key: "eid_issue_date",
+        label: "EID issue date",
+        kind: "date",
+        sortValue: (s) => dateSort(s.eid_issue_date),
+        text: (s) => formatDateOnly(s.eid_issue_date),
+        render: (s) => formatDateOnly(s.eid_issue_date),
       },
       {
         key: "eid_expiry",

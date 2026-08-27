@@ -5,18 +5,29 @@ import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
+function isConnectionsPath(pathname: string) {
+  if (pathname.startsWith("/sentiment/settings/templates")) return false;
+  return (
+    pathname === "/sentiment/settings" ||
+    pathname.startsWith("/sentiment/settings/apify") ||
+    pathname.startsWith("/sentiment/settings/google") ||
+    pathname.startsWith("/sentiment/settings/tripadvisor")
+  );
+}
+
 const tabs = [
   {
-    href: "/sentiment/settings",
+    href: "/sentiment/settings/apify",
     label: "Connections",
     icon: Link2,
-    exact: true,
+    isActive: isConnectionsPath,
   },
   {
     href: "/sentiment/settings/templates",
     label: "Reply templates",
     icon: MessageSquareText,
-    exact: false,
+    isActive: (pathname: string) =>
+      pathname.startsWith("/sentiment/settings/templates"),
   },
 ] as const;
 
@@ -34,9 +45,7 @@ export function SentimentSettingsSubNav() {
           href={tab.href}
           label={tab.label}
           icon={tab.icon}
-          active={
-            tab.exact ? pathname === tab.href : pathname.startsWith(tab.href)
-          }
+          active={tab.isActive(pathname)}
         />
       ))}
     </nav>

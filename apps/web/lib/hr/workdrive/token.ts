@@ -16,6 +16,11 @@ type TokenCacheEntry = {
 
 /** Per-venue access-token cache (~55 min). Warm serverless instances only. */
 const tokenCache = new Map<string, TokenCacheEntry>();
+/** Coalesce concurrent Zoho refreshes so a page of listings shares one token call. */
+const refreshInFlight = new Map<
+  string,
+  Promise<{ accessToken: string; apiDomain: string }>
+>();
 
 export class WorkDriveApiError extends Error {
   status: number;
@@ -423,39 +428,60 @@ export async function ensureAccessToken(
     return { accessToken: cached.accessToken, apiDomain: cached.apiDomain };
   }
 
+  if (!options?.forceRefresh) {
+    const pending = refreshInFlight.get(venueId);
+    if (pending) return pending;
+  }
+
   if (!credentials.refreshToken?.trim()) {
     throw new Error("WorkDrive refresh token is missing.");
   }
 
-  const { json, rawText, status } = await requestToken(
-    credentials.region,
-    new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: credentials.clientId,
-      client_secret: credentials.clientSecret,
-      refresh_token: credentials.refreshToken,
-    }),
-    { purpose: "refresh_token (test/api)" },
-  );
+  const refresh = (async () => {
+    const { json, rawText, status } = await requestToken(
+      credentials.region,
+      new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        refresh_token: credentials.refreshToken,
+      }),
+      { purpose: "refresh_token (test/api)" },
+    );
 
-  // Zoho often returns HTTP 200 with `{ "error": "…" }` — trust the body.
-  if (json.error || !json.access_token) {
-    throwTokenError(json, rawText, status, "Token refresh failed");
+    // Zoho often returns HTTP 200 with `{ "error": "…" }` — trust the body.
+    if (json.error || !json.access_token) {
+      throwTokenError(json, rawText, status, "Token refresh failed");
+    }
+
+    const apiDomain =
+      json.api_domain || `https://${zohoWorkDriveApiHost(credentials.region)}`;
+    const expiresIn = Number(json.expires_in) || 3600;
+    const entry: TokenCacheEntry = {
+      accessToken: json.access_token,
+      apiDomain,
+      expiresAtMs: Date.now() + Math.max(60, expiresIn - 300) * 1000,
+    };
+    tokenCache.set(venueId, entry);
+    return { accessToken: entry.accessToken, apiDomain: entry.apiDomain };
+  })();
+
+  refreshInFlight.set(venueId, refresh);
+  try {
+    return await refresh;
+  } finally {
+    if (refreshInFlight.get(venueId) === refresh) {
+      refreshInFlight.delete(venueId);
+    }
   }
-
-  const apiDomain =
-    json.api_domain || `https://${zohoWorkDriveApiHost(credentials.region)}`;
-  const expiresIn = Number(json.expires_in) || 3600;
-  const entry: TokenCacheEntry = {
-    accessToken: json.access_token,
-    apiDomain,
-    expiresAtMs: now + Math.max(60, expiresIn - 300) * 1000,
-  };
-  tokenCache.set(venueId, entry);
-  return { accessToken: entry.accessToken, apiDomain: entry.apiDomain };
 }
 
 export function clearAccessTokenCache(venueId?: string) {
-  if (venueId) tokenCache.delete(venueId);
-  else tokenCache.clear();
+  if (venueId) {
+    tokenCache.delete(venueId);
+    refreshInFlight.delete(venueId);
+  } else {
+    tokenCache.clear();
+    refreshInFlight.clear();
+  }
 }

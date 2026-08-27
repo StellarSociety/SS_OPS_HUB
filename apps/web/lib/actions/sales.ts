@@ -76,6 +76,7 @@ import {
   canEditWaiterDaily,
   canManageSalesWaiters,
 } from "@/lib/sales/permissions";
+import { canEditRedeem } from "@/lib/guests-intel/permissions";
 import { SALES_MODULE_KEY } from "@/lib/sales/types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -164,7 +165,7 @@ function revalidateSalesDailySnap() {
   }
 }
 
-const SALES_VOUCHERS_PATHS = ["/sales/vouchers"];
+const SALES_VOUCHERS_PATHS = ["/sales/vouchers", "/guests-intel/redeem"];
 
 function revalidateSalesVouchers() {
   for (const path of SALES_VOUCHERS_PATHS) {
@@ -1515,10 +1516,20 @@ function parseOptionalDate(value: unknown): string | null {
   return raw;
 }
 
+function canMutateVenueVouchers(
+  permissions: Parameters<typeof canEditVouchers>[0],
+  venueId: string,
+) {
+  return (
+    canEditVouchers(permissions, venueId) ||
+    canEditRedeem(permissions, venueId)
+  );
+}
+
 export async function saveVenueVoucher(formData: FormData) {
   const { supabase, user, venue, permissions } = await getSalesAuthContext();
 
-  if (!canEditVouchers(permissions, venue.id)) {
+  if (!canMutateVenueVouchers(permissions, venue.id)) {
     return { error: "You do not have permission to edit vouchers." };
   }
 
@@ -1584,7 +1595,7 @@ export async function saveVenueVoucher(formData: FormData) {
 export async function removeVenueVoucher(formData: FormData) {
   const { supabase, user, venue, permissions } = await getSalesAuthContext();
 
-  if (!canEditVouchers(permissions, venue.id)) {
+  if (!canMutateVenueVouchers(permissions, venue.id)) {
     return { error: "You do not have permission to delete vouchers." };
   }
 
@@ -1612,7 +1623,7 @@ export async function removeVenueVoucher(formData: FormData) {
 export async function markVenueVoucherRedeemed(formData: FormData) {
   const { supabase, user, venue, permissions } = await getSalesAuthContext();
 
-  if (!canEditVouchers(permissions, venue.id)) {
+  if (!canMutateVenueVouchers(permissions, venue.id)) {
     return { error: "You do not have permission to edit vouchers." };
   }
 

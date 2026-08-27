@@ -42,6 +42,157 @@ function accommodationPhrase(flag: string | null | undefined): string {
   return flag === "Yes" ? "with Company Accommodation Provided" : "";
 }
 
+export type StartingEmployment = {
+  positionName: string;
+  departmentName: string;
+  wagePackage: number | null;
+  companyAccommodation: string;
+};
+
+function parseWagePackage(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Reconstruct hire-time role and package by walking alterations backward. */
+export function resolveStartingEmployment({
+  items,
+  positions,
+  departments,
+  currentPositionId,
+  currentDepartmentId,
+  currentWagePackage,
+  currentCompanyAccommodation,
+}: {
+  items: StaffPositionSalaryChangeItem[];
+  positions: Position[];
+  departments: Department[];
+  currentPositionId: string;
+  currentDepartmentId: string;
+  currentWagePackage: string;
+  currentCompanyAccommodation: string;
+}): StartingEmployment {
+  let positionId = currentPositionId;
+  let departmentId = currentDepartmentId;
+  let positionName = positions.find((p) => p.id === positionId)?.name ?? "";
+  let departmentName =
+    departments.find((d) => d.id === departmentId)?.name ?? "";
+  let wagePackage = parseWagePackage(currentWagePackage);
+  let companyAccommodation = currentCompanyAccommodation || "No";
+
+  const newestFirst = [...items].sort((a, b) => {
+    const byDate = b.effectiveDate.localeCompare(a.effectiveDate);
+    if (byDate !== 0) return byDate;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+
+  for (const item of newestFirst) {
+    const positionChanged =
+      item.changeKind === "position" || item.changeKind === "both";
+    const salaryChanged =
+      item.changeKind === "salary" || item.changeKind === "both";
+
+    if (positionChanged) {
+      positionId = item.fromPositionId ?? "";
+      departmentId = item.fromDepartmentId ?? "";
+      positionName =
+        item.fromPositionName ||
+        positions.find((p) => p.id === positionId)?.name ||
+        "";
+      departmentName =
+        item.fromDepartmentName ||
+        departments.find((d) => d.id === departmentId)?.name ||
+        "";
+    }
+    if (salaryChanged) {
+      wagePackage = item.fromWagePackage;
+      companyAccommodation = item.fromCompanyAccommodation || "No";
+    }
+  }
+
+  if (!positionName && positionId) {
+    positionName = positions.find((p) => p.id === positionId)?.name ?? "";
+  }
+  if (!departmentName && departmentId) {
+    departmentName = departments.find((d) => d.id === departmentId)?.name ?? "";
+  }
+
+  return {
+    positionName,
+    departmentName,
+    wagePackage,
+    companyAccommodation,
+  };
+}
+
+export function EmploymentStartedMarker({
+  joiningDate,
+  start,
+  canViewSalary,
+  salaryPct,
+}: {
+  joiningDate: string;
+  start: StartingEmployment;
+  canViewSalary: boolean;
+  salaryPct: SalaryPercentages;
+}) {
+  const accom = accommodationPhrase(start.companyAccommodation);
+  const roleLabel = [start.positionName, start.departmentName]
+    .filter(Boolean)
+    .join(" · ");
+  const pay =
+    canViewSalary && start.wagePackage != null
+      ? computeSalaryBreakdown(
+          start.wagePackage,
+          start.companyAccommodation === "Yes",
+          salaryPct,
+        )
+      : null;
+
+  return (
+    <li className="relative pl-6">
+      <span
+        className="absolute left-0 top-3 size-2.5 rounded-full border-2 border-white bg-black/25 shadow-sm ring-1 ring-black/10"
+        aria-hidden
+      />
+      <div className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-3 sm:px-4">
+        <p className="text-sm font-medium tabular-nums text-[#3D421F]">
+          {formatDateOnly(joiningDate)}
+        </p>
+        <p className="mt-1 text-sm text-black/50">Employment started</p>
+        {roleLabel ? (
+          <p className="mt-1 text-sm text-[#3D421F]">{roleLabel}</p>
+        ) : null}
+        {canViewSalary && start.wagePackage != null ? (
+          <p className="mt-1 text-xs text-black/50">
+            Package{" "}
+            <span className="font-semibold tabular-nums text-[#3D421F]">
+              {formatAed(start.wagePackage)}
+            </span>
+            {accom ? (
+              <>
+                {" · "}
+                <span className="font-semibold text-[#3D421F]">{accom}</span>
+              </>
+            ) : null}
+            {pay?.salaryToPay != null ? (
+              <>
+                {" · "}
+                Salary to pay{" "}
+                <span className="font-semibold tabular-nums text-[#3D421F]">
+                  {formatAed(pay.salaryToPay)}
+                </span>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
 type StaffEmploymentPathPositionSalaryProps = {
   staffId?: string | null;
   joiningDate?: string | null;
@@ -56,6 +207,11 @@ type StaffEmploymentPathPositionSalaryProps = {
   currentVisaStatus?: string;
   currentVisaExpiry?: string;
   salaryPct: SalaryPercentages;
+  items?: StaffPositionSalaryChangeItem[];
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  onItemsChange?: (items: StaffPositionSalaryChangeItem[]) => void;
   onApplied?: (patch: {
     department_id: string;
     position_id: string;
@@ -832,16 +988,55 @@ export function StaffEmploymentPathPositionSalary({
   currentVisaStatus = "",
   currentVisaExpiry = "",
   salaryPct,
+  items: itemsProp,
+  loading: loadingProp,
+  error: errorProp,
+  onRetry,
+  onItemsChange,
   onApplied,
   openEditChangeId = null,
   onOpenEditChangeIdConsumed,
 }: StaffEmploymentPathPositionSalaryProps) {
-  const [items, setItems] = useState<StaffPositionSalaryChangeItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const isControlled = itemsProp !== undefined;
+  const [localItems, setLocalItems] = useState<StaffPositionSalaryChangeItem[]>(
+    [],
+  );
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localLoading, setLocalLoading] = useState(
+    () => Boolean(staffId) && !isControlled,
+  );
+  const items = isControlled ? itemsProp : localItems;
+  const error = isControlled ? (errorProp ?? null) : localError;
+  const loading = isControlled ? Boolean(loadingProp) : localLoading;
+  const startingEmployment = useMemo(
+    () =>
+      resolveStartingEmployment({
+        items,
+        positions,
+        departments,
+        currentPositionId,
+        currentDepartmentId,
+        currentWagePackage,
+        currentCompanyAccommodation,
+      }),
+    [
+      items,
+      positions,
+      departments,
+      currentPositionId,
+      currentDepartmentId,
+      currentWagePackage,
+      currentCompanyAccommodation,
+    ],
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] =
     useState<StaffPositionSalaryChangeItem | null>(null);
+
+  function setItems(next: StaffPositionSalaryChangeItem[]) {
+    if (isControlled) onItemsChange?.(next);
+    else setLocalItems(next);
+  }
 
   function openCreateDialog() {
     setEditingItem(null);
@@ -859,27 +1054,41 @@ export function StaffEmploymentPathPositionSalary({
   }
 
   useEffect(() => {
+    if (isControlled) return;
     if (!staffId) {
-      setItems([]);
-      setError(null);
+      setLocalItems([]);
+      setLocalError(null);
+      setLocalLoading(false);
       return;
     }
     let cancelled = false;
-    startTransition(async () => {
-      const result = await listStaffPositionSalaryChanges(staffId);
-      if (cancelled) return;
-      if (!result.ok) {
-        setItems([]);
-        setError(result.error);
-        return;
-      }
-      setError(null);
-      setItems(result.items);
-    });
+    setLocalLoading(true);
+    setLocalError(null);
+    void listStaffPositionSalaryChanges(staffId)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setLocalItems([]);
+          setLocalError(result.error);
+          return;
+        }
+        setLocalError(null);
+        setLocalItems(result.items);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLocalItems([]);
+        setLocalError(
+          err instanceof Error ? err.message : "Could not load history.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLocalLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [staffId]);
+  }, [staffId, isControlled]);
 
   useEffect(() => {
     if (!openEditChangeId || items.length === 0) return;
@@ -926,7 +1135,7 @@ export function StaffEmploymentPathPositionSalary({
           ) : null}
         </div>
 
-        {pending && items.length === 0 ? (
+        {loading && items.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-black/50">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             Loading history…
@@ -934,35 +1143,30 @@ export function StaffEmploymentPathPositionSalary({
         ) : null}
 
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {error}
-          </p>
+          <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <p>{error}</p>
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="text-xs font-medium underline underline-offset-2"
+              >
+                Try again
+              </button>
+            ) : null}
+          </div>
         ) : null}
 
-        {!pending && !error && items.length === 0 ? (
+        {!loading && !error && items.length === 0 ? (
           <div className="space-y-3">
             {joiningDate ? (
-              <ul className="relative space-y-3 border-l border-black/10 ml-1.5">
-                <li className="relative pl-6">
-                  <span
-                    className="absolute left-0 top-3 size-2.5 -translate-x-[5px] rounded-full border-2 border-white bg-black/25 shadow-sm ring-1 ring-black/10"
-                    aria-hidden
-                  />
-                  <div className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-3 sm:px-4">
-                    <p className="text-sm font-medium tabular-nums text-[#3D421F]">
-                      {formatDateOnly(joiningDate)}
-                    </p>
-                    <p className="mt-1 text-sm text-black/50">
-                      Employment started
-                      {currentPositionId
-                        ? ` · ${
-                            positions.find((p) => p.id === currentPositionId)
-                              ?.name ?? ""
-                          }`
-                        : ""}
-                    </p>
-                  </div>
-                </li>
+              <ul className="relative ml-1.5 space-y-3 border-l border-black/10">
+                <EmploymentStartedMarker
+                  joiningDate={joiningDate}
+                  start={startingEmployment}
+                  canViewSalary={canViewSalary}
+                  salaryPct={salaryPct}
+                />
               </ul>
             ) : null}
             <p className="text-sm text-black/45">
@@ -990,18 +1194,12 @@ export function StaffEmploymentPathPositionSalary({
                 />
               ))}
             {joiningDate ? (
-              <li className="relative pl-6">
-                <span
-                  className="absolute left-0 top-3 size-2.5 rounded-full border-2 border-white bg-black/25 shadow-sm ring-1 ring-black/10"
-                  aria-hidden
-                />
-                <div className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-3 sm:px-4">
-                  <p className="text-sm font-medium tabular-nums text-[#3D421F]">
-                    {formatDateOnly(joiningDate)}
-                  </p>
-                  <p className="mt-1 text-sm text-black/50">Employment started</p>
-                </div>
-              </li>
+              <EmploymentStartedMarker
+                joiningDate={joiningDate}
+                start={startingEmployment}
+                canViewSalary={canViewSalary}
+                salaryPct={salaryPct}
+              />
             ) : null}
           </ul>
         ) : null}
@@ -1024,14 +1222,14 @@ export function StaffEmploymentPathPositionSalary({
           salaryPct={salaryPct}
           editingItem={editingItem}
           onSaved={({ item, staffPatch }) => {
-            setItems((prev) => {
-              const without = prev.filter((row) => row.id !== item.id);
-              return [item, ...without].sort((a, b) => {
+            const without = items.filter((row) => row.id !== item.id);
+            setItems(
+              [item, ...without].sort((a, b) => {
                 const byDate = b.effectiveDate.localeCompare(a.effectiveDate);
                 if (byDate !== 0) return byDate;
                 return b.createdAt.localeCompare(a.createdAt);
-              });
-            });
+              }),
+            );
             onApplied?.(staffPatch);
           }}
         />

@@ -53,9 +53,16 @@ function lanDevOrigins(): string[] {
 
 const DEV_LAN_ORIGINS = lanDevOrigins();
 
+/** Loopback hosts browsers use for the same machine. Keep these even when `next dev` binds 0.0.0.0. */
+const LOCAL_DEV_ORIGINS = ["localhost", "127.0.0.1", "::1"];
+
 const nextConfig: NextConfig = {
-  // Allow ngrok / LAN phones to load /_next assets in `next dev`.
-  allowedDevOrigins: [...NGROK_DEV_ORIGINS, ...DEV_LAN_ORIGINS],
+  // Allow ngrok / LAN phones / loopback to load /_next assets in `next dev`.
+  allowedDevOrigins: [
+    ...LOCAL_DEV_ORIGINS,
+    ...NGROK_DEV_ORIGINS,
+    ...DEV_LAN_ORIGINS,
+  ],
   // Trace from the workspace root so pnpm's symlinked store is followed.
   outputFileTracingRoot: workspaceRoot,
   // sharp is a native module; keep it external and ship its platform binaries.

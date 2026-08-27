@@ -1,13 +1,37 @@
 import { AccessDeniedBounce } from "@/components/access-denied-bounce";
-import { ModuleShortcuts } from "@/components/layout/module-shortcuts";
 import { SentimentDashboardMetrics } from "@/components/sentiment/dashboard-metrics";
 import { SentimentWelcome } from "@/components/sentiment/sentiment-welcome";
 import {
   canAccessOverview,
+  canEditActions,
+  canEditReviews,
   firstAccessibleSentimentPath,
 } from "@/lib/sentiment/permissions";
 import { getSentimentPageContext } from "@/lib/sentiment/page-context";
-import { listReviewActions, listReviews } from "@/lib/sentiment/store";
+import {
+  getReviewSource,
+  listReplyTemplates,
+  listReviewActions,
+  listReviews,
+} from "@/lib/sentiment/store";
+import {
+  currentMonthKeyInDubai,
+  currentWeekMondayInDubai,
+  lastTwelveMonthKeys,
+  reviewPeriodQuery,
+} from "@/lib/sentiment/review-period";
+import { createServiceClient } from "@/lib/supabase/service";
+import {
+  countMenuItemMentions,
+  countReviewTopics,
+  countStaffMentions,
+  isOpenActionReview,
+  isUnrepliedReview,
+  monthStripStats,
+  reviewsInMonth,
+  staffSearchNames,
+  summarizeReviewPeriod,
+} from "@/lib/sentiment/review-insights";
 import { scopedPath } from "@/lib/venue/active-venue";
 import { redirect } from "next/navigation";
 
@@ -23,15 +47,37 @@ export default async function SentimentDashboardPage() {
     return <AccessDeniedBounce />;
   }
 
-  const [{ data: profile }, reviews, actions] = await Promise.all([
-    supabase.from("profiles").select("full_name").eq("id", user.id).single(),
-    listReviews(supabase, venue.id).catch(() => []),
-    listReviewActions(supabase, venue.id).catch(() => []),
-  ]);
+  const [{ data: profile }, reviews, actions, templates, source, staffRows] =
+    await Promise.all([
+      supabase.from("profiles").select("full_name").eq("id", user.id).single(),
+      listReviews(supabase, venue.id).catch(() => []),
+      listReviewActions(supabase, venue.id).catch(() => []),
+      listReplyTemplates(supabase, venue.id).catch(() => []),
+      getReviewSource(supabase, venue.id, "google").catch(() => null),
+      venue.is_global
+        ? Promise.resolve(
+            [] as Array<{
+              first_name: string | null;
+              last_name: string | null;
+              full_name: string | null;
+            }>,
+          )
+        : (async () => {
+            try {
+              const { data } = await createServiceClient()
+                .from("staff")
+                .select("first_name, last_name, full_name")
+                .eq("home_venue_id", venue.id);
+              return data ?? [];
+            } catch {
+              return [];
+            }
+          })(),
+    ]);
 
   const userName = (profile?.full_name as string | null)?.trim() || null;
 
-  function ratingSummary(channel?: "google" | "tripadvisor") {
+  function ratingSummary(channel?: "google" | "tripadvisor" | "guest") {
     const rated = reviews.filter(
       (review) =>
         typeof review.rating === "number" &&
@@ -49,35 +95,25 @@ export default async function SentimentDashboardPage() {
   const venueRate = ratingSummary();
   const googleRate = ratingSummary("google");
   const tripadvisorRate = ratingSummary("tripadvisor");
-  const thisMonth = reviews.filter((review) => {
-    if (!review.reviewed_at) return false;
-    const date = new Date(review.reviewed_at);
-    const now = new Date();
-    return (
-      date.getFullYear() === now.getFullYear() &&
-      date.getMonth() === now.getMonth()
-    );
-  }).length;
-  const unreplied = reviews.filter(
-    (review) => review.comment && !review.reply_text,
-  ).length;
-  const actionByReview = new Map(actions.map((action) => [action.review_id, action]));
-  const openActions = reviews.filter((review) => {
-    const action = actionByReview.get(review.id);
-    if (action) {
-      return action.status === "open" || action.status === "in_progress";
-    }
-    return typeof review.rating === "number" && review.rating <= 3;
-  }).length;
+  const guestRate = ratingSummary("guest");
+  const monthKey = currentMonthKeyInDubai();
+  const weekQuery = reviewPeriodQuery({
+    period: "week",
+    weekKey: currentWeekMondayInDubai(),
+  });
+  const overall = summarizeReviewPeriod(reviews);
+  const thisMonth = summarizeReviewPeriod(reviewsInMonth(reviews, monthKey));
+  const actionsByReviewId = Object.fromEntries(
+    actions.map((action) => [action.review_id, action]),
+  );
+  const unreplied = reviews.filter(isUnrepliedReview);
+  const openActions = reviews.filter((review) =>
+    isOpenActionReview(review, actionsByReviewId[review.id]),
+  );
 
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
       <SentimentWelcome venue={venue} userName={userName} />
-
-      <div>
-        <ModuleShortcuts basePath="/sentiment" ariaLabel="Sentiment apps" />
-        <hr className="mt-4 border-black/10" />
-      </div>
 
       <SentimentDashboardMetrics
         venue={{
@@ -91,49 +127,66 @@ export default async function SentimentDashboardPage() {
         }}
         ratings={[
           {
-            label: "Venue Rate",
+            label: "Venue Overall Rate",
             rating: venueRate.rating,
-            hint:
-              venueRate.rating != null
-                ? `across ${venueRate.count} imported reviews`
-                : "Import reviews to populate this",
+            count: venueRate.count,
+            href: `/sentiment/reviews?${weekQuery}`,
+            hintAfter: "imported reviews",
+            emptyHint: "Import reviews to populate this",
           },
           {
             label: "Google",
             channel: "google",
             rating: googleRate.rating,
-            hint:
-              googleRate.rating != null
-                ? `across ${googleRate.count} Google reviews`
-                : "No Google reviews yet",
+            count: googleRate.count,
+            href: `/sentiment/reviews/google?${weekQuery}`,
+            hintAfter: "Google reviews",
+            emptyHint: "No Google reviews yet",
           },
           {
             label: "TripAdvisor",
             channel: "tripadvisor",
             rating: tripadvisorRate.rating,
-            hint:
-              tripadvisorRate.rating != null
-                ? `across ${tripadvisorRate.count} TripAdvisor reviews`
-                : "No TripAdvisor reviews yet",
+            count: tripadvisorRate.count,
+            href: `/sentiment/reviews/tripadvisor?${weekQuery}`,
+            hintAfter: "TripAdvisor reviews",
+            emptyHint: "No TripAdvisor reviews yet",
+          },
+          {
+            label: "Feedback Form",
+            channel: "guest",
+            rating: guestRate.rating,
+            count: guestRate.count,
+            href: `/sentiment/reviews/guest?${weekQuery}`,
+            hintAfter: "feedback form reviews",
+            emptyHint: "No feedback form reviews yet",
           },
         ]}
-        metrics={[
-          {
-            label: "This month",
-            value: String(thisMonth),
-            hint: "Reviews dated in the current month",
-          },
-          {
-            label: "Awaiting reply",
-            value: String(unreplied),
-            hint: "Written reviews without an owner reply yet",
-          },
-          {
-            label: "Open actions",
-            value: String(openActions),
-            hint: "1–3 star reviews or follow-ups still in progress",
-          },
-        ]}
+        followUp={{
+          unreplied,
+          openActions,
+          actionsByReviewId,
+          canEdit: canEditReviews(permissions, venue.id),
+          canEditActions:
+            canEditActions(permissions, venue.id) ||
+            canEditReviews(permissions, venue.id),
+          googleCanPost: Boolean(
+            source?.connected_via_oauth &&
+              source.external_account_id &&
+              source.external_location_id,
+          ),
+          venueName: venue.name,
+          templates,
+        }}
+        thisMonth={thisMonth}
+        thisMonthReviews={reviewsInMonth(reviews, monthKey)}
+        topicCounts={countReviewTopics(reviews)}
+        menuItemMentions={countMenuItemMentions(reviews)}
+        staffMentions={countStaffMentions(reviews, staffSearchNames(staffRows))}
+        overall={overall}
+        overallReviews={reviews}
+        monthStrip={monthStripStats(reviews, lastTwelveMonthKeys())}
+        selectedMonthKey={monthKey}
       />
     </div>
   );

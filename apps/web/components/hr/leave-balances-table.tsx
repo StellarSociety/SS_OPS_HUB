@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
+import { ScopedLink } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -862,7 +863,15 @@ export function LeaveBalancesTable({
                       />
                     </td>
                     <td className="px-3 py-2.5 font-medium text-[#3D421F]">
-                      {row.fullName}
+                      <ScopedLink
+                        href={`/hr/attendance/leave/balances?staffId=${encodeURIComponent(row.staffId)}&year=${year}`}
+                        prefetch={false}
+                        title="Open leave page"
+                        className="hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {row.fullName}
+                      </ScopedLink>
                     </td>
                     <td className="px-3 py-2.5 text-black/55">
                       {row.departmentName ?? "—"}

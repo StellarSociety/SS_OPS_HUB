@@ -27,6 +27,7 @@ export type StaffFormState = {
   passport_no: string;
   passport_expiry: string;
   eid_no: string;
+  eid_issue_date: string;
   eid_expiry: string;
   iban: string;
   swift_code: string;
@@ -75,6 +76,7 @@ export function emptyStaffForm(empNo: string): StaffFormState {
     passport_no: "",
     passport_expiry: "",
     eid_no: "",
+    eid_issue_date: "",
     eid_expiry: "",
     iban: "",
     swift_code: "",
@@ -122,6 +124,7 @@ export function staffToForm(s: StaffWithLookups): StaffFormState {
     passport_no: str(s.passport_no),
     passport_expiry: str(s.passport_expiry),
     eid_no: str(s.eid_no),
+    eid_issue_date: str(s.eid_issue_date),
     eid_expiry: str(s.eid_expiry),
     iban: str(s.iban),
     swift_code: str(s.swift_code),

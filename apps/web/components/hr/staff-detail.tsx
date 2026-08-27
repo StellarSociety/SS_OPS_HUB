@@ -30,6 +30,7 @@ import {
 } from "@/components/hr/staff-entry-form";
 import { StaffPdfDocument } from "@/components/hr/staff-pdf-document";
 import { PayrollPaidDaysCalendarDialog } from "@/components/hr/payroll-paid-days-calendar-dialog";
+import { StaffMissingDetailsShortcut } from "@/components/hr/staff-missing-details-shortcut";
 import { toast } from "@/components/ui/toast";
 import { updateStaff } from "@/lib/actions/hr";
 import { getStaffCurrentPayrollSchedule } from "@/lib/actions/hr-staff-payroll-schedule";
@@ -135,17 +136,21 @@ export function StaffDetailView({
     setPhotoUrl(staff.photo_url ?? null);
   }, [staff.photo_url]);
 
-  // Warm Schedule cache while the user looks at the profile.
+  // Warm Schedule cache after the profile is idle so it does not compete
+  // with Save (browsers only allow ~6 HTTP/1.1 connections to localhost).
   useEffect(() => {
-    void loadScheduleMonth({
-      staffId: staff.id,
-      empNo: staff.emp_no,
-      fullName: staff.full_name,
-      joiningDate: staff.joining_date || null,
-      terminationDate: staff.termination_date || null,
-      payrollMonth: null,
-      silent: true,
-    });
+    const timer = window.setTimeout(() => {
+      void loadScheduleMonth({
+        staffId: staff.id,
+        empNo: staff.emp_no,
+        fullName: staff.full_name,
+        joiningDate: staff.joining_date || null,
+        terminationDate: staff.termination_date || null,
+        payrollMonth: null,
+        silent: true,
+      });
+    }, 4000);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- warm once per staff id
   }, [staff.id]);
 
@@ -506,7 +511,7 @@ export function StaffDetailView({
             </div>
 
             <div
-              className="flex w-full flex-col self-start overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-40 sm:shrink-0"
+              className="flex w-full flex-col self-start overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-44 sm:shrink-0"
               aria-label="Shortcuts"
             >
               <p
@@ -517,6 +522,15 @@ export function StaffDetailView({
               >
                 Shortcuts
               </p>
+              <StaffMissingDetailsShortcut
+                staffId={staff.id}
+                form={value}
+                photoUrl={photoUrl}
+                canViewSalary={canViewSalary}
+                canEdit={canEdit}
+                onOpenTab={setActiveTab}
+                onRequestEdit={() => setEditing(true)}
+              />
               <button
                 type="button"
                 disabled={scheduleLoading}

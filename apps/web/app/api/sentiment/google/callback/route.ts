@@ -17,7 +17,9 @@ import { GLOBAL_BASE, venueBase } from "@/lib/venue/scope-routing";
 export const dynamic = "force-dynamic";
 
 function settingsUrl(slug: string | null, query: Record<string, string>): string {
-  const base = slug ? `${venueBase(slug)}/sentiment/settings` : `${GLOBAL_BASE}/settings/sentiment`;
+  const base = slug
+    ? `${venueBase(slug)}/sentiment/settings/google`
+    : `${GLOBAL_BASE}/settings/sentiment/google`;
   const params = new URLSearchParams(query);
   return `${base}?${params.toString()}`;
 }

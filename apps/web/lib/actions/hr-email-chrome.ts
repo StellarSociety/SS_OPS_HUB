@@ -17,6 +17,8 @@ import {
 } from "@/lib/hr/permissions";
 import {
   DEFAULT_HR_EMAIL_CHROME_SETTINGS,
+  EMAIL_CHROME_SOCIAL_LINK_KEYS,
+  emailChromeSocialFormName,
   HR_MODULE_KEY,
   HR_SETTINGS_KEYS,
   type HrEmailChromeSettings,
@@ -63,9 +65,10 @@ export async function saveEmailChromeSettings(
       };
     }
 
-    const value = chromeFromFormData(formData, venue);
-
     const service = createServiceClient();
+    const current = await loadEmailChromeForVenue(service, venue);
+    const value = chromeFromFormData(formData, venue, current);
+
     const { error } = await service.from("hr_venue_settings").upsert(
       {
         venue_id: venue.id,
@@ -92,6 +95,8 @@ export async function saveEmailChromeSettings(
 
     revalidatePath("/hr/settings/emails", "layout");
     revalidatePath("/hr/settings/emails/header-footer", "page");
+    revalidatePath("/sentiment/guest-feedback/socials", "page");
+    revalidatePath("/sentiment/guest-feedback/simulator", "page");
     return { ok: true };
   } catch (err) {
     return {
@@ -107,7 +112,15 @@ export async function saveEmailChromeSettings(
 function chromeFromFormData(
   formData: FormData,
   venue: { slug?: string | null; name?: string | null },
+  current?: HrEmailChromeSettings,
 ): HrEmailChromeSettings {
+  const socials = Object.fromEntries(
+    EMAIL_CHROME_SOCIAL_LINK_KEYS.map((key) => {
+      const name = emailChromeSocialFormName(key);
+      if (!formData.has(name) && current) return [key, current[key]];
+      return [key, String(formData.get(name) ?? "")];
+    }),
+  );
   return resolveEmailChromeForVenue(
     mergeEmailChromeSettings({
       enabled: String(formData.get("enabled") ?? "true") === "true",
@@ -115,12 +128,7 @@ function chromeFromFormData(
         formData.get("header_background_color") ?? "",
       ),
       footerText: String(formData.get("footer_text") ?? ""),
-      websiteUrl: String(formData.get("website_url") ?? ""),
-      instagramUrl: String(formData.get("instagram_url") ?? ""),
-      facebookUrl: String(formData.get("facebook_url") ?? ""),
-      linkedinUrl: String(formData.get("linkedin_url") ?? ""),
-      tiktokUrl: String(formData.get("tiktok_url") ?? ""),
-      snapchatUrl: String(formData.get("snapchat_url") ?? ""),
+      ...socials,
     }),
     venue,
   );
@@ -149,7 +157,8 @@ export async function sendTestEmailChrome(
       return { ok: false, error: "Enter a valid test recipient email." };
     }
 
-    const chrome = chromeFromFormData(formData, venue);
+    const current = await loadEmailChromeForVenue(supabase, venue);
+    const chrome = chromeFromFormData(formData, venue, current);
     const sampleBody = [
       "This is a test of the HR email header and footer.",
       "",

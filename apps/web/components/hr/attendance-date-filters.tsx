@@ -172,10 +172,12 @@ function usePopoverPosition(open: boolean, containerRef: React.RefObject<HTMLEle
 type AttendanceMultiWeekPickerProps = {
   selectedWeekKeys: string[];
   onChange: (weekKeys: string[]) => void;
-  /** Field label above the trigger. Defaults to "Weeks". */
+  /** Field label above the trigger. Defaults to "Weeks". Empty string hides it. */
   fieldLabel?: string;
   /** Trigger text when nothing is selected. Defaults to "Any week". */
   emptyLabel?: string;
+  /** Pick one week and close. Defaults to multi-select. */
+  single?: boolean;
 };
 
 export function AttendanceMultiWeekPicker({
@@ -183,6 +185,7 @@ export function AttendanceMultiWeekPicker({
   onChange,
   fieldLabel = "Weeks",
   emptyLabel = "Any week",
+  single = false,
 }: AttendanceMultiWeekPickerProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -236,6 +239,11 @@ export function AttendanceMultiWeekPicker({
   }, [open]);
 
   function toggleWeek(weekKey: string) {
+    if (single) {
+      onChange([weekKey]);
+      setOpen(false);
+      return;
+    }
     const next = new Set(selected);
     if (next.has(weekKey)) next.delete(weekKey);
     else next.add(weekKey);
@@ -250,9 +258,11 @@ export function AttendanceMultiWeekPicker({
   return (
     <>
       <div ref={containerRef} className="flex flex-col gap-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-          {fieldLabel}
-        </span>
+        {fieldLabel ? (
+          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+            {fieldLabel}
+          </span>
+        ) : null}
         <button
           type="button"
           aria-controls={calendarId}
@@ -262,7 +272,8 @@ export function AttendanceMultiWeekPicker({
           onClick={() => {
             if (open) setOpen(false);
             else {
-              setViewMonth(monthStart(new Date()));
+              const focus = parseIsoDate(selectedWeekKeys[0] ?? "");
+              setViewMonth(monthStart(focus ?? new Date()));
               update();
               setOpen(true);
             }
@@ -388,19 +399,21 @@ export function AttendanceMultiWeekPicker({
                   })}
                 </div>
 
-                <div className="mt-3 flex items-center justify-between gap-2 border-t border-black/5 pt-2">
-                  <p className="text-[10px] text-black/45">
-                    Click weeks to multi-select
-                  </p>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => onChange([])}
-                    className="rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[#3D421F] hover:bg-[var(--venue-secondary)]/35"
-                  >
-                    Clear
-                  </button>
-                </div>
+                {single ? null : (
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-black/5 pt-2">
+                    <p className="text-[10px] text-black/45">
+                      Click weeks to multi-select
+                    </p>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => onChange([])}
+                      className="rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[#3D421F] hover:bg-[var(--venue-secondary)]/35"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
             </div>,
             document.body,
@@ -507,9 +520,11 @@ export function AttendanceDayRangePicker({
   return (
     <>
       <div ref={containerRef} className="flex flex-col gap-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-          {fieldLabel}
-        </span>
+        {fieldLabel ? (
+          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+            {fieldLabel}
+          </span>
+        ) : null}
         <button
           type="button"
           aria-controls={calendarId}
@@ -961,11 +976,17 @@ export function AttendancePayrollMonthPicker({
 type AttendanceMultiMonthPickerProps = {
   selectedMonthKeys: string[];
   onChange: (monthKeys: string[]) => void;
+  /** Field label above the trigger. Defaults to "Months". Empty string hides it. */
+  fieldLabel?: string;
+  /** Pick one month and close. Defaults to multi-select. */
+  single?: boolean;
 };
 
 export function AttendanceMultiMonthPicker({
   selectedMonthKeys,
   onChange,
+  fieldLabel = "Months",
+  single = false,
 }: AttendanceMultiMonthPickerProps) {
   const calendarId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1023,6 +1044,11 @@ export function AttendanceMultiMonthPicker({
   }, [open]);
 
   function toggleMonth(monthKey: string) {
+    if (single) {
+      onChange([monthKey]);
+      setOpen(false);
+      return;
+    }
     const next = new Set(selected);
     if (next.has(monthKey)) next.delete(monthKey);
     else next.add(monthKey);
@@ -1042,9 +1068,11 @@ export function AttendanceMultiMonthPicker({
   return (
     <>
       <div ref={containerRef} className="flex flex-col gap-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
-          Months
-        </span>
+        {fieldLabel ? (
+          <span className="text-[11px] font-medium uppercase tracking-wide text-black/45">
+            {fieldLabel}
+          </span>
+        ) : null}
         <button
           type="button"
           aria-controls={calendarId}
@@ -1054,7 +1082,11 @@ export function AttendanceMultiMonthPicker({
           onClick={() => {
             if (open) setOpen(false);
             else {
-              setViewYear(new Date().getFullYear());
+              const focus = selectedMonthKeys[0];
+              const year = focus
+                ? Number(focus.slice(0, 4))
+                : new Date().getFullYear();
+              setViewYear(year || new Date().getFullYear());
               update();
               setOpen(true);
             }
@@ -1138,19 +1170,21 @@ export function AttendanceMultiMonthPicker({
                   })}
                 </div>
 
-                <div className="mt-3 flex items-center justify-between gap-2 border-t border-black/5 pt-2">
-                  <p className="text-[10px] text-black/45">
-                    Click months to multi-select
-                  </p>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => onChange([])}
-                    className="rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[#3D421F] hover:bg-[var(--venue-secondary)]/35"
-                  >
-                    Clear
-                  </button>
-                </div>
+                {single ? null : (
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-black/5 pt-2">
+                    <p className="text-[10px] text-black/45">
+                      Click months to multi-select
+                    </p>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => onChange([])}
+                      className="rounded-md px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[#3D421F] hover:bg-[var(--venue-secondary)]/35"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
               </div>
             </div>,
             document.body,

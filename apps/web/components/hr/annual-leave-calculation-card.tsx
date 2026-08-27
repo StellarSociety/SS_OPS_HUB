@@ -145,7 +145,7 @@ export function AnnualLeaveCalculationCard({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40"
+        className="flex w-full items-center justify-between gap-3 rounded-t-md border-b border-black/10 pb-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40"
       >
         <h3 className="flex items-center gap-2 font-serif text-lg text-[#3D421F]">
           <Calculator
@@ -165,7 +165,7 @@ export function AnnualLeaveCalculationCard({
       </button>
       <div className="mt-4 grid grid-cols-2 divide-x divide-black/10">
         <div className="pr-6 text-center">
-          <p className="text-sm text-[#3D421F]">Employment Duration</p>
+          <p className="text-base font-bold text-[#3D421F]">Employment Duration</p>
           <p
             className="mt-1 text-sm font-medium tabular-nums text-[#3D421F]"
             title="Calendar time from joining until termination (or as-of date)"
@@ -174,7 +174,7 @@ export function AnnualLeaveCalculationCard({
           </p>
         </div>
         <div className="pl-6 text-center">
-          <p className="text-sm text-[#3D421F]">Work Time</p>
+          <p className="text-base font-bold text-[#3D421F]">Work Time</p>
           <p
             className="mt-1 text-sm font-medium tabular-nums text-[#3D421F]"
             title="Employment duration minus unpaid leave (UPL) and unauthorised absence (ABS)"
@@ -183,28 +183,6 @@ export function AnnualLeaveCalculationCard({
           </p>
         </div>
       </div>
-      {open ? (
-        <blockquote className="relative mt-3 rounded-lg bg-red-50 px-10 py-4">
-          <span
-            className="pointer-events-none absolute left-2 top-0 font-serif text-5xl leading-none text-red-600/70"
-            aria-hidden
-          >
-            ❝
-          </span>
-          <p className="text-center text-sm leading-relaxed text-red-700">
-            Qualifying service excludes approved unpaid leave and absence days
-            first. Entitlement is then calculated from that service — those days
-            are never deducted from the leave balance. UAE Federal Decree-Law
-            No. 33 of 2021, Articles 29 and 33.
-          </p>
-          <span
-            className="pointer-events-none absolute bottom-0 right-2 font-serif text-5xl leading-none text-red-600/70"
-            aria-hidden
-          >
-            ❞
-          </span>
-        </blockquote>
-      ) : null}
       {open ? (
       <div className="mt-4 space-y-3">
         <Row
@@ -294,6 +272,26 @@ export function AnnualLeaveCalculationCard({
           hint={`Exact remainder ${formatLeaveDays(calculation.finalAnnualLeaveBalance)} days, rounded to the nearest day for balances`}
           emphasize
         />
+        <blockquote className="relative mt-1 rounded-lg bg-black/[0.04] px-10 py-4">
+          <span
+            className="pointer-events-none absolute left-2 top-0 font-serif text-5xl leading-none text-black/25"
+            aria-hidden
+          >
+            ❝
+          </span>
+          <p className="text-center text-sm leading-relaxed text-black/55">
+            Qualifying service excludes approved unpaid leave and absence days
+            first. Entitlement is then calculated from that service — those days
+            are never deducted from the leave balance. UAE Federal Decree-Law
+            No. 33 of 2021, Articles 29 and 33.
+          </p>
+          <span
+            className="pointer-events-none absolute bottom-0 right-2 font-serif text-5xl leading-none text-black/25"
+            aria-hidden
+          >
+            ❞
+          </span>
+        </blockquote>
       </div>
       ) : null}
     </section>

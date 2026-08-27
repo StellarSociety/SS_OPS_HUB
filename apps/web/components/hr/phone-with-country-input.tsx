@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   DEFAULT_PHONE_COUNTRY_CODE,
+  detectBrowserPhoneCountryCode,
   joinPhone,
   PHONE_COUNTRY_CODES,
   splitPhone,
@@ -30,6 +31,12 @@ type PhoneWithCountryInputProps = {
   whatsappLink?: boolean;
   /** Keep a trailing action-sized slot so rows align with linked fields. */
   reserveTrailing?: boolean;
+  /**
+   * When the number is empty, set the dial code from the browser timezone
+   * or language (falls back to UAE +971).
+   */
+  autoDetectCountry?: boolean;
+  required?: boolean;
 };
 
 function WhatsAppGlyph({ className }: { className?: string }) {
@@ -57,12 +64,24 @@ export function PhoneWithCountryInput({
   inputClassName,
   whatsappLink = false,
   reserveTrailing = false,
+  autoDetectCountry = false,
+  required = false,
 }: PhoneWithCountryInputProps) {
+  const [detectedCode, setDetectedCode] = useState(DEFAULT_PHONE_COUNTRY_CODE);
+  const [pickedCode, setPickedCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!autoDetectCountry) return;
+    setDetectedCode(detectBrowserPhoneCountryCode());
+  }, [autoDetectCountry]);
+
   const { countryCode, national } = splitPhone(value);
-  const code =
-    PHONE_COUNTRY_CODES.some((c) => c.code === countryCode)
+  const empty = !(value ?? "").trim();
+  const code = empty
+    ? (pickedCode ?? (autoDetectCountry ? detectedCode : DEFAULT_PHONE_COUNTRY_CODE))
+    : PHONE_COUNTRY_CODES.some((c) => c.code === countryCode)
       ? countryCode
-      : DEFAULT_PHONE_COUNTRY_CODE;
+      : pickedCode ?? detectedCode;
 
   const options = useMemo(
     () =>
@@ -77,10 +96,17 @@ export function PhoneWithCountryInput({
   const chatUrl = whatsappLink ? whatsappChatUrl(value) : null;
 
   function setCode(nextCode: string) {
-    onChange(joinPhone(nextCode || DEFAULT_PHONE_COUNTRY_CODE, national));
+    const next = nextCode || DEFAULT_PHONE_COUNTRY_CODE;
+    setPickedCode(next);
+    onChange(joinPhone(next, national));
   }
 
   function setNational(nextNational: string) {
+    const trimmed = nextNational.trim();
+    if (trimmed.startsWith("+") || trimmed.startsWith("00")) {
+      onChange(trimmed);
+      return;
+    }
     onChange(joinPhone(code, nextNational));
   }
 
@@ -139,6 +165,7 @@ export function PhoneWithCountryInput({
         value={national}
         onChange={(e) => setNational(e.target.value)}
         disabled={disabled}
+        required={required}
         placeholder={placeholder}
         className={cn(inputClassName, "min-w-0 flex-1")}
       />

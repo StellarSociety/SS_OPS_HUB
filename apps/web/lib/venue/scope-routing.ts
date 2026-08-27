@@ -36,6 +36,7 @@ export const VENUE_APP_ROOTS = [
   "/sales",
   "/accounting",
   "/sentiment",
+  "/guests-intel",
   "/save-log",
   "/mobile",
   "/settings",
@@ -56,6 +57,9 @@ const UNSCOPED_PREFIXES = [
   "/auth",
   "/api",
   "/acknowledge",
+  "/g",
+  "/f",
+  "/live",
 ] as const;
 
 export function isUnscopedPath(path: string): boolean {

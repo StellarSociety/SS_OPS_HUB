@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
+import { ReviewsPeriodFilter } from "@/components/sentiment/reviews-period-filter";
 import { ReviewsSubNav } from "@/components/sentiment/reviews-sub-nav";
 import { canAccessReviews } from "@/lib/sentiment/permissions";
 import { getSentimentPageContext } from "@/lib/sentiment/page-context";
@@ -20,14 +22,20 @@ export default async function SentimentReviewsLayout({
       <div>
         <ModulePageTitle>Reviews</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
-          Guest reviews for {venue.name} — reply, start a follow-up, and keep
-          ratings in view.
+          Guest reviews for {venue.name}.
         </p>
         <hr className="mt-4 border-black/10" />
       </div>
 
-      <ReviewsSubNav />
-      {children}
+      <div className="space-y-3">
+        <Suspense fallback={null}>
+          <ReviewsSubNav />
+        </Suspense>
+        <Suspense fallback={null}>
+          <ReviewsPeriodFilter />
+        </Suspense>
+        {children}
+      </div>
     </div>
   );
 }

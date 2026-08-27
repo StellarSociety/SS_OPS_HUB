@@ -3,6 +3,10 @@ import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/rende
 import { createServiceClient } from "@/lib/supabase/service";
 import { canEditActions, canEditReviews } from "./permissions";
 import {
+  resolveReviewPeriod,
+  type ReviewPeriodSearchParams,
+} from "./review-period";
+import {
   ensureReplyTemplates,
   getReviewSource,
   listReplyTemplates,
@@ -39,10 +43,18 @@ export async function getSentimentPageContext() {
   return { supabase, venue, permissions: permissions ?? [], user };
 }
 
-export async function getSentimentReviewsPage(channel?: SentimentChannel) {
+export async function getSentimentReviewsPage(
+  channel?: SentimentChannel,
+  searchParams?: ReviewPeriodSearchParams,
+) {
   const ctx = await getSentimentPageContext();
+  const period = resolveReviewPeriod(searchParams);
+  const range =
+    period.fromDate && period.toDate
+      ? { fromDate: period.fromDate, toDate: period.toDate }
+      : null;
   const [reviews, source, templates, actions] = await Promise.all([
-    listReviews(ctx.supabase, ctx.venue.id, channel).catch(
+    listReviews(ctx.supabase, ctx.venue.id, channel, range).catch(
       () => [] as SentimentReview[],
     ),
     getReviewSource(ctx.supabase, ctx.venue.id, "google").catch(() => null),
@@ -61,9 +73,12 @@ export async function getSentimentReviewsPage(channel?: SentimentChannel) {
 
   return {
     reviews,
+    period,
     templates,
     actionsByReviewId,
     venueName: ctx.venue.name,
+    venueId: ctx.venue.id,
+    permissions: ctx.permissions,
     canEdit: canEditReviews(ctx.permissions, ctx.venue.id),
     canEditActions:
       canEditActions(ctx.permissions, ctx.venue.id) ||

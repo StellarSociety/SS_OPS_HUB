@@ -233,10 +233,14 @@ export function StaffPdfDocument({
             <Section title="Documents">
               <Row label="Passport no." value={dash(value.passport_no)} />
               <Row
-                label="Passport expiry"
+                label="Passport Expiry Date"
                 value={formatDateOnly(value.passport_expiry)}
               />
               <Row label="EID no." value={dash(value.eid_no)} />
+              <Row
+                label="EID issue date"
+                value={formatDateOnly(value.eid_issue_date)}
+              />
               <Row
                 label="EID expiry"
                 value={formatDateOnly(value.eid_expiry)}

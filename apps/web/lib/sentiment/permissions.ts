@@ -104,6 +104,52 @@ export function canEditActions(
   );
 }
 
+export function canAccessGuestFeedback(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSentimentFeatureAccess(
+    permissions,
+    SENTIMENT_FEATURES.guest_feedback,
+    venueId,
+  );
+}
+
+export function canEditGuestFeedback(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSentimentPermission(
+    permissions,
+    SENTIMENT_FEATURES.guest_feedback,
+    "edit",
+    venueId,
+  );
+}
+
+export function canAccessLiveDisplay(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSentimentFeatureAccess(
+    permissions,
+    SENTIMENT_FEATURES.live_display,
+    venueId,
+  );
+}
+
+export function canEditLiveDisplay(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return hasSentimentPermission(
+    permissions,
+    SENTIMENT_FEATURES.live_display,
+    "edit",
+    venueId,
+  );
+}
+
 export function canAccessSettings(
   permissions: UserPermission[],
   venueId: string,
@@ -133,7 +179,13 @@ export function firstAccessibleSentimentPath(
 ): string | null {
   if (canAccessOverview(permissions, venueId)) return "/sentiment";
   if (canAccessReviews(permissions, venueId)) return "/sentiment/reviews";
+  if (canAccessGuestFeedback(permissions, venueId)) {
+    return "/sentiment/guest-feedback";
+  }
   if (canAccessActions(permissions, venueId)) return "/sentiment/actions";
+  if (canAccessLiveDisplay(permissions, venueId)) {
+    return "/sentiment/live-display";
+  }
   if (canAccessSettings(permissions, venueId)) return "/sentiment/settings";
   return null;
 }

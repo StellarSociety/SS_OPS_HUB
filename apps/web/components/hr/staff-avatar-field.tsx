@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -59,6 +58,51 @@ function extensionForOriginal(file: File): string {
   if (type.includes("gif")) return ".gif";
   if (type.includes("heic") || type.includes("heif")) return ".heic";
   return ".jpg";
+}
+
+/** Initials sit behind the photo so a broken/empty URL still shows a face mark. */
+function StaffAvatarMedia({
+  src,
+  initials,
+  displayName,
+  initialsClassName,
+}: {
+  src: string | null;
+  initials: string;
+  displayName: string;
+  initialsClassName: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  const showPhoto = Boolean(src?.trim()) && !failed;
+
+  return (
+    <>
+      <div
+        className={cn(
+          "flex h-full w-full items-center justify-center bg-[#3D421F] font-medium text-white",
+          initialsClassName,
+        )}
+        aria-hidden={showPhoto}
+      >
+        {initials}
+      </div>
+      {showPhoto ? (
+        // eslint-disable-next-line @next/next/no-img-element -- staff photo URL from storage
+        <img
+          src={src!}
+          alt={displayName}
+          className="absolute inset-0 h-full w-full object-cover"
+          draggable={false}
+          onError={() => setFailed(true)}
+        />
+      ) : null}
+    </>
+  );
 }
 
 export function StaffAvatarField({
@@ -307,19 +351,12 @@ export function StaffAvatarField({
         className,
       )}
     >
-      {preview ? (
-        <Image
-          src={preview}
-          alt={displayName}
-          fill
-          className="object-cover"
-          unoptimized
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-3xl font-medium text-white sm:text-4xl">
-          {initials}
-        </div>
-      )}
+      <StaffAvatarMedia
+        src={preview}
+        initials={initials}
+        displayName={displayName}
+        initialsClassName="text-3xl sm:text-4xl"
+      />
       {canEdit ? (
         <span
           className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/45 via-transparent to-transparent pb-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -344,6 +381,7 @@ export function StaffAvatarField({
       {canEdit ? (
         <button
           type="button"
+          id="staff-profile-photo"
           onClick={openPicker}
           disabled={busy}
           className="group relative rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-[#3D421F]/40 focus-visible:ring-offset-2 disabled:opacity-60"
@@ -354,7 +392,7 @@ export function StaffAvatarField({
           {thumb}
         </button>
       ) : (
-        thumb
+        <div id="staff-profile-photo">{thumb}</div>
       )}
 
       <input
@@ -414,12 +452,11 @@ export function StaffAvatarField({
                         className="group relative h-[200px] w-[200px] overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10 outline-none transition focus-visible:ring-2 focus-visible:ring-[#3D421F]/40 focus-visible:ring-offset-2 disabled:opacity-60"
                         aria-label="Adjust crop and position"
                       >
-                        <Image
+                        <StaffAvatarMedia
                           src={preview}
-                          alt={displayName}
-                          fill
-                          className="object-cover"
-                          unoptimized
+                          initials={initials}
+                          displayName={displayName}
+                          initialsClassName="text-4xl"
                         />
                         <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/45 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
                           <Crop className="h-6 w-6 text-white" aria-hidden />
@@ -434,10 +471,13 @@ export function StaffAvatarField({
                         ) : null}
                       </button>
                     ) : (
-                      <div className="relative flex h-[200px] w-[200px] items-center justify-center overflow-hidden rounded-full border-2 border-white bg-[#3D421F] shadow-md ring-1 ring-black/10">
-                        <span className="text-4xl font-medium text-white">
-                          {initials}
-                        </span>
+                      <div className="relative h-[200px] w-[200px] overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10">
+                        <StaffAvatarMedia
+                          src={null}
+                          initials={initials}
+                          displayName={displayName}
+                          initialsClassName="text-4xl"
+                        />
                       </div>
                     )}
                   </div>

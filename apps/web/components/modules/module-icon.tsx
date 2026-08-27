@@ -20,10 +20,11 @@ import {
 } from "lucide-react";
 import { VaultSafe } from "@/components/modules/vault-safe-icon";
 import { SafeLogHaccp } from "@/components/modules/safelog-haccp-icon";
+import { GuestsIntel } from "@/components/modules/guests-intel-icon";
 import type { ModuleIconKey } from "@/lib/module-icons";
 import { cn } from "@/lib/utils";
 
-export { VaultSafe, SafeLogHaccp };
+export { VaultSafe, SafeLogHaccp, GuestsIntel };
 
 /** One chat bubble with three dots — reads at hub size; overlapping squares do not. */
 const TeamMessages = createLucideIcon("messages-square", [
@@ -124,6 +125,7 @@ const MODULE_ICONS: Record<ModuleIconKey, LucideIcon> = {
   martini: Martini,
   wrench: Wrench,
   "scan-face": ScanFace,
+  "guests-intel": GuestsIntel,
   "notebook-pen": SafeLogHaccp,
   "trending-up": TrendingUp,
   "chart-pie": ChartPie,

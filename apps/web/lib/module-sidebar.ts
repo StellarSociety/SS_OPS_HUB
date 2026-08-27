@@ -10,8 +10,11 @@ import {
   GitCompareArrows,
   Gift,
   Landmark,
+  QrCode,
+  ScanQrCode,
   LayoutDashboard,
   LineChart,
+  MessageSquareHeart,
   MessageSquareQuote,
   MessagesSquare,
   ScanFace,
@@ -21,6 +24,7 @@ import {
   FileText,
   Settings,
   Smartphone,
+  Tablet,
   Tag,
   Ticket,
   TrendingUp,
@@ -32,6 +36,7 @@ import {
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { GuestsIntel } from "@/components/modules/guests-intel-icon";
 import { SafeLogHaccp } from "@/components/modules/safelog-haccp-icon";
 
 export type ModuleSidebarItem = {
@@ -268,20 +273,80 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
       },
       {
         label: "Reviews",
-        href: "/sentiment/reviews",
+        href: "/sentiment/reviews?period=week",
         activePathPrefix: "/sentiment/reviews",
         icon: MessageSquareQuote,
+      },
+      {
+        label: "Feedback Form",
+        href: "/sentiment/guest-feedback",
+        activePathPrefix: "/sentiment/guest-feedback",
+        icon: MessageSquareHeart,
+      },
+      {
+        label: "Calendar",
+        href: "/sentiment/calendar",
+        icon: CalendarDays,
       },
       {
         label: "Actions",
         href: "/sentiment/actions",
         icon: ClipboardList,
       },
+      {
+        label: "Live Display",
+        href: "/sentiment/live-display",
+        activePathPrefix: "/sentiment/live-display",
+        icon: Tablet,
+      },
     ],
     bottomItems: [
       {
         label: "Settings",
         href: "/sentiment/settings",
+        icon: Settings,
+      },
+    ],
+  },
+  {
+    moduleKey: "guests_intel",
+    basePath: "/guests-intel",
+    label: "Guests Intel",
+    icon: GuestsIntel,
+    items: [
+      {
+        label: "Dashboard",
+        href: "/guests-intel",
+        exact: true,
+        icon: LayoutDashboard,
+        dividerAfter: true,
+      },
+      {
+        label: "Collect",
+        href: "/guests-intel/collect",
+        icon: QrCode,
+      },
+      {
+        label: "Guests",
+        href: "/guests-intel/guests",
+        activePathPrefix: "/guests-intel/guests",
+        icon: UserRound,
+      },
+      {
+        label: "Rewards",
+        href: "/guests-intel/rewards",
+        icon: Gift,
+      },
+      {
+        label: "Redeem",
+        href: "/guests-intel/redeem",
+        icon: ScanQrCode,
+      },
+    ],
+    bottomItems: [
+      {
+        label: "Settings",
+        href: "/guests-intel/settings",
         icon: Settings,
       },
     ],

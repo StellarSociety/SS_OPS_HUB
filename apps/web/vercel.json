@@ -18,6 +18,10 @@
     {
       "path": "/api/cron/sentiment-google",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/sentiment-apify",
+      "schedule": "30 6 * * *"
     }
   ]
 }

@@ -25,6 +25,24 @@ const STAR_MAP: Record<string, number> = {
   FIVE: 5,
 };
 
+type ReviewMediaItemJson = {
+  thumbnailUrl?: string;
+  thumbnailLabel?: string;
+  videoUrl?: string;
+};
+
+function reviewPhotoUrls(items: ReviewMediaItemJson[] | undefined): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items ?? []) {
+    const src = item.thumbnailUrl?.trim();
+    if (!src || seen.has(src)) continue;
+    seen.add(src);
+    urls.push(src);
+  }
+  return urls;
+}
+
 function idFromName(name: string | undefined, prefix: string): string | null {
   if (!name) return null;
   const parts = name.split("/");
@@ -159,6 +177,7 @@ export async function listGoogleBusinessReviews(
         updateTime?: string;
         reviewReply?: { comment?: string; updateTime?: string };
         reviewReplyUrl?: string;
+        reviewMediaItems?: ReviewMediaItemJson[];
       }>;
       averageRating?: number;
       totalReviewCount?: number;
@@ -189,7 +208,7 @@ export async function listGoogleBusinessReviews(
         replyText: review.reviewReply?.comment ?? null,
         replyAt: review.reviewReply?.updateTime ?? null,
         reviewUrl: review.reviewReplyUrl ?? null,
-        photoUrls: [],
+        photoUrls: reviewPhotoUrls(review.reviewMediaItems),
         raw: review as Record<string, unknown>,
       });
     }

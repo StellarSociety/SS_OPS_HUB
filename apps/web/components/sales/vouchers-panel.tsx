@@ -66,6 +66,7 @@ type VouchersPanelProps = {
   tenders: VenueTender[];
   tenderTotals: VoucherTenderTotals;
   canEdit: boolean;
+  defaultWorkspace?: WorkspaceTab;
 };
 
 type FormState = {
@@ -159,10 +160,11 @@ export function VouchersPanel({
   tenders,
   tenderTotals,
   canEdit,
+  defaultWorkspace = "issue",
 }: VouchersPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [workspace, setWorkspace] = useState<WorkspaceTab>("issue");
+  const [workspace, setWorkspace] = useState<WorkspaceTab>(defaultWorkspace);
   const [formOpen, setFormOpen] = useState(false);
   const [formHost, setFormHost] = useState<FormHost>("page");
   const [issueDayModalOpen, setIssueDayModalOpen] = useState(false);

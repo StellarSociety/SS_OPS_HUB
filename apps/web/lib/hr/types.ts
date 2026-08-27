@@ -1077,6 +1077,7 @@ export type Staff = {
   passport_no: string | null;
   passport_expiry: string | null;
   eid_no: string | null;
+  eid_issue_date: string | null;
   eid_expiry: string | null;
   iban: string | null;
   swift_code: string | null;
@@ -2754,6 +2755,8 @@ export type HrEmailChromeSettings = {
   /** Combined footer copy (disclaimer + company address). */
   footerText: string;
   websiteUrl: string;
+  googleUrl: string;
+  tripadvisorUrl: string;
   instagramUrl: string;
   facebookUrl: string;
   linkedinUrl: string;
@@ -2766,6 +2769,8 @@ export const DEFAULT_HR_EMAIL_CHROME_SETTINGS: HrEmailChromeSettings = {
   headerBackgroundColor: "#F0F3DD",
   footerText: DEFAULT_EMAIL_FOOTER_DISCLAIMER,
   websiteUrl: "",
+  googleUrl: "",
+  tripadvisorUrl: "",
   instagramUrl: "",
   facebookUrl: "",
   linkedinUrl: "",
@@ -2775,6 +2780,8 @@ export const DEFAULT_HR_EMAIL_CHROME_SETTINGS: HrEmailChromeSettings = {
 
 export const EMAIL_CHROME_SOCIAL_LINK_KEYS = [
   "websiteUrl",
+  "googleUrl",
+  "tripadvisorUrl",
   "instagramUrl",
   "facebookUrl",
   "linkedinUrl",
@@ -2785,10 +2792,25 @@ export const EMAIL_CHROME_SOCIAL_LINK_KEYS = [
 export type EmailChromeSocialLinkKey =
   (typeof EMAIL_CHROME_SOCIAL_LINK_KEYS)[number];
 
+/** FormData name for a chrome social URL (`websiteUrl` → `website_url`). */
+export function emailChromeSocialFormName(
+  key: EmailChromeSocialLinkKey,
+): string {
+  return key.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
+}
+
 export const EMAIL_CHROME_SOCIAL_LINKS: {
   key: EmailChromeSocialLinkKey;
   label: string;
-  icon: "website" | "instagram" | "facebook" | "linkedin" | "tiktok" | "snapchat";
+  icon:
+    | "website"
+    | "google"
+    | "tripadvisor"
+    | "instagram"
+    | "facebook"
+    | "linkedin"
+    | "tiktok"
+    | "snapchat";
   placeholder: string;
 }[] = [
   {
@@ -2796,6 +2818,18 @@ export const EMAIL_CHROME_SOCIAL_LINKS: {
     label: "Website",
     icon: "website",
     placeholder: "https://www.example.com",
+  },
+  {
+    key: "googleUrl",
+    label: "Google",
+    icon: "google",
+    placeholder: "https://search.google.com/local/writereview?placeid=…",
+  },
+  {
+    key: "tripadvisorUrl",
+    label: "TripAdvisor",
+    icon: "tripadvisor",
+    placeholder: "https://www.tripadvisor.com/…",
   },
   {
     key: "instagramUrl",

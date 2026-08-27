@@ -1034,10 +1034,6 @@ export async function getEmployeeLeaveBalances(input: {
     };
   }
 
-  if (canEditStaff(permissions, venue.id) || canAdminLookups(permissions, venue.id)) {
-    await ensureLeaveBalancesForYear(year);
-  }
-
   const { data: staffRow, error: staffError } = await supabase
     .from("staff")
     .select(
@@ -1822,20 +1818,6 @@ export async function deleteLeaveBalanceAdjustment(input: {
     return { error: "This adjustment cannot be deleted." };
   }
 
-  const { data: later } = await service
-    .from("hr_leave_balance_adjustments")
-    .select("id")
-    .eq("venue_id", venue.id)
-    .eq("balance_id", String(adjRow.balance_id))
-    .eq("field", field)
-    .gt("created_at", String(adjRow.created_at))
-    .limit(1)
-    .maybeSingle();
-
-  if (later) {
-    return { error: "Delete the newer adjustment on this balance first." };
-  }
-
   const { data: balRow, error: balError } = await service
     .from("hr_leave_balances")
     .select("*")
@@ -2167,7 +2149,9 @@ export type AllowanceDetailsField =
   | "used"
   | "scheduled"
   | "pending"
-  | "available";
+  | "available"
+  | "entitled"
+  | "accrued";
 
 /** Roster / request dates behind an Allowances-by-kind cell. */
 export async function getStaffAllowanceDetails(input: {

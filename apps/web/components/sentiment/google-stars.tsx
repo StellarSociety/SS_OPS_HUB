@@ -7,6 +7,7 @@ const SIZE_CLASS = {
   sm: "h-3.5 w-3.5",
   md: "h-4 w-4",
   lg: "h-8 w-8",
+  xl: "h-10 w-10",
 } as const;
 
 function StarGlyph({
@@ -31,7 +32,7 @@ export function GoogleStars({
 }: {
   rating: number | null;
   className?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   animate?: boolean;
 }) {
   const clamped = Math.max(0, Math.min(5, rating ?? 0));
@@ -42,7 +43,7 @@ export function GoogleStars({
     <span
       className={cn(
         "inline-flex items-center",
-        size === "lg" ? "gap-1" : "gap-px",
+        size === "lg" || size === "xl" ? "gap-1" : "gap-px",
         className,
       )}
       aria-label={`${display} of 5 stars`}

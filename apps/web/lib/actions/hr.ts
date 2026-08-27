@@ -216,6 +216,7 @@ async function importStaffRows(rows: ImportStaffRow[]) {
     const DATE_FIELDS = [
       "dob",
       "passport_expiry",
+      "eid_issue_date",
       "eid_expiry",
       "visa_expiry",
       "contract_expiry",
@@ -496,6 +497,7 @@ async function updateStaffInner(
     revalidatePath("/hr/assets/visa", "layout");
   }
 
+  const prevStatusId = (before.employment_status_id as string | null) ?? null;
   const nextStatusId =
     (typeof updates.employment_status_id === "string"
       ? updates.employment_status_id
@@ -503,9 +505,9 @@ async function updateStaffInner(
     (typeof payload.employment_status_id === "string"
       ? payload.employment_status_id
       : null) ??
-    (before.employment_status_id as string | null);
+    prevStatusId;
 
-  if (nextStatusId) {
+  if (nextStatusId && nextStatusId !== prevStatusId) {
     const { archiveUniformStaffIfEmploymentOut } = await import(
       "@/lib/hr/uniform-store"
     );
@@ -532,8 +534,6 @@ async function updateStaffInner(
   });
 
   revalidatePath(`/hr/${staffId}`);
-  revalidatePath("/hr");
-  revalidatePath("/hr/staff");
   return { success: true };
 }
 
@@ -617,53 +617,46 @@ async function resolveStaffPhotoUpdate({
     }
 
     if (original) {
-      if (original.size > STAFF_PHOTO_MAX_UPLOAD_BYTES) {
-        return { error: "Original photo must be 5 MB or smaller." };
-      }
-      if (!resolveRasterImageMime(uploadBlobMeta(original))) {
-        return {
-          error:
-            "Original photo must be a PNG, JPEG, GIF, AVIF, or WebP image.",
-        };
-      }
-      const originalBytes = Buffer.from(await original.arrayBuffer());
-      if (originalBytes.length === 0) {
-        return { error: "Original photo upload arrived empty." };
-      }
-      let sourceWebp: Awaited<ReturnType<typeof convertImageToWebp>>;
       try {
-        sourceWebp = await convertImageToWebp(originalBytes, {
+        if (original.size > STAFF_PHOTO_MAX_UPLOAD_BYTES) {
+          throw new Error("Original photo must be 5 MB or smaller.");
+        }
+        if (!resolveRasterImageMime(uploadBlobMeta(original))) {
+          throw new Error(
+            "Original photo must be a PNG, JPEG, GIF, AVIF, or WebP image.",
+          );
+        }
+        const originalBytes = Buffer.from(await original.arrayBuffer());
+        if (originalBytes.length === 0) {
+          throw new Error("Original photo upload arrived empty.");
+        }
+        const sourceWebp = await convertImageToWebp(originalBytes, {
           maxWidth: STAFF_PHOTO_SOURCE_MAX_EDGE_PX,
           maxHeight: STAFF_PHOTO_SOURCE_MAX_EDGE_PX,
         });
+
+        await service.storage
+          .from(STAFF_PHOTOS_BUCKET)
+          .remove([paths.source, ...paths.legacySource]);
+
+        const { error: sourceError } = await service.storage
+          .from(STAFF_PHOTOS_BUCKET)
+          .upload(paths.source, new Uint8Array(sourceWebp.buffer), {
+            contentType: sourceWebp.contentType,
+            upsert: true,
+            cacheControl: "31536000",
+          });
+
+        if (sourceError) {
+          throw new Error(sourceError.message);
+        }
       } catch (err) {
+        // Crop is already stored — keep the profile photo even if the
+        // uncropped source could not be saved for later re-crop.
         console.error(
-          "[hr] staff photo source WebP convert failed:",
+          "[hr] staff photo source store failed:",
           err instanceof Error ? err.message : err,
         );
-        return { error: "Could not convert the original photo to WebP." };
-      }
-
-      await service.storage
-        .from(STAFF_PHOTOS_BUCKET)
-        .remove([paths.source, ...paths.legacySource]);
-
-      const { error: sourceError } = await service.storage
-        .from(STAFF_PHOTOS_BUCKET)
-        .upload(paths.source, new Uint8Array(sourceWebp.buffer), {
-          contentType: sourceWebp.contentType,
-          upsert: true,
-          cacheControl: "31536000",
-        });
-
-      if (sourceError) {
-        console.error(
-          "[hr] staff photo source upload failed:",
-          sourceError.message,
-        );
-        return {
-          error: `Could not store the full photo for re-cropping (${sourceError.message}).`,
-        };
       }
     }
 
@@ -1393,6 +1386,7 @@ function formDataToStaffPayload(formData: FormData) {
     passport_no: str("passport_no"),
     passport_expiry: parseDate(str("passport_expiry") ?? undefined),
     eid_no: str("eid_no"),
+    eid_issue_date: parseDate(str("eid_issue_date") ?? undefined),
     eid_expiry: parseDate(str("eid_expiry") ?? undefined),
     iban: str("iban"),
     swift_code: str("swift_code"),

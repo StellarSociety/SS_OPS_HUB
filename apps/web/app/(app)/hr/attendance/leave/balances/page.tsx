@@ -26,33 +26,55 @@ export default async function LeaveBalancesPage({ searchParams }: PageProps) {
     canEditStaff(permissions, venue.id) ||
     canAdminLookups(permissions, venue.id);
 
-  const list = await listLeaveBalanceSummaries(year);
   const years = [nowYear - 1, nowYear, nowYear + 1];
+  const staffId = params.staffId?.trim() || null;
 
-  let detail = null;
-  let detailError: string | null = null;
-
-  if (params.staffId) {
+  if (staffId) {
     const result = await getEmployeeLeaveBalances({
-      staffId: params.staffId,
+      staffId,
       leaveYear: year,
     });
-    if (result.error || !result.staff) {
-      detailError = result.error ?? "Employee not found.";
-    } else {
-      detail = {
-        staff: result.staff,
-        balances: result.balances,
-        adjustments: result.adjustments,
-        scheduledLeaves: result.scheduledLeaves,
-        scheduleLabels: result.scheduleLabels,
-        policy: result.policy,
-        year: result.year,
-        annualLeaveCalculation: result.annualLeaveCalculation,
-      };
+    if (result.staff) {
+      return (
+        <Suspense fallback={<p className="text-sm text-black/50">Loading…</p>}>
+          <LeaveBalancesClient
+            year={year}
+            years={years}
+            summaries={[]}
+            policy={result.policy}
+            canManage={canManage}
+            detail={{
+              staff: result.staff,
+              balances: result.balances,
+              adjustments: result.adjustments,
+              scheduledLeaves: result.scheduledLeaves,
+              scheduleLabels: result.scheduleLabels,
+              policy: result.policy,
+              year: result.year,
+              annualLeaveCalculation: result.annualLeaveCalculation,
+            }}
+          />
+        </Suspense>
+      );
     }
+
+    const list = await listLeaveBalanceSummaries(year);
+    return (
+      <Suspense fallback={<p className="text-sm text-black/50">Loading…</p>}>
+        <LeaveBalancesClient
+          year={year}
+          years={years}
+          summaries={list.summaries}
+          policy={list.policy}
+          canManage={canManage}
+          detail={null}
+          detailError={result.error ?? list.error ?? "Employee not found."}
+        />
+      </Suspense>
+    );
   }
 
+  const list = await listLeaveBalanceSummaries(year);
   return (
     <Suspense fallback={<p className="text-sm text-black/50">Loading…</p>}>
       <LeaveBalancesClient
@@ -61,8 +83,8 @@ export default async function LeaveBalancesPage({ searchParams }: PageProps) {
         summaries={list.summaries}
         policy={list.policy}
         canManage={canManage}
-        detail={detail}
-        detailError={detailError ?? list.error}
+        detail={null}
+        detailError={list.error}
       />
     </Suspense>
   );

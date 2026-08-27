@@ -37,6 +37,7 @@ import {
 import { StaffPdfDocument } from "@/components/hr/staff-pdf-document";
 import { StaffSearchDialog } from "@/components/hr/staff-search-dialog";
 import { PayrollPaidDaysCalendarDialog } from "@/components/hr/payroll-paid-days-calendar-dialog";
+import { StaffMissingDetailsShortcut } from "@/components/hr/staff-missing-details-shortcut";
 import { createStaff, updateStaff } from "@/lib/actions/hr";
 import { getStaffCurrentPayrollSchedule } from "@/lib/actions/hr-staff-payroll-schedule";
 import { resolveStaffEmployeeWorkDriveFolderLink } from "@/lib/actions/hr-workdrive";
@@ -675,7 +676,7 @@ export function StaffEntryWorkspace({
 
                 {loadedStaffId ? (
                   <div
-                    className="flex w-full flex-col self-start overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-40 sm:shrink-0"
+                    className="flex w-full flex-col self-start overflow-hidden rounded-lg border border-black/10 bg-white/60 backdrop-blur-md sm:w-44 sm:shrink-0"
                     aria-label="Shortcuts"
                   >
                     <p
@@ -686,6 +687,15 @@ export function StaffEntryWorkspace({
                     >
                       Shortcuts
                     </p>
+                    <StaffMissingDetailsShortcut
+                      staffId={loadedStaffId}
+                      form={value}
+                      photoUrl={photoUrl}
+                      canViewSalary={canViewSalary}
+                      canEdit
+                      onOpenTab={setActiveTab}
+                      onRequestEdit={() => setEditing(true)}
+                    />
                     <button
                       type="button"
                       disabled={scheduleLoading}

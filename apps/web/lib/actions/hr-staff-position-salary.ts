@@ -203,45 +203,71 @@ export async function listStaffPositionSalaryChanges(
   | { ok: true; items: StaffPositionSalaryChangeItem[] }
   | { ok: false; error: string }
 > {
-  const ctx = await getActionAuthContext();
-  if ("error" in ctx) return { ok: false, error: ctx.error };
-  const { supabase, venue, permissions } = ctx;
+  try {
+    const ctx = await getActionAuthContext();
+    if ("error" in ctx) return { ok: false, error: ctx.error };
+    const { venue, permissions } = ctx;
 
-  if (!canViewStaff(permissions, venue.id)) {
-    return { ok: false, error: "No permission to view staff history." };
-  }
+    if (!canViewStaff(permissions, venue.id)) {
+      return { ok: false, error: "No permission to view staff history." };
+    }
 
-  const id = staffId.trim();
-  if (!id) return { ok: false, error: "Staff member is required." };
+    const id = staffId.trim();
+    if (!id) return { ok: false, error: "Staff member is required." };
 
-  const { data, error } = await supabase
-    .from("hr_staff_position_salary_changes")
-    .select("*")
-    .eq("venue_id", venue.id)
-    .eq("staff_id", id)
-    .order("effective_date", { ascending: false })
-    .order("created_at", { ascending: false });
+    // Service role: RLS on this table calls has_feature_permission per row and
+    // can stall the user-scoped client for tens of seconds.
+    const service = createServiceClient();
+    const { data, error } = await service
+      .from("hr_staff_position_salary_changes")
+      .select("*")
+      .eq("venue_id", venue.id)
+      .eq("staff_id", id)
+      .order("effective_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .abortSignal(AbortSignal.timeout(12_000));
 
-  if (error) {
-    console.error("[hr] list position/salary changes:", error.message);
-    return { ok: false, error: error.message };
-  }
+    if (error) {
+      console.error("[hr] list position/salary changes:", error.message);
+      const timedOut =
+        error.message.toLowerCase().includes("abort") ||
+        error.name === "AbortError";
+      return {
+        ok: false,
+        error: timedOut
+          ? "Timed out loading history. Try again."
+          : error.message,
+      };
+    }
 
-  const names = await loadLookupNames(supabase, venue.id);
-  const showSalary = canViewSalary(permissions, venue.id);
-  const items = (data ?? []).map((row) => {
-    const mapped = mapChangeRow(row as Record<string, unknown>, names);
-    if (showSalary) return mapped;
+    const names = await loadLookupNames(service, venue.id);
+    const showSalary = canViewSalary(permissions, venue.id);
+    const items = (data ?? []).map((row) => {
+      const mapped = mapChangeRow(row as Record<string, unknown>, names);
+      if (showSalary) return mapped;
+      return {
+        ...mapped,
+        fromWagePackage: null,
+        toWagePackage: null,
+        fromCompanyAccommodation: null,
+        toCompanyAccommodation: null,
+      };
+    });
+
+    return { ok: true, items };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not load history.";
+    const timedOut =
+      (err instanceof Error && err.name === "AbortError") ||
+      message.toLowerCase().includes("abort") ||
+      message.toLowerCase().includes("timeout");
+    console.error("[hr] list position/salary changes:", message);
     return {
-      ...mapped,
-      fromWagePackage: null,
-      toWagePackage: null,
-      fromCompanyAccommodation: null,
-      toCompanyAccommodation: null,
+      ok: false,
+      error: timedOut ? "Timed out loading history. Try again." : message,
     };
-  });
-
-  return { ok: true, items };
+  }
 }
 
 export async function createStaffPositionSalaryChange(

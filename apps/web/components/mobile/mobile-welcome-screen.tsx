@@ -52,6 +52,9 @@ export function MobileWelcomeScreen({
   onLogout,
 }: MobileWelcomeScreenProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
+  const hubTitle = venue.is_global
+    ? "All Venues Operational HUB"
+    : `${venue.name} Operational HUB`;
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const sections = useMemo(
     () =>
@@ -99,7 +102,7 @@ export function MobileWelcomeScreen({
           {firstName ? `Welcome back, ${firstName}` : "Welcome to the Hub"}
         </h1>
         <p className="mt-1 font-serif text-lg tracking-wide text-[#3D421F] dark:text-[CanvasText]">
-          Operational Apps Hub
+          {hubTitle}
         </p>
         <p className="mx-auto mt-2 max-w-[20rem] text-[13px] leading-snug text-black/55 dark:text-white/55">
           Your operations command center for {venue.name}.

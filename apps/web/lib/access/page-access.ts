@@ -35,7 +35,9 @@ import {
 import {
   canAccessOverview as canAccessSentimentOverview,
   canAccessReviews as canAccessSentimentReviews,
+  canAccessGuestFeedback as canAccessSentimentGuestFeedback,
   canAccessActions as canAccessSentimentActions,
+  canAccessLiveDisplay as canAccessSentimentLiveDisplay,
   canAccessSettings as canAccessSentimentSettings,
 } from "@/lib/sentiment/permissions";
 import {
@@ -43,6 +45,14 @@ import {
   canAccessLogs as canAccessSaveLogLogs,
   canAccessSettings as canAccessSaveLogSettings,
 } from "@/lib/save-log/permissions";
+import {
+  canAccessOverview as canAccessGuestsIntelOverview,
+  canAccessCollect as canAccessGuestsIntelCollect,
+  canAccessGuests as canAccessGuestsIntelGuests,
+  canAccessRewards as canAccessGuestsIntelRewards,
+  canAccessRedeem as canAccessGuestsIntelRedeem,
+  canAccessSettings as canAccessGuestsIntelSettings,
+} from "@/lib/guests-intel/permissions";
 import {
   canAccessMobileApp,
   canAccessSettings as canAccessMobileSettings,
@@ -196,8 +206,14 @@ export function canOpenAppPath(
     if (startsWithPath(pathname, "/sentiment/settings")) {
       return canAccessSentimentSettings(permissions, venueId);
     }
+    if (startsWithPath(pathname, "/sentiment/calendar")) {
+      return canAccessSentimentReviews(permissions, venueId);
+    }
     if (startsWithPath(pathname, "/sentiment/reviews")) {
       return canAccessSentimentReviews(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/sentiment/guest-feedback")) {
+      return canAccessSentimentGuestFeedback(permissions, venueId);
     }
     if (startsWithPath(pathname, "/sentiment/justify")) {
       return true;
@@ -205,7 +221,32 @@ export function canOpenAppPath(
     if (startsWithPath(pathname, "/sentiment/actions")) {
       return canAccessSentimentActions(permissions, venueId);
     }
+    if (startsWithPath(pathname, "/sentiment/live-display")) {
+      return canAccessSentimentLiveDisplay(permissions, venueId);
+    }
     return canAccessModule(permissions, "sentiment", venueId);
+  }
+
+  if (startsWithPath(pathname, "/guests-intel")) {
+    if (pathname === "/guests-intel") {
+      return canAccessGuestsIntelOverview(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/guests-intel/settings")) {
+      return canAccessGuestsIntelSettings(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/guests-intel/collect")) {
+      return canAccessGuestsIntelCollect(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/guests-intel/guests")) {
+      return canAccessGuestsIntelGuests(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/guests-intel/rewards")) {
+      return canAccessGuestsIntelRewards(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/guests-intel/redeem")) {
+      return canAccessGuestsIntelRedeem(permissions, venueId);
+    }
+    return canAccessModule(permissions, "guests_intel", venueId);
   }
 
   if (startsWithPath(pathname, "/save-log")) {

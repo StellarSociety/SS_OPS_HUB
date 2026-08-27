@@ -7,6 +7,7 @@ export const MODULE_ICON_KEYS = [
   "martini",
   "wrench",
   "scan-face",
+  "guests-intel",
   "notebook-pen",
   "trending-up",
   "chart-pie",

@@ -16,4 +16,7 @@ export const PUBLIC_ROUTES = [
   "/reset-password",
   "/auth/callback",
   "/acknowledge",
+  "/g",
+  "/f",
+  "/live",
 ] as const;

@@ -19,6 +19,7 @@ export async function sendViaResend(
     subject: params.subject,
     html: params.html,
     from: params.fromOverride,
+    fromName: params.fromNameOverride,
     attachments: params.attachments,
   });
   return { imapAppended: false, messageId };

@@ -144,6 +144,16 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
       "Gather and manage guest reviews from Google, TripAdvisor, and other channels.",
   },
   {
+    key: "guests_intel",
+    label: "Guests Intel",
+    iconKey: "guests-intel",
+    category: "operational",
+    href: "/guests-intel",
+    status: "live",
+    description:
+      "Collect guest details in the hub or via a shareable QR form, then issue a redeemable pass for promotions, vouchers, discounts, or complementary items.",
+  },
+  {
     key: "save_log",
     label: "SafeLog",
     iconKey: "notebook-pen",
@@ -272,7 +282,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
  * Unknown keys append on the last row.
  */
 export const HUB_MODULE_ROWS: string[][] = [
-  ["team_connect", "operational_lists", "team_projects", "events", "sentiment", "save_log"],
+  ["team_connect", "operational_lists", "team_projects", "events", "sentiment", "guests_intel", "save_log"],
   ["cookbook", "poorbook", "sales", "gp_cos", "accounting", "hr", "learning"],
   ["venue_governance", "vault", "maintenance", "approvals", "mobile_app"],
 ];

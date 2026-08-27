@@ -32,6 +32,7 @@ const MODULE_SETTINGS_ROUTES: Record<string, string> = {
   hr: "/hr/settings",
   accounting: "/accounting/settings",
   sentiment: "/sentiment/settings",
+  guests_intel: "/guests-intel/settings",
   save_log: "/save-log/settings",
   mobile_app: "/mobile/settings",
 };

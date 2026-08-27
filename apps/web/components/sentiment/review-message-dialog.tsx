@@ -7,6 +7,7 @@ import { GoogleStars } from "@/components/sentiment/google-stars";
 import { ReviewPhotoStrip } from "@/components/sentiment/review-photo-gallery";
 import { LiquidGlassPanel, LiquidGlassScrim } from "@/components/ui/liquid-glass";
 import type { SentimentReview } from "@/lib/sentiment/types";
+import { sentimentChannelLabel, sentimentGuestFallbackName } from "@/lib/sentiment/channels";
 
 function formatReviewDate(iso: string | null): string {
   if (!iso) return "";
@@ -52,10 +53,10 @@ export function ReviewMessageDialog({
 
   if (!open || !mounted) return null;
 
-  const guestName = review.author_name || "Google user";
+  const guestName = review.author_name || sentimentGuestFallbackName(review.channel);
   const photos = review.photo_urls ?? [];
   const date = formatReviewDate(review.reviewed_at);
-  const channel = review.channel === "google" ? "Google" : "TripAdvisor";
+  const channel = sentimentChannelLabel(review.channel);
 
   return createPortal(
     <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">

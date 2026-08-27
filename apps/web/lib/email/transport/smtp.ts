@@ -32,7 +32,8 @@ function buildMailOptions(
     throw new Error("From email is not configured.");
   }
 
-  const fromName = settings.smtp.fromName.trim();
+  const fromName =
+    params.fromNameOverride?.trim() || settings.smtp.fromName.trim();
   const from = fromName
     ? `"${fromName.replace(/"/g, '\\"')}" <${fromEmail}>`
     : fromEmail;

@@ -27,7 +27,12 @@ export function ReviewPhotoStrip({
             aria-label={`Open photo ${photoIndex + 1} of ${photos.length}`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt="" className="h-full w-full object-cover" />
+            <img
+              src={src}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="h-full w-full object-cover"
+            />
           </button>
         ))}
       </div>
@@ -131,6 +136,7 @@ function ReviewPhotoGallery({
           <img
             src={current}
             alt={`${altPrefix} photo ${index + 1}`}
+            referrerPolicy="no-referrer"
             className="max-h-[68vh] w-auto max-w-[min(100%,52rem)] rounded-lg object-contain shadow-2xl"
           />
 
@@ -165,7 +171,12 @@ function ReviewPhotoGallery({
                   aria-current={selected ? "true" : undefined}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" className="h-full w-full object-cover" />
+                  <img
+              src={src}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="h-full w-full object-cover"
+            />
                 </button>
               );
             })}

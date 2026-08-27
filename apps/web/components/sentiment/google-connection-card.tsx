@@ -349,7 +349,7 @@ export function GoogleConnectionCard({
       </div>
 
       {canEdit ? (
-        <div className="border-t border-black/5 pt-4">
+        <div className="space-y-2 border-t border-black/5 pt-4">
           <Button
             type="button"
             disabled={pending || (!source?.place_id && !source?.external_location_id)}
@@ -360,6 +360,10 @@ export function GoogleConnectionCard({
             <RefreshCw className={cn("h-3.5 w-3.5", pending && "animate-spin")} />
             Import reviews
           </Button>
+          <p className="text-xs text-black/45">
+            Uses Google Places or Business Profile (free). For the full Maps
+            history until Business Profile is approved, use the Apify tab.
+          </p>
         </div>
       ) : null}
     </Card>

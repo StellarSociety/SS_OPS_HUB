@@ -154,7 +154,9 @@ export const moduleCatalog: ModuleDef[] = [
     featureGroups: [
       { key: "overview", label: "Overview" },
       { key: "reviews", label: "Reviews" },
+      { key: "guest_feedback", label: "Feedback Form" },
       { key: "actions", label: "Actions" },
+      { key: "live_display", label: "Live Display" },
     ],
     features: [
       {
@@ -171,15 +173,78 @@ export const moduleCatalog: ModuleDef[] = [
         group: "reviews",
       },
       {
+        key: "guest_feedback",
+        label: "Feedback Form",
+        href: "/sentiment/guest-feedback",
+        group: "guest_feedback",
+      },
+      {
         key: "actions",
         label: "Actions",
         href: "/sentiment/actions",
         group: "actions",
       },
       {
+        key: "live_display",
+        label: "Live Display",
+        href: "/sentiment/live-display",
+        group: "live_display",
+      },
+      {
         key: "settings",
         label: "Settings",
         href: "/sentiment/settings",
+        settings: true,
+      },
+    ],
+  },
+  {
+    key: "guests_intel",
+    label: "Guests Intel",
+    description:
+      "Guest intake, shareable forms, and redeemable promotion passes.",
+    featureGroups: [
+      { key: "overview", label: "Overview" },
+      { key: "collect", label: "Collect" },
+      { key: "guests", label: "Guests" },
+      { key: "rewards", label: "Rewards" },
+    ],
+    features: [
+      {
+        key: "overview",
+        label: "Dashboard",
+        href: "/guests-intel",
+        group: "overview",
+        viewOnly: true,
+      },
+      {
+        key: "collect",
+        label: "Collect",
+        href: "/guests-intel/collect",
+        group: "collect",
+      },
+      {
+        key: "guests",
+        label: "Guests",
+        href: "/guests-intel/guests",
+        group: "guests",
+      },
+      {
+        key: "rewards",
+        label: "Rewards",
+        href: "/guests-intel/rewards",
+        group: "rewards",
+      },
+      {
+        key: "redeem",
+        label: "Redeem",
+        href: "/guests-intel/redeem",
+        group: "rewards",
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        href: "/guests-intel/settings",
         settings: true,
       },
     ],

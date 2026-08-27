@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Loader2, Pencil } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { StaffEmploymentPathPay } from "@/components/hr/staff-employment-path-pay";
-import { StaffEmploymentPathPositionSalary } from "@/components/hr/staff-employment-path-position-salary";
+import {
+  EmploymentStartedMarker,
+  resolveStartingEmployment,
+  StaffEmploymentPathPositionSalary,
+} from "@/components/hr/staff-employment-path-position-salary";
 import {
   listStaffPositionSalaryChanges,
   type StaffPositionSalaryChangeItem,
@@ -49,6 +53,21 @@ const SUBTAB_LABELS: Record<EmploymentPathSubtab, string> = {
   disciplinary: "Disciplinary",
   pay: "Pay",
 };
+
+const changesInFlight = new Map<
+  string,
+  ReturnType<typeof listStaffPositionSalaryChanges>
+>();
+
+function loadPositionSalaryChanges(staffId: string) {
+  const existing = changesInFlight.get(staffId);
+  if (existing) return existing;
+  const request = listStaffPositionSalaryChanges(staffId).finally(() => {
+    changesInFlight.delete(staffId);
+  });
+  changesInFlight.set(staffId, request);
+  return request;
+}
 
 type StaffEmploymentPathProps = {
   staffId?: string | null;
@@ -201,6 +220,15 @@ function PathOverview({
   canViewSalary,
   canEdit,
   salaryPct,
+  items,
+  lifecycle,
+  loading,
+  departments,
+  positions,
+  currentDepartmentId,
+  currentPositionId,
+  currentWagePackage,
+  currentCompanyAccommodation,
   onEditItem,
 }: {
   staffId: string | null;
@@ -210,33 +238,27 @@ function PathOverview({
   canViewSalary: boolean;
   canEdit: boolean;
   salaryPct: SalaryPercentages;
+  items: StaffPositionSalaryChangeItem[];
+  lifecycle: StaffEmploymentPathLifecycle | null;
+  loading: boolean;
+  departments: Department[];
+  positions: Position[];
+  currentDepartmentId: string;
+  currentPositionId: string;
+  currentWagePackage: string;
+  currentCompanyAccommodation: string;
   onEditItem?: (item: StaffPositionSalaryChangeItem) => void;
 }) {
-  const [items, setItems] = useState<StaffPositionSalaryChangeItem[]>([]);
-  const [lifecycle, setLifecycle] =
-    useState<StaffEmploymentPathLifecycle | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (!staffId) {
-      setItems([]);
-      setLifecycle(null);
-      return;
-    }
-    let cancelled = false;
-    startTransition(async () => {
-      const [changes, extras] = await Promise.all([
-        listStaffPositionSalaryChanges(staffId),
-        getStaffEmploymentPathLifecycle(staffId),
-      ]);
-      if (cancelled) return;
-      if (changes.ok) setItems(changes.items);
-      setLifecycle(extras.ok ? extras.lifecycle : null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [staffId]);
+  const pending = loading;
+  const startingEmployment = resolveStartingEmployment({
+    items,
+    positions,
+    departments,
+    currentPositionId,
+    currentDepartmentId,
+    currentWagePackage,
+    currentCompanyAccommodation,
+  });
 
   const recentFirst = lifecycleEventsFrom(
     lifecycle,
@@ -379,18 +401,12 @@ function PathOverview({
           })}
 
           {joiningDate ? (
-            <li className="relative pl-6">
-              <span
-                className="absolute left-0 top-3 size-2.5 rounded-full border-2 border-white bg-black/25 shadow-sm ring-1 ring-black/10"
-                aria-hidden
-              />
-              <div className="rounded-lg border border-dashed border-black/10 bg-black/[0.02] px-3 py-3">
-                <p className="text-sm font-medium tabular-nums text-[#3D421F]">
-                  {formatDateOnly(joiningDate)}
-                </p>
-                <p className="mt-1 text-sm text-black/50">Employment started</p>
-              </div>
-            </li>
+            <EmploymentStartedMarker
+              joiningDate={joiningDate}
+              start={startingEmployment}
+              canViewSalary={canViewSalary}
+              salaryPct={salaryPct}
+            />
           ) : null}
 
           {!pending && recentFirst.length === 0 && !joiningDate ? (
@@ -428,6 +444,80 @@ export function StaffEmploymentPath({
 }: StaffEmploymentPathProps) {
   const [subtab, setSubtab] = useState<EmploymentPathSubtab>("path");
   const [editFromPathId, setEditFromPathId] = useState<string | null>(null);
+  const [items, setItems] = useState<StaffPositionSalaryChangeItem[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(Boolean(staffId));
+  const [itemsError, setItemsError] = useState<string | null>(null);
+  const [lifecycle, setLifecycle] =
+    useState<StaffEmploymentPathLifecycle | null>(null);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    if (!staffId) {
+      setItems([]);
+      setItemsError(null);
+      setItemsLoading(false);
+      setLifecycle(null);
+      setLifecycleLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setItemsLoading(true);
+    setItemsError(null);
+
+    // Kick off the history list first. Next.js serializes server actions, so
+    // the Position / Salary tab must not wait behind visa/offboarding lookups.
+    void loadPositionSalaryChanges(staffId)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setItems([]);
+          setItemsError(result.error);
+          return;
+        }
+        setItems(result.items);
+        setItemsError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setItems([]);
+        setItemsError(
+          err instanceof Error ? err.message : "Could not load history.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setItemsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [staffId, reloadToken]);
+
+  useEffect(() => {
+    if (!staffId || subtab !== "path" || itemsLoading) {
+      if (subtab !== "path") setLifecycleLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLifecycleLoading(true);
+    void getStaffEmploymentPathLifecycle(staffId)
+      .then((extras) => {
+        if (cancelled) return;
+        setLifecycle(extras.ok ? extras.lifecycle : null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLifecycle(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLifecycleLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [staffId, subtab, itemsLoading]);
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -462,6 +552,15 @@ export function StaffEmploymentPath({
           canViewSalary={canViewSalary}
           canEdit={canEdit}
           salaryPct={salaryPct}
+          items={items}
+          lifecycle={lifecycle}
+          loading={itemsLoading || lifecycleLoading}
+          departments={departments}
+          positions={positions}
+          currentDepartmentId={currentDepartmentId}
+          currentPositionId={currentPositionId}
+          currentWagePackage={currentWagePackage}
+          currentCompanyAccommodation={currentCompanyAccommodation}
           onEditItem={
             canEdit
               ? (item) => {
@@ -488,6 +587,14 @@ export function StaffEmploymentPath({
           currentVisaStatus={currentVisaStatus}
           currentVisaExpiry={currentVisaExpiry}
           salaryPct={salaryPct}
+          items={items}
+          loading={itemsLoading}
+          error={itemsError}
+          onRetry={() => {
+            if (staffId) changesInFlight.delete(staffId);
+            setReloadToken((n) => n + 1);
+          }}
+          onItemsChange={setItems}
           onApplied={onPositionSalaryApplied}
           openEditChangeId={editFromPathId}
           onOpenEditChangeIdConsumed={() => setEditFromPathId(null)}

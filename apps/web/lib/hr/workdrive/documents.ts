@@ -128,6 +128,26 @@ export async function getStaffWorkDriveDocumentByFileId(
   return (data as StaffWorkDriveDocumentRow | null) ?? null;
 }
 
+export async function listStaffWorkDriveDocumentsForStaff(
+  supabase: SupabaseClient,
+  venueId: string,
+  staffId: string,
+): Promise<
+  Pick<StaffWorkDriveDocumentRow, "doc_kind" | "file_slot_id" | "missing_at">[]
+> {
+  const { data, error } = await supabase
+    .from("hr_staff_workdrive_documents")
+    .select("doc_kind, file_slot_id, missing_at")
+    .eq("venue_id", venueId)
+    .eq("staff_id", staffId);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Pick<
+    StaffWorkDriveDocumentRow,
+    "doc_kind" | "file_slot_id" | "missing_at"
+  >[];
+}
+
 export async function listStaffWorkDriveDocuments(
   supabase: SupabaseClient,
   venueId: string,

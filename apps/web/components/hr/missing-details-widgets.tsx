@@ -8,22 +8,24 @@ type MissingDetailsWidgetsProps = {
   items: MissingDetailItem[];
   title?: string;
   titleClassName?: string;
+  emptyDescription?: string;
 };
 
 const defaultTitleClass = "font-serif text-base text-[#3D421F]";
+const defaultEmptyDescription =
+  "All ON Board staff have the tracked profile fields filled in.";
 
 export function MissingDetailsWidgets({
   items,
   title = "Missing details",
   titleClassName = defaultTitleClass,
+  emptyDescription = defaultEmptyDescription,
 }: MissingDetailsWidgetsProps) {
   if (items.length === 0) {
     return (
       <Card className="p-3">
         <h2 className={titleClassName}>{title}</h2>
-        <p className="mt-1.5 text-xs text-black/50">
-          All ON Board staff have the tracked profile fields filled in.
-        </p>
+        <p className="mt-1.5 text-xs text-black/50">{emptyDescription}</p>
       </Card>
     );
   }
@@ -41,9 +43,9 @@ export function MissingDetailsWidgets({
         {items.map((item) => (
           <li
             key={item.staffId}
-            className="flex items-center gap-1.5 py-0.5 text-[11px] leading-snug text-[#3D421F]"
+            className="flex items-start gap-1.5 py-0.5 text-[11px] leading-snug text-[#3D421F]"
           >
-            <div className="flex min-w-0 flex-1 items-baseline gap-x-1.5">
+            <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
               <StaffDirectoryLink
                 staffId={item.staffId}
                 empNo={item.empNo}
@@ -56,7 +58,7 @@ export function MissingDetailsWidgets({
               <span className="text-black/25" aria-hidden>
                 —
               </span>
-              <span className="min-w-0 truncate text-black/55">
+              <span className="min-w-0 text-black/55">
                 {item.labels.join(", ")}
               </span>
             </div>
@@ -64,7 +66,7 @@ export function MissingDetailsWidgets({
               staffId={item.staffId}
               fullName={item.fullName}
               empNo={item.empNo}
-              className="size-7"
+              className="size-7 shrink-0"
             />
           </li>
         ))}

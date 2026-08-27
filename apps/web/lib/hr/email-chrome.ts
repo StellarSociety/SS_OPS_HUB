@@ -14,6 +14,7 @@ import {
   EMAIL_CHROME_FOOTER_HEIGHT_CM,
   EMAIL_CHROME_HEADER_HEIGHT_CM,
   EMAIL_CHROME_SOCIAL_ICON_PX,
+  EMAIL_CHROME_SOCIAL_LINK_KEYS,
   EMAIL_CHROME_SOCIAL_LINKS,
   HR_SETTINGS_KEYS,
   type EmailChromeSocialLinkKey,
@@ -64,6 +65,12 @@ export function mergeEmailChromeSettings(
     combineLegacyFooter((partial ?? {}) as Record<string, unknown>) ||
     base.footerText;
   const raw = (partial ?? {}) as Record<string, unknown>;
+  const socials = Object.fromEntries(
+    EMAIL_CHROME_SOCIAL_LINK_KEYS.map((key) => [
+      key,
+      readSocialUrl(raw, key) || base[key],
+    ]),
+  ) as Pick<HrEmailChromeSettings, EmailChromeSocialLinkKey>;
 
   return {
     enabled:
@@ -72,12 +79,7 @@ export function mergeEmailChromeSettings(
       ? headerBg
       : base.headerBackgroundColor,
     footerText: footerText || DEFAULT_EMAIL_FOOTER_DISCLAIMER,
-    websiteUrl: readSocialUrl(raw, "websiteUrl") || base.websiteUrl,
-    instagramUrl: readSocialUrl(raw, "instagramUrl") || base.instagramUrl,
-    facebookUrl: readSocialUrl(raw, "facebookUrl") || base.facebookUrl,
-    linkedinUrl: readSocialUrl(raw, "linkedinUrl") || base.linkedinUrl,
-    tiktokUrl: readSocialUrl(raw, "tiktokUrl") || base.tiktokUrl,
-    snapchatUrl: readSocialUrl(raw, "snapchatUrl") || base.snapchatUrl,
+    ...socials,
   };
 }
 
@@ -102,15 +104,17 @@ export function resolveEmailChromeForVenue(
     footerText = `${footerText}\n\n${builtIn.address}`;
   }
 
+  const socials = Object.fromEntries(
+    EMAIL_CHROME_SOCIAL_LINK_KEYS.map((key) => [
+      key,
+      normalizeEmailChromeUrl(settings[key]),
+    ]),
+  ) as Pick<HrEmailChromeSettings, EmailChromeSocialLinkKey>;
+
   return {
     ...settings,
     footerText: footerText || DEFAULT_EMAIL_FOOTER_DISCLAIMER,
-    websiteUrl: normalizeEmailChromeUrl(settings.websiteUrl),
-    instagramUrl: normalizeEmailChromeUrl(settings.instagramUrl),
-    facebookUrl: normalizeEmailChromeUrl(settings.facebookUrl),
-    linkedinUrl: normalizeEmailChromeUrl(settings.linkedinUrl),
-    tiktokUrl: normalizeEmailChromeUrl(settings.tiktokUrl),
-    snapchatUrl: normalizeEmailChromeUrl(settings.snapchatUrl),
+    ...socials,
   };
 }
 
@@ -128,12 +132,7 @@ export async function loadEmailChromeForVenue(
 export const VENUE_EMAIL_HEADER_LOGO_CID = "venue-header-logo@ss-ops-hub";
 
 export type EmailChromeSocialIcon =
-  | "website"
-  | "instagram"
-  | "facebook"
-  | "linkedin"
-  | "tiktok"
-  | "snapchat";
+  (typeof EMAIL_CHROME_SOCIAL_LINKS)[number]["icon"];
 
 export function emailChromeSocialCid(icon: EmailChromeSocialIcon): string {
   return `social-${icon}@ss-ops-hub`;

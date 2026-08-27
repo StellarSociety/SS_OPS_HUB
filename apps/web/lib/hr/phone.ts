@@ -246,6 +246,68 @@ const PHONE_COUNTRY_ROWS: PhoneCountry[] = [
 
 export const DEFAULT_PHONE_COUNTRY_CODE = "+971";
 
+const ISO_TO_DIAL = new Map(
+  PHONE_COUNTRY_ROWS.map((row) => [row.label.toUpperCase(), row.code] as const),
+);
+
+/** Common IANA zones → ISO 3166-1 alpha-2 (guest phones at the venue). */
+const TIMEZONE_ISO: Record<string, string> = {
+  "Asia/Dubai": "AE",
+  "Asia/Muscat": "OM",
+  "Asia/Qatar": "QA",
+  "Asia/Bahrain": "BH",
+  "Asia/Kuwait": "KW",
+  "Asia/Riyadh": "SA",
+};
+
+function regionFromLocale(locale: string): string | null {
+  try {
+    const parsed = new Intl.Locale(locale);
+    if (parsed.region) return parsed.region.toUpperCase();
+    const maximized = parsed.maximize().region;
+    return maximized ? maximized.toUpperCase() : null;
+  } catch {
+    const token = locale.replace("_", "-").split("-")[1];
+    return token && /^[A-Za-z]{2}$/.test(token) ? token.toUpperCase() : null;
+  }
+}
+
+export function dialCodeForIso(iso: string): string | null {
+  return ISO_TO_DIAL.get(iso.trim().toUpperCase()) ?? null;
+}
+
+/**
+ * Pick a dial code from the browser timezone / language.
+ * Guests filling the form in Dubai resolve to +971; others follow locale.
+ */
+export function detectBrowserPhoneCountryCode(): string {
+  if (typeof Intl === "undefined") return DEFAULT_PHONE_COUNTRY_CODE;
+
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const fromTz = timeZone ? TIMEZONE_ISO[timeZone] : undefined;
+    const tzDial = fromTz ? dialCodeForIso(fromTz) : null;
+    if (tzDial) return tzDial;
+  } catch {
+    // ignore
+  }
+
+  if (typeof navigator !== "undefined") {
+    const locales = navigator.languages?.length
+      ? navigator.languages
+      : navigator.language
+        ? [navigator.language]
+        : [];
+    for (const locale of locales) {
+      const region = regionFromLocale(locale);
+      const dial = region ? dialCodeForIso(region) : null;
+      if (dial) return dial;
+    }
+  }
+
+  return DEFAULT_PHONE_COUNTRY_CODE;
+}
+
 /**
  * One option per dial code. Shared codes (e.g. +1) keep every country name
  * searchable while the trigger still shows the compact code.

@@ -19,6 +19,8 @@ export type SendAppEmailParams = {
   attachments?: SendAppEmailAttachment[];
   /** Overrides the configured from address when set. */
   fromOverride?: string;
+  /** Display name used with fromOverride / the configured from address. */
+  fromNameOverride?: string;
   /** Optional pre-generated RFC Message-ID (with or without angle brackets). */
   messageId?: string;
 };

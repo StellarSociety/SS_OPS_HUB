@@ -13,6 +13,7 @@ type SendEmailParams = {
   html: string;
   /** Overrides RESEND_FROM_EMAIL when set. */
   from?: string;
+  fromName?: string;
   attachments?: SendEmailAttachment[];
 };
 
@@ -21,17 +22,22 @@ export async function sendResendEmail({
   subject,
   html,
   from: fromOverride,
+  fromName,
   attachments,
 }: SendEmailParams) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from =
+  const fromEmail =
     fromOverride?.trim() || process.env.RESEND_FROM_EMAIL || undefined;
 
-  if (!apiKey || !from) {
+  if (!apiKey || !fromEmail) {
     throw new Error(
       "Email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL (or pass from).",
     );
   }
+
+  const from = fromName?.trim()
+    ? `${fromName.trim().replace(/"/g, "")} <${fromEmail}>`
+    : fromEmail;
 
   const recipients = Array.isArray(to) ? to : [to];
   if (recipients.length === 0) {

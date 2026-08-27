@@ -40,9 +40,14 @@ function revalidateSentimentReviews() {
   revalidatePath("/sentiment/reviews", "page");
   revalidatePath("/sentiment/reviews/google", "page");
   revalidatePath("/sentiment/reviews/tripadvisor", "page");
+  revalidatePath("/sentiment/reviews/guest", "page");
+  revalidatePath("/sentiment/calendar", "page");
   revalidatePath("/sentiment/actions", "page");
   revalidatePath("/sentiment/settings", "page");
+  revalidatePath("/sentiment/settings/apify", "page");
+  revalidatePath("/sentiment/settings/google", "page");
   revalidatePath("/sentiment/settings/templates", "page");
+  revalidatePath("/sentiment/settings/tripadvisor", "page");
 }
 
 async function requireReviewEditor(): Promise<

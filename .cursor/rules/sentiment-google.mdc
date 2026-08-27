@@ -1,0 +1,22 @@
+---
+description: Sentiment Google Business Profile — stellarsociety Cloud project
+globs: apps/web/lib/sentiment/**,apps/web/app/(app)/sentiment/**,apps/web/components/sentiment/**,apps/web/app/api/sentiment/google/**
+alwaysApply: false
+---
+
+# Sentiment Google (stellarsociety GCP)
+
+OAuth lives on GCP project **SS Ops Hub** (`ss-ops-hub`, number `547266888878`), owned by `subscribe.stellarsociety@gmail.com`. Migrated off orillarestaurant project `685418304049`.
+
+## Do
+
+- Keep **both** OAuth redirect URIs: `https://opshub.stellarsocietygroup.com/api/sentiment/google/callback` and `http://localhost:3000/api/sentiment/google/callback`.
+- Read `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` from env only. Never hardcode or commit a client secret (including uploaded `client_secret_*.json`).
+- Full review history uses Business Profile OAuth when `refresh_token` + `external_account_id` + `external_location_id` are set (`lib/sentiment/google/sync.ts`). After Google Basic API Access is approved: Disconnect → Reconnect as stellarsociety → Load locations → pick Orilla → Import.
+- Until then, daily Apify Compass scrape (`/api/cron/sentiment-apify`, 06:30 UTC) imports Google reviews newer than 3 days. The same cron also scrapes TripAdvisor (`delicious_zebu/tripadvisor-review-collector`) when a listing URL is saved. Needs a valid `APIFY_TOKEN` from https://console.apify.com/settings/integrations. Do not commit the token.
+- Manual “Refresh latest reviews” (Settings) is the same lookback: last 2 days, max 25 reviews, 2-hour cooldown per channel. Do not add an unbounded full-history button — that burns the $5 free plan.
+
+## Do not
+
+- Do not change Places-related code or migrate `GOOGLE_PLACES_API_KEY` / the per-venue Places key until Business Profile import is live (old orillarestaurant Places key is a temporary fallback; new project billing is on hold).
+- Flag any leftover references to project `685418304049` or `subscribe.orillarestaurant@gmail.com` in Sentiment Google code.

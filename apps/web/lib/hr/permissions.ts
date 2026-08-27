@@ -383,6 +383,7 @@ export const SENSITIVE_STAFF_FIELDS = [
   "passport_no",
   "passport_expiry",
   "eid_no",
+  "eid_issue_date",
   "eid_expiry",
   "visa_expiry",
   "iban",

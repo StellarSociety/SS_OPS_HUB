@@ -23,7 +23,10 @@ function replyHint(review: SentimentReview, googleCanPost: boolean): string {
     return "Practice review — replies stay in the app and are not sent to Google.";
   }
   if (review.channel === "tripadvisor") {
-    return "TripAdvisor replies will post from the app once that channel is connected.";
+    return "TripAdvisor replies stay in the app. They are not posted back to TripAdvisor.";
+  }
+  if (review.channel === "guest") {
+    return "Guest feedback replies stay in the app. They are not sent to the guest.";
   }
   if (googleCanPost) {
     return "This reply will be posted on your Google Business Profile.";

@@ -3,6 +3,7 @@ import { HrOverview } from "@/components/hr/hr-overview";
 import { MissingDetailsWidgets } from "@/components/hr/missing-details-widgets";
 import { WorkAnniversaryWidgets } from "@/components/hr/work-anniversary-widgets";
 import { getHrPageContext } from "@/lib/hr/page-context";
+import { EMPLOYMENT_STATUS_NAMES } from "@/lib/hr/employment-status";
 import { listMissingDetailItems } from "@/lib/hr/missing-details";
 import { buildHrOverviewStats } from "@/lib/hr/overview";
 import { listOffBoardingItems } from "@/lib/hr/offboarding";
@@ -52,6 +53,10 @@ export default async function StaffInsightsPage() {
   const onProbation = listOnProbationItems(staff);
   const offBoarding = listOffBoardingItems(staff);
   const missingDetails = listMissingDetailItems(staff);
+  const missingDetailsOut = listMissingDetailItems(
+    staff,
+    EMPLOYMENT_STATUS_NAMES.out,
+  );
   const anniversaries = listWorkAnniversaryItems(
     staff,
     DEFAULT_ANNIVERSARY_LEAD_DAYS,
@@ -61,7 +66,7 @@ export default async function StaffInsightsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="grid w-full gap-4 lg:grid-cols-2">
+      <div className="grid w-full gap-4 lg:grid-cols-3 [&>*]:min-w-0">
         <WorkAnniversaryWidgets
           items={anniversaries}
           leadDays={DEFAULT_ANNIVERSARY_LEAD_DAYS}
@@ -95,6 +100,13 @@ export default async function StaffInsightsPage() {
       <MissingDetailsWidgets
         items={missingDetails}
         title="Missing details"
+        emptyDescription="All ON Board staff have the tracked profile fields filled in."
+      />
+
+      <MissingDetailsWidgets
+        items={missingDetailsOut}
+        title="Missing details — OUT"
+        emptyDescription="All OUT staff have the tracked profile fields filled in."
       />
     </div>
   );

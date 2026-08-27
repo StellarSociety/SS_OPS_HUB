@@ -260,6 +260,7 @@ export type Staff = {
   passport_no: string | null;
   passport_expiry: string | null;
   eid_no: string | null;
+  eid_issue_date: string | null;
   eid_expiry: string | null;
   iban: string | null;
   swift_code: string | null;

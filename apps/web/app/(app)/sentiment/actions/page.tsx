@@ -39,6 +39,9 @@ export default async function SentimentActionsPage() {
       return Boolean(action) || lowRating;
     })
     .sort((left, right) => {
+      const leftReplied = Boolean(left.reply_text?.trim());
+      const rightReplied = Boolean(right.reply_text?.trim());
+      if (leftReplied !== rightReplied) return leftReplied ? 1 : -1;
       const leftAction = actionsByReviewId[left.id];
       const rightAction = actionsByReviewId[right.id];
       const leftOpen =

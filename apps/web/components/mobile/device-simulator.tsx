@@ -2,11 +2,9 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useTransition, type FocusEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/card";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { AppPathPanel } from "@/components/mobile/app-path-panel";
 import { MobileEmployeeProfileScreen } from "@/components/mobile/mobile-employee-profile-screen";
-import { MobileLanHostButton } from "@/components/mobile/mobile-lan-host-button";
 import { MobileNotificationsScreen } from "@/components/mobile/mobile-notifications-screen";
 import { MobileRevenueScreen } from "@/components/mobile/mobile-revenue-screen";
 import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
@@ -25,6 +23,7 @@ import type { NotificationRow } from "@/lib/notifications/types";
 import type { SelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 import type { SalesOverviewResult } from "@/lib/sales/sales-overview-data";
 import type { Venue } from "@/lib/types/database";
+import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
 import {
   DEFAULT_DEVICE_ID,
   DEVICE_BRANDS,
@@ -35,8 +34,6 @@ import {
   type DevicePreset,
 } from "@/lib/mobile/device-presets";
 
-const SELECT_CLASS =
-  "h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20";
 const BEZEL = 14;
 const HOME_BUTTON_EXTRA = 52;
 
@@ -114,66 +111,22 @@ export function DeviceSimulator({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="shrink-0 space-y-3 pb-4">
-        <div>
-          <p className="font-serif text-2xl text-[#3D421F]">Device preview</p>
-          <hr className="mt-4 w-full border-black/10" />
-        </div>
-
-        <Card className="p-3">
-          <div className="flex flex-wrap items-start gap-3">
-            <label className="flex min-w-[12rem] flex-col gap-1">
-              <span className="text-[11px] font-medium text-black/45">
-                Format
-              </span>
-              <select
-                value={brand}
-                onChange={(event) =>
-                  selectBrand(event.target.value as DeviceBrand)
-                }
-                className={SELECT_CLASS}
-              >
-                {DEVICE_BRANDS.map((item) => (
-                  <option key={item.key} value={item.key}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="text-[11px] font-medium text-black/45">
-                Model
-              </span>
-              <div className="flex h-10 min-w-0 items-center gap-3">
-                <select
-                  aria-label="Phone model"
-                  value={device.id}
-                  onChange={(event) => setDeviceId(event.target.value)}
-                  className={`${SELECT_CLASS} min-w-[12rem]`}
-                >
-                  {brandDevices.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="shrink-0 text-sm tabular-nums text-black/50">
-                  {device.label}
-                  <span className="mx-1.5 text-black/20">·</span>
-                  {device.width} × {device.height}
-                  <span className="mx-1.5 text-black/20">·</span>
-                  {ratio}
-                  <span className="mx-1.5 text-black/20">·</span>
-                  {device.dpr}×
-                </p>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <MobileLanHostButton previewPath={previewPath} />
-      </div>
+      <DevicePreviewChrome
+        formatValue={brand}
+        formatOptions={DEVICE_BRANDS.map((item) => ({
+          value: item.key,
+          label: item.label,
+        }))}
+        onFormatChange={(value) => selectBrand(value as DeviceBrand)}
+        modelValue={device.id}
+        modelOptions={brandDevices.map((item) => ({
+          value: item.id,
+          label: item.label,
+        }))}
+        onModelChange={setDeviceId}
+        spec={`${device.label} · ${device.width} × ${device.height} · ${ratio} · ${device.dpr}×`}
+        previewPath={previewPath}
+      />
 
       <PhoneStage
         device={device}

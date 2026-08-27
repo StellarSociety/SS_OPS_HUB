@@ -32,17 +32,55 @@ export function GoogleMark({ className, ...props }: LucideProps) {
 export function TripAdvisorMark({ className, ...props }: LucideProps) {
   return (
     <svg
+      viewBox="0 0 872.22 872.22"
+      className={className}
+      aria-hidden
+      focusable="false"
+      {...props}
+    >
+      <circle cx="436.11" cy="436.11" r="436.11" fill="#34E0A1" />
+      <path
+        fill="#000"
+        fillRule="evenodd"
+        transform="translate(-113.62 -113.84)"
+        d="M818.35 463.9l52.5-57.12H754.46a363.57 363.57 0 0 0-409.1 0H228.67l52.5 57.12A160.45 160.45 0 1 0 498.32 700.16l51.44 56 51.41-55.93a159.81 159.81 0 0 0 109 42.74c88.61 0 160.51-71.84 160.51-160.45A160.07 160.07 0 0 0 818.35 463.9ZM389.28 691.06A108.58 108.58 0 1 1 497.86 582.48 108.58 108.58 0 0 1 389.28 691.06ZM549.76 579.35c0-71.45-52-132.76-120.51-159a313.36 313.36 0 0 1 241 0C601.72 446.6 549.76 507.9 549.76 579.35ZM710.17 691.06A108.58 108.58 0 1 1 818.75 582.48 108.58 108.58 0 0 1 710.17 691.06Zm0-165.5a56.92 56.92 0 1 0 56.92 56.92A56.92 56.92 0 0 0 710.17 525.56Zm-264 56.92a56.92 56.92 0 1 1-56.92-56.92A56.91 56.91 0 0 1 446.2 582.48Z"
+      />
+    </svg>
+  );
+}
+
+export function GuestMark({ className, ...props }: LucideProps) {
+  return (
+    <svg
       viewBox="0 0 24 24"
       className={className}
       aria-hidden
       focusable="false"
       {...props}
     >
-      <circle cx="12" cy="12" r="10" fill="#34E0A1" />
-      <circle cx="8.2" cy="12" r="2.4" fill="#1A2B32" />
-      <circle cx="15.8" cy="12" r="2.4" fill="#1A2B32" />
-      <circle cx="8.2" cy="12" r="0.9" fill="#fff" />
-      <circle cx="15.8" cy="12" r="0.9" fill="#fff" />
+      <rect x="2" y="2" width="20" height="20" rx="6" fill="#818a40" />
+      <path
+        fill="#fff"
+        d="M7.2 15.4c.5-1.7 2.1-2.9 4.8-2.9s4.3 1.2 4.8 2.9c.1.4-.1.8-.5.9-.4.1-.8-.1-.9-.5-.3-1.1-1.3-1.8-3.4-1.8s-3.1.7-3.4 1.8c-.1.4-.5.6-.9.5-.4-.1-.6-.5-.5-.9ZM12 7.4a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4Z"
+      />
+    </svg>
+  );
+}
+
+export function ApifyMark({ className, ...props }: LucideProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      aria-hidden
+      focusable="false"
+      {...props}
+    >
+      <rect x="2" y="2" width="20" height="20" rx="5" fill="#7B61FF" />
+      <path
+        fill="#fff"
+        d="M12 6.4c.7 0 1.25.55 1.25 1.25S12.7 8.9 12 8.9s-1.25-.55-1.25-1.25S11.3 6.4 12 6.4Zm0 3.3c1.85 0 3.35 1.5 3.35 3.35S13.85 16.4 12 16.4 8.65 14.9 8.65 13.05 10.15 9.7 12 9.7Zm0 1.7a1.65 1.65 0 1 0 0 3.3 1.65 1.65 0 0 0 0-3.3ZM6.7 10.2a.7.7 0 0 1 .95-.25l1.35.78a.7.7 0 1 1-.7 1.22L6.95 11.2a.7.7 0 0 1-.25-.99Zm10.6 0a.7.7 0 0 1-.25.99l-1.35.75a.7.7 0 1 1-.7-1.22l1.35-.78a.7.7 0 0 1 .95.26ZM6.7 15.9a.7.7 0 0 1 .25-.99l1.35-.75a.7.7 0 1 1 .7 1.22l-1.35.78a.7.7 0 0 1-.95-.26Zm10.6 0a.7.7 0 0 1-.95.26l-1.35-.78a.7.7 0 1 1 .7-1.22l1.35.75a.7.7 0 0 1 .25.99Z"
+      />
     </svg>
   );
 }

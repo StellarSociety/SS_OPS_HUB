@@ -42,8 +42,10 @@ import {
 import {
   availableBalance,
   canCarryForwardLeaveCode,
+  completedServiceYears,
   findLeaveType,
   formatLeaveDays,
+  formatServiceMonths,
   isManualLeaveAdjustmentField,
   isUsageOnlyLeaveCode,
   roundDays,
@@ -75,6 +77,12 @@ function formatDayMonthYear(value: string | null | undefined): string | null {
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+function adjustmentFieldLabel(field: string): string {
+  if (field === "carried_forward") return "Carried over";
+  if (field === "adjusted") return "Mid-year";
+  return field;
 }
 
 function formatLeaveRange(fromDate: string, toDate: string): string {
@@ -596,11 +604,22 @@ export function LeaveEmployeeDetail({
     code: string,
     field: AllowanceDetailsField,
   ) {
+    if (
+      (field === "entitled" || field === "accrued") &&
+      code === "PH-REPL"
+    ) {
+      openPhCredits();
+      return;
+    }
     setAllowanceDetailsCode(code);
     setAllowanceDetailsField(field);
     setAllowanceDetailsDays(null);
     setAllowanceDetailsError(null);
     setAllowanceDetailsOpen(true);
+    if (field === "entitled" || field === "accrued") {
+      setAllowanceDetailsDays({ used: [], scheduled: [], pending: [] });
+      return;
+    }
     startAllowanceDetails(async () => {
       const result = await getStaffAllowanceDetails({
         staffId: staff.id,
@@ -901,13 +920,13 @@ export function LeaveEmployeeDetail({
                 <th className="px-3 py-2 font-medium">Type</th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Statutory AL for this leave year from qualifying service (calendar days minus unpaid leave, ÷ 30). ≤6 months: 0. >6 and <12 months: months × 2. ≥12 months: 30 per completed year + pro-rata incomplete year."
+                  title="Statutory AL for this leave year from qualifying service, or the policy allotment for other kinds. Click for details."
                 >
                   Entitled
                 </th>
                 <th
                   className="px-3 py-2 font-medium text-right"
-                  title="Amount earned so far toward this year’s statutory entitlement. Matches Entitled: unpaid leave reduces qualifying service first, then the band is applied."
+                  title="Amount earned so far. For AL and PH-REPL this matches Entitled. Allowance kinds stay at 0. Click for details."
                 >
                   Accrued
                 </th>
@@ -986,27 +1005,33 @@ export function LeaveEmployeeDetail({
                     <td className="px-3 py-2 text-right tabular-nums">
                       {usageOnly ? (
                         "—"
-                      ) : bal.leave_type_code === "PH-REPL" ? (
-                        <EntitlementDatesLink
-                          value={bal.entitled}
-                          title="View public holiday dates that earned this credit"
-                          onOpen={openPhCredits}
-                        />
                       ) : (
-                        fmt(bal.entitled)
+                        <DaysLink
+                          value={bal.entitled}
+                          title="View how entitled days are calculated"
+                          onOpen={() =>
+                            openAllowanceDetails(
+                              bal.leave_type_code,
+                              "entitled",
+                            )
+                          }
+                        />
                       )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {usageOnly ? (
                         "—"
-                      ) : bal.leave_type_code === "PH-REPL" ? (
-                        <EntitlementDatesLink
-                          value={bal.accrued}
-                          title="View public holiday dates that earned this credit"
-                          onOpen={openPhCredits}
-                        />
                       ) : (
-                        fmt(bal.accrued)
+                        <DaysLink
+                          value={bal.accrued}
+                          title="View how accrued days are calculated"
+                          onOpen={() =>
+                            openAllowanceDetails(
+                              bal.leave_type_code,
+                              "accrued",
+                            )
+                          }
+                        />
                       )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
@@ -1087,7 +1112,7 @@ export function LeaveEmployeeDetail({
             type="button"
             aria-expanded={showManualAdjustment}
             onClick={() => setShowManualAdjustment((v) => !v)}
-            className="inline-flex items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40"
+            className="flex w-full items-center justify-between gap-3 rounded-t-md border-b border-black/10 pb-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40"
           >
             <h3 className="font-serif text-lg text-[#3D421F]">
               Manual adjustment
@@ -1099,7 +1124,7 @@ export function LeaveEmployeeDetail({
               )}
             />
           </button>
-          <p className="mt-1 max-w-2xl text-sm text-black/55">
+          <p className="mt-3 max-w-2xl text-sm text-black/55">
             Adjust the mid-year correction counter, or override carried-over
             days from last year (AL and Public Holiday only). A reason is
             required and kept in the audit history.
@@ -1214,7 +1239,7 @@ export function LeaveEmployeeDetail({
             </div>
 
             <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
-              <Label className="text-sm text-[#3D421F]">Reason</Label>
+              <Label className="text-sm text-[#3D421F]">Comment</Label>
               <Input
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
@@ -1265,6 +1290,13 @@ export function LeaveEmployeeDetail({
                 {recentManualAdjustments.map((a) => {
                   const change = a.new_value - a.previous_value;
                   const isEditing = editingAdjustmentId === a.id;
+                  const adjBalance = balances.find((b) => b.id === a.balance_id);
+                  const adjLeaveTypeName = adjBalance
+                    ? leaveTypeDisplayName(
+                        adjBalance.leave_type_code,
+                        findLeaveType(policy, adjBalance.leave_type_code),
+                      )
+                    : null;
                   if (isEditing) {
                     const previewChange =
                       Number.isFinite(Number(editAdjNewValue))
@@ -1274,8 +1306,16 @@ export function LeaveEmployeeDetail({
                       <li key={a.id} className="space-y-2.5 px-3 py-2.5 text-sm">
                         <div className="flex flex-wrap items-baseline justify-between gap-2">
                           <div>
-                            <span className="font-mono text-xs text-black/45">
-                              {a.field}
+                            {adjLeaveTypeName ? (
+                              <>
+                                <span className="font-medium text-[#3D421F]">
+                                  {adjLeaveTypeName}
+                                </span>
+                                <span className="mx-1.5 text-black/30">·</span>
+                              </>
+                            ) : null}
+                            <span className="text-xs text-black/45">
+                              {adjustmentFieldLabel(a.field)}
                             </span>
                             <span className="mx-1.5 text-black/30">·</span>
                             <span className="tabular-nums text-[#3D421F]">
@@ -1326,7 +1366,7 @@ export function LeaveEmployeeDetail({
                           </div>
                           <div className="space-y-1">
                             <Label className="text-[11px] text-black/45">
-                              Reason
+                              Comment
                             </Label>
                             <Input
                               value={editAdjReason}
@@ -1370,61 +1410,78 @@ export function LeaveEmployeeDetail({
                   return (
                     <li
                       key={a.id}
-                      className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5 text-sm"
+                      className="space-y-1.5 px-3 py-2.5 text-sm"
                     >
-                      <div>
-                        <span className="font-mono text-xs text-black/45">
-                          {a.field}
-                        </span>
-                        <span className="mx-1.5 text-black/30">·</span>
-                        <span className="tabular-nums text-[#3D421F]">
-                          {fmt(a.previous_value)} → {fmt(a.new_value)}
-                        </span>
-                        <span
-                          className={cn(
-                            "ml-2 tabular-nums text-xs font-medium",
-                            change > 0
-                              ? "text-emerald-700"
-                              : change < 0
-                                ? "text-red-700"
-                                : "text-black/45",
-                          )}
-                        >
-                          {change > 0 ? "+" : ""}
-                          {fmt(change)}
-                        </span>
-                        <p className="mt-0.5 text-black/55">{a.reason}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-right">
-                          <p className="text-xs text-black/45">
-                            By {a.author_name ?? "unknown user"}
-                          </p>
-                          <time className="text-xs text-black/40">
-                            {formatAdjustmentWhen(a.created_at)}
-                          </time>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          {adjLeaveTypeName ? (
+                            <>
+                              <span className="font-medium text-[#3D421F]">
+                                {adjLeaveTypeName}
+                              </span>
+                              <span className="mx-1.5 text-black/30">·</span>
+                            </>
+                          ) : null}
+                          <span className="text-xs text-black/45">
+                            {adjustmentFieldLabel(a.field)}
+                          </span>
+                          <span className="mx-1.5 text-black/30">·</span>
+                          <span className="tabular-nums text-[#3D421F]">
+                            {fmt(a.previous_value)} → {fmt(a.new_value)}
+                          </span>
+                          <span
+                            className={cn(
+                              "ml-2 tabular-nums text-xs font-medium",
+                              change > 0
+                                ? "text-emerald-700"
+                                : change < 0
+                                  ? "text-red-700"
+                                  : "text-black/45",
+                            )}
+                          >
+                            {change > 0 ? "+" : ""}
+                            {fmt(change)}
+                          </span>
                         </div>
-                        <button
-                          type="button"
-                          aria-label="Edit adjustment"
-                          title="Edit adjustment"
-                          onClick={() => beginEditAdjustment(a)}
-                          disabled={editAdjPending || editingAdjustmentId != null}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-black/40 transition hover:bg-black/[0.04] hover:text-[#3D421F] disabled:opacity-40"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="Delete adjustment"
-                          title="Delete adjustment"
-                          onClick={() => runDeleteAdjustment(a)}
-                          disabled={editAdjPending || editingAdjustmentId != null}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-rose-700/70 transition hover:bg-rose-50 hover:text-rose-800 disabled:opacity-40"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <p className="text-xs text-black/45">
+                              By {a.author_name ?? "unknown user"}
+                            </p>
+                            <time className="text-xs text-black/40">
+                              {formatAdjustmentWhen(a.created_at)}
+                            </time>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label="Edit adjustment"
+                            title="Edit adjustment"
+                            onClick={() => beginEditAdjustment(a)}
+                            disabled={editAdjPending || editingAdjustmentId != null}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-black/40 transition hover:bg-black/[0.04] hover:text-[#3D421F] disabled:opacity-40"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Delete adjustment"
+                            title="Delete adjustment"
+                            onClick={() => runDeleteAdjustment(a)}
+                            disabled={editAdjPending || editingAdjustmentId != null}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-rose-700/70 transition hover:bg-rose-50 hover:text-rose-800 disabled:opacity-40"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
+                      {a.reason.trim() ? (
+                        <p className="text-sm leading-snug text-[#3D421F]">
+                          <span className="mr-1.5 text-[11px] font-medium uppercase tracking-wide text-black/40">
+                            Comment
+                          </span>
+                          {a.reason.trim()}
+                        </p>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -1437,22 +1494,17 @@ export function LeaveEmployeeDetail({
       ) : null}
 
       <section>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h3 className="font-serif text-lg text-[#3D421F]">
-                Scheduled leave
-              </h3>
-              {scheduledLeaveDays > 0 ? (
-                <p className="text-sm text-black/50">
-                  {scheduledLeaveDays} day{scheduledLeaveDays === 1 ? "" : "s"}{" "}
-                  on roster · {year}
-                </p>
-              ) : null}
-            </div>
-            <p className="mt-1 text-sm text-black/55">
-              Leave days marked on this employee&apos;s schedule for {year}.
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 pb-3">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 className="font-serif text-lg text-[#3D421F]">
+              Scheduled leave
+            </h3>
+            {scheduledLeaveDays > 0 ? (
+              <p className="text-sm text-black/50">
+                {scheduledLeaveDays} day{scheduledLeaveDays === 1 ? "" : "s"}{" "}
+                on roster · {year}
+              </p>
+            ) : null}
           </div>
           <Link
             href={validationHref}
@@ -1464,6 +1516,9 @@ export function LeaveEmployeeDetail({
             <ExternalLink className="h-3.5 w-3.5 text-black/45" />
           </Link>
         </div>
+        <p className="mt-3 text-sm text-black/55">
+          Leave days marked on this employee&apos;s schedule for {year}.
+        </p>
         {scheduledLeaves.length === 0 ? (
           <div className="mt-3 rounded-xl border border-dashed border-black/15 bg-white/60 px-4 py-8 text-center">
             <p className="text-sm text-black/55">
@@ -1653,7 +1708,9 @@ export function LeaveEmployeeDetail({
       </section>
 
       <section>
-        <h3 className="font-serif text-lg text-[#3D421F]">Leave requests</h3>
+        <h3 className="border-b border-black/10 pb-3 font-serif text-lg text-[#3D421F]">
+          Leave requests
+        </h3>
         <div className="mt-3 rounded-xl border border-dashed border-black/15 bg-white/60 px-4 py-8 text-center">
           <p className="text-sm text-black/55">
             Leave requests for this employee will appear here.
@@ -1713,6 +1770,10 @@ export function LeaveEmployeeDetail({
           pending={allowanceDetailsPending}
           error={allowanceDetailsError}
           onClose={() => setAllowanceDetailsOpen(false)}
+          policy={policy}
+          annualLeaveCalculation={annualLeaveCalculation}
+          joiningDate={staff.joining_date}
+          probationStatus={staff.probation_status}
         />
       ) : null}
     </div>
@@ -1743,18 +1804,6 @@ function DaysLink({
   );
 }
 
-function EntitlementDatesLink({
-  value,
-  title,
-  onOpen,
-}: {
-  value: number;
-  title: string;
-  onOpen: () => void;
-}) {
-  return <DaysLink value={value} title={title} onOpen={onOpen} />;
-}
-
 function allowanceFieldCopy(field: AllowanceDetailsField): {
   title: string;
   description: string;
@@ -1782,7 +1831,265 @@ function allowanceFieldCopy(field: AllowanceDetailsField): {
         description:
           "Total minus used, scheduled, and pending. Dates below are what has already been taken or held.",
       };
+    case "entitled":
+      return {
+        title: "Entitled days",
+        description:
+          "How this year’s entitlement is set for this leave kind.",
+      };
+    case "accrued":
+      return {
+        title: "Accrued days",
+        description:
+          "How much of this year’s entitlement has been earned so far.",
+      };
   }
+}
+
+type EntitlementExplainRow = {
+  label: string;
+  value: string;
+  hint?: string;
+};
+
+function entitlementExplain(input: {
+  code: string;
+  field: "entitled" | "accrued";
+  policy: HrLeavePolicySettings;
+  balance: HrLeaveBalance | null;
+  calculation: AnnualLeaveCalculationBreakdown | null;
+  joiningDate: string | null;
+  probationStatus: string | null;
+}): { note: string; rows: EntitlementExplainRow[] } {
+  const { code, field, policy, balance, calculation, joiningDate } = input;
+  const onProbation = input.probationStatus === "Pending";
+  const amount = field === "entitled" ? balance?.entitled ?? 0 : balance?.accrued ?? 0;
+
+  if (code === "AL" && calculation) {
+    const rows: EntitlementExplainRow[] = [
+      {
+        label: "Joining date",
+        value: formatDayMonthYear(calculation.joiningDate) ?? "—",
+      },
+      {
+        label: "As of",
+        value: formatDayMonthYear(calculation.asOfDate) ?? "—",
+      },
+      {
+        label: "Calendar service",
+        value: `${calculation.calendarServiceDays} days`,
+        hint: "As-of date minus joining date",
+      },
+      {
+        label: "Unpaid leave",
+        value:
+          calculation.unpaidLeaveDays > 0
+            ? `−${calculation.unpaidLeaveDays} days`
+            : "0 days",
+        hint: "UPL reduces qualifying service, not the AL balance",
+      },
+      {
+        label: "Absence",
+        value:
+          calculation.absenceDays > 0
+            ? `−${calculation.absenceDays} days`
+            : "0 days",
+      },
+      {
+        label: "Qualifying service",
+        value: `${calculation.qualifyingServiceDays} days · ${formatServiceMonths(calculation.qualifyingServiceMonths)} months`,
+        hint: "Days ÷ 30, full precision",
+      },
+      {
+        label: "Rate",
+        value: calculation.rateLabel,
+      },
+      {
+        label: "This year’s increment",
+        value: `${fmt(calculation.grossAnnualLeaveEntitlement)} days`,
+        hint: `Rounded on the balance: ${fmt(calculation.roundedGrossAnnualLeaveEntitlement)} days`,
+      },
+    ];
+    return {
+      note:
+        field === "accrued"
+          ? "For annual leave, Accrued matches Entitled: the calendar-year increment of statutory leave."
+          : "Statutory AL for this leave year (career now minus career at previous 31 Dec). ≤6 months qualifying service: 0. >6 and <12 months: months × 2. ≥12 months: 30 per completed year + pro-rata.",
+      rows,
+    };
+  }
+
+  if (code.startsWith("SL-")) {
+    const stage =
+      code === "SL-FP"
+        ? { label: "Full pay", policyDays: policy.sick.fullPayDays }
+        : code === "SL-HP"
+          ? { label: "Half pay", policyDays: policy.sick.halfPayDays }
+          : { label: "Unpaid", policyDays: policy.sick.unpaidDays };
+    const blocked =
+      onProbation &&
+      policy.sick.unpaidDuringProbation &&
+      (code === "SL-FP" || code === "SL-HP");
+    return {
+      note: blocked
+        ? "Paid sick leave is 0 during probation. Only unpaid sick leave applies until probation ends."
+        : field === "accrued"
+          ? "Sick leave is an allowance, not earned month by month. Accrued stays 0; the entitled allotment is the working pool."
+          : `${stage.label} sick leave comes from venue leave policy for the calendar year.`,
+      rows: [
+        { label: "Policy allotment", value: `${fmt(stage.policyDays)} days` },
+        {
+          label: field === "entitled" ? "Entitled" : "Accrued",
+          value: `${fmt(amount)} days`,
+        },
+        ...(onProbation
+          ? [
+              {
+                label: "Probation",
+                value: "Pending",
+                hint: policy.sick.unpaidDuringProbation
+                  ? "Paid sick stages are withheld until probation is complete"
+                  : undefined,
+              },
+            ]
+          : []),
+      ],
+    };
+  }
+
+  if (code.startsWith("ML-")) {
+    const stage =
+      code === "ML-FP"
+        ? { label: "Full pay", policyDays: policy.other.maternityFullPayDays }
+        : code === "ML-HP"
+          ? { label: "Half pay", policyDays: policy.other.maternityHalfPayDays }
+          : {
+              label: "Unpaid extra",
+              policyDays: policy.other.maternityUnpaidExtraDays,
+            };
+    return {
+      note:
+        field === "accrued"
+          ? "Maternity leave is an allowance. Accrued stays 0; the entitled allotment is available when taken."
+          : `${stage.label} maternity leave comes from venue leave policy.`,
+      rows: [
+        { label: "Policy allotment", value: `${fmt(stage.policyDays)} days` },
+        {
+          label: field === "entitled" ? "Entitled" : "Accrued",
+          value: `${fmt(amount)} days`,
+        },
+      ],
+    };
+  }
+
+  const otherRows: Record<
+    string,
+    { label: string; policyDays: number; extra?: string }
+  > = {
+    PL: {
+      label: "Parental leave",
+      policyDays: policy.other.parentalWorkingDays,
+    },
+    BL: {
+      label: "Bereavement leave",
+      policyDays: policy.other.bereavementSpouseDays,
+    },
+    HL: {
+      label: "Hajj leave",
+      policyDays: policy.other.hajjLeaveDays,
+      extra: policy.other.hajjOncePerEmployment
+        ? "Once per employment"
+        : undefined,
+    },
+    STL: {
+      label: "Study leave",
+      policyDays: policy.other.studyLeaveWorkingDays,
+      extra: `Requires ${policy.other.studyLeaveMinServiceYears} completed year(s) of service`,
+    },
+  };
+  const other = otherRows[code];
+  if (other) {
+    const serviceYears = completedServiceYears(joiningDate);
+    const rows: EntitlementExplainRow[] = [
+      { label: "Policy allotment", value: `${fmt(other.policyDays)} days` },
+      {
+        label: field === "entitled" ? "Entitled" : "Accrued",
+        value: `${fmt(amount)} days`,
+      },
+    ];
+    if (code === "STL") {
+      rows.splice(1, 0, {
+        label: "Completed service",
+        value: `${serviceYears} year${serviceYears === 1 ? "" : "s"}`,
+        hint: other.extra,
+      });
+    } else if (other.extra) {
+      rows.push({ label: "Rule", value: other.extra });
+    }
+    return {
+      note:
+        field === "accrued"
+          ? `${other.label} is an allowance. Accrued stays 0; the entitled allotment is the working pool.`
+          : `${other.label} comes from venue leave policy.`,
+      rows,
+    };
+  }
+
+  return {
+    note:
+      field === "accrued"
+        ? "Accrued is the amount earned so far toward this year’s entitlement."
+        : "Entitled is this year’s allowance for this leave kind.",
+    rows: [
+      {
+        label: field === "entitled" ? "Entitled" : "Accrued",
+        value: `${fmt(amount)} days`,
+      },
+    ],
+  };
+}
+
+function EntitlementExplainBody({
+  code,
+  field,
+  policy,
+  balance,
+  calculation,
+  joiningDate,
+  probationStatus,
+}: {
+  code: string;
+  field: "entitled" | "accrued";
+  policy: HrLeavePolicySettings;
+  balance: HrLeaveBalance | null;
+  calculation: AnnualLeaveCalculationBreakdown | null;
+  joiningDate: string | null;
+  probationStatus: string | null;
+}) {
+  const explain = entitlementExplain({
+    code,
+    field,
+    policy,
+    balance,
+    calculation,
+    joiningDate,
+    probationStatus,
+  });
+  return (
+    <div className="mt-4 space-y-3">
+      <p className="text-sm text-black/55">{explain.note}</p>
+      <div className="space-y-2 rounded-lg border border-black/10 bg-black/[0.02] px-3 py-3">
+        {explain.rows.map((row) => (
+          <BreakdownRow
+            key={row.label}
+            label={row.label}
+            value={row.value}
+            hint={row.hint}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function AllowanceDayList({
@@ -1826,21 +2133,26 @@ function AllowanceDayList({
 function BreakdownRow({
   label,
   value,
+  hint,
   emphasize,
 }: {
   label: string;
   value: string;
+  hint?: string;
   emphasize?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "flex items-baseline justify-between gap-4 text-sm",
+        "flex items-start justify-between gap-4 text-sm",
         emphasize && "border-t border-black/10 pt-2 font-medium",
       )}
     >
-      <p className="text-[#3D421F]">{label}</p>
-      <p className="tabular-nums text-[#3D421F]">{value}</p>
+      <div className="min-w-0">
+        <p className="text-[#3D421F]">{label}</p>
+        {hint ? <p className="mt-0.5 text-xs text-black/45">{hint}</p> : null}
+      </div>
+      <p className="shrink-0 tabular-nums text-[#3D421F]">{value}</p>
     </div>
   );
 }
@@ -1857,6 +2169,10 @@ function AllowanceDaysDialog({
   pending,
   error,
   onClose,
+  policy,
+  annualLeaveCalculation,
+  joiningDate,
+  probationStatus,
 }: {
   year: number;
   staffName: string;
@@ -1873,6 +2189,10 @@ function AllowanceDaysDialog({
   pending: boolean;
   error: string | null;
   onClose: () => void;
+  policy: HrLeavePolicySettings;
+  annualLeaveCalculation?: AnnualLeaveCalculationBreakdown | null;
+  joiningDate: string | null;
+  probationStatus: string | null;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1939,7 +2259,11 @@ function AllowanceDaysDialog({
           </button>
         </div>
 
-        <p className="mt-3 text-sm text-black/55">{copy.description}</p>
+        <p className="mt-3 text-sm text-black/55">
+          {field === "entitled" || field === "accrued"
+            ? leaveTypeName
+            : copy.description}
+        </p>
 
         {pending ? (
           <p className="mt-4 text-sm text-black/45">Loading…</p>
@@ -1947,6 +2271,16 @@ function AllowanceDaysDialog({
           <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900/85">
             {error}
           </p>
+        ) : field === "entitled" || field === "accrued" ? (
+          <EntitlementExplainBody
+            code={leaveTypeCode}
+            field={field}
+            policy={policy}
+            balance={balance}
+            calculation={annualLeaveCalculation ?? null}
+            joiningDate={joiningDate}
+            probationStatus={probationStatus}
+          />
         ) : field === "available" && balance ? (
           <div className="mt-4 space-y-4">
             <div className="space-y-2 rounded-lg border border-black/10 bg-black/[0.02] px-3 py-3">

@@ -9,12 +9,13 @@ import type {
   SentimentSourceStatus,
 } from "./types";
 import { DEFAULT_REPLY_TEMPLATES } from "./reply-templates";
+import { reviewedAtBounds } from "./review-period";
 import { scoreReview } from "./score-review";
 
 type Client = SupabaseClient;
 
 const REVIEW_COLUMNS =
-  "id, venue_id, source_id, channel, external_id, author_name, author_photo_url, rating, comment, reviewed_at, language, reply_text, reply_at, review_url, status, is_practice, reply_sync_status, reply_sync_error, author_profile_url, author_is_local_guide, author_review_count, photo_urls, sentiment_label, sentiment_score, sentiment_topics, sentiment_analyzed_at, imported_at, updated_at";
+  "id, venue_id, source_id, channel, external_id, author_name, author_photo_url, rating, comment, reviewed_at, language, reply_text, reply_at, review_url, status, is_practice, reply_sync_status, reply_sync_error, author_profile_url, author_is_local_guide, author_review_count, photo_urls, raw, sentiment_label, sentiment_score, sentiment_topics, sentiment_analyzed_at, imported_at, updated_at";
 
 const SOURCE_PUBLIC_COLUMNS = [
   "id",
@@ -70,6 +71,7 @@ export async function listReviews(
   client: Client,
   venueId: string,
   channel?: SentimentChannel,
+  range?: { fromDate: string; toDate: string } | null,
 ): Promise<SentimentReview[]> {
   let query = client
     .from("sentiment_reviews")
@@ -78,6 +80,15 @@ export async function listReviews(
     .order("reviewed_at", { ascending: false, nullsFirst: false });
 
   if (channel) query = query.eq("channel", channel);
+  if (range?.fromDate && range.toDate) {
+    const { startIso, endExclusiveIso } = reviewedAtBounds(
+      range.fromDate,
+      range.toDate,
+    );
+    query = query
+      .gte("reviewed_at", startIso)
+      .lt("reviewed_at", endExclusiveIso);
+  }
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);

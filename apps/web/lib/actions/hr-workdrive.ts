@@ -26,6 +26,7 @@ import {
   deleteStaffWorkDriveDocumentMeta,
   getStaffWorkDriveDocumentById,
   listStaffWorkDriveDocuments,
+  listStaffWorkDriveDocumentsForStaff,
   reconcileStaffWorkDriveDocumentsPresence,
   updateStaffWorkDriveDocumentFileName,
 } from "@/lib/hr/workdrive/documents";
@@ -44,6 +45,7 @@ import { performStaffWorkDriveUpload } from "@/lib/hr/workdrive/staff-upload";
 import { renderWorkDriveTemplate } from "@/lib/hr/workdrive/upload";
 import {
   canAccessAssets,
+  canAccessStaff,
   canAdminLookups,
   canEditAssets,
   canEditStaff,
@@ -1379,6 +1381,66 @@ function toStaffWorkDriveDocumentListItem(
     isMissing: Boolean(row.missing_at),
     missingReason: row.missing_reason,
   };
+}
+
+export type StaffProfileDocumentPresence = {
+  docKind: string;
+  fileSlotId: string | null;
+  isMissing: boolean;
+};
+
+/** All WorkDrive file slots + presence for a staff profile completeness check. */
+export async function getStaffProfileDocumentIndex(staffId: string): Promise<
+  | {
+      ok: true;
+      slots: Record<string, StaffDocUploadFilePart[]>;
+      present: StaffProfileDocumentPresence[];
+    }
+  | { ok: false; error: string }
+> {
+  const auth = await getAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const id = String(staffId ?? "").trim();
+  if (!id) return { ok: false, error: "Missing staff id." };
+
+  if (
+    !canAccessStaff(auth.permissions, auth.venue.id) &&
+    !canViewStaff(auth.permissions, auth.venue.id) &&
+    !canEditStaff(auth.permissions, auth.venue.id) &&
+    !canAccessAssets(auth.permissions, auth.venue.id) &&
+    !canEditAssets(auth.permissions, auth.venue.id)
+  ) {
+    return { ok: false, error: "No permission to view staff documents." };
+  }
+
+  try {
+    const [slots, rows] = await Promise.all([
+      getStaffDocUploadSlots(),
+      listStaffWorkDriveDocumentsForStaff(
+        createServiceClient(),
+        auth.venue.id,
+        id,
+      ),
+    ]);
+    return {
+      ok: true,
+      slots,
+      present: rows.map((row) => ({
+        docKind: row.doc_kind,
+        fileSlotId: row.file_slot_id,
+        isMissing: Boolean(row.missing_at),
+      })),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Could not load profile documents.",
+    };
+  }
 }
 
 export async function listStaffWorkDriveDocs(input: {

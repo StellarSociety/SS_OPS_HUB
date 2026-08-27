@@ -26,6 +26,7 @@ import {
 import { useStaffVisaCancelation } from "@/components/hr/visa-cancelation-panel";
 import { uploadStaffDocumentViaApi } from "@/lib/hr/workdrive/client-upload";
 import { docExpiryFieldForKind } from "@/lib/hr/workdrive/doc-expiry";
+import { staffDocAnchorId } from "@/lib/hr/profile-completeness";
 import {
   computeSalaryBreakdown,
   formatAed,
@@ -500,11 +501,22 @@ function WorkDriveDocUploadCard({
   }, [staffId, docKind]);
 
   return (
-    <SectionCard
-      title={title}
+    <div
+      id={
+        parts.length === 1
+          ? staffDocAnchorId(
+              docKind,
+              resolvePartSlotId(parts[0]!.id, 0, fileSlotId, parts),
+            )
+          : staffDocAnchorId(docKind)
+      }
       className="h-full w-full"
-      contentClassName="flex h-full flex-col"
     >
+      <SectionCard
+        title={title}
+        className="h-full w-full"
+        contentClassName="flex h-full flex-col"
+      >
       {parts.length === 1 ? (
         <WorkDriveFilePartUpload
           label="Drag & drop or click to upload"
@@ -541,7 +553,11 @@ function WorkDriveDocUploadCard({
               parts,
             );
             return (
-              <div key={part.id} className="min-w-0 space-y-1.5">
+              <div
+                key={part.id}
+                id={staffDocAnchorId(docKind, part.id)}
+                className="min-w-0 space-y-1.5"
+              >
                 <p className="text-xs font-medium text-[#3D421F]">{part.label}</p>
                 <WorkDriveFilePartUpload
                   label={`Drop or click ${part.label}`}
@@ -563,6 +579,7 @@ function WorkDriveDocUploadCard({
         </div>
       )}
     </SectionCard>
+    </div>
   );
 }
 
@@ -709,8 +726,30 @@ export function StaffEntryForm({
   const [fileSlotsByKind, setFileSlotsByKind] = useState<
     Record<string, StaffDocUploadFilePart[]>
   >({});
+  const [visitedTabs, setVisitedTabs] = useState<
+    Partial<Record<StaffEntryTab, true>>
+  >(() => (activeTab ? { [activeTab]: true } : {}));
 
   useEffect(() => {
+    if (!activeTab) return;
+    setVisitedTabs((current) =>
+      current[activeTab] ? current : { ...current, [activeTab]: true },
+    );
+  }, [activeTab]);
+
+  const documentsOpened =
+    Boolean(visitedTabs.documents) || activeTab === "documents";
+  const employmentDocsOpened =
+    Boolean(visitedTabs.employment_docs) || activeTab === "employment_docs";
+  const employmentPathOpened =
+    Boolean(visitedTabs.employment_path) || activeTab === "employment_path";
+  const communicationsOpened =
+    Boolean(visitedTabs.communications) || activeTab === "communications";
+  const assetsOpened = Boolean(visitedTabs.assets) || activeTab === "assets";
+  const uniformOpened = Boolean(visitedTabs.uniform) || activeTab === "uniform";
+
+  useEffect(() => {
+    if (!documentsOpened && !employmentDocsOpened) return;
     let cancelled = false;
     void getStaffDocUploadSlots().then((slots) => {
       if (!cancelled) setFileSlotsByKind(slots);
@@ -718,7 +757,7 @@ export function StaffEntryForm({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [documentsOpened, employmentDocsOpened]);
 
   const staffDocExpiry = (kind: HrWorkDriveDocKind, slotId: string) => {
     const field = docExpiryFieldForKind(kind, slotId);
@@ -1757,7 +1796,7 @@ export function StaffEntryForm({
               className={fieldClass}
             />
           </Field>
-          <Field layout="inline" label="Passport expiry" htmlFor="passport_expiry">
+          <Field layout="inline" label="Passport Expiry Date" htmlFor="passport_expiry">
             <DateInput
               id="passport_expiry"
               name="passport_expiry"
@@ -1771,17 +1810,19 @@ export function StaffEntryForm({
         </SectionCard>
       </div>
       <div className="min-w-0 w-full flex-1">
-        <WorkDriveDocUploadCard
-          title="Passport document"
-          docKind="passport"
-          staffId={staffId}
-          empNo={value.emp_no}
-          fullName={value.full_name}
-          readOnly={readOnly}
-          successLabel="Passport"
-          fileParts={fileSlotsByKind.passport}
-          docExpiryForSlot={(slotId) => staffDocExpiry("passport", slotId)}
-        />
+        {documentsOpened ? (
+          <WorkDriveDocUploadCard
+            title="Passport document"
+            docKind="passport"
+            staffId={staffId}
+            empNo={value.emp_no}
+            fullName={value.full_name}
+            readOnly={readOnly}
+            successLabel="Passport"
+            fileParts={fileSlotsByKind.passport}
+            docExpiryForSlot={(slotId) => staffDocExpiry("passport", slotId)}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1804,6 +1845,17 @@ export function StaffEntryForm({
               className={fieldClass}
             />
           </Field>
+          <Field layout="inline" label="EID issue date" htmlFor="eid_issue_date">
+            <DateInput
+              id="eid_issue_date"
+              name="eid_issue_date"
+              value={value.eid_issue_date}
+              onChange={(iso) => onChange({ eid_issue_date: iso })}
+              disabled={readOnly}
+              className="w-full"
+              inputClassName={fieldClass}
+            />
+          </Field>
           <Field layout="inline" label="EID expiry" htmlFor="eid_expiry">
             <DateInput
               id="eid_expiry"
@@ -1818,17 +1870,19 @@ export function StaffEntryForm({
         </SectionCard>
       </div>
       <div className="min-w-0 w-full flex-1">
-        <WorkDriveDocUploadCard
-          title="Emirates ID Document"
-          docKind="emirates_id"
-          staffId={staffId}
-          empNo={value.emp_no}
-          fullName={value.full_name}
-          readOnly={readOnly}
-          successLabel="Emirates ID"
-          fileParts={fileSlotsByKind.emirates_id}
-          docExpiryForSlot={(slotId) => staffDocExpiry("emirates_id", slotId)}
-        />
+        {documentsOpened ? (
+          <WorkDriveDocUploadCard
+            title="Emirates ID Document"
+            docKind="emirates_id"
+            staffId={staffId}
+            empNo={value.emp_no}
+            fullName={value.full_name}
+            readOnly={readOnly}
+            successLabel="Emirates ID"
+            fileParts={fileSlotsByKind.emirates_id}
+            docExpiryForSlot={(slotId) => staffDocExpiry("emirates_id", slotId)}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1885,17 +1939,19 @@ export function StaffEntryForm({
         </SectionCard>
       </div>
       <div className="min-w-0 w-full flex-1">
-        <WorkDriveDocUploadCard
-          title="Bank details Certificate"
-          docKind="bank"
-          staffId={staffId}
-          empNo={value.emp_no}
-          fullName={value.full_name}
-          readOnly={readOnly}
-          successLabel="Bank certificate"
-          fileParts={fileSlotsByKind.bank}
-          docExpiryForSlot={(slotId) => staffDocExpiry("bank", slotId)}
-        />
+        {documentsOpened ? (
+          <WorkDriveDocUploadCard
+            title="Bank details Certificate"
+            docKind="bank"
+            staffId={staffId}
+            empNo={value.emp_no}
+            fullName={value.full_name}
+            readOnly={readOnly}
+            successLabel="Bank certificate"
+            fileParts={fileSlotsByKind.bank}
+            docExpiryForSlot={(slotId) => staffDocExpiry("bank", slotId)}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -1945,39 +2001,47 @@ export function StaffEntryForm({
               </SectionCard>
             </div>
             <div className="min-w-0 w-full flex-1">
-              <WorkDriveDocUploadCard
-                title={documentTitle}
-                docKind={docKind}
-                staffId={staffId}
-                empNo={value.emp_no}
-                fullName={value.full_name}
-                readOnly={readOnly}
-                successLabel={title}
-                fileParts={fileSlotsByKind[docKind]}
-                docExpiryForSlot={(slotId) => staffDocExpiry(docKind, slotId)}
-              />
+              {employmentDocsOpened ? (
+                <WorkDriveDocUploadCard
+                  title={documentTitle}
+                  docKind={docKind}
+                  staffId={staffId}
+                  empNo={value.emp_no}
+                  fullName={value.full_name}
+                  readOnly={readOnly}
+                  successLabel={title}
+                  fileParts={fileSlotsByKind[docKind]}
+                  docExpiryForSlot={(slotId) => staffDocExpiry(docKind, slotId)}
+                />
+              ) : null}
             </div>
           </div>
         ),
       )}
-      <VisaCancelationStaffRow
-        staffId={staffId}
-        empNo={value.emp_no}
-        fullName={value.full_name}
-        readOnly={readOnly}
-        fileParts={fileSlotsByKind.visa_cancelation}
-      />
+      {employmentDocsOpened ? (
+        <VisaCancelationStaffRow
+          staffId={staffId}
+          empNo={value.emp_no}
+          fullName={value.full_name}
+          readOnly={readOnly}
+          fileParts={fileSlotsByKind.visa_cancelation}
+        />
+      ) : null}
     </>
   );
 
-  const communicationsPlaceholder = (
+  const communicationsPlaceholder = communicationsOpened ? (
     <StaffCommunicationsTrail staffId={staffId} />
-  );
+  ) : null;
 
-  const assetsPanel = <StaffAssetsPanel staffId={staffId} />;
-  const uniformPanel = <StaffUniformPanel staffId={staffId} />;
+  const assetsPanel = assetsOpened ? (
+    <StaffAssetsPanel staffId={staffId} />
+  ) : null;
+  const uniformPanel = uniformOpened ? (
+    <StaffUniformPanel staffId={staffId} />
+  ) : null;
 
-  const employmentPathPanel = (
+  const employmentPathPanel = employmentPathOpened ? (
     <StaffEmploymentPath
       staffId={staffId}
       joiningDate={value.joining_date || null}
@@ -1999,7 +2063,7 @@ export function StaffEntryForm({
         onPersistedStaffPatch?.(patch);
       }}
     />
-  );
+  ) : null;
 
   const wideTab =
     activeTab === "communications" ||

@@ -5,11 +5,13 @@ export const SENTIMENT_MODULE_KEY = "sentiment" as const;
 export const SENTIMENT_FEATURES = {
   overview: "overview",
   reviews: "reviews",
+  guest_feedback: "guest_feedback",
   actions: "actions",
+  live_display: "live_display",
   settings: "settings",
 } as const;
 
-export const SENTIMENT_CHANNELS = ["google", "tripadvisor"] as const;
+export const SENTIMENT_CHANNELS = ["google", "tripadvisor", "guest"] as const;
 
 export const MAX_REVIEW_REPLY_LENGTH = 4096;
 
@@ -68,6 +70,7 @@ export type SentimentReview = {
   author_is_local_guide: boolean;
   author_review_count: number | null;
   photo_urls: string[];
+  raw: Record<string, unknown> | null;
   sentiment_label: SentimentLabel | null;
   sentiment_score: number | null;
   sentiment_topics: string[];

@@ -14,8 +14,23 @@ export const SENTIMENT_CHANNEL_META: Record<
     href: "/sentiment/reviews/tripadvisor",
     description: "TripAdvisor guest reviews.",
   },
+  guest: {
+    label: "Guest",
+    href: "/sentiment/reviews/guest",
+    description: "Reviews collected from the Guest Feedback page.",
+  },
 };
 
 export function isSentimentChannel(value: string): value is SentimentChannel {
-  return value === "google" || value === "tripadvisor";
+  return value === "google" || value === "tripadvisor" || value === "guest";
+}
+
+export function sentimentChannelLabel(channel: SentimentChannel): string {
+  return SENTIMENT_CHANNEL_META[channel].label;
+}
+
+export function sentimentGuestFallbackName(channel: SentimentChannel): string {
+  if (channel === "guest") return "Guest";
+  if (channel === "tripadvisor") return "TripAdvisor user";
+  return "Google user";
 }

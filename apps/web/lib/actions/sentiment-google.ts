@@ -64,7 +64,10 @@ function revalidateSentiment() {
   revalidatePath("/sentiment", "page");
   revalidatePath("/sentiment/reviews", "page");
   revalidatePath("/sentiment/reviews/google", "page");
+  revalidatePath("/sentiment/calendar", "page");
   revalidatePath("/sentiment/settings", "page");
+  revalidatePath("/sentiment/settings/google", "page");
+  revalidatePath("/sentiment/settings/apify", "page");
 }
 
 export async function startGoogleOAuth() {

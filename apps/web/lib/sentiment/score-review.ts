@@ -21,15 +21,19 @@ const RATING_BASE: Record<number, number> = {
   5: 92,
 };
 
-const TOPICS: Array<{ id: string; pattern: RegExp }> = [
-  { id: "food", pattern: /\b(food|dish|dishes|meal|mains?|dessert|steak|bass|mezze|kitchen|flavour|flavor|tasty|delicious|bland|cold|lukewarm|raw|burnt)\b/i },
-  { id: "drinks", pattern: /\b(drink|drinks|cocktail|wine|coffee|bar)\b/i },
-  { id: "service", pattern: /\b(service|server|waiter|waitress|staff|attentive|rude|rushed|friendly|host)\b/i },
-  { id: "wait", pattern: /\b(wait|waited|waiting|slow|delay|minutes)\b/i },
-  { id: "value", pattern: /\b(price|priced|expensive|overpriced|value|worth|bill)\b/i },
-  { id: "atmosphere", pattern: /\b(atmosphere|terrace|view|sunset|ambience|ambiance|noisy|quiet|beautiful)\b/i },
-  { id: "cleanliness", pattern: /\b(clean|dirty|hygiene|sticky|table)\b/i },
+const TOPICS: Array<{ id: string; label: string; pattern: RegExp }> = [
+  { id: "food", label: "Food", pattern: /\b(food|dish|dishes|meal|mains?|dessert|steak|bass|mezze|kitchen|flavour|flavor|tasty|delicious|bland|cold|lukewarm|raw|burnt)\b/i },
+  { id: "drinks", label: "Drinks", pattern: /\b(drink|drinks|cocktail|wine|coffee|bar)\b/i },
+  { id: "service", label: "Service", pattern: /\b(service|server|waiter|waitress|staff|attentive|rude|rushed|friendly|host)\b/i },
+  { id: "wait", label: "Wait time", pattern: /\b(wait|waited|waiting|slow|delay|minutes)\b/i },
+  { id: "value", label: "Value", pattern: /\b(price|priced|expensive|overpriced|value|worth|bill)\b/i },
+  { id: "atmosphere", label: "Atmosphere", pattern: /\b(atmosphere|terrace|view|sunset|ambience|ambiance|noisy|quiet|beautiful)\b/i },
+  { id: "cleanliness", label: "Cleanliness", pattern: /\b(clean|dirty|hygiene|sticky|table)\b/i },
 ];
+
+export const SENTIMENT_TOPIC_LABELS: Record<string, string> = Object.fromEntries(
+  TOPICS.map((topic) => [topic.id, topic.label]),
+);
 
 const POSITIVE =
   /\b(amazing|excellent|delicious|wonderful|fantastic|perfect|attentive|generous|beautiful|recommend|lovely|great|outstanding|superb|warm welcome|will (?:be )?back)\b/gi;

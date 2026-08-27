@@ -38,6 +38,9 @@ export function ModulesOverview({
   trailingItem,
 }: ModulesOverviewProps) {
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
+  const hubTitle = venue.is_global
+    ? "All Venues Operational HUB"
+    : `${venue.name} Operational HUB`;
   return (
     <div className="space-y-8">
       <header className="flex flex-col items-center gap-3 pb-2 pt-6 text-center md:pt-10">
@@ -63,7 +66,7 @@ export function ModulesOverview({
         </h1>
 
         <p className="font-serif text-2xl tracking-wide text-[#3D421F] md:text-3xl">
-          Operational Apps Hub
+          {hubTitle}
         </p>
 
         {isGlobal ? (

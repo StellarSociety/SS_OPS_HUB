@@ -37,6 +37,7 @@ function GuestCell({ review }: { review: SentimentReview }) {
         <img
           src={review.author_photo_url}
           alt=""
+          referrerPolicy="no-referrer"
           className="h-8 w-8 shrink-0 rounded-full object-cover"
         />
       ) : (
@@ -103,7 +104,11 @@ function ActionRow({
         {formatReviewDate(review.reviewed_at)}
       </td>
       <td className="whitespace-nowrap px-3 py-4 text-xs text-black/55">
-        {review.channel === "google" ? "Google" : "TripAdvisor"}
+        {review.channel === "google"
+          ? "Google"
+          : review.channel === "tripadvisor"
+            ? "TripAdvisor"
+            : "Guest"}
       </td>
       <td className="px-3 py-4">
         <GuestCell review={review} />
@@ -200,6 +205,9 @@ export function ReviewActionsTable({
   canEdit: boolean;
   currentUserId: string;
 }) {
+  const awaiting = rows.filter((row) => !row.review.reply_text?.trim());
+  const replied = rows.filter((row) => Boolean(row.review.reply_text?.trim()));
+
   return (
     <div className="overflow-hidden rounded-xl border border-black/10 bg-white/70 shadow-sm backdrop-blur-xl">
       <div className="overflow-x-auto">
@@ -219,18 +227,53 @@ export function ReviewActionsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ review, action }) => (
-              <ActionRow
-                key={review.id}
-                review={review}
-                action={action}
-                canEdit={canEdit}
-                currentUserId={currentUserId}
-              />
-            ))}
+            {awaiting.length > 0 ? (
+              <>
+                <SectionRow label="Awaiting reply" count={awaiting.length} />
+                {awaiting.map(({ review, action }) => (
+                  <ActionRow
+                    key={review.id}
+                    review={review}
+                    action={action}
+                    canEdit={canEdit}
+                    currentUserId={currentUserId}
+                  />
+                ))}
+              </>
+            ) : null}
+            {replied.length > 0 ? (
+              <>
+                <SectionRow label="Reply sent" count={replied.length} />
+                {replied.map(({ review, action }) => (
+                  <ActionRow
+                    key={review.id}
+                    review={review}
+                    action={action}
+                    canEdit={canEdit}
+                    currentUserId={currentUserId}
+                  />
+                ))}
+              </>
+            ) : null}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function SectionRow({ label, count }: { label: string; count: number }) {
+  return (
+    <tr>
+      <td
+        colSpan={10}
+        className="border-y border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/80 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-black/50"
+      >
+        {label}
+        <span className="ml-2 tabular-nums font-medium text-black/35">
+          {count}
+        </span>
+      </td>
+    </tr>
   );
 }

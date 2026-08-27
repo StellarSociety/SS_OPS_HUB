@@ -16,7 +16,10 @@ import {
   EMAIL_CHROME_FOOTER_HEIGHT_CM,
   EMAIL_CHROME_HEADER_HEIGHT_CM,
   EMAIL_CHROME_SOCIAL_ICON_PX,
+  EMAIL_CHROME_SOCIAL_LINK_KEYS,
   EMAIL_CHROME_SOCIAL_LINKS,
+  emailChromeSocialFormName,
+  type EmailChromeSocialLinkKey,
   type HrEmailChromeSettings,
 } from "@/lib/hr/types";
 import { cn } from "@/lib/utils";
@@ -167,12 +170,13 @@ export function EmailChromeSettingsPanel({
     settings.headerBackgroundColor,
   );
   const [footerText, setFooterText] = useState(settings.footerText);
-  const [websiteUrl, setWebsiteUrl] = useState(settings.websiteUrl);
-  const [instagramUrl, setInstagramUrl] = useState(settings.instagramUrl);
-  const [facebookUrl, setFacebookUrl] = useState(settings.facebookUrl);
-  const [linkedinUrl, setLinkedinUrl] = useState(settings.linkedinUrl);
-  const [tiktokUrl, setTiktokUrl] = useState(settings.tiktokUrl ?? "");
-  const [snapchatUrl, setSnapchatUrl] = useState(settings.snapchatUrl ?? "");
+  const [socials, setSocials] = useState<
+    Record<EmailChromeSocialLinkKey, string>
+  >(() =>
+    Object.fromEntries(
+      EMAIL_CHROME_SOCIAL_LINK_KEYS.map((key) => [key, settings[key] ?? ""]),
+    ) as Record<EmailChromeSocialLinkKey, string>,
+  );
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -180,31 +184,14 @@ export function EmailChromeSettingsPanel({
   const [testTo, setTestTo] = useState(defaultTestTo);
   const [testPending, startTestTransition] = useTransition();
 
-  const socialValues: Record<string, string> = {
-    websiteUrl,
-    instagramUrl,
-    facebookUrl,
-    linkedinUrl,
-    tiktokUrl,
-    snapchatUrl,
-  };
-  const setSocialValues: Record<string, (value: string) => void> = {
-    websiteUrl: setWebsiteUrl,
-    instagramUrl: setInstagramUrl,
-    facebookUrl: setFacebookUrl,
-    linkedinUrl: setLinkedinUrl,
-    tiktokUrl: setTiktokUrl,
-    snapchatUrl: setSnapchatUrl,
-  };
-
   const previewSocials = useMemo(
     () =>
       EMAIL_CHROME_SOCIAL_LINKS.flatMap((row) => {
-        const href = normalizePreviewUrl(socialValues[row.key] ?? "");
+        const href = normalizePreviewUrl(socials[row.key] ?? "");
         if (!href) return [];
         return [{ ...row, href }];
       }),
-    [websiteUrl, instagramUrl, facebookUrl, linkedinUrl, tiktokUrl, snapchatUrl],
+    [socials],
   );
 
   const watch = useMemo(
@@ -213,36 +200,18 @@ export function EmailChromeSettingsPanel({
         enabled,
         headerBackgroundColor,
         footerText,
-        websiteUrl,
-        instagramUrl,
-        facebookUrl,
-        linkedinUrl,
-        tiktokUrl,
-        snapchatUrl,
+        ...socials,
       }),
-    [
-      enabled,
-      headerBackgroundColor,
-      footerText,
-      websiteUrl,
-      instagramUrl,
-      facebookUrl,
-      linkedinUrl,
-      tiktokUrl,
-      snapchatUrl,
-    ],
+    [enabled, headerBackgroundColor, footerText, socials],
   );
 
   function appendChromeFields(formData: FormData) {
     formData.set("enabled", enabled ? "true" : "false");
     formData.set("header_background_color", headerBackgroundColor);
     formData.set("footer_text", footerText);
-    formData.set("website_url", websiteUrl);
-    formData.set("instagram_url", instagramUrl);
-    formData.set("facebook_url", facebookUrl);
-    formData.set("linkedin_url", linkedinUrl);
-    formData.set("tiktok_url", tiktokUrl);
-    formData.set("snapchat_url", snapchatUrl);
+    for (const key of EMAIL_CHROME_SOCIAL_LINK_KEYS) {
+      formData.set(emailChromeSocialFormName(key), socials[key] ?? "");
+    }
   }
 
   async function handleSave(formData: FormData) {
@@ -382,8 +351,13 @@ export function EmailChromeSettingsPanel({
                 <Input
                   id={`email_chrome_${row.key}`}
                   type="url"
-                  value={socialValues[row.key] ?? ""}
-                  onChange={(e) => setSocialValues[row.key]?.(e.target.value)}
+                  value={socials[row.key] ?? ""}
+                  onChange={(e) =>
+                    setSocials((current) => ({
+                      ...current,
+                      [row.key]: e.target.value,
+                    }))
+                  }
                   placeholder={row.placeholder}
                   className="h-9"
                 />

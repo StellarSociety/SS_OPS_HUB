@@ -141,11 +141,15 @@ const KNOWN_RATIOS: { label: string; value: number }[] = [
   { label: "20:9", value: 20 / 9 },
   { label: "19.3:9", value: 19.3 / 9 },
   { label: "16:9", value: 16 / 9 },
+  { label: "4:3", value: 4 / 3 },
+  { label: "3:2", value: 3 / 2 },
 ];
 
-/** Closest common phone ratio, or a reduced W:H. */
+/** Closest common screen ratio, or a reduced W:H. */
 export function deviceRatioLabel(width: number, height: number): string {
-  const actual = height / width;
+  const long = Math.max(width, height);
+  const short = Math.min(width, height);
+  const actual = long / short;
   let best = KNOWN_RATIOS[0];
   let bestDiff = Infinity;
   for (const ratio of KNOWN_RATIOS) {
