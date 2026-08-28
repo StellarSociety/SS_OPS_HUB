@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Google_Sans, Inter, Playfair_Display } from "next/font/google";
 import { PWAInstallProvider } from "@/components/pwa/pwa-install-provider";
 import { MotionProvider } from "@/components/providers/motion-provider";
+import { handwritten } from "@/lib/fonts";
 import {
   DEFAULT_GROUP_FAVICON_URL,
   fetchGroupBrandingState,
@@ -75,7 +76,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${playfair.variable} ${dmSans.variable} ${googleSans.variable} h-full antialiased`}
+      className={`${inter.variable} ${playfair.variable} ${dmSans.variable} ${googleSans.variable} ${handwritten.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <MotionProvider>

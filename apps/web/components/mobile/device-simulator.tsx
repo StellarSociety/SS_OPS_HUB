@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, useTransition, type FocusEvent, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { AppPathPanel } from "@/components/mobile/app-path-panel";
@@ -24,6 +24,7 @@ import type { SelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 import type { SalesOverviewResult } from "@/lib/sales/sales-overview-data";
 import type { Venue } from "@/lib/types/database";
 import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
+import { DevicePreviewStage } from "@/components/simulators/device-preview-stage";
 import {
   DEFAULT_DEVICE_ID,
   DEVICE_BRANDS,
@@ -53,33 +54,6 @@ function frameSize(device: DevicePreset) {
     width: device.width + BEZEL * 2,
     height: device.height + BEZEL * 2 + extraBottom,
   };
-}
-
-/** CSS scale makes browsers scroll to the unscaled field box — keep the preview still. */
-function keepPreviewScrollStill(event: FocusEvent<HTMLDivElement>) {
-  const ancestors: HTMLElement[] = [];
-  let node: HTMLElement | null = event.currentTarget.parentElement;
-  while (node) {
-    const { overflowX, overflowY } = getComputedStyle(node);
-    if (/(auto|scroll)/.test(overflowX) || /(auto|scroll)/.test(overflowY)) {
-      ancestors.push(node);
-    }
-    node = node.parentElement;
-  }
-  const saved = ancestors.map((el) => ({
-    el,
-    top: el.scrollTop,
-    left: el.scrollLeft,
-  }));
-  const winX = window.scrollX;
-  const winY = window.scrollY;
-  requestAnimationFrame(() => {
-    for (const item of saved) {
-      item.el.scrollTop = item.top;
-      item.el.scrollLeft = item.left;
-    }
-    window.scrollTo(winX, winY);
-  });
 }
 
 export function DeviceSimulator({
@@ -112,6 +86,7 @@ export function DeviceSimulator({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <DevicePreviewChrome
+        title="SS OPS HUB Mobile Simulator"
         formatValue={brand}
         formatOptions={DEVICE_BRANDS.map((item) => ({
           value: item.key,
@@ -165,8 +140,6 @@ function PhoneStage({
   setPreviewVenue: (venue: Venue) => void;
 }) {
   const router = useRouter();
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
   const [previewNonce, setPreviewNonce] = useState(0);
   const [refreshing, startRefresh] = useTransition();
   const frame = frameSize(device);
@@ -193,130 +166,89 @@ function PhoneStage({
     [setPageId, setPreviewVenue],
   );
 
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const measure = () => {
-      const availableWidth = stage.clientWidth;
-      const availableHeight = stage.clientHeight;
-      if (availableWidth <= 0 || availableHeight <= 0) return;
-      const pathMin = 18 * 16;
-      const gap = 24;
-      const next = Math.min(
-        1,
-        availableHeight / frame.height,
-        Math.max(0.2, (availableWidth - pathMin - gap) / frame.width),
-      );
-      setScale((prev) => (Math.abs(prev - next) < 0.004 ? prev : next));
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [frame.width, frame.height]);
-
   return (
-    <div
-      ref={stageRef}
-      className="flex min-h-0 flex-1 items-stretch gap-6 overflow-hidden"
+    <DevicePreviewStage
+      frameWidth={frame.width}
+      frameHeight={frame.height}
+      panel={
+        <AppPathPanel
+          selectedId={pageId}
+          onSelect={setPageId}
+          venue={previewVenue}
+          refreshing={refreshing}
+          onRefreshPreview={handleRefreshPreview}
+        />
+      }
     >
-      <div
-        className="relative shrink-0 self-start overflow-hidden"
-        style={{
-          width: frame.width * scale,
-          height: frame.height * scale,
-        }}
-      >
-        <div
-          className="absolute left-0 top-0 origin-top-left"
-          style={{
-            width: frame.width,
-            height: frame.height,
-            transform: `scale(${scale})`,
-          }}
-          onFocusCapture={keepPreviewScrollStill}
-        >
-          <PhoneChrome
-            device={device}
-            page={page}
-            refreshing={refreshing}
-            onRefresh={handleRefreshPreview}
-            screen={
-              <div key={previewNonce} className="h-full min-h-0">
-                {page.id === "login" ? (
-                  <LoginScreen
-                    logoUrl={loginLogoUrl}
-                    fill
-                    preview
-                    onAuthenticated={handleAuthenticated}
-                  />
-                ) : page.id === "select-venue" ? (
-                  <SelectVenueScreen
-                    {...selectVenue}
-                    fill
-                    preview
-                    onSelectVenue={handleVenueSelected}
-                  />
-                ) : page.id === "welcome" ? (
-                  <MobileWelcomeScreen
-                    venue={previewVenue}
-                    userName={welcome.userName}
-                    modules={welcome.modules}
-                    profile={welcome.profile}
-                    onOpenProfile={() => setPageId("employee-profile")}
-                    notificationCount={welcome.notificationCount}
-                    unreadCount={welcome.unreadCount}
-                    onOpenNotifications={() => setPageId("notifications")}
-                    onOpenRevenue={() => setPageId("revenue")}
-                    onOpenTerms={() => setPageId("terms")}
-                    onLogout={() => setPageId("login")}
-                  />
-                ) : page.id === "notifications" ? (
-                  <MobileNotificationsScreen
-                    venue={previewVenue}
-                    notifications={welcome.notifications}
-                    onSelectTab={(tab) => {
-                      if (tab.pageId) setPageId(tab.pageId);
-                    }}
-                  />
-                ) : page.id === "employee-profile" ? (
-                  <MobileEmployeeProfileScreen
-                    venue={previewVenue}
-                    profile={welcome.profile}
-                    onSelectTab={(tab) => {
-                      if (tab.pageId) setPageId(tab.pageId);
-                    }}
-                  />
-                ) : page.id === "revenue" ? (
-                  <MobileRevenueScreen
-                    venue={previewVenue}
-                    overview={revenueOverview}
-                    onSelectTab={(tab) => {
-                      if (tab.pageId) setPageId(tab.pageId);
-                    }}
-                  />
-                ) : page.id === "terms" ? (
-                  <MobileTermsScreen
-                    venue={previewVenue}
-                    onBack={() => setPageId("welcome")}
-                  />
-                ) : null}
-              </div>
-            }
-          />
-        </div>
-      </div>
-
-      <AppPathPanel
-        selectedId={pageId}
-        onSelect={setPageId}
-        venue={previewVenue}
+      <PhoneChrome
+        device={device}
+        page={page}
         refreshing={refreshing}
-        onRefreshPreview={handleRefreshPreview}
+        onRefresh={handleRefreshPreview}
+        screen={
+          <div key={previewNonce} className="h-full min-h-0">
+            {page.id === "login" ? (
+              <LoginScreen
+                logoUrl={loginLogoUrl}
+                fill
+                preview
+                onAuthenticated={handleAuthenticated}
+              />
+            ) : page.id === "select-venue" ? (
+              <SelectVenueScreen
+                {...selectVenue}
+                fill
+                preview
+                onSelectVenue={handleVenueSelected}
+              />
+            ) : page.id === "welcome" ? (
+              <MobileWelcomeScreen
+                venue={previewVenue}
+                userName={welcome.userName}
+                modules={welcome.modules}
+                profile={welcome.profile}
+                onOpenProfile={() => setPageId("employee-profile")}
+                notificationCount={welcome.notificationCount}
+                unreadCount={welcome.unreadCount}
+                onOpenNotifications={() => setPageId("notifications")}
+                onOpenRevenue={() => setPageId("revenue")}
+                onOpenTerms={() => setPageId("terms")}
+                onLogout={() => setPageId("login")}
+              />
+            ) : page.id === "notifications" ? (
+              <MobileNotificationsScreen
+                venue={previewVenue}
+                notifications={welcome.notifications}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "employee-profile" ? (
+              <MobileEmployeeProfileScreen
+                venue={previewVenue}
+                profile={welcome.profile}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "revenue" ? (
+              <MobileRevenueScreen
+                venue={previewVenue}
+                overview={revenueOverview}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "terms" ? (
+              <MobileTermsScreen
+                venue={previewVenue}
+                onBack={() => setPageId("welcome")}
+              />
+            ) : null}
+          </div>
+        }
       />
-    </div>
+    </DevicePreviewStage>
   );
 }
 

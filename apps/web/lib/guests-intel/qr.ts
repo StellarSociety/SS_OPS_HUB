@@ -26,6 +26,21 @@ export async function generateQrPng(value: string): Promise<Buffer> {
   });
 }
 
+/** High-contrast PNG data URL for phone-to-phone scanning. */
+export async function generateQrPngDataUrl(
+  value: string,
+  width = 880,
+): Promise<string> {
+  const png = await QRCode.toBuffer(value, {
+    type: "png",
+    margin: 2,
+    width,
+    errorCorrectionLevel: "H",
+    color: { dark: "#3D421F", light: "#ffffff" },
+  });
+  return `data:image/png;base64,${png.toString("base64")}`;
+}
+
 export function newPublicToken(): string {
   return randomBytes(9).toString("base64url");
 }

@@ -94,6 +94,10 @@ body {
   font-family: var(--font-google-sans), system-ui, sans-serif;
 }
 
+.font-script {
+  font-family: var(--font-handwritten), cursive;
+}
+
 /* Gray halo + lift — hub details icon (stroke icons and filled vault). */
 .module-icon-relief {
   filter:
@@ -160,6 +164,30 @@ body {
   }
   100% {
     transform: translateX(120%);
+  }
+}
+
+@keyframes live-star-magnify {
+  0%,
+  16%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  8% {
+    transform: scale(1.16);
+    filter: brightness(1.18);
+  }
+}
+
+.live-star-magnify {
+  transform-origin: 50% 55%;
+  animation: live-star-magnify 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-star-magnify {
+    animation: none;
   }
 }
 
@@ -257,6 +285,65 @@ body {
   color-scheme: light dark;
   background-color: Canvas;
   color: CanvasText;
+}
+
+/* Live display — parchment atmosphere (Chef's Cookbook landing layers) */
+@keyframes live-display-orb-drift-a {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(28px, 18px);
+  }
+}
+
+@keyframes live-display-orb-drift-b {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-22px, -14px);
+  }
+}
+
+@keyframes live-display-orb-drift-c {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(-12px, 20px) scale(1.08);
+  }
+}
+
+@keyframes live-display-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+}
+
+.live-display-orb-a {
+  animation: live-display-orb-drift-a 14s ease-in-out infinite;
+}
+
+.live-display-orb-b {
+  animation: live-display-orb-drift-b 18s ease-in-out infinite;
+}
+
+.live-display-orb-c {
+  animation: live-display-orb-drift-c 12s ease-in-out infinite;
+}
+
+.live-display-glow {
+  animation: live-display-glow-pulse 10s ease-in-out infinite;
 }
 
 @media (prefers-color-scheme: dark) {

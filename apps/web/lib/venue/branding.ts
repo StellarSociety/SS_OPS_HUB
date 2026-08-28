@@ -15,7 +15,7 @@ const VENUE_COMPANY_STAMPS: Record<string, string> = {
 };
 
 const VENUE_TAGLINES: Record<string, string> = {
-  orilla: "Mediterrasian Coastal Dining",
+  orilla: "Mediterranean Rooftop\nRestaurant & Bar",
 };
 
 export { ORILLA_OLIVE, ORILLA_CREAM } from "@/lib/venue/orilla-brand";

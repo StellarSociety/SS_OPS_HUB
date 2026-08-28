@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import {
   getCurrentMonthKey,
@@ -278,11 +278,11 @@ export function usePersistedSalesEntryDate(fallback = defaultSalesEntryDate()) {
     writeSalesEntryDate(storageKey, selectedDate);
   }, [hydrated, selectedDate, storageKey]);
 
-  function setSelectedDate(value: string) {
+  const setSelectedDate = useCallback((value: string) => {
     setSelectedDateState(value);
-  }
+  }, []);
 
-  return { selectedDate, setSelectedDate };
+  return { selectedDate, setSelectedDate, hydrated };
 }
 
 export function usePersistedSalesWaiterSelection() {
@@ -305,6 +305,7 @@ export function usePersistedSalesWaiterSelection() {
   return {
     selectedWaiterId,
     setSelectedWaiterId: setSelectedWaiterIdState,
+    hydrated,
   };
 }
 

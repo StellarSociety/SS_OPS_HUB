@@ -8,6 +8,8 @@ const SIZE_CLASS = {
   md: "h-4 w-4",
   lg: "h-8 w-8",
   xl: "h-10 w-10",
+  "2xl": "h-12 w-12",
+  "3xl": "h-14 w-14",
 } as const;
 
 function StarGlyph({
@@ -29,11 +31,13 @@ export function GoogleStars({
   className,
   size = "md",
   animate = false,
+  pulse = false,
 }: {
   rating: number | null;
   className?: string;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
   animate?: boolean;
+  pulse?: boolean;
 }) {
   const clamped = Math.max(0, Math.min(5, rating ?? 0));
   const display = Math.round(clamped * 10) / 10;
@@ -43,7 +47,10 @@ export function GoogleStars({
     <span
       className={cn(
         "inline-flex items-center",
-        size === "lg" || size === "xl" ? "gap-1" : "gap-px",
+        size === "lg" || size === "xl" || size === "2xl" || size === "3xl"
+          ? "gap-1"
+          : "gap-px",
+        pulse && "overflow-visible py-0.5",
         className,
       )}
       aria-label={`${display} of 5 stars`}
@@ -58,8 +65,15 @@ export function GoogleStars({
               "relative block shrink-0",
               px,
               animate && "rating-star-animate",
+              pulse && "live-star-magnify",
             )}
-            style={animate ? { animationDelay: delay } : undefined}
+            style={
+              animate || pulse
+                ? {
+                    animationDelay: pulse ? `${index * 280}ms` : delay,
+                  }
+                : undefined
+            }
           >
             <StarGlyph className={cn("block", px)} fill="#E0E0E0" />
             {fill > 0 ? (

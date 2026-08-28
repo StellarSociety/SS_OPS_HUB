@@ -14,7 +14,7 @@ export default async function GuestFeedbackPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="mx-auto h-full w-full max-w-5xl overflow-y-auto">
       <GuestFeedbackSettingsPanel
         settings={settings}
         formUrl={formUrl}

@@ -1,13 +1,10 @@
 import {
-  countReviewTopics,
   monthReviewStats,
   summarizeReviewPeriod,
 } from "@/lib/sentiment/review-insights";
 import { currentMonthKeyInDubai } from "@/lib/sentiment/review-period";
 import type { SentimentReview, SentimentReviewSource } from "@/lib/sentiment/types";
 import type { LiveDisplayListingStats } from "./types";
-
-const DEFAULT_LOVED = ["Food", "Service", "Atmosphere"];
 
 export function listingStatsFromSource(
   source: SentimentReviewSource | null | undefined,
@@ -57,25 +54,6 @@ export function thisMonthStats(
     rating: month.average != null ? Number(month.average.toFixed(1)) : null,
     reviewCount: month.count,
   };
-}
-
-export function guestsLoveTopics(reviews: SentimentReview[]): string[] {
-  const loved = reviews.filter(
-    (review) =>
-      review.sentiment_label === "positive" ||
-      (typeof review.rating === "number" && review.rating >= 4),
-  );
-  const ranked = countReviewTopics(loved)
-    .filter((topic) => topic.count > 0)
-    .slice(0, 3)
-    .map((topic) => topic.label);
-  if (ranked.length >= 3) return ranked;
-  const seen = new Set(ranked.map((label) => label.toLowerCase()));
-  for (const fallback of DEFAULT_LOVED) {
-    if (ranked.length >= 3) break;
-    if (!seen.has(fallback.toLowerCase())) ranked.push(fallback);
-  }
-  return ranked;
 }
 
 export function formatLiveUpdatedLabel(

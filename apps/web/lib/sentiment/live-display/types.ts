@@ -32,7 +32,6 @@ export type LiveDisplayView = {
   channels: LiveDisplayChannelCard[];
   thisMonth: LiveDisplayListingStats;
   overall: LiveDisplayListingStats;
-  guestsLove: string[];
 };
 
 export function liveDisplayPath(code: string): string {

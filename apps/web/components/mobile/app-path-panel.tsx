@@ -4,6 +4,7 @@ import { Bell, House, LogIn, MapPinned, ScrollText, TrendingUp, UserRound } from
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { RefreshSpinner } from "@/components/mobile/refresh-spinner";
+import { DEVICE_PREVIEW_PATH_PANEL_CLASS } from "@/components/simulators/device-preview-chrome";
 import { cn } from "@/lib/utils";
 import {
   APP_PATH,
@@ -43,7 +44,7 @@ export function AppPathPanel({
   const branches = APP_PATH.filter((page) => page.from === "welcome");
 
   return (
-    <Card className="relative flex h-full min-h-0 min-w-[16rem] flex-1 flex-col p-4">
+    <Card className={DEVICE_PREVIEW_PATH_PANEL_CLASS}>
       {onRefreshPreview ? (
         <button
           type="button"

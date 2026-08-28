@@ -7,12 +7,16 @@ import { MobileLanHostButton } from "@/components/mobile/mobile-lan-host-button"
 export const DEVICE_PREVIEW_SELECT_CLASS =
   "h-10 rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20";
 
+export const DEVICE_PREVIEW_PATH_PANEL_CLASS =
+  "relative flex h-full min-h-0 min-w-[16rem] flex-1 flex-col p-4";
+
 export type DevicePreviewOption = {
   value: string;
   label: string;
 };
 
 export function DevicePreviewChrome({
+  title = "Device preview",
   intro,
   formatLabel = "Format",
   formatValue,
@@ -28,6 +32,7 @@ export function DevicePreviewChrome({
   extra,
   previewPath,
 }: {
+  title?: string;
   intro?: ReactNode;
   formatLabel?: string;
   formatValue: string;
@@ -46,7 +51,7 @@ export function DevicePreviewChrome({
   return (
     <div className="shrink-0 space-y-3 pb-4">
       <div>
-        <p className="font-serif text-2xl text-[#3D421F]">Device preview</p>
+        <p className="font-serif text-2xl text-[#3D421F]">{title}</p>
         {intro ? (
           <p className="mt-1 text-sm text-black/55">{intro}</p>
         ) : null}

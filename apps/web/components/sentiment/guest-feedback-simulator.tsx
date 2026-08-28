@@ -1,14 +1,8 @@
 "use client";
 
-import {
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FocusEvent,
-} from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
+import { DevicePreviewStage } from "@/components/simulators/device-preview-stage";
 import { GuestFeedbackPublicPage } from "@/components/sentiment/guest-feedback-public-page";
 import type { GuestFeedbackPublicView } from "@/components/sentiment/guest-feedback-public-page";
 import {
@@ -28,33 +22,6 @@ import { guestFeedbackPath } from "@/lib/sentiment/guest-feedback/types";
 const BEZEL = 14;
 const HOME_BUTTON_EXTRA = 52;
 
-/** CSS scale makes browsers scroll to the unscaled field box — keep the preview still. */
-function keepPreviewScrollStill(event: FocusEvent<HTMLDivElement>) {
-  const ancestors: HTMLElement[] = [];
-  let node: HTMLElement | null = event.currentTarget.parentElement;
-  while (node) {
-    const { overflowX, overflowY } = getComputedStyle(node);
-    if (/(auto|scroll)/.test(overflowX) || /(auto|scroll)/.test(overflowY)) {
-      ancestors.push(node);
-    }
-    node = node.parentElement;
-  }
-  const saved = ancestors.map((el) => ({
-    el,
-    top: el.scrollTop,
-    left: el.scrollLeft,
-  }));
-  const winX = window.scrollX;
-  const winY = window.scrollY;
-  requestAnimationFrame(() => {
-    for (const item of saved) {
-      item.el.scrollTop = item.top;
-      item.el.scrollLeft = item.left;
-    }
-    window.scrollTo(winX, winY);
-  });
-}
-
 export function GuestFeedbackSimulator({
   view,
   themeStyle,
@@ -72,34 +39,10 @@ export function GuestFeedbackSimulator({
   const screenRadius = device.island === "home-button" ? 4 : device.cornerRadius;
   const bodyRadius = device.island === "home-button" ? 36 : screenRadius + BEZEL;
   const ratio = deviceRatioLabel(device.width, device.height);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
   const [pageId, setPageId] = useState<GuestFeedbackSimPageId>("promotions");
   const previewPath = `${guestFeedbackPath(view.code)}${
     pageId === "form" ? "#form" : pageId === "thank-you" ? "#thanks" : ""
   }`;
-
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const measure = () => {
-      const availableWidth = stage.clientWidth;
-      const availableHeight = stage.clientHeight;
-      if (availableWidth <= 0 || availableHeight <= 0) return;
-      const next = Math.min(
-        1,
-        availableWidth / frameWidth,
-        availableHeight / frameHeight,
-      );
-      setScale((prev) => (Math.abs(prev - next) < 0.004 ? prev : next));
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [frameWidth, frameHeight]);
 
   function selectBrand(next: DeviceBrand) {
     if (next === brand) return;
@@ -126,98 +69,123 @@ export function GuestFeedbackSimulator({
         spec={`${device.label} · ${device.width} × ${device.height} · ${ratio} · ${device.dpr}×`}
         previewPath={previewPath}
       />
-      <div className="flex min-h-0 flex-1 items-stretch gap-6 overflow-hidden">
+      <DevicePreviewStage
+        frameWidth={frameWidth}
+        frameHeight={frameHeight}
+        panel={
+          <GuestFeedbackPathPanel
+            code={view.code}
+            selectedId={pageId}
+            onSelect={setPageId}
+          />
+        }
+      >
         <div
-          ref={stageRef}
-          className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden"
+          className="relative h-full w-full"
+          style={{
+            padding: BEZEL,
+            paddingBottom: BEZEL + extraBottom,
+            borderRadius: bodyRadius,
+            background:
+              brand === "iphone"
+                ? "linear-gradient(160deg, #3a3a3c 0%, #1c1c1e 42%, #111113 100%)"
+                : "linear-gradient(160deg, #2b2b2b 0%, #141414 48%, #0c0c0c 100%)",
+            boxShadow:
+              "0 1px 0 rgba(255,255,255,0.18) inset, 0 24px 48px -20px rgba(0,0,0,0.45), 0 8px 16px -8px rgba(0,0,0,0.3)",
+          }}
+          aria-label={`${device.label} simulation, ${deviceRatioLabel(device.width, device.height)}`}
         >
+          {brand === "iphone" ? <IphoneButtons /> : <SamsungButtons />}
           <div
-            className="relative shrink-0 overflow-hidden"
+            className="relative h-full w-full overflow-hidden"
             style={{
-              width: frameWidth * scale,
-              height: frameHeight * scale,
+              borderRadius: screenRadius,
+              ...themeStyle,
+              backgroundColor:
+                "color-mix(in srgb, var(--venue-secondary, #F0F3DD) 35%, white)",
             }}
           >
-            <div
-              className="absolute left-0 top-0 origin-top-left"
-              style={{
-                width: frameWidth,
-                height: frameHeight,
-                transform: `scale(${scale})`,
-              }}
-              onFocusCapture={keepPreviewScrollStill}
-            >
+            {device.island === "dynamic-island" ? (
               <div
-                className="relative h-full w-full"
-                style={{
-                  padding: BEZEL,
-                  paddingBottom: BEZEL + extraBottom,
-                  borderRadius: bodyRadius,
-                  background:
-                    brand === "iphone"
-                      ? "linear-gradient(160deg, #3a3a3c 0%, #1c1c1e 42%, #111113 100%)"
-                      : "linear-gradient(160deg, #2b2b2b 0%, #141414 48%, #0c0c0c 100%)",
-                  boxShadow:
-                    "0 1px 0 rgba(255,255,255,0.18) inset, 0 24px 48px -20px rgba(0,0,0,0.45)",
-                }}
-                aria-label={`${device.label} simulation, ${deviceRatioLabel(device.width, device.height)}`}
-              >
-                <div
-                  className="relative h-full w-full overflow-hidden"
-                  style={{
-                    borderRadius: screenRadius,
-                    ...themeStyle,
-                    backgroundColor:
-                      "color-mix(in srgb, var(--venue-secondary, #F0F3DD) 35%, white)",
-                  }}
-                >
-                  {device.island === "dynamic-island" ? (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black"
-                      style={{ width: 126, height: 37 }}
-                    />
-                  ) : null}
-                  {device.island === "punch-hole" ? (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute left-1/2 top-3 z-10 h-3 w-3 -translate-x-1/2 rounded-full bg-black"
-                    />
-                  ) : null}
-                  <div className="h-full overflow-y-auto pt-10">
-                    <GuestFeedbackPublicPage
-                      key={pageId}
-                      view={view}
-                      preview
-                      previewScreen={pageId}
-                      onPreviewNavigate={setPageId}
-                    />
-                  </div>
-                  {device.island !== "home-button" ? (
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute bottom-2 left-1/2 z-10 h-[5px] w-[134px] -translate-x-1/2 rounded-full bg-black/35"
-                    />
-                  ) : null}
-                </div>
-                {device.island === "home-button" ? (
-                  <div
-                    aria-hidden
-                    className="absolute bottom-[11px] left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white/15"
-                  >
-                    <span className="h-7 w-7 rounded-full border border-white/20" />
-                  </div>
-                ) : null}
-              </div>
+                aria-hidden
+                className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black"
+                style={{ width: 126, height: 37 }}
+              />
+            ) : null}
+            {device.island === "punch-hole" ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute left-1/2 top-3 z-10 h-3 w-3 -translate-x-1/2 rounded-full bg-black"
+              />
+            ) : null}
+            <div className="h-full overflow-y-auto pt-10">
+              <GuestFeedbackPublicPage
+                key={pageId}
+                view={view}
+                preview
+                previewScreen={pageId}
+                onPreviewNavigate={setPageId}
+              />
             </div>
+            {device.island !== "home-button" ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute bottom-2 left-1/2 z-10 h-[5px] w-[134px] -translate-x-1/2 rounded-full bg-black/35"
+              />
+            ) : null}
           </div>
+          {device.island === "home-button" ? (
+            <div
+              aria-hidden
+              className="absolute bottom-[11px] left-1/2 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white/15"
+            >
+              <span className="h-7 w-7 rounded-full border border-white/20" />
+            </div>
+          ) : null}
         </div>
-        <GuestFeedbackPathPanel
-          code={view.code}
-          selectedId={pageId}
-          onSelect={setPageId}
-        />
-      </div>
+      </DevicePreviewStage>
     </div>
+  );
+}
+
+function IphoneButtons() {
+  return (
+    <>
+      <span
+        aria-hidden
+        className="absolute -left-[3px] top-[118px] h-7 w-[3px] rounded-l-sm bg-[#2c2c2e]"
+      />
+      <span
+        aria-hidden
+        className="absolute -left-[3px] top-[168px] h-14 w-[3px] rounded-l-sm bg-[#2c2c2e]"
+      />
+      <span
+        aria-hidden
+        className="absolute -left-[3px] top-[232px] h-14 w-[3px] rounded-l-sm bg-[#2c2c2e]"
+      />
+      <span
+        aria-hidden
+        className="absolute -right-[3px] top-[180px] h-[72px] w-[3px] rounded-r-sm bg-[#2c2c2e]"
+      />
+    </>
+  );
+}
+
+function SamsungButtons() {
+  return (
+    <>
+      <span
+        aria-hidden
+        className="absolute -left-[3px] top-[160px] h-12 w-[3px] rounded-l-sm bg-[#2a2a2a]"
+      />
+      <span
+        aria-hidden
+        className="absolute -right-[3px] top-[150px] h-16 w-[3px] rounded-r-sm bg-[#2a2a2a]"
+      />
+      <span
+        aria-hidden
+        className="absolute -right-[3px] top-[230px] h-10 w-[3px] rounded-r-sm bg-[#2a2a2a]"
+      />
+    </>
   );
 }

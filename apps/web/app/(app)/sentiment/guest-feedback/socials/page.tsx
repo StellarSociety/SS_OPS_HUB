@@ -42,7 +42,7 @@ export default async function GuestFeedbackSocialsPage() {
   ) as Record<EmailChromeSocialLinkKey, string>;
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="mx-auto h-full w-full max-w-5xl overflow-y-auto">
       <GuestFeedbackSocialsEditor values={values} canEdit={canEdit} />
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { ScopedLink as Link } from "@/components/layout/scoped-link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Fragment,
   useEffect,
@@ -125,8 +125,37 @@ const FIELD_LABELS: Record<WaiterSalesScalarField, string> = {
   total_discounts_gs: "Total Discounts",
 };
 
+function isoSaleDate(value: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value ?? ""));
+  return match?.[1] ?? String(value ?? "").slice(0, 10);
+}
+
+function asFormMoney(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 function recordKey(waiterId: string, saleDate: string) {
-  return `${waiterId}:${saleDate}`;
+  return `${waiterId}:${isoSaleDate(saleDate)}`;
+}
+
+function mergeWaiterSalesRecords(
+  server: VenueWaiterDailySalesEntry[],
+  local: VenueWaiterDailySalesEntry[],
+): VenueWaiterDailySalesEntry[] {
+  const byKey = new Map<string, VenueWaiterDailySalesEntry>();
+  for (const row of server) {
+    byKey.set(recordKey(row.waiter_id, row.sale_date), row);
+  }
+  for (const row of local) {
+    const key = recordKey(row.waiter_id, row.sale_date);
+    const existing = byKey.get(key);
+    if (!existing || row.updated_at >= existing.updated_at) {
+      byKey.set(key, row);
+    }
+  }
+  return [...byKey.values()];
 }
 
 function emptyForm(waiterId: string, saleDate: string, tenderIds: string[]): FormState {
@@ -154,19 +183,19 @@ function recordToForm(
   tenderIds: string[],
 ): FormState {
   const tender_amounts = Object.fromEntries(
-    tenderIds.map((id) => [id, record.tender_amounts[id] ?? 0]),
+    tenderIds.map((id) => [id, asFormMoney(record.tender_amounts?.[id])]),
   );
   return {
     id: record.id,
     waiter_id: record.waiter_id,
-    sale_date: record.sale_date,
-    total_sales_gs: record.total_sales_gs,
-    total_payments_gs: record.total_payments_gs,
-    gratuity_cc_gs: record.gratuity_cc_gs,
-    gratuity_cash_gs: record.gratuity_cash_gs,
-    groups_service_charge_gs: record.groups_service_charge_gs ?? 0,
-    total_covers: record.total_covers,
-    total_discounts_gs: record.total_discounts_gs ?? 0,
+    sale_date: isoSaleDate(record.sale_date),
+    total_sales_gs: asFormMoney(record.total_sales_gs),
+    total_payments_gs: asFormMoney(record.total_payments_gs),
+    gratuity_cc_gs: asFormMoney(record.gratuity_cc_gs),
+    gratuity_cash_gs: asFormMoney(record.gratuity_cash_gs),
+    groups_service_charge_gs: asFormMoney(record.groups_service_charge_gs),
+    total_covers: Math.max(0, Math.trunc(Number(record.total_covers) || 0)),
+    total_discounts_gs: asFormMoney(record.total_discounts_gs),
     voucher_comments: record.voucher_comments ?? "",
     deposit_comments: record.deposit_comments ?? "",
     on_accounts_comments: record.on_accounts_comments ?? "",
@@ -274,6 +303,7 @@ export function WaiterSalesEntryForm({
   canEdit,
 }: WaiterSalesEntryFormProps) {
   const today = formatLocalDate(new Date());
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tenderIds = useMemo(() => tenders.map((t) => t.id), [tenders]);
   const entryTenders = useMemo(
@@ -281,25 +311,32 @@ export function WaiterSalesEntryForm({
     [tenders],
   );
 
+  const [savedRecords, setSavedRecords] = useState(records);
+  useEffect(() => {
+    setSavedRecords((prev) => mergeWaiterSalesRecords(records, prev));
+  }, [records]);
+
   const recordsByKey = useMemo(
     () =>
       new Map(
-        records.map((r) => [recordKey(r.waiter_id, r.sale_date), r]),
+        savedRecords.map((r) => [recordKey(r.waiter_id, r.sale_date), r]),
       ),
-    [records],
+    [savedRecords],
   );
 
-  const { selectedWaiterId, setSelectedWaiterId } =
+  const { selectedWaiterId, setSelectedWaiterId, hydrated: waiterHydrated } =
     usePersistedSalesWaiterSelection();
   const datesWithEntries = useMemo(() => {
     const set = new Set<string>();
-    for (const record of records) {
+    for (const record of savedRecords) {
       if (selectedWaiterId && record.waiter_id !== selectedWaiterId) continue;
-      set.add(record.sale_date);
+      set.add(isoSaleDate(record.sale_date));
     }
     return set;
-  }, [records, selectedWaiterId]);
-  const { selectedDate, setSelectedDate } = usePersistedSalesEntryDate(today);
+  }, [savedRecords, selectedWaiterId]);
+  const { selectedDate, setSelectedDate, hydrated: dateHydrated } =
+    usePersistedSalesEntryDate(today);
+  const filtersHydrated = waiterHydrated && dateHydrated;
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [inputMode, setInputMode] = useState<SalesInputMode>("gross");
   const [form, setForm] = useState<FormState>(() =>
@@ -307,9 +344,9 @@ export function WaiterSalesEntryForm({
   );
   const [isPending, startTransition] = useTransition();
 
+  const dateParam = searchParams.get("date");
+  const waiterParam = searchParams.get("waiter");
   useEffect(() => {
-    const dateParam = searchParams.get("date");
-    const waiterParam = searchParams.get("waiter");
     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       setSelectedDate(dateParam);
       setIsFormOpen(false);
@@ -318,7 +355,7 @@ export function WaiterSalesEntryForm({
       setSelectedWaiterId(waiterParam);
       setIsFormOpen(false);
     }
-  }, [searchParams, waiters]);
+  }, [dateParam, waiterParam, waiters, setSelectedDate, setSelectedWaiterId]);
 
   const selectedWaiter = waiters.find((w) => w.id === selectedWaiterId);
   const isExisting = Boolean(
@@ -404,11 +441,22 @@ export function WaiterSalesEntryForm({
       return false;
     }
 
-    const updated = result.record
-      ? recordToForm(result.record, tenderIds)
-      : form;
+    const saved = result.record;
+    if (saved) {
+      setSavedRecords((prev) => {
+        const key = recordKey(saved.waiter_id, saved.sale_date);
+        return [
+          ...prev.filter(
+            (row) => recordKey(row.waiter_id, row.sale_date) !== key,
+          ),
+          saved,
+        ];
+      });
+    }
+    const updated = saved ? recordToForm(saved, tenderIds) : form;
     setForm(updated);
     syncBaseline(updated);
+    router.refresh();
     toast.uploaded("Details saved and uploaded to the cloud.");
     return true;
   };
@@ -488,11 +536,13 @@ export function WaiterSalesEntryForm({
   }
 
   useEffect(() => {
+    if (!filtersHydrated) return;
     if (isFormOpen) return;
     const next = formForSelection(selectedWaiterId, selectedDate);
     setForm(next);
     syncBaseline(next);
   }, [
+    filtersHydrated,
     selectedDate,
     selectedWaiterId,
     recordsByKey,

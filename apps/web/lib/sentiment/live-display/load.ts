@@ -13,7 +13,6 @@ import type { LiveDisplayChannelCard, LiveDisplayView } from "./types";
 import {
   combineListingStats,
   formatLiveUpdatedLabel,
-  guestsLoveTopics,
   listingStatsFromSource,
   thisMonthStats,
 } from "./stats";
@@ -114,6 +113,5 @@ export async function loadLiveDisplayView(
     ),
     thisMonth: thisMonthStats(reviews),
     overall: combineListingStats([google, tripadvisor]),
-    guestsLove: guestsLoveTopics(reviews),
   };
 }

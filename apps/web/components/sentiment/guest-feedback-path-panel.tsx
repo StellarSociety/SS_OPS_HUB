@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ClipboardPen, Megaphone } from "lucide-react";
+import { DEVICE_PREVIEW_PATH_PANEL_CLASS } from "@/components/simulators/device-preview-chrome";
 import { Card } from "@/components/ui/card";
 import { guestFeedbackPath } from "@/lib/sentiment/guest-feedback/types";
 import { cn } from "@/lib/utils";
@@ -35,7 +36,7 @@ export function GuestFeedbackPathPanel({
   const base = guestFeedbackPath(code);
 
   return (
-    <Card className="flex h-full min-h-0 w-[18rem] shrink-0 flex-col p-4">
+    <Card className={DEVICE_PREVIEW_PATH_PANEL_CLASS}>
       <div className="flex min-w-0 items-baseline gap-3">
         <p className="shrink-0 font-serif text-xl text-[#3D421F]">Pages</p>
         <p className="min-w-0 truncate font-mono text-[11px] text-black/40">

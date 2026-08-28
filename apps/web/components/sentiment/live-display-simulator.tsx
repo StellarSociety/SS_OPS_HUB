@@ -1,7 +1,8 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
+import { DevicePreviewStage } from "@/components/simulators/device-preview-stage";
 import { LiveDisplayScreen } from "@/components/sentiment/live-display-screen";
 import {
   LiveDisplayPathPanel,
@@ -41,30 +42,6 @@ export function LiveDisplaySimulator({
   const bodyRadius = tablet.cornerRadius + BEZEL;
   const ratio = deviceRatioLabel(viewport.width, viewport.height);
   const previewPath = liveDisplayPath(code);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const measure = () => {
-      const availableWidth = stage.clientWidth;
-      const availableHeight = stage.clientHeight;
-      if (availableWidth <= 0 || availableHeight <= 0) return;
-      const next = Math.min(
-        1,
-        availableWidth / frameWidth,
-        availableHeight / frameHeight,
-      );
-      setScale((prev) => (Math.abs(prev - next) < 0.004 ? prev : next));
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, [frameWidth, frameHeight]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -90,63 +67,44 @@ export function LiveDisplaySimulator({
         spec={`${tablet.label} · ${viewport.width} × ${viewport.height} · ${ratio} · ${tablet.dpr}×`}
         previewPath={previewPath}
       />
-      <div className="flex min-h-0 flex-1 items-stretch gap-6 overflow-hidden">
+      <DevicePreviewStage
+        frameWidth={frameWidth}
+        frameHeight={frameHeight}
+        panel={
+          <LiveDisplayPathPanel
+            code={code}
+            selectedId={pageId}
+            onSelect={setPageId}
+          />
+        }
+      >
         <div
-          ref={stageRef}
-          className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden"
-        >
-        <div
-          className="relative shrink-0 overflow-hidden"
+          className="relative h-full w-full"
           style={{
-            width: frameWidth * scale,
-            height: frameHeight * scale,
+            padding: BEZEL,
+            borderRadius: bodyRadius,
+            background:
+              "linear-gradient(160deg, #3a3a3c 0%, #1c1c1e 42%, #111113 100%)",
+            boxShadow:
+              "0 1px 0 rgba(255,255,255,0.18) inset, 0 24px 48px -20px rgba(0,0,0,0.45), 0 8px 16px -8px rgba(0,0,0,0.3)",
           }}
+          aria-label={`${tablet.label} ${orientation} simulation`}
         >
           <div
-            className="absolute left-0 top-0 origin-top-left"
+            className="relative h-full w-full overflow-hidden"
             style={{
-              width: frameWidth,
-              height: frameHeight,
-              transform: `scale(${scale})`,
+              borderRadius: tablet.cornerRadius,
+              ...themeStyle,
             }}
           >
+            <LiveDisplayScreen view={view} />
             <div
-              className="relative h-full w-full"
-              style={{
-                padding: BEZEL,
-                borderRadius: bodyRadius,
-                background:
-                  "linear-gradient(160deg, #3a3a3c 0%, #1c1c1e 42%, #111113 100%)",
-                boxShadow:
-                  "0 1px 0 rgba(255,255,255,0.18) inset, 0 24px 48px -20px rgba(0,0,0,0.45)",
-              }}
-              aria-label={`${tablet.label} ${orientation} simulation`}
-            >
-              <div
-                className="relative h-full w-full overflow-hidden"
-                style={{
-                  borderRadius: tablet.cornerRadius,
-                  ...themeStyle,
-                  backgroundColor:
-                    "color-mix(in srgb, var(--venue-secondary, #F0F3DD) 35%, white)",
-                }}
-              >
-                  <LiveDisplayScreen view={view} />
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute bottom-2 left-1/2 z-10 h-[5px] w-[160px] -translate-x-1/2 rounded-full bg-black/35"
-                />
-              </div>
-            </div>
+              aria-hidden
+              className="pointer-events-none absolute bottom-2 left-1/2 z-10 h-[5px] w-[160px] -translate-x-1/2 rounded-full bg-black/35"
+            />
           </div>
         </div>
-        </div>
-        <LiveDisplayPathPanel
-          code={code}
-          selectedId={pageId}
-          onSelect={setPageId}
-        />
-      </div>
+      </DevicePreviewStage>
     </div>
   );
 }

@@ -86,15 +86,19 @@ const SALES_WAITERS_PATHS = [
   "/sales/settings/groups-charge",
   "/sales/settings/data-management",
   "/sales/settings/data-management/waiter-sales",
+  "/sales/waiter",
   "/sales/waiter/entry",
   "/sales/waiter/data",
   "/sales/waiter/insights",
   "/sales/vouchers",
 ];
 
-function revalidateSalesWaiters() {
+function revalidateSalesWaiters(venueSlug?: string | null) {
+  const prefixes = venueSlug ? ["", `/venue/${venueSlug}`] : [""];
   for (const path of SALES_WAITERS_PATHS) {
-    revalidatePath(path);
+    for (const prefix of prefixes) {
+      revalidatePath(`${prefix}${path}`);
+    }
   }
 }
 
@@ -778,7 +782,7 @@ export async function saveVenueWaiter(formData: FormData) {
       after: { name, position, status, staff_id },
     });
 
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: id ? "Waiter updated." : "Waiter added.", waiter };
   } catch (error) {
     const message =
@@ -806,7 +810,7 @@ export async function removeVenueWaiter(id: string) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: "Waiter removed." };
   } catch {
     return { error: "Could not delete waiter." };
@@ -826,7 +830,7 @@ export async function reorderVenueWaitersAction(orderedIds: string[]) {
 
   try {
     await reorderVenueWaiters(supabase, venue.id, user.id, orderedIds);
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: "Waiter order updated." };
   } catch {
     return { error: "Could not update waiter order." };
@@ -881,7 +885,7 @@ export async function saveVenueTender(formData: FormData) {
       },
     });
 
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: id ? "Tender updated." : "Tender added.", tender };
   } catch (error) {
     const message =
@@ -909,7 +913,7 @@ export async function removeVenueTender(id: string) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: "Tender removed." };
   } catch {
     return {
@@ -932,7 +936,7 @@ export async function reorderVenueTendersAction(orderedIds: string[]) {
 
   try {
     await reorderVenueTenders(supabase, venue.id, user.id, orderedIds);
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: "Tender order updated." };
   } catch {
     return { error: "Could not update tender order." };
@@ -976,7 +980,7 @@ export async function setVenueTenderStatusAction(
       },
     });
 
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     revalidatePath("/sales/daily/entry");
     revalidatePath("/sales/waiter/entry");
     return {
@@ -1026,7 +1030,7 @@ export async function setVenueTenderVoucherPaymentFormAction(
       },
     });
 
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     revalidatePath("/sales/daily/entry");
     return { success: "Voucher payment form updated.", tender };
   } catch {
@@ -1066,7 +1070,7 @@ export async function saveVenueWaiterSalesSettings(input: WaiterSalesSettingsInp
       after: payload,
     });
 
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: "Waiter sales settings saved.", settings };
   } catch {
     return { error: "Could not save waiter sales settings." };
@@ -1131,7 +1135,7 @@ export async function saveVenueWaiterDailySalesEntry(formData: FormData) {
       after: { waiter_id: waiterId, sale_date: saleDate },
     });
 
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: "Waiter sales saved.", record };
   } catch (error) {
     const message =
@@ -1159,7 +1163,7 @@ export async function removeVenueWaiterDailySalesEntry(id: string) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesWaiters();
+    revalidateSalesWaiters(venue.slug);
     return { success: "Waiter sales entry removed." };
   } catch {
     return { error: "Could not delete waiter sales entry." };

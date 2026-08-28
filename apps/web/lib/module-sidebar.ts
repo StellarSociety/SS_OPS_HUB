@@ -386,7 +386,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     icon: Smartphone,
     items: [
       {
-        label: "Mobile",
+        label: "Mobile Simulator",
         href: "/mobile",
         exact: true,
         icon: Smartphone,

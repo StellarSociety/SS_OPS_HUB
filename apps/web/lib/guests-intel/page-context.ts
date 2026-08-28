@@ -12,8 +12,16 @@ import {
   listGuests,
   listRewards,
 } from "./store";
-import { generateQrSvg } from "./qr";
+import { getVenueLogoUrl } from "@/lib/venue/branding";
+import { generateQrPngDataUrl } from "./qr";
 import { guestFormPath } from "./types";
+
+function toAbsoluteAssetUrl(origin: string, url: string | null): string | null {
+  if (!url) return null;
+  if (/^(https?:|data:|blob:)/i.test(url)) return url;
+  if (!origin) return url;
+  return `${origin}${url.startsWith("/") ? url : `/${url}`}`;
+}
 
 export async function getGuestsIntelPageContext() {
   const supabase = await getRenderClient();
@@ -70,13 +78,20 @@ export async function getGuestsIntelCollectPage(origin: string) {
     ctx.settings && origin
       ? `${origin}${guestFormPath(ctx.settings.public_token)}`
       : "";
-  const formQrSvg = formUrl ? await generateQrSvg(formUrl) : "";
+  const formQrPngDataUrl = formUrl
+    ? await generateQrPngDataUrl(formUrl).catch(() => "")
+    : "";
+  const venueLogoUrl = toAbsoluteAssetUrl(
+    origin,
+    getVenueLogoUrl(ctx.venue),
+  );
 
   return {
     ...ctx,
     rewards,
     formUrl,
-    formQrSvg,
+    formQrPngDataUrl,
+    venueLogoUrl,
     canEdit: canEditCollect(ctx.permissions, ctx.venue.id),
   };
 }

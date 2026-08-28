@@ -1,6 +1,7 @@
 "use client";
 
 import { ClipboardPen, Ticket } from "lucide-react";
+import { DEVICE_PREVIEW_PATH_PANEL_CLASS } from "@/components/simulators/device-preview-chrome";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +24,7 @@ export function CollectPathPanel({
   onSelect: (id: CollectSimPageId) => void;
 }) {
   return (
-    <Card className="flex h-full min-h-0 w-[18rem] shrink-0 flex-col p-4">
+    <Card className={DEVICE_PREVIEW_PATH_PANEL_CLASS}>
       <p className="font-serif text-xl text-[#3D421F]">Pages</p>
       <hr className="mt-3 border-black/10" />
       <nav aria-label="Collect path" className="mt-4 flex flex-col">

@@ -21,14 +21,14 @@ export default async function CollectLayout({
         <div>
           <ModulePageTitle>Collect</ModulePageTitle>
           <p className="mt-1 text-sm text-black/60">
-            Fill the form on a phone, or share a QR and link so guests can complete
-            it themselves.
+            Fill the form on a phone, or hold up the guest image so they can scan
+            and complete it themselves.
           </p>
           <hr className="mt-4 border-black/10" />
         </div>
         <CollectSubNav />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </div>
   );
 }

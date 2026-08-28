@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { VenueWaiterDailySalesEntry } from "./waiter-sales-types";
 
 type TenderLineRow = {
+  sales_id: string;
   tender_id: string;
   amount_gs: number;
 };
@@ -15,38 +16,122 @@ export type VenueWaiterGratuityRow = {
   gratuity_cc_gs: number;
 };
 
+const PAGE_SIZE = 1000;
+const IN_CHUNK_SIZE = 150;
+
+function isoDateOnly(value: unknown): string {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value ?? "");
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  return match?.[1] ?? raw.slice(0, 10);
+}
+
+function asMoney(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+function asCount(value: unknown): number {
+  const n = Number.parseInt(String(value ?? 0), 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
+function mapWaiterSalesRow(
+  row: Record<string, unknown>,
+  tender_amounts: Record<string, number>,
+): VenueWaiterDailySalesEntry {
+  return {
+    id: String(row.id),
+    venue_id: String(row.venue_id),
+    waiter_id: String(row.waiter_id),
+    sale_date: isoDateOnly(row.sale_date),
+    total_sales_gs: asMoney(row.total_sales_gs),
+    total_payments_gs: asMoney(row.total_payments_gs),
+    gratuity_cc_gs: asMoney(row.gratuity_cc_gs),
+    gratuity_cash_gs: asMoney(row.gratuity_cash_gs),
+    groups_service_charge_gs: asMoney(row.groups_service_charge_gs),
+    total_covers: asCount(row.total_covers),
+    total_discounts_gs: asMoney(row.total_discounts_gs),
+    voucher_comments: String(row.voucher_comments ?? ""),
+    deposit_comments: String(row.deposit_comments ?? ""),
+    on_accounts_comments: String(row.on_accounts_comments ?? ""),
+    created_by: (row.created_by as string | null) ?? null,
+    updated_by: (row.updated_by as string | null) ?? null,
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+    tender_amounts,
+  };
+}
+
+async function fetchAllPaged<T>(
+  runPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await runPage(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return rows;
+}
+
 export async function listVenueWaiterDailySales(
   supabase: SupabaseClient,
   venueId: string,
 ): Promise<VenueWaiterDailySalesEntry[]> {
-  const { data: salesRows, error } = await supabase
-    .from("venue_waiter_daily_sales")
-    .select("*")
-    .eq("venue_id", venueId)
-    .order("sale_date", { ascending: true });
+  const salesRows = await fetchAllPaged((from, to) =>
+    supabase
+      .from("venue_waiter_daily_sales")
+      .select("*")
+      .eq("venue_id", venueId)
+      .order("sale_date", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
-  if (error) throw error;
-  if (!salesRows?.length) return [];
+  if (!salesRows.length) return [];
 
-  const salesIds = salesRows.map((row) => row.id);
-  const { data: lineRows, error: linesError } = await supabase
-    .from("venue_waiter_daily_tender_lines")
-    .select("sales_id, tender_id, amount_gs")
-    .in("sales_id", salesIds);
+  const salesIds = salesRows.map((row) => String(row.id));
+  const lineRows: TenderLineRow[] = [];
 
-  if (linesError) throw linesError;
+  for (let i = 0; i < salesIds.length; i += IN_CHUNK_SIZE) {
+    const chunk = salesIds.slice(i, i + IN_CHUNK_SIZE);
+    const page = await fetchAllPaged<TenderLineRow>((from, to) =>
+      supabase
+        .from("venue_waiter_daily_tender_lines")
+        .select("sales_id, tender_id, amount_gs")
+        .in("sales_id", chunk)
+        .order("sales_id", { ascending: true })
+        .order("tender_id", { ascending: true })
+        .range(from, to),
+    );
+    lineRows.push(...page);
+  }
 
   const linesBySales = new Map<string, Record<string, number>>();
-  for (const line of (lineRows ?? []) as (TenderLineRow & { sales_id: string })[]) {
+  for (const line of lineRows) {
     const current = linesBySales.get(line.sales_id) ?? {};
-    current[line.tender_id] = Number(line.amount_gs);
+    current[line.tender_id] = asMoney(line.amount_gs);
     linesBySales.set(line.sales_id, current);
   }
 
-  return salesRows.map((row) => ({
-    ...(row as VenueWaiterDailySalesEntry),
-    tender_amounts: linesBySales.get(row.id) ?? {},
-  }));
+  return salesRows.map((row) =>
+    mapWaiterSalesRow(
+      row as Record<string, unknown>,
+      linesBySales.get(String(row.id)) ?? {},
+    ),
+  );
 }
 
 /**
@@ -57,17 +142,19 @@ export async function listVenueWaiterGratuityRows(
   supabase: SupabaseClient,
   venueId: string,
 ): Promise<VenueWaiterGratuityRow[]> {
-  const { data, error } = await supabase
-    .from("venue_waiter_daily_sales")
-    .select(
-      "sale_date, waiter_id, gratuity_cash_gs, gratuity_cc_gs, venue_waiters ( name )",
-    )
-    .eq("venue_id", venueId)
-    .order("sale_date", { ascending: true });
+  const data = await fetchAllPaged((from, to) =>
+    supabase
+      .from("venue_waiter_daily_sales")
+      .select(
+        "id, sale_date, waiter_id, gratuity_cash_gs, gratuity_cc_gs, venue_waiters ( name )",
+      )
+      .eq("venue_id", venueId)
+      .order("sale_date", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
-  if (error) throw error;
-
-  return (data ?? []).map((row) => {
+  return data.map((row) => {
     const waiterJoin = row.venue_waiters as
       | { name: string }
       | { name: string }[]
@@ -77,11 +164,11 @@ export async function listVenueWaiterGratuityRows(
       : (waiterJoin?.name ?? "Unknown");
 
     return {
-      sale_date: row.sale_date as string,
-      waiter_id: row.waiter_id as string,
+      sale_date: isoDateOnly(row.sale_date),
+      waiter_id: String(row.waiter_id),
       waiter_name: waiterName,
-      gratuity_cash_gs: Number(row.gratuity_cash_gs ?? 0),
-      gratuity_cc_gs: Number(row.gratuity_cc_gs ?? 0),
+      gratuity_cash_gs: asMoney(row.gratuity_cash_gs),
+      gratuity_cc_gs: asMoney(row.gratuity_cc_gs),
     };
   });
 }
@@ -140,7 +227,10 @@ export async function upsertVenueWaiterDailySales(
   } else {
     const { data, error } = await supabase
       .from("venue_waiter_daily_sales")
-      .insert({ ...salesRow, created_by: userId })
+      .upsert(
+        { ...salesRow, created_by: userId },
+        { onConflict: "venue_id,waiter_id,sale_date" },
+      )
       .select("*")
       .single();
 
@@ -179,10 +269,9 @@ export async function upsertVenueWaiterDailySales(
 
   if (fetchError) throw fetchError;
 
-  return {
-    ...(saved as VenueWaiterDailySalesEntry),
-    tender_amounts: payload.tender_amounts,
-  };
+  return mapWaiterSalesRow(saved as Record<string, unknown>, {
+    ...payload.tender_amounts,
+  });
 }
 
 export async function deleteVenueWaiterDailySales(

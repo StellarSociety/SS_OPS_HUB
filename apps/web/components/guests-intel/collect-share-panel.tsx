@@ -1,41 +1,55 @@
 "use client";
 
-import { QrFrame } from "@/components/guests-intel/qr-frame";
+import { GuestFormShareCard } from "@/components/guests-intel/guest-form-share-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 
 export function CollectSharePanel({
   formUrl,
-  formQrSvg,
+  formQrPngDataUrl,
   publicFormEnabled,
+  venueName,
+  venueLogoUrl,
+  venueSlug,
+  primaryColor,
+  secondaryColor,
 }: {
   formUrl: string;
-  formQrSvg: string;
+  formQrPngDataUrl: string;
   publicFormEnabled: boolean;
+  venueName: string;
+  venueLogoUrl: string | null;
+  venueSlug: string;
+  primaryColor: string;
+  secondaryColor: string;
 }) {
   return (
-    <Card className="mx-auto w-full max-w-xl space-y-4 p-6">
+    <Card className="mx-auto w-full max-w-md space-y-4 p-6">
       <div>
         <h2 className="font-serif text-2xl text-[#3D421F]">Share with guests</h2>
         <p className="mt-1 text-sm text-black/55">
-          Print or display this QR, or copy the link, so guests can fill the form
-          themselves.
+          Open this on your phone and hold it up. The guest scans with their
+          camera and fills their own details.
         </p>
       </div>
 
-      {publicFormEnabled && formQrSvg ? (
+      {publicFormEnabled && formQrPngDataUrl ? (
         <>
-          <QrFrame
-            svg={formQrSvg}
-            label="Guest form QR code"
-            defaultSize="l"
+          <GuestFormShareCard
+            formUrl={formUrl}
+            qrPngDataUrl={formQrPngDataUrl}
+            venueName={venueName}
+            venueLogoUrl={venueLogoUrl}
+            venueSlug={venueSlug}
+            primaryColor={primaryColor}
+            secondaryColor={secondaryColor}
           />
-          <p className="break-all text-center text-xs text-black/45">{formUrl}</p>
-          <div className="flex flex-wrap justify-center gap-2">
+          <div className="flex justify-center">
             <Button
               type="button"
-              variant="secondary"
+              variant="ghost"
+              className="text-xs text-black/55"
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(formUrl);
@@ -45,7 +59,7 @@ export function CollectSharePanel({
                 }
               }}
             >
-              Copy link
+              Copy link instead
             </Button>
           </div>
         </>

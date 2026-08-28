@@ -13,7 +13,7 @@ export default async function GuestFeedbackPromotionsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="mx-auto h-full w-full max-w-5xl overflow-y-auto">
       <GuestFeedbackPromotionsEditor promotions={promotions} canEdit={canEdit} />
     </div>
   );

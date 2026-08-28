@@ -14,10 +14,12 @@ export default async function LiveDisplaySimulatorPage() {
   }
 
   return (
-    <LiveDisplaySimulator
-      themeStyle={venueThemeStyle(venue)}
-      view={view}
-      code={settings.public_code}
-    />
+    <div className="h-full min-h-0 overflow-hidden">
+      <LiveDisplaySimulator
+        themeStyle={venueThemeStyle(venue)}
+        view={view}
+        code={settings.public_code}
+      />
+    </div>
   );
 }
