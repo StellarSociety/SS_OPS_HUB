@@ -60,7 +60,7 @@ export function InstallAppPage({
 
   return (
     <main
-      className={`flex min-h-dvh flex-col items-center justify-center bg-black px-5 py-12 text-white ${DEV_PREVIEW ? "pb-24" : ""}`}
+      className={`flex min-h-dvh flex-col items-center justify-center bg-black px-5 text-white pt-[max(3rem,env(safe-area-inset-top,0px))] ${DEV_PREVIEW ? "pb-24" : "pb-[max(3rem,env(safe-area-inset-bottom,0px))]"}`}
     >
       <div className="w-full max-w-sm text-center">
         <GroupLogo

@@ -23,7 +23,7 @@ export default async function MobileRevenuePage({ params }: PageProps) {
   const overview = await loadSalesOverviewData(supabase, venue.id);
 
   return (
-    <div className="h-dvh overflow-hidden mobile-app-canvas">
+    <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">
       <MobileRevenueScreen venue={venue} overview={overview} />
     </div>
   );

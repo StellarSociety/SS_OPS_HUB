@@ -26,6 +26,7 @@ import {
   DEFAULT_DEVICE_ID,
   DEVICE_BRANDS,
   deviceRatioLabel,
+  deviceSafeInsets,
   devicesForBrand,
   getDevicePreset,
   type DeviceBrand,
@@ -54,6 +55,7 @@ export function CollectSimulator({
   const brand = device.brand;
   const brandDevices = useMemo(() => devicesForBrand(brand), [brand]);
   const extraBottom = device.island === "home-button" ? HOME_BUTTON_EXTRA : 0;
+  const insets = deviceSafeInsets(device);
   const frameWidth = device.width + BEZEL * 2;
   const frameHeight = device.height + BEZEL * 2 + extraBottom;
   const screenRadius = device.island === "home-button" ? 4 : device.cornerRadius;
@@ -120,7 +122,7 @@ export function CollectSimulator({
           aria-label={`${device.label} simulation, ${deviceRatioLabel(device.width, device.height)}`}
         >
           <div
-            className="relative h-full w-full overflow-hidden"
+            className="device-preview-screen relative h-full w-full overflow-hidden"
             style={{
               borderRadius: screenRadius,
               ...themeStyle,
@@ -141,7 +143,7 @@ export function CollectSimulator({
                 className="pointer-events-none absolute left-1/2 top-3 z-10 h-3 w-3 -translate-x-1/2 rounded-full bg-black"
               />
             ) : null}
-            <div className="h-full overflow-y-auto pt-10">
+            <div className="h-full overflow-y-auto" style={{ paddingTop: insets.top }}>
               <div className="mx-auto w-full max-w-md space-y-4 px-4 py-8">
                 {pageId === "pass" && pass ? (
                   <div className="space-y-4">

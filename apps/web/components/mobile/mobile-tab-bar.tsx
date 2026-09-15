@@ -90,7 +90,7 @@ export function MobileTabBar({
       ref={rootRef}
       className="pointer-events-none absolute inset-x-0 bottom-0 z-50 bg-transparent"
     >
-      <div className="pointer-events-none relative mx-auto flex w-full max-w-md justify-center bg-transparent px-4 pb-[10px] pt-1">
+      <div className="pointer-events-none relative mx-auto flex w-full max-w-md justify-center bg-transparent px-4 pb-[max(10px,var(--mobile-safe-bottom,0px))] pt-1">
         <nav
           aria-label="App"
           className="pointer-events-auto relative z-10 w-full bg-transparent"
@@ -124,7 +124,7 @@ export function MobileTabBar({
                     className="h-5 w-5"
                     strokeWidth={active ? 2.25 : 1.85}
                   />
-                  <span className="max-w-full truncate text-[10px] font-semibold leading-none tracking-wide">
+                  <span className="max-w-full truncate text-xs font-semibold leading-none tracking-wide">
                     {tab.label}
                   </span>
                 </>

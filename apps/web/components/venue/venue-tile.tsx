@@ -45,7 +45,7 @@ export function VenueTile({
       transition={{ type: "spring", stiffness: 320, damping: 22 }}
     >
       <motion.div
-        className="relative h-24 w-24 overflow-hidden rounded-full border border-white/70 bg-white/30 shadow-[0_12px_40px_rgba(61,66,31,0.12)] backdrop-blur-xl"
+        className="relative h-28 w-28 overflow-hidden rounded-full border border-white/70 bg-white/30 shadow-[0_12px_40px_rgba(61,66,31,0.12)] backdrop-blur-xl"
         whileHover={disabled ? undefined : { boxShadow: "0 20px 50px rgba(61,66,31,0.18)" }}
       >
         <VenueBrandIcon

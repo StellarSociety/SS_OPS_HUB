@@ -85,7 +85,7 @@ export function MobileWelcomeScreen({
         } as CSSProperties
       }
     >
-      <header className="px-4 pb-3 pt-14 text-center">
+      <header className="px-4 pb-3 pt-4 text-center">
         <VenueBrandIcon
           slug={venue.slug}
           name={venue.name}
@@ -104,7 +104,7 @@ export function MobileWelcomeScreen({
         <p className="mt-1 font-serif text-lg tracking-wide text-[#3D421F] dark:text-[CanvasText]">
           {hubTitle}
         </p>
-        <p className="mx-auto mt-2 max-w-[20rem] text-[13px] leading-snug text-black/55 dark:text-white/55">
+        <p className="mx-auto mt-2 max-w-[20rem] text-sm leading-snug text-black/55 dark:text-white/55">
           Your operations command center for {venue.name}.
           <br />
           Choose the apps you want to start with.
@@ -199,7 +199,7 @@ export function MobileWelcomeScreen({
               </button>
             </form>
           )}
-          <p className="text-center text-[11px] leading-relaxed text-black/50 dark:text-white/50">
+          <p className="text-center text-xs leading-relaxed text-black/50 dark:text-white/50">
             By using this hub you agree to follow Stellar Society policies for
             data, records, and workplace conduct. Misuse may result in access
             being revoked and disciplinary action, including dismissal.{" "}
@@ -248,7 +248,7 @@ function WelcomeNotificationsCard({
 
   const row = (
     <>
-      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)]/15 text-[#3D421F] dark:text-[CanvasText]">
+      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)]/15 text-[#3D421F] dark:text-[CanvasText]">
         <Bell className="h-6 w-6" strokeWidth={1.75} />
         {unreadCount > 0 ? (
           <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] px-1 text-[9px] font-semibold leading-none text-white">
@@ -260,7 +260,7 @@ function WelcomeNotificationsCard({
         <p className="truncate font-serif text-sm leading-tight text-[#3D421F] dark:text-[CanvasText]">
           {countLabel}
         </p>
-        <p className="mt-0.5 truncate text-[10px] leading-snug text-black/50 dark:text-white/50">
+        <p className="mt-0.5 truncate text-xs leading-snug text-black/50 dark:text-white/50">
           {unreadLabel}
         </p>
       </div>
@@ -306,7 +306,7 @@ function WelcomeProfileCard({
   const row = (
     <>
       {profile.avatarUrl ? (
-        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border border-white shadow-sm ring-1 ring-black/10">
+        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full border border-white shadow-sm ring-1 ring-black/10">
           <Image
             src={profile.avatarUrl}
             alt=""
@@ -316,7 +316,7 @@ function WelcomeProfileCard({
           />
         </div>
       ) : (
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#3D421F] text-xs font-medium text-white">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#3D421F] text-sm font-medium text-white">
           {initials}
         </div>
       )}
@@ -324,7 +324,7 @@ function WelcomeProfileCard({
         <p className="truncate font-serif text-sm leading-tight text-[#3D421F] dark:text-[CanvasText]">
           {displayName}
         </p>
-        <p className="mt-0.5 truncate text-[10px] leading-snug text-black/50 dark:text-white/50">
+        <p className="mt-0.5 truncate text-xs leading-snug text-black/50 dark:text-white/50">
           Employee Hub
         </p>
       </div>

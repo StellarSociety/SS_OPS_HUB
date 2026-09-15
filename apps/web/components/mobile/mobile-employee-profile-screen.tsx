@@ -38,7 +38,7 @@ export function MobileEmployeeProfileScreen({
         } as CSSProperties
       }
     >
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-14">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-4">
         <h1 className="text-center font-serif text-2xl font-semibold text-[#3D421F] dark:text-[CanvasText]">
           Employee Profile
         </h1>
@@ -46,7 +46,7 @@ export function MobileEmployeeProfileScreen({
 
         <div className="mt-5 flex flex-col items-center gap-3">
           {profile.avatarUrl ? (
-            <div className="relative h-24 w-24 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10">
+            <div className="relative h-28 w-28 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10">
               <Image
                 src={profile.avatarUrl}
                 alt=""
@@ -56,7 +56,7 @@ export function MobileEmployeeProfileScreen({
               />
             </div>
           ) : (
-            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#3D421F] text-3xl font-medium text-white">
+            <div className="flex h-28 w-28 items-center justify-center rounded-full bg-[#3D421F] text-3xl font-medium text-white">
               {initials}
             </div>
           )}

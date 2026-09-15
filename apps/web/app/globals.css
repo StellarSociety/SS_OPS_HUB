@@ -6,10 +6,33 @@
   --venue-primary: #818a40;
   --venue-secondary: #f0f3dd;
   --ui-scale: 1;
+  --ui-density: 1;
+  --mobile-safe-top: env(safe-area-inset-top, 0px);
+  --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/*
+ * iPhone Dynamic Island / status bar and Android punch-hole live in the
+ * unsafe top inset. Pad the phone shell, never the page’s h-dvh box.
+ */
+.mobile-shell-inset {
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 html {
-  font-size: calc(100% * var(--ui-scale));
+  font-size: calc(100% * var(--ui-scale) * var(--ui-density));
+}
+
+/*
+ * The device simulator is a 402×874 canvas inside a desktop window, so
+ * Tailwind `sm:` / `md:` fire in the preview and not on a real phone.
+ * Coarse, narrow viewports bump rem so live mobile type and boxes match
+ * the visual weight of that preview.
+ */
+@media (max-width: 767px) and (pointer: coarse) {
+  :root {
+    --ui-density: 1.15;
+  }
 }
 
 /*
@@ -278,6 +301,12 @@ body {
 .mobile-ig-tab-active {
   color: rgb(0 0 0 / 0.92);
   background: rgb(120 120 128 / 0.16);
+}
+
+/* Simulated device screens — query this container, not the desktop viewport. */
+.device-preview-screen {
+  container-type: size;
+  container-name: device-preview;
 }
 
 /* Safari / iOS canvas — same page fill the browser uses in light and dark. */

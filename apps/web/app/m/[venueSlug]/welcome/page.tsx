@@ -37,7 +37,7 @@ export default async function MobileWelcomePage({ params }: PageProps) {
     .sort((a, b) => hubModuleSortIndex(a.key) - hubModuleSortIndex(b.key));
 
   return (
-    <div className="min-h-dvh mobile-app-canvas">
+    <div className="h-full min-h-0 mobile-app-canvas">
       <MobileWelcomeScreen
         venue={venue}
         userName={hub.userName}

@@ -2,10 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  APIFY_CRON_LOOKBACK_DAYS,
-  APIFY_CRON_MAX_REVIEWS,
   APIFY_MANUAL_LOOKBACK_DAYS,
   APIFY_MANUAL_MAX_REVIEWS,
+  apifyCronLookbackDays,
+  apifyCronMaxReviews,
 } from "@/lib/sentiment/apify/config";
 import {
   apifyConfigured,
@@ -31,6 +31,8 @@ export type TripadvisorListing = {
 type TaReview = {
   locationId?: number | string | null;
   locationName?: string | null;
+  locationAverageRating?: number | null;
+  locationReviewCount?: number | null;
   reviewId?: number | string | null;
   reviewUrl?: string | null;
   title?: string | null;
@@ -174,27 +176,21 @@ function toRows(
 async function scrapeRecentReviews(
   listingUrl: string,
   mode: ApifySyncMode,
-  options?: { lookback?: boolean },
+  lastSyncedAt?: string | null,
 ): Promise<TaReview[]> {
-  const maxReviews = options?.lookback
-    ? mode === "manual"
-      ? APIFY_MANUAL_MAX_REVIEWS
-      : APIFY_CRON_MAX_REVIEWS
-    : Math.max(APIFY_CRON_MAX_REVIEWS, APIFY_MANUAL_MAX_REVIEWS);
+  const cronDays = apifyCronLookbackDays(lastSyncedAt);
+  const lookbackDays =
+    mode === "manual" ? APIFY_MANUAL_LOOKBACK_DAYS : cronDays;
 
   return runApifyActor<TaReview>(TA_ACTOR, {
     detailUrls: [listingUrl],
-    maxReviews,
-    sortBy: "newest",
+    maxReviews:
+      mode === "manual"
+        ? APIFY_MANUAL_MAX_REVIEWS
+        : apifyCronMaxReviews(`${cronDays} days`),
+    sortBy: "Most recent",
     autoTranslate: false,
-    ...(options?.lookback
-      ? {
-          recentDays:
-            mode === "manual"
-              ? APIFY_MANUAL_LOOKBACK_DAYS
-              : APIFY_CRON_LOOKBACK_DAYS,
-        }
-      : {}),
+    recentDays: lookbackDays,
   });
 }
 
@@ -236,9 +232,11 @@ export async function syncTripadvisorReviewsFromApify(
     };
   }
 
-  const items = await scrapeRecentReviews(listing.url, mode, {
-    lookback: Boolean(source.last_synced_at),
-  });
+  const items = await scrapeRecentReviews(
+    listing.url,
+    mode,
+    source.last_synced_at,
+  );
   const rows = toRows(venueId, source.id, listing.locationId, items);
   const imported = await upsertReviews(service, rows);
 
@@ -250,24 +248,28 @@ export async function syncTripadvisorReviewsFromApify(
     .map((row) => row.rating)
     .filter((rating): rating is number => typeof rating === "number");
 
+  const listingAverage =
+    typeof sample?.locationAverageRating === "number"
+      ? sample.locationAverageRating
+      : ratings.length > 0
+        ? Math.round(
+            (ratings.reduce((sum, rating) => sum + rating, 0) /
+              ratings.length) *
+              100,
+          ) / 100
+        : null;
+
   await updateReviewSource(service, source.id, {
     status: "connected",
     last_error: null,
     last_synced_at: new Date().toISOString(),
-    review_count: items.length || source.review_count,
+    ...(typeof sample?.locationReviewCount === "number"
+      ? { review_count: sample.locationReviewCount }
+      : {}),
     ...(sample?.locationName
       ? { location_name: sample.locationName }
       : {}),
-    ...(ratings.length > 0
-      ? {
-          rating_average:
-            Math.round(
-              (ratings.reduce((sum, rating) => sum + rating, 0) /
-                ratings.length) *
-                100,
-            ) / 100,
-        }
-      : {}),
+    ...(listingAverage != null ? { rating_average: listingAverage } : {}),
   });
 
   return { imported };

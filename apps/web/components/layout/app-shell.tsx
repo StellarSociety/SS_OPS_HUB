@@ -59,7 +59,7 @@ export function AppShell({
           <AccessLogger />
           <OnlinePresence />
           <div
-            className="h-dvh overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]/30"
+            className="mobile-shell-inset h-dvh overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]/30 pb-[env(safe-area-inset-bottom,0px)]"
             style={venueThemeStyle(venue)}
           >
             <AppShellLayout

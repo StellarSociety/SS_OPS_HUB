@@ -31,7 +31,7 @@ export function MobileTermsScreen({
         } as CSSProperties
       }
     >
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 pt-14">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 pt-4">
         <div className="relative mb-3">
           {onBack ? (
             <button
@@ -55,15 +55,15 @@ export function MobileTermsScreen({
             {terms.title}
           </h1>
         </div>
-        <p className="text-center text-[12px] text-black/50 dark:text-white/50">
+        <p className="text-center text-xs text-black/50 dark:text-white/50">
           Effective {terms.effectiveDate}
         </p>
-        <p className="mt-0.5 text-center text-[11px] text-black/40 dark:text-white/40">
+        <p className="mt-0.5 text-center text-xs text-black/40 dark:text-white/40">
           {terms.productName}
         </p>
         <hr className="mt-3 border-black/10 dark:border-white/12" />
 
-        <p className="mt-4 text-[13px] leading-relaxed text-black/70 dark:text-white/70">
+        <p className="mt-4 text-sm leading-relaxed text-black/70 dark:text-white/70">
           {terms.intro}
         </p>
 
@@ -77,7 +77,7 @@ export function MobileTermsScreen({
                 {section.paragraphs.map((paragraph, index) => (
                   <p
                     key={`${section.id}-${index}`}
-                    className="text-[13px] leading-relaxed text-black/65 dark:text-white/65"
+                    className="text-sm leading-relaxed text-black/65 dark:text-white/65"
                   >
                     {paragraph}
                   </p>
@@ -87,7 +87,7 @@ export function MobileTermsScreen({
           ))}
         </div>
 
-        <p className="mt-6 rounded-xl border border-black/10 bg-black/[0.03] px-3 py-2.5 text-center text-[11px] leading-relaxed text-black/50 dark:border-white/12 dark:bg-white/[0.08] dark:text-white/50">
+        <p className="mt-6 rounded-xl border border-black/10 bg-black/[0.03] px-3 py-2.5 text-center text-xs leading-relaxed text-black/50 dark:border-white/12 dark:bg-white/[0.08] dark:text-white/50">
           Continued use of the Hub confirms you have read these terms and will
           follow them. Consequences in section 16 apply if you do not.
         </p>

@@ -9,12 +9,12 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
   const [refreshing, startRefresh] = useTransition();
 
   return (
-    <div className="h-dvh overflow-hidden">
+    <div className="mobile-shell-inset h-dvh overflow-hidden">
       <PullToRefresh
         refreshing={refreshing}
         onRefresh={() => startRefresh(() => router.refresh())}
         indicatorInsetTop={22}
-        contentClassName="overflow-auto"
+        contentClassName="h-full min-h-0 overflow-auto"
       >
         {children}
       </PullToRefresh>

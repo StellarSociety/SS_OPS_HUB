@@ -28,7 +28,7 @@ export function LoginScreen({
       className={cn(
         "flex items-center justify-center overflow-hidden bg-black px-4",
         fill || mobileApp ? "py-8" : "py-12",
-        fill ? "h-full min-h-0" : mobileApp ? "h-dvh" : "min-h-dvh",
+        fill || mobileApp ? "h-full min-h-0" : "min-h-dvh",
       )}
     >
       {preview ? null : <VenueFavicon url={faviconUrl} />}

@@ -37,11 +37,11 @@ export function MobileRevenueScreen({
         } as CSSProperties
       }
     >
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-32 pt-14">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-32 pt-4">
         <h1 className="text-center font-serif text-2xl font-semibold text-[#3D421F] dark:text-[CanvasText]">
           Revenue
         </h1>
-        <p className="mt-1 text-center text-[13px] text-black/50 dark:text-white/50">
+        <p className="mt-1 text-center text-sm text-black/50 dark:text-white/50">
           {venue.name}
         </p>
         <hr className="mt-3 border-black/10 dark:border-white/12" />

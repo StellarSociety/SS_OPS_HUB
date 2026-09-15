@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition, type ReactNode } from "react";
+import { useCallback, useMemo, useState, useTransition, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { AppPathPanel } from "@/components/mobile/app-path-panel";
@@ -29,6 +29,7 @@ import {
   DEFAULT_DEVICE_ID,
   DEVICE_BRANDS,
   deviceRatioLabel,
+  deviceSafeInsets,
   devicesForBrand,
   getDevicePreset,
   type DeviceBrand,
@@ -270,6 +271,7 @@ function PhoneChrome({
   const screenRadius = classic ? 4 : device.cornerRadius;
   const bodyRadius = classic ? 36 : screenRadius + BEZEL;
   const extraBottom = classic ? HOME_BUTTON_EXTRA : 0;
+  const insets = deviceSafeInsets(device);
 
   return (
     <div
@@ -290,8 +292,14 @@ function PhoneChrome({
       {isIphone ? <IphoneButtons /> : <SamsungButtons />}
 
       <div
-        className="relative h-full w-full overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]"
-        style={{ borderRadius: screenRadius }}
+        className="device-preview-screen relative h-full w-full overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]"
+        style={
+          {
+            borderRadius: screenRadius,
+            "--mobile-safe-top": "0px",
+            "--mobile-safe-bottom": `${insets.bottom}px`,
+          } as CSSProperties
+        }
       >
         <div
           className={`absolute inset-0 ${
@@ -305,6 +313,7 @@ function PhoneChrome({
                 ? "bg-[Canvas]"
                 : "bg-[#E9E3D6]"
           }`}
+          style={{ paddingTop: insets.top }}
         >
           <PullToRefresh
             refreshing={refreshing}
@@ -312,13 +321,7 @@ function PhoneChrome({
             contentClassName={
               page.id === "welcome" ? "overflow-auto" : "overflow-hidden"
             }
-            indicatorInsetTop={
-              device.island === "dynamic-island"
-                ? 56
-                : device.island === "punch-hole"
-                  ? 32
-                  : 16
-            }
+            indicatorInsetTop={16}
           >
             {screen}
           </PullToRefresh>

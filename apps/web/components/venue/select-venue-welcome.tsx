@@ -21,9 +21,9 @@ export function SelectVenueWelcome({
   const initials = getUserInitials(fullName, email);
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 sm:max-w-lg">
+    <div className="mx-auto w-full max-w-lg px-4">
       <div className="flex flex-col items-center gap-4 text-center">
-        <div className="relative h-32 w-32 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10 sm:h-40 sm:w-40">
+        <div className="relative h-40 w-40 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10">
           {avatarUrl ? (
             <Image
               src={avatarUrl}
@@ -34,7 +34,7 @@ export function SelectVenueWelcome({
               priority
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-4xl font-medium text-white sm:text-5xl">
+            <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-5xl font-medium text-white">
               {initials}
             </div>
           )}
@@ -43,7 +43,7 @@ export function SelectVenueWelcome({
           <p className="text-xs font-medium uppercase tracking-[0.12em] text-black/45">
             Welcome back
           </p>
-          <h2 className="font-serif text-2xl font-semibold leading-tight tracking-tight text-[#3D421F] sm:text-3xl">
+          <h2 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-[#3D421F]">
             {firstName ?? displayName}
           </h2>
           {empNo || position ? (

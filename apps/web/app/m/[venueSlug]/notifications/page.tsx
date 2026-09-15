@@ -19,7 +19,7 @@ export default async function MobileNotificationsPage({ params }: PageProps) {
   const { notifications } = await loadMobileNotifications(venue);
 
   return (
-    <div className="h-dvh overflow-hidden mobile-app-canvas">
+    <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">
       <MobileNotificationsScreen venue={venue} notifications={notifications} />
     </div>
   );

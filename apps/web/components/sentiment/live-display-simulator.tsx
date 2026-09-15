@@ -91,7 +91,7 @@ export function LiveDisplaySimulator({
           aria-label={`${tablet.label} ${orientation} simulation`}
         >
           <div
-            className="relative h-full w-full overflow-hidden"
+            className="device-preview-screen relative h-full w-full overflow-hidden"
             style={{
               borderRadius: tablet.cornerRadius,
               ...themeStyle,

@@ -43,11 +43,11 @@ export function MobileNotificationsScreen({
         } as CSSProperties
       }
     >
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-14">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-4">
         <h1 className="text-center font-serif text-2xl font-semibold text-[#3D421F] dark:text-[CanvasText]">
           Notifications
         </h1>
-        <p className="mt-1 text-center text-[13px] text-black/50 dark:text-white/50">
+        <p className="mt-1 text-center text-sm text-black/50 dark:text-white/50">
           User central notifications
         </p>
         <hr className="mt-3 border-black/10 dark:border-white/12" />
@@ -90,7 +90,7 @@ export function MobileNotificationsScreen({
                         {n.body}
                       </p>
                     ) : null}
-                    <p className="mt-1 text-[11px] text-black/40 dark:text-white/40">
+                    <p className="mt-1 text-xs text-black/40 dark:text-white/40">
                       {n.due_date
                         ? `Due ${formatDateOnly(n.due_date)}`
                         : formatDateOnly(n.created_at)}

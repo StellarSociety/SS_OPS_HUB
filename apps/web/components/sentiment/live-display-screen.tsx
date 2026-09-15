@@ -44,7 +44,7 @@ export function LiveDisplayScreen({ view }: { view: LiveDisplayView }) {
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Header view={view} />
 
-        <div className="mt-[clamp(0.95rem,2.6cqh,1.85rem)] grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] items-stretch gap-[clamp(0.7rem,2cqi,2rem)] @[900px]/live:grid-cols-[minmax(0,0.92fr)_minmax(0,1.22fr)] @[900px]/live:grid-rows-1">
+        <div className="mt-[clamp(0.95rem,2.6cqh,1.85rem)] grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] items-stretch gap-[clamp(0.7rem,2cqi,2rem)] @[900px]/live:grid-cols-[auto_auto] @[900px]/live:grid-rows-1 @[900px]/live:justify-between @[900px]/live:px-[clamp(0.9rem,3cqi,2.5rem)]">
           <HeroColumn google={view.google} tripadvisor={view.tripadvisor} />
           <ShareColumn channels={view.channels} />
         </div>
@@ -116,17 +116,17 @@ function HeroColumn({
   const showTripadvisor =
     tripadvisor.reviewCount > 0 || tripadvisor.rating != null;
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col justify-start">
-      <div className="flex w-fit flex-col items-start self-start">
-        <h2 className="whitespace-nowrap font-serif text-[clamp(1.35rem,3.8cqi,2.15rem)] leading-none tracking-tight text-[#3D421F]">
-          Loved your experience?
-        </h2>
-        <div className="mt-[clamp(0.5rem,1.4cqh,1rem)] h-px w-full bg-[#C4A35A]" />
-        <p className="mt-[clamp(0.5rem,1.4cqh,1rem)] max-w-[22rem] text-left text-[clamp(9px,1.25cqi,11px)] font-medium uppercase leading-relaxed tracking-[0.16em] text-[#3D421F]/55">
-          Share your experience and help us keep getting better.
-        </p>
-      </div>
-      <div className="mt-[clamp(0.95rem,2.7cqh,2.35rem)] flex w-fit items-center justify-center gap-5 self-center">
+    <div className="flex h-full min-h-0 min-w-0 flex-col justify-center">
+      <div className="grid w-fit grid-cols-[auto_minmax(0,1fr)] items-center gap-x-5 gap-y-[clamp(0.95rem,2.7cqh,2.35rem)] self-start">
+        <div className="col-start-2 flex w-fit flex-col items-start">
+          <h2 className="whitespace-nowrap font-serif text-[clamp(1.35rem,3.8cqi,2.15rem)] leading-none tracking-tight text-[#3D421F]">
+            Loved your experience?
+          </h2>
+          <div className="mt-[clamp(0.5rem,1.4cqh,1rem)] h-px w-full bg-[#C4A35A]" />
+          <p className="mt-[clamp(0.5rem,1.4cqh,1rem)] max-w-[22rem] text-left text-[clamp(9px,1.25cqi,11px)] font-medium uppercase leading-relaxed tracking-[0.16em] text-[#3D421F]/55">
+            Share your experience and help us keep getting better.
+          </p>
+        </div>
         <p className="font-serif text-[clamp(3.85rem,12.5cqh,7.25rem)] font-medium leading-none tabular-nums tracking-tight">
           {formatRating(google.rating)}
         </p>
@@ -153,11 +153,11 @@ function HeroColumn({
 
 function ShareColumn({ channels }: { channels: LiveDisplayChannelCard[] }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col justify-start">
+    <div className="flex h-full min-h-0 min-w-0 flex-col justify-center">
       {channels.length > 0 ? (
         <div
           className={cn(
-            "ml-auto inline-grid max-w-full justify-items-stretch gap-x-3 gap-y-[clamp(0.2rem,0.55cqh,0.4rem)] @[900px]/live:gap-x-4",
+            "inline-grid max-w-full justify-items-stretch gap-x-3 gap-y-[clamp(0.2rem,0.55cqh,0.4rem)] self-end @[900px]/live:gap-x-4",
             channels.length > 1
               ? "grid-cols-[repeat(2,10.75rem)]"
               : "grid-cols-[10.75rem]",
@@ -266,7 +266,7 @@ function ScanArrow() {
 
 function StatsBar({ view }: { view: LiveDisplayView }) {
   return (
-    <div className="-mt-[clamp(0.55rem,1.8cqh,1.15rem)] grid shrink-0 grid-cols-3 divide-x divide-[#3D421F]/10 border-y border-[#3D421F]/10 py-[clamp(0.45rem,1.3cqh,1rem)]">
+    <div className="-mt-[clamp(0.55rem,1.8cqh,1.15rem)] mb-1.5 grid shrink-0 grid-cols-3 divide-x divide-[#3D421F]/10 border-y border-[#3D421F]/10 py-[clamp(0.45rem,1.3cqh,1rem)]">
       <StatCell
         icon={BarChart3}
         label="This month"

@@ -2,10 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  APIFY_CRON_LOOKBACK,
-  APIFY_CRON_MAX_REVIEWS,
   APIFY_MANUAL_LOOKBACK,
   APIFY_MANUAL_MAX_REVIEWS,
+  apifyCronLookbackSince,
+  apifyCronMaxReviews,
 } from "@/lib/sentiment/apify/config";
 import {
   getReviewSource,
@@ -147,14 +147,18 @@ function toRows(
 async function scrapeRecentReviews(
   placeId: string,
   mode: ApifySyncMode,
+  lastSyncedAt?: string | null,
 ): Promise<CompassReview[]> {
+  const cronLookback = apifyCronLookbackSince(lastSyncedAt);
   return runApifyActor<CompassReview>(COMPASS_ACTOR, {
     placeIds: [placeId],
     maxReviews:
-      mode === "manual" ? APIFY_MANUAL_MAX_REVIEWS : APIFY_CRON_MAX_REVIEWS,
+      mode === "manual"
+        ? APIFY_MANUAL_MAX_REVIEWS
+        : apifyCronMaxReviews(cronLookback),
     reviewsSort: "newest",
     reviewsStartDate:
-      mode === "manual" ? APIFY_MANUAL_LOOKBACK : APIFY_CRON_LOOKBACK,
+      mode === "manual" ? APIFY_MANUAL_LOOKBACK : cronLookback,
     language: "en",
     reviewsOrigin: "google",
     personalData: true,
@@ -195,7 +199,11 @@ export async function syncGoogleReviewsFromApify(
     return { imported: 0, skipped: true, reason: "No Google Place ID saved." };
   }
 
-  const items = await scrapeRecentReviews(placeId, mode);
+  const items = await scrapeRecentReviews(
+    placeId,
+    mode,
+    source.last_synced_at,
+  );
   const rows = toRows(venueId, source.id, placeId, items);
   const imported = await upsertReviews(service, rows);
 

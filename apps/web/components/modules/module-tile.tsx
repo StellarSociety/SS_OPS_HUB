@@ -74,7 +74,7 @@ export function ModuleTile({
           "relative flex items-center justify-center transition-[box-shadow,background-color,padding]",
           iconWell
             ? compact
-              ? "h-14 w-14 rounded-2xl bg-[var(--venue-primary)]/12"
+              ? "h-16 w-16 rounded-2xl bg-[var(--venue-primary)]/12"
               : "h-[5.5rem] w-[5.5rem] rounded-3xl bg-[var(--venue-primary)]/12"
             : "rounded-2xl",
           selected &&
@@ -87,7 +87,7 @@ export function ModuleTile({
           <ModuleIcon
             iconKey={iconKey}
             className={cn(
-              iconWell && (compact ? "h-9 w-9" : "h-14 w-14"),
+              iconWell && (compact ? "h-10 w-10" : "h-14 w-14"),
               isComingSoon && !iconWell && "opacity-60",
               isLocked && "opacity-40 grayscale",
               isAccessBlocked && "opacity-45 grayscale",
@@ -124,8 +124,8 @@ export function ModuleTile({
         className={cn(
           "font-google-sans line-clamp-2 w-full font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]",
           compact
-            ? "max-w-[4.5rem] text-[10px] leading-tight"
-            : "max-w-[5.75rem] text-[11px]",
+            ? "max-w-[4.5rem] text-xs leading-tight"
+            : "max-w-[5.75rem] text-xs",
           isLocked && "opacity-50",
           selected && "font-semibold",
         )}

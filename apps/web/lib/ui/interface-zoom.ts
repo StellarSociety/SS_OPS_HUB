@@ -19,7 +19,8 @@ export function parseStoredUiZoom(raw: string | null): number {
   return DEFAULT_UI_ZOOM;
 }
 
-/** Scales the UI via rem (reflows layout). Avoid CSS `zoom`, which breaks flex/h-dvh. */
+/** Scales the UI via rem (reflows layout). Avoid CSS `zoom`, which breaks flex/h-dvh.
+ *  `--ui-density` (phone rem bump) is separate and must stay in CSS. */
 export function applyInterfaceZoom(percent: number) {
   const bounded = Math.min(
     MAX_UI_ZOOM,

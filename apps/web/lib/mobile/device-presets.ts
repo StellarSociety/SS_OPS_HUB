@@ -16,6 +16,21 @@ export type DevicePreset = {
   island: DeviceIsland;
 };
 
+/** CSS-pixel insets matching `env(safe-area-inset-*)` on a real device. */
+export function deviceSafeInsets(device: Pick<DevicePreset, "island">): {
+  top: number;
+  bottom: number;
+} {
+  switch (device.island) {
+    case "dynamic-island":
+      return { top: 59, bottom: 34 };
+    case "punch-hole":
+      return { top: 28, bottom: 20 };
+    default:
+      return { top: 20, bottom: 0 };
+  }
+}
+
 export const DEVICE_BRANDS: { key: DeviceBrand; label: string }[] = [
   { key: "iphone", label: "iPhone" },
   { key: "samsung", label: "Samsung" },
