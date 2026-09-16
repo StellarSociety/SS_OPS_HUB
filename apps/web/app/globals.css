@@ -24,14 +24,18 @@ html {
 }
 
 /*
- * The device simulator is a 402×874 canvas inside a desktop window, so
- * Tailwind `sm:` / `md:` fire in the preview and not on a real phone.
- * Coarse, narrow viewports bump rem so live mobile type and boxes match
- * the visual weight of that preview.
+ * Real phone routes (`/m`, `/install`) add `.mobile-app-no-zoom`.
+ * Do not require `pointer: coarse` — Chrome device mode and some
+ * desktop “mobile view” previews report a fine pointer and would skip
+ * the bump, which is why the last pass looked unchanged.
  */
-@media (max-width: 767px) and (pointer: coarse) {
+html.mobile-app-no-zoom {
+  --ui-density: 1.22;
+}
+
+@media (max-width: 767px) {
   :root {
-    --ui-density: 1.15;
+    --ui-density: 1.22;
   }
 }
 

@@ -85,7 +85,7 @@ export function DeviceSimulator({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="-mx-4 -mb-4 -mt-3 flex h-[calc(100%+1.75rem)] min-h-0 flex-col overflow-hidden px-4 pt-3 md:-mx-8 md:-mb-8 md:-mt-4 md:h-[calc(100%+3rem)] md:px-8 md:pt-4">
       <DevicePreviewChrome
         title="SS OPS HUB Mobile Simulator"
         formatValue={brand}

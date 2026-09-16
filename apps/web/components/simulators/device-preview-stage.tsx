@@ -61,9 +61,11 @@ export function DevicePreviewStage({
       const availableWidth = stage.clientWidth;
       const availableHeight = stage.clientHeight;
       if (availableWidth <= 0 || availableHeight <= 0) return;
+      // Fit width so the canvas stays at real CSS pixels (402×874 on
+      // iPhone 16 Pro). Never shrink to fit height — that was zooming
+      // the preview down to ~60% and no longer matched a real phone.
       const next = Math.min(
         1,
-        availableHeight / frameHeight,
         Math.max(0.2, (availableWidth - PATH_MIN - GAP) / frameWidth),
       );
       setScale((prev) => (Math.abs(prev - next) < 0.004 ? prev : next));
@@ -78,7 +80,7 @@ export function DevicePreviewStage({
   return (
     <div
       ref={stageRef}
-      className="flex min-h-0 flex-1 items-stretch gap-6 overflow-hidden"
+      className="flex min-h-0 flex-1 items-stretch gap-6 overflow-x-hidden overflow-y-auto"
     >
       <div
         className="relative shrink-0 self-start overflow-hidden"

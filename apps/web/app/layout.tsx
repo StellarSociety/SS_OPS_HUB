@@ -67,6 +67,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  minimumScale: 1,
   viewportFit: "cover",
   themeColor: PWA_THEME_COLOR,
 };

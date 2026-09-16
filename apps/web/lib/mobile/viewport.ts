@@ -8,6 +8,7 @@ import type { Viewport } from "next";
 export const MOBILE_APP_VIEWPORT: Viewport = {
   width: "device-width",
   initialScale: 1,
+  minimumScale: 1,
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
