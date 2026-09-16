@@ -128,9 +128,11 @@ export function PullToRefresh({
   }, [setPullBoth]);
 
   useEffect(() => {
-    const root = rootRef.current;
-    const content = contentRef.current;
-    if (!root || !content) return;
+    const rootEl = rootRef.current;
+    const contentEl = contentRef.current;
+    if (!rootEl || !contentEl) return;
+    const root: HTMLDivElement = rootEl;
+    const content: HTMLDivElement = contentEl;
 
     function releaseCapture() {
       const id = pointerIdRef.current;

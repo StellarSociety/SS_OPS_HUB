@@ -200,8 +200,8 @@ async function loadPathEvents(
     terminationType: string | null;
     department: string | null;
     position: string | null;
-    wagePackage: number | string | null | undefined;
-    accommodation: string | null | undefined;
+    wagePackage?: number | string | null;
+    accommodation?: string | null;
   },
 ): Promise<MobileProfilePathEvent[]> {
   const [{ data, error }, names, pct] = await Promise.all([

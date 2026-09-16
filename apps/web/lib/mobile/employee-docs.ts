@@ -6,6 +6,29 @@ import {
 import { formatPayrollMonthLabel } from "@/lib/hr/payroll";
 import type { StaffWorkDriveDocumentRow } from "@/lib/hr/workdrive/documents";
 import { createServiceClient } from "@/lib/supabase/service";
+import type { Staff } from "@/lib/types/database";
+
+type StaffDocsRow = Pick<
+  Staff,
+  | "id"
+  | "medical_insurance_expiry_date"
+  | "passport_no"
+  | "passport_expiry"
+  | "eid_no"
+  | "eid_issue_date"
+  | "eid_expiry"
+  | "iban"
+  | "swift_code"
+  | "bank_name"
+  | "wps_employee_id"
+  | "contract_expiry"
+  | "eresidence_expiry"
+  | "ohc_date"
+  | "pic_date"
+  | "basic_food_safety_date"
+  | "fire_safety_date"
+  | "first_aid_date"
+>;
 
 const PERSONAL_KINDS: readonly HrWorkDriveDocKind[] = [
   "passport",
@@ -237,7 +260,7 @@ export async function loadMobileStaffDocsPage(opts: {
   if (!staffId) return emptyMobileDocsPage();
 
   const service = createServiceClient();
-  const { data: staff } = await service
+  const { data } = await service
     .from("staff")
     .select(
       [
@@ -263,6 +286,7 @@ export async function loadMobileStaffDocsPage(opts: {
     )
     .eq("id", staffId)
     .maybeSingle();
+  const staff = data as StaffDocsRow | null;
   if (!staff?.id) return emptyMobileDocsPage();
 
   const [docsResult, payslipsResult, visaHistoryResult] = await Promise.all([
