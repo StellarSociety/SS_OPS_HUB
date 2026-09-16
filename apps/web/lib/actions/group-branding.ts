@@ -31,6 +31,7 @@ const REVALIDATE_PATHS = [
   "/global/settings",
   "/global/settings/branding",
   "/manifest.webmanifest",
+  "/manifest-desktop.webmanifest",
 ];
 
 const ALLOWED_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "svg"]);

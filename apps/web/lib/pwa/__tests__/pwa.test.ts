@@ -4,8 +4,13 @@ import {
   deviceForInstallPreview,
   parseInstallPreview,
 } from "@/lib/pwa/install-preview";
+import {
+  manifestPathForSurface,
+  pwaInstallSurfaceFromUserAgent,
+} from "@/lib/pwa/install-surface";
 import { isStandaloneDisplayMode } from "@/lib/pwa/standalone";
 import { defaultPwaOpenPath, safePwaReturnPath } from "@/lib/pwa/return-path";
+import { buildPwaWebManifest } from "@/lib/pwa/web-manifest";
 
 describe("PWA device detection", () => {
   it("detects iPhone Safari", () => {
@@ -107,6 +112,48 @@ describe("PWA return path", () => {
   it("falls back to /m", () => {
     expect(defaultPwaOpenPath(null)).toBe("/m");
     expect(defaultPwaOpenPath("/m/orilla")).toBe("/m/orilla");
+  });
+});
+
+describe("PWA install surface", () => {
+  it("installs the staff app on phones and the hub on desks", () => {
+    expect(
+      pwaInstallSurfaceFromUserAgent(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+      ),
+    ).toBe("mobile");
+    expect(
+      pwaInstallSurfaceFromUserAgent(
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36",
+      ),
+    ).toBe("mobile");
+    expect(
+      pwaInstallSurfaceFromUserAgent(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+      ),
+    ).toBe("desktop");
+    expect(
+      pwaInstallSurfaceFromUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+      ),
+    ).toBe("desktop");
+    expect(
+      pwaInstallSurfaceFromUserAgent(
+        "Mozilla/5.0 (Linux; Android 14; SM-X810) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+      ),
+    ).toBe("desktop");
+    expect(manifestPathForSurface("desktop")).toBe(
+      "/manifest-desktop.webmanifest",
+    );
+    expect(manifestPathForSurface("mobile")).toBe("/manifest.webmanifest");
+  });
+
+  it("points start_url at /m/ for phones and / for desks", () => {
+    expect(buildPwaWebManifest("mobile", "SS Ops HUB").start_url).toBe("/m/");
+    expect(buildPwaWebManifest("mobile", "SS Ops HUB").scope).toBe("/m/");
+    expect(buildPwaWebManifest("desktop", "SS Ops HUB").start_url).toBe("/");
+    expect(buildPwaWebManifest("desktop", "SS Ops HUB").scope).toBe("/");
+    expect(buildPwaWebManifest("desktop", "SS Ops HUB").orientation).toBeUndefined();
   });
 });
 

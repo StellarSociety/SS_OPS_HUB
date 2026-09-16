@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { DM_Sans, Google_Sans, Inter, Playfair_Display } from "next/font/google";
 import { PWAInstallProvider } from "@/components/pwa/pwa-install-provider";
 import { MotionProvider } from "@/components/providers/motion-provider";
@@ -13,6 +14,10 @@ import {
   PWA_ICON_512,
   PWA_THEME_COLOR,
 } from "@/lib/pwa/constants";
+import {
+  manifestPathForSurface,
+  pwaInstallSurfaceFromUserAgent,
+} from "@/lib/pwa/install-surface";
 import { publicAppUrl } from "@/lib/public-app-url";
 import "./globals.css";
 
@@ -40,11 +45,16 @@ const googleSans = Google_Sans({
 
 export async function generateMetadata(): Promise<Metadata> {
   const { appName } = await fetchGroupBrandingState();
+  const userAgent = (await headers()).get("user-agent") ?? "";
+  const manifest = manifestPathForSurface(
+    pwaInstallSurfaceFromUserAgent(userAgent),
+  );
   return {
     metadataBase: new URL(publicAppUrl()),
     title: "Stellar Society — Operational Hub",
     description: "Internal operations hub for Stellar Society venues.",
     applicationName: appName,
+    manifest,
     appleWebApp: {
       capable: true,
       title: appName,

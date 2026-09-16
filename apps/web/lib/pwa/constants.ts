@@ -9,6 +9,10 @@ export const PWA_START_PATH = "/m";
 export const PWA_START_URL = "/m/";
 export const PWA_SCOPE = "/m/";
 
+/** Mac / Windows / laptop Add to Dock should open the hub, not `/m/`. */
+export const PWA_DESKTOP_START_URL = "/";
+export const PWA_DESKTOP_SCOPE = "/";
+
 export const PWA_INSTALL_PATH = "/install";
 export const PWA_INSTALL_URL = joinAppUrl("/install", publicAppUrl());
 
@@ -17,6 +21,7 @@ export const PWA_BACKGROUND_COLOR = "#E9E3D6";
 
 export const PWA_SW_PATH = "/sw.js";
 export const PWA_MANIFEST_PATH = "/manifest.webmanifest";
+export const PWA_DESKTOP_MANIFEST_PATH = "/manifest-desktop.webmanifest";
 
 export const PWA_ICON_192 = "/icons/icon-192.png";
 export const PWA_ICON_512 = "/icons/icon-512.png";

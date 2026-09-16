@@ -1,8 +1,10 @@
 import type { MetadataRoute } from "next";
-import { fetchGroupBrandingState } from "@/lib/group/branding";
 import {
   PWA_APP_NAME,
   PWA_BACKGROUND_COLOR,
+  PWA_DESKTOP_MANIFEST_PATH,
+  PWA_DESKTOP_SCOPE,
+  PWA_DESKTOP_START_URL,
   PWA_ICON_192,
   PWA_ICON_512,
   PWA_ICON_MASKABLE,
@@ -12,21 +14,29 @@ import {
   PWA_START_URL,
   PWA_THEME_COLOR,
 } from "@/lib/pwa/constants";
+import type { PwaInstallSurface } from "@/lib/pwa/install-surface";
 
-export default async function manifest(): Promise<MetadataRoute.Manifest> {
-  const { appName } = await fetchGroupBrandingState();
+export function buildPwaWebManifest(
+  surface: PwaInstallSurface,
+  appName: string,
+): MetadataRoute.Manifest {
   const name = appName || PWA_APP_NAME;
+  const mobile = surface === "mobile";
+  const manifestPath = mobile ? PWA_MANIFEST_PATH : PWA_DESKTOP_MANIFEST_PATH;
+  const origin = new URL(manifestPath, PWA_INSTALL_URL).origin;
 
   return {
-    id: PWA_START_URL,
+    id: mobile ? PWA_START_URL : PWA_DESKTOP_START_URL,
     name,
     short_name: name,
-    description: `Internal operations hub for Stellar Society venues. Install ${name} for Home Screen access.`,
-    start_url: PWA_START_URL,
-    scope: PWA_SCOPE,
+    description: mobile
+      ? `Internal operations hub for Stellar Society venues. Install ${name} for Home Screen access.`
+      : `Internal operations hub for Stellar Society venues.`,
+    start_url: mobile ? PWA_START_URL : PWA_DESKTOP_START_URL,
+    scope: mobile ? PWA_SCOPE : PWA_DESKTOP_SCOPE,
     display: "standalone",
     display_override: ["standalone", "minimal-ui"],
-    orientation: "portrait-primary",
+    ...(mobile ? { orientation: "portrait-primary" as const } : {}),
     background_color: PWA_BACKGROUND_COLOR,
     theme_color: PWA_THEME_COLOR,
     lang: "en",
@@ -35,7 +45,7 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     related_applications: [
       {
         platform: "webapp",
-        url: `${new URL(PWA_MANIFEST_PATH, PWA_INSTALL_URL).origin}${PWA_MANIFEST_PATH}`,
+        url: `${origin}${manifestPath}`,
       },
     ],
     icons: [

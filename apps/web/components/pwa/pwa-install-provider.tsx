@@ -15,6 +15,11 @@ import {
   detectPWADeviceFromWindow,
   type PWADeviceState,
 } from "@/lib/pwa/device";
+import {
+  applyPwaManifestLink,
+  manifestPathForSurface,
+  pwaInstallSurfaceFromUserAgent,
+} from "@/lib/pwa/install-surface";
 import { useStandaloneMode } from "@/lib/pwa/use-standalone-mode";
 
 export type BeforeInstallPromptEvent = Event & {
@@ -105,6 +110,11 @@ export function PWAInstallProvider({ children }: { children: ReactNode }) {
   const [dismissedThisSession, setDismissedThisSession] = useState(false);
 
   useEffect(() => {
+    applyPwaManifestLink(
+      manifestPathForSurface(
+        pwaInstallSurfaceFromUserAgent(window.navigator.userAgent),
+      ),
+    );
     void registerServiceWorker();
     void relatedAppsInstalled().then(setRelatedInstalled);
   }, []);
