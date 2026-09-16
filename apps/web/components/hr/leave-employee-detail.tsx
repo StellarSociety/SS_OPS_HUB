@@ -50,10 +50,12 @@ import {
   isUsageOnlyLeaveCode,
   roundDays,
   leaveCalendarStatusLabel,
+  leaveRequestSourceLabel,
   leaveTypeDisplayName,
   scheduleLeaveDisplayName,
   type LeaveCalendarEvent,
   type LeaveCalendarStatus,
+  type LeaveRequestListItem,
   type LeaveUsageDayEntry,
   type PhReplacementCreditEntry,
   type ScheduledLeaveLabelStyle,
@@ -162,6 +164,7 @@ type LeaveEmployeeDetailProps = {
   adjustments: HrLeaveBalanceAdjustment[];
   scheduledLeaves: ScheduledLeaveRange[];
   scheduleLabels: ScheduledLeaveLabelStyle[];
+  leaveRequests: LeaveRequestListItem[];
   annualLeaveCalculation?: AnnualLeaveCalculationBreakdown | null;
   canManage: boolean;
   onBack: () => void;
@@ -330,6 +333,7 @@ export function LeaveEmployeeDetail({
   adjustments,
   scheduledLeaves,
   scheduleLabels,
+  leaveRequests = [],
   annualLeaveCalculation = null,
   canManage,
   onBack,
@@ -346,6 +350,15 @@ export function LeaveEmployeeDetail({
   const [pending, startTransition] = useTransition();
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [showOtherLeave, setShowOtherLeave] = useState(false);
+
+  useEffect(() => {
+    if (!expandedGroup) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpandedGroup(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expandedGroup]);
   const [showOtherAllowances, setShowOtherAllowances] = useState(false);
   const [showManualAdjustment, setShowManualAdjustment] = useState(false);
   const [scheduleActionPending, startScheduleAction] = useTransition();
@@ -744,8 +757,8 @@ export function LeaveEmployeeDetail({
               Current balances
             </h3>
             <p className="mt-1 text-sm text-black/55">
-              Remaining days in olive, days already taken in dark. Click sick or
-              maternity for pay stages.
+              Remaining days in olive, days already taken in dark. Use the
+              arrow on sick or maternity for pay stages.
             </p>
           </div>
           <div className="flex items-center gap-4 text-[11px] font-semibold uppercase tracking-wider">
@@ -1711,14 +1724,86 @@ export function LeaveEmployeeDetail({
         <h3 className="border-b border-black/10 pb-3 font-serif text-lg text-[#3D421F]">
           Leave requests
         </h3>
-        <div className="mt-3 rounded-xl border border-dashed border-black/15 bg-white/60 px-4 py-8 text-center">
-          <p className="text-sm text-black/55">
-            Leave requests for this employee will appear here.
-          </p>
-          <p className="mt-1 text-xs text-black/40">
-            Create, approve, and cancel flows will be added in a later step.
-          </p>
-        </div>
+        {leaveRequests.length === 0 ? (
+          <div className="mt-3 rounded-xl border border-dashed border-black/15 bg-white/60 px-4 py-8 text-center">
+            <p className="text-sm text-black/55">
+              No leave requests for this employee in {year}.
+            </p>
+            <p className="mt-1 text-xs text-black/40">
+              Employees apply from the mobile Leave tab. HR can also record
+              leave on the calendar.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-3 overflow-x-auto rounded-xl border border-black/10 bg-white">
+            <div className="grid min-w-[48rem] grid-cols-[minmax(12rem,1.4fr)_8rem_5rem_7.5rem_7rem] items-center gap-x-4 border-b border-black/10 bg-black/[0.02] px-4 py-2 text-[11px] font-medium uppercase tracking-wide text-black/45">
+              <span>Leave</span>
+              <span>Dates</span>
+              <span className="text-right">Days</span>
+              <span className="text-right">Status</span>
+              <span className="text-right">Source</span>
+            </div>
+            <ul className="min-w-[48rem] divide-y divide-black/5">
+              {leaveRequests.map((row) => (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingLeave({
+                        id: row.id,
+                        requestId: row.id,
+                        staffId: staff.id,
+                        empNo: staff.emp_no,
+                        fullName: staff.full_name,
+                        departmentId: null,
+                        departmentName: staff.department?.name ?? null,
+                        labelCode: row.labelCode,
+                        leaveTypeId: row.leaveTypeId,
+                        fromDate: row.fromDate,
+                        toDate: row.toDate,
+                        days: row.days,
+                        status: row.displayStatus,
+                        rawStatus: row.status,
+                        notes: row.hrNotes || row.reason || row.employeeNotes,
+                        onSchedule: row.onSchedule,
+                        source: row.source === "schedule" ? "both" : "request",
+                      })
+                    }
+                    className="grid w-full grid-cols-[minmax(12rem,1.4fr)_8rem_5rem_7.5rem_7rem] items-center gap-x-4 px-4 py-3 text-left transition hover:bg-black/[0.02]"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[#3D421F]">
+                        {row.leaveTypeName}
+                      </p>
+                      <p className="font-mono text-[11px] text-black/40">
+                        {row.requestNumber}
+                      </p>
+                    </div>
+                    <p className="whitespace-nowrap text-xs text-black/60">
+                      {formatLeaveRange(row.fromDate, row.toDate)}
+                    </p>
+                    <p className="text-right text-sm tabular-nums text-black/55">
+                      {row.days}
+                    </p>
+                    <div className="flex justify-end">
+                      <span
+                        className={cn(
+                          "rounded-md px-2 py-0.5 text-xs font-medium",
+                          approvalStatusStyle(row.displayStatus),
+                        )}
+                      >
+                        {leaveCalendarStatusLabel(row.displayStatus)}
+                      </span>
+                    </div>
+                    <p className="text-right text-xs text-black/45">
+                      {leaveRequestSourceLabel(row.source)}
+                    </p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <LeaveCalendarDialog

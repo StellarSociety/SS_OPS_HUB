@@ -373,7 +373,14 @@ export function DateInput({
           value={text}
           placeholder={placeholder}
           aria-label={ariaLabel}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setText(next);
+            const parsed = parseDisplayDate(next);
+            if (parsed && (!maxDate || parsed <= maxDate)) {
+              onChange(parsed);
+            }
+          }}
           onFocus={openCalendar}
           onClick={openCalendar}
           onBlur={handleBlur}

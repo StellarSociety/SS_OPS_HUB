@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { usePathname } from "next/navigation";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createMobileLanHost } from "@/lib/actions/mobile-lan-host";
@@ -39,7 +38,6 @@ export function MobileLanHostButton({
 }: {
   previewPath: string;
 }) {
-  const pathname = usePathname();
   const [pending, startTransition] = useTransition();
   const [url, setUrl] = useState<string | null>(null);
   const [lanEnabled, setLanEnabled] = useState(false);
@@ -69,7 +67,7 @@ export function MobileLanHostButton({
       window.localStorage.setItem(LAN_HOST_STORAGE_KEY, result.url);
       setError(null);
     });
-  }, [lanEnabled, pathname]);
+  }, [lanEnabled]);
 
   function handleClick() {
     setError(null);

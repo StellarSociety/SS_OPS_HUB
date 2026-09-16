@@ -195,7 +195,6 @@ export function EmploymentStartedMarker({
 
 type StaffEmploymentPathPositionSalaryProps = {
   staffId?: string | null;
-  joiningDate?: string | null;
   canViewSalary?: boolean;
   canEdit?: boolean;
   departments: Department[];
@@ -255,7 +254,7 @@ function kindBadgeClass(kind: StaffPositionSalaryChangeItem["changeKind"]) {
   }
 }
 
-function ChangePathRow({
+export function ChangePathRow({
   item,
   canViewSalary,
   canEdit,
@@ -976,7 +975,6 @@ function AlterationDialog({
 
 export function StaffEmploymentPathPositionSalary({
   staffId = null,
-  joiningDate = null,
   canViewSalary = false,
   canEdit = false,
   departments,
@@ -1008,27 +1006,6 @@ export function StaffEmploymentPathPositionSalary({
   const items = isControlled ? itemsProp : localItems;
   const error = isControlled ? (errorProp ?? null) : localError;
   const loading = isControlled ? Boolean(loadingProp) : localLoading;
-  const startingEmployment = useMemo(
-    () =>
-      resolveStartingEmployment({
-        items,
-        positions,
-        departments,
-        currentPositionId,
-        currentDepartmentId,
-        currentWagePackage,
-        currentCompanyAccommodation,
-      }),
-    [
-      items,
-      positions,
-      departments,
-      currentPositionId,
-      currentDepartmentId,
-      currentWagePackage,
-      currentCompanyAccommodation,
-    ],
-  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] =
     useState<StaffPositionSalaryChangeItem | null>(null);
@@ -1158,21 +1135,9 @@ export function StaffEmploymentPathPositionSalary({
         ) : null}
 
         {!loading && !error && items.length === 0 ? (
-          <div className="space-y-3">
-            {joiningDate ? (
-              <ul className="relative ml-1.5 space-y-3 border-l border-black/10">
-                <EmploymentStartedMarker
-                  joiningDate={joiningDate}
-                  start={startingEmployment}
-                  canViewSalary={canViewSalary}
-                  salaryPct={salaryPct}
-                />
-              </ul>
-            ) : null}
-            <p className="text-sm text-black/45">
-              No position, salary, or visa alterations recorded yet.
-            </p>
-          </div>
+          <p className="text-sm text-black/45">
+            No position, salary, or visa alterations recorded yet.
+          </p>
         ) : null}
 
         {items.length > 0 ? (
@@ -1193,14 +1158,6 @@ export function StaffEmploymentPathPositionSalary({
                   onEdit={openEditDialog}
                 />
               ))}
-            {joiningDate ? (
-              <EmploymentStartedMarker
-                joiningDate={joiningDate}
-                start={startingEmployment}
-                canViewSalary={canViewSalary}
-                salaryPct={salaryPct}
-              />
-            ) : null}
           </ul>
         ) : null}
       </Card>

@@ -356,13 +356,13 @@ export function NotificationCenter({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="relative rounded-md p-2 text-[#3D421F] hover:bg-black/5"
-        aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}
+        aria-label={`Notifications${notifications.length ? `, ${notifications.length}` : ""}`}
         aria-expanded={open}
       >
         <Bell className="h-5 w-5" />
-        {unreadCount > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
-            {unreadCount > 99 ? "99+" : unreadCount}
+        {notifications.length > 0 ? (
+          <span className="absolute right-0 top-0 flex h-[1.125rem] min-w-[1.125rem] -translate-y-1/4 translate-x-1/4 items-center justify-center rounded-full bg-[#E11D48] px-1 text-[10px] font-semibold tabular-nums leading-none text-white shadow-[0_1px_2px_rgba(80,0,20,0.35)] ring-2 ring-white">
+            {notifications.length > 99 ? "99+" : notifications.length}
           </span>
         ) : null}
       </button>

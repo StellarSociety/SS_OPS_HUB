@@ -16,7 +16,7 @@ export default async function MobileEmployeeProfilePage({ params }: PageProps) {
     return <MobileAccessDenied />;
   }
 
-  const profile = await loadMobileWelcomeProfile();
+  const profile = await loadMobileWelcomeProfile({ venueId: venue.id });
 
   return (
     <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">

@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { cn } from "@/lib/utils";
 import { getUserInitials } from "@/lib/user/display";
 
 type SelectVenueWelcomeProps = {
@@ -7,6 +8,7 @@ type SelectVenueWelcomeProps = {
   avatarUrl: string | null;
   empNo: string | null;
   position: string | null;
+  compact?: boolean;
 };
 
 export function SelectVenueWelcome({
@@ -15,15 +17,26 @@ export function SelectVenueWelcome({
   avatarUrl,
   empNo,
   position,
+  compact = false,
 }: SelectVenueWelcomeProps) {
   const displayName = fullName?.trim() || email;
   const firstName = fullName?.trim().split(/\s+/)[0] ?? null;
   const initials = getUserInitials(fullName, email);
 
   return (
-    <div className="mx-auto w-full max-w-lg px-4">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="relative h-40 w-40 shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10">
+    <div className={cn("mx-auto w-full px-4", compact ? "max-w-sm" : "max-w-lg")}>
+      <div
+        className={cn(
+          "flex flex-col items-center text-center",
+          compact ? "gap-2.5" : "gap-4",
+        )}
+      >
+        <div
+          className={cn(
+            "relative shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10",
+            compact ? "h-24 w-24" : "h-40 w-40",
+          )}
+        >
           {avatarUrl ? (
             <Image
               src={avatarUrl}
@@ -34,20 +47,40 @@ export function SelectVenueWelcome({
               priority
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[#3D421F] text-5xl font-medium text-white">
+            <div
+              className={cn(
+                "flex h-full w-full items-center justify-center bg-[#3D421F] font-medium text-white",
+                compact ? "text-2xl" : "text-5xl",
+              )}
+            >
               {initials}
             </div>
           )}
         </div>
         <div className="min-w-0 w-full space-y-0.5">
-          <p className="text-xs font-medium uppercase tracking-[0.12em] text-black/45">
+          <p
+            className={cn(
+              "font-medium uppercase tracking-[0.12em] text-black/45",
+              compact ? "text-[10px]" : "text-xs",
+            )}
+          >
             Welcome back
           </p>
-          <h2 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-[#3D421F]">
+          <h2
+            className={cn(
+              "font-serif font-semibold leading-tight tracking-tight text-[#3D421F]",
+              compact ? "text-2xl" : "text-3xl",
+            )}
+          >
             {firstName ?? displayName}
           </h2>
           {empNo || position ? (
-            <dl className="mt-2 flex flex-col items-center gap-1 text-xs text-black/55">
+            <dl
+              className={cn(
+                "flex flex-col items-center gap-1 text-black/55",
+                compact ? "mt-1 text-[11px]" : "mt-2 text-xs",
+              )}
+            >
               {empNo ? (
                 <div className="flex items-center gap-1.5">
                   <dt className="text-black/40">Emp. no.</dt>

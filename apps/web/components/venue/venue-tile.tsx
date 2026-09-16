@@ -4,7 +4,14 @@ import { motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { selectVenue } from "@/lib/actions/venue";
 import { selectMobileVenue } from "@/lib/actions/mobile-venue";
+import { cn } from "@/lib/utils";
 import type { Venue } from "@/lib/types/database";
+import {
+  MOBILE_PRESS_SCALE,
+  MOBILE_PRESS_TRANSITION,
+  useMobilePress,
+} from "@/components/mobile/mobile-press";
+import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
 
 type VenueTileProps = {
   venue: Venue;
@@ -12,6 +19,7 @@ type VenueTileProps = {
   preview?: boolean;
   onSelectVenue?: (venue: Venue) => void;
   runtime?: "web" | "mobile";
+  compact?: boolean;
 };
 
 export function VenueTile({
@@ -20,9 +28,14 @@ export function VenueTile({
   preview = false,
   onSelectVenue,
   runtime = "web",
+  compact = false,
 }: VenueTileProps) {
+  const { beginNav } = useMobileNavBusy();
+  const { pressed, pressProps } = useMobilePress();
+  const intense = compact || runtime === "mobile";
   const handleSelect = async () => {
     if (disabled) return;
+    if (compact || runtime === "mobile" || preview) beginNav();
     if (preview) {
       onSelectVenue?.(venue);
       return;
@@ -39,13 +52,25 @@ export function VenueTile({
       type="button"
       disabled={disabled}
       onClick={handleSelect}
-      className="group flex flex-col items-center gap-3 disabled:cursor-not-allowed disabled:opacity-40"
-      whileHover={disabled ? undefined : { scale: 1.06, y: -6 }}
-      whileTap={disabled ? undefined : { scale: 0.98 }}
-      transition={{ type: "spring", stiffness: 320, damping: 22 }}
+      className={cn(
+        "group flex flex-col items-center disabled:cursor-not-allowed disabled:opacity-40",
+        compact ? "gap-2" : "gap-3",
+      )}
+      whileHover={disabled || intense ? undefined : { scale: 1.06, y: -6 }}
+      whileTap={disabled || intense ? undefined : { scale: 0.98 }}
+      animate={intense && !disabled ? { scale: pressed ? MOBILE_PRESS_SCALE : 1 } : undefined}
+      transition={
+        intense
+          ? MOBILE_PRESS_TRANSITION
+          : { type: "spring", stiffness: 320, damping: 22 }
+      }
+      {...(intense && !disabled ? pressProps : {})}
     >
       <motion.div
-        className="relative h-28 w-28 overflow-hidden rounded-full border border-white/70 bg-white/30 shadow-[0_12px_40px_rgba(61,66,31,0.12)] backdrop-blur-xl"
+        className={cn(
+          "relative overflow-hidden rounded-full border border-white/70 bg-white/30 shadow-[0_12px_40px_rgba(61,66,31,0.12)] backdrop-blur-xl",
+          compact ? "h-20 w-20" : "h-28 w-28",
+        )}
         whileHover={disabled ? undefined : { boxShadow: "0 20px 50px rgba(61,66,31,0.18)" }}
       >
         <VenueBrandIcon
@@ -61,7 +86,14 @@ export function VenueTile({
           title={`${venue.name} logo`}
         />
       </motion.div>
-      <span className="font-serif text-lg text-[#3D421F]">{venue.name}</span>
+      <span
+        className={cn(
+          "font-serif text-[#3D421F]",
+          compact ? "text-sm" : "text-lg",
+        )}
+      >
+        {venue.name}
+      </span>
     </motion.button>
   );
 }

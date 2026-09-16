@@ -2,10 +2,16 @@
 
 import { type CSSProperties } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { ChevronLeft } from "lucide-react";
 import { buildMobileTerms } from "@/lib/mobile/terms-content";
 import { mobileWelcomeHref } from "@/lib/mobile/app-path";
 import type { Venue } from "@/lib/types/database";
+import {
+  MobilePressTarget,
+  useMobilePressMotion,
+} from "@/components/mobile/mobile-press";
+import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
 
 type MobileTermsScreenProps = {
   venue: Venue;
@@ -18,6 +24,7 @@ export function MobileTermsScreen({
   onBack,
   backHref,
 }: MobileTermsScreenProps) {
+  const { beginNav } = useMobileNavBusy();
   const terms = buildMobileTerms(venue.name);
   const homeHref = backHref ?? mobileWelcomeHref(venue.slug);
 
@@ -34,22 +41,19 @@ export function MobileTermsScreen({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 pt-4">
         <div className="relative mb-3">
           {onBack ? (
-            <button
+            <MobilePressTarget
               type="button"
-              onClick={onBack}
+              onClick={() => {
+                beginNav();
+                onBack();
+              }}
               aria-label="Back to welcome"
               className="absolute left-0 top-0.5 flex h-8 w-8 items-center justify-center rounded-full text-[#3D421F] hover:bg-black/[0.06] dark:text-[CanvasText] dark:hover:bg-white/[0.08]"
             >
               <ChevronLeft className="h-5 w-5" strokeWidth={2} />
-            </button>
+            </MobilePressTarget>
           ) : (
-            <Link
-              href={homeHref}
-              aria-label="Back to welcome"
-              className="absolute left-0 top-0.5 flex h-8 w-8 items-center justify-center rounded-full text-[#3D421F] hover:bg-black/[0.06] dark:text-[CanvasText] dark:hover:bg-white/[0.08]"
-            >
-              <ChevronLeft className="h-5 w-5" strokeWidth={2} />
-            </Link>
+            <TermsBackLink href={homeHref} />
           )}
           <h1 className="px-8 text-center font-serif text-2xl font-semibold text-[#3D421F] dark:text-[CanvasText]">
             {terms.title}
@@ -93,5 +97,22 @@ export function MobileTermsScreen({
         </p>
       </div>
     </div>
+  );
+}
+
+function TermsBackLink({ href }: { href: string }) {
+  const { motionProps } = useMobilePressMotion();
+  const { beginNav } = useMobileNavBusy();
+  return (
+    <motion.div className="absolute left-0 top-0.5" {...motionProps}>
+      <Link
+        href={href}
+        aria-label="Back to welcome"
+        className="flex h-8 w-8 items-center justify-center rounded-full text-[#3D421F] hover:bg-black/[0.06] dark:text-[CanvasText] dark:hover:bg-white/[0.08]"
+        onClick={() => beginNav()}
+      >
+        <ChevronLeft className="h-5 w-5" strokeWidth={2} />
+      </Link>
+    </motion.div>
   );
 }

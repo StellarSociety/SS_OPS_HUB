@@ -1,5 +1,5 @@
-import { headers } from "next/headers";
 import { generateQrSvg } from "@/lib/guests-intel/qr";
+import { joinAppUrl, publicAppUrl } from "@/lib/public-app-url";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getSentimentPageContext } from "@/lib/sentiment/page-context";
 import { canEditGuestFeedback } from "@/lib/sentiment/permissions";
@@ -11,15 +11,6 @@ import {
   listPromotions,
   listQuestions,
 } from "./store";
-
-async function requestOrigin(): Promise<string> {
-  const headerStore = await headers();
-  const host =
-    headerStore.get("x-forwarded-host") || headerStore.get("host") || "";
-  if (!host) return "";
-  const proto = headerStore.get("x-forwarded-proto") || "http";
-  return `${proto}://${host}`;
-}
 
 export async function getGuestFeedbackPage() {
   const ctx = await getSentimentPageContext();
@@ -47,10 +38,10 @@ export async function getGuestFeedbackPage() {
     loadGuestFeedbackOutboundLinks(service, ctx.venue),
   ]);
 
-  const origin = await requestOrigin();
-  const formUrl = origin
-    ? `${origin}${guestFeedbackPath(settings.public_code)}`
-    : guestFeedbackPath(settings.public_code);
+  const formUrl = joinAppUrl(
+    guestFeedbackPath(settings.public_code),
+    publicAppUrl(),
+  );
   const formQrSvg = formUrl ? await generateQrSvg(formUrl) : "";
 
   return {

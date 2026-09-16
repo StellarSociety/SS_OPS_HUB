@@ -1,8 +1,24 @@
 "use client";
 
-import { Bell, House, LogIn, MapPinned, ScrollText, TrendingUp, UserRound } from "lucide-react";
+import {
+  Bell,
+  CalendarCheck,
+  CalendarDays,
+  CalendarOff,
+  ClipboardList,
+  FolderOpen,
+  House,
+  LogIn,
+  MapPinned,
+  MessageSquare,
+  ScanFace,
+  ScrollText,
+  TrendingUp,
+  UserRound,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { RefreshSpinner } from "@/components/mobile/refresh-spinner";
 import { DEVICE_PREVIEW_PATH_PANEL_CLASS } from "@/components/simulators/device-preview-chrome";
 import { cn } from "@/lib/utils";
@@ -12,6 +28,7 @@ import {
   getAppPathPage,
   type AppPathPage,
 } from "@/lib/mobile/app-path";
+import type { MobilePreviewEmployee } from "@/lib/mobile/preview-employees";
 
 const PATH_ICONS: Record<string, LucideIcon> = {
   login: LogIn,
@@ -19,7 +36,14 @@ const PATH_ICONS: Record<string, LucideIcon> = {
   welcome: House,
   notifications: Bell,
   "employee-profile": UserRound,
+  attendance: CalendarCheck,
+  leave: CalendarOff,
+  docs: FolderOpen,
   revenue: TrendingUp,
+  sentiment: ScanFace,
+  "sentiment-reviews": MessageSquare,
+  "sentiment-calendar": CalendarDays,
+  "sentiment-actions": ClipboardList,
   terms: ScrollText,
 };
 
@@ -29,6 +53,10 @@ type AppPathPanelProps = {
   venue: { slug: string };
   onRefreshPreview?: () => void;
   refreshing?: boolean;
+  previewEmployees?: MobilePreviewEmployee[];
+  previewStaffId?: string;
+  onPreviewStaffChange?: (staffId: string) => void;
+  previewStaffBusy?: boolean;
 };
 
 export function AppPathPanel({
@@ -37,11 +65,20 @@ export function AppPathPanel({
   venue,
   onRefreshPreview,
   refreshing = false,
+  previewEmployees = [],
+  previewStaffId = "",
+  onPreviewStaffChange,
+  previewStaffBusy = false,
 }: AppPathPanelProps) {
   const current = getAppPathPage(selectedId);
   const currentHref = appPathPublicHref(current, venue);
   const stem = APP_PATH.filter((page) => !page.from);
-  const branches = APP_PATH.filter((page) => page.from === "welcome");
+  const employeeOptions = previewEmployees.map((employee) => ({
+    value: employee.id,
+    label: employee.empNo
+      ? `${employee.empNo} · ${employee.fullName}`
+      : employee.fullName,
+  }));
 
   return (
     <Card className={DEVICE_PREVIEW_PATH_PANEL_CLASS}>
@@ -59,20 +96,34 @@ export function AppPathPanel({
       ) : null}
       <div
         className={cn(
-          "flex min-w-0 items-baseline gap-3",
+          "flex min-w-0 items-center gap-3",
           onRefreshPreview && "pl-9",
         )}
       >
-        <p className="shrink-0 font-serif text-xl text-[#3D421F]">App Path</p>
-        <p className="min-w-0 truncate font-mono text-[11px] text-black/40">
-          {currentHref}
-        </p>
+        <div className="flex min-w-0 flex-1 items-baseline gap-3">
+          <p className="shrink-0 font-serif text-xl text-[#3D421F]">App Path</p>
+          <p className="min-w-0 truncate font-mono text-[11px] text-black/40">
+            {currentHref}
+          </p>
+        </div>
+        {onPreviewStaffChange ? (
+          <SearchableSelect
+            className="w-[min(20rem,48%)] shrink-0"
+            value={previewStaffId}
+            onChange={onPreviewStaffChange}
+            options={employeeOptions}
+            placeholder="You"
+            searchPlaceholder="Search employees…"
+            aria-label="Preview as employee"
+            disabled={previewStaffBusy}
+          />
+        ) : null}
       </div>
       <hr className="mt-3 border-black/10" />
 
       <nav
         aria-label="App path"
-        className="mt-4 flex min-h-0 flex-1 flex-col justify-start"
+        className="mt-4 flex min-h-0 flex-1 flex-col justify-start overflow-y-auto"
       >
         {stem.map((item, index) => {
           const lastStem = index === stem.length - 1;
@@ -86,8 +137,8 @@ export function AppPathPanel({
                 href={appPathPublicHref(item, venue)}
               />
               {lastStem ? (
-                <BranchFork
-                  branches={branches}
+                <PathBranchList
+                  parentId="welcome"
                   selectedId={selectedId}
                   onSelect={onSelect}
                   venue={venue}
@@ -106,17 +157,18 @@ export function AppPathPanel({
   );
 }
 
-function BranchFork({
-  branches,
+function PathBranchList({
+  parentId,
   selectedId,
   onSelect,
   venue,
 }: {
-  branches: AppPathPage[];
+  parentId: string;
   selectedId: string;
   onSelect: (id: string) => void;
   venue: { slug: string };
 }) {
+  const branches = APP_PATH.filter((page) => page.from === parentId);
   if (branches.length === 0) return null;
 
   return (
@@ -128,22 +180,35 @@ function BranchFork({
         />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1 pt-1">
-        {branches.map((item) => (
-          <div key={item.id} className="relative flex w-full shrink-0 items-start">
-            <span
-              aria-hidden
-              className="absolute left-[-18px] top-[18px] h-0.5 w-[18px] rounded-full bg-[var(--venue-primary,#818a40)]/30"
-            />
-            <PathNode
-              page={item}
-              index={APP_PATH.indexOf(item)}
-              active={selectedId === item.id}
-              onSelect={onSelect}
-              compact
-              href={appPathPublicHref(item, venue)}
-            />
-          </div>
-        ))}
+        {branches.map((item) => {
+          const nested = APP_PATH.some((page) => page.from === item.id);
+          return (
+            <div key={item.id} className="relative flex w-full shrink-0 flex-col">
+              <div className="relative flex w-full items-start">
+                <span
+                  aria-hidden
+                  className="absolute left-[-18px] top-[18px] h-0.5 w-[18px] rounded-full bg-[var(--venue-primary,#818a40)]/30"
+                />
+                <PathNode
+                  page={item}
+                  index={APP_PATH.indexOf(item)}
+                  active={selectedId === item.id}
+                  onSelect={onSelect}
+                  compact
+                  href={appPathPublicHref(item, venue)}
+                />
+              </div>
+              {nested ? (
+                <PathBranchList
+                  parentId={item.id}
+                  selectedId={selectedId}
+                  onSelect={onSelect}
+                  venue={venue}
+                />
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

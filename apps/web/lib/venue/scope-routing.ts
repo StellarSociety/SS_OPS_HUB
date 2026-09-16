@@ -59,7 +59,9 @@ const UNSCOPED_PREFIXES = [
   "/acknowledge",
   "/g",
   "/f",
+  "/feedbackform",
   "/live",
+  "/livereviewsdisplay",
 ] as const;
 
 export function isUnscopedPath(path: string): boolean {

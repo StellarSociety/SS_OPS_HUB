@@ -12,6 +12,7 @@ import {
 } from "@/lib/hr/workdrive/documents";
 import { loadWorkDriveSettings } from "@/lib/hr/workdrive/settings";
 import { canEditStaff, canViewStaff, canAccessAssets } from "@/lib/hr/permissions";
+import { canAccessMobileApp } from "@/lib/mobile/permissions";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -39,12 +40,14 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: auth.error }, { status: 401 });
   }
 
-  const { venue, permissions } = auth;
-  if (
-    !canViewStaff(permissions, venue.id) &&
-    !canEditStaff(permissions, venue.id) &&
-    !canAccessAssets(permissions, venue.id)
-  ) {
+  const { user, venue, permissions } = auth;
+  const hrDownload =
+    canViewStaff(permissions, venue.id) ||
+    canEditStaff(permissions, venue.id) ||
+    canAccessAssets(permissions, venue.id);
+  const mobileDownload = canAccessMobileApp(permissions, venue.id);
+
+  if (!hrDownload && !mobileDownload) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -56,6 +59,22 @@ export async function GET(_request: Request, context: RouteContext) {
   );
   if (meta && meta.venue_id !== venue.id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (!hrDownload) {
+    if (!meta) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    const { data: profile } = await service
+      .from("profiles")
+      .select("staff_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    const ownStaffId =
+      (profile?.staff_id as string | null | undefined)?.trim() || null;
+    if (!ownStaffId || ownStaffId !== meta.staff_id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   if (meta?.missing_at) {

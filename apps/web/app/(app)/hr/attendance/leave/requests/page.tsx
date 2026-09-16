@@ -1,11 +1,15 @@
-export default function LeaveRequestsPage() {
+import { LeaveRequestsClient } from "@/components/hr/leave-requests-client";
+import { listVenueLeaveRequests } from "@/lib/actions/hr-leave-requests";
+
+export default async function LeaveRequestsPage() {
+  const data = await listVenueLeaveRequests();
+
   return (
-    <div className="rounded-2xl border border-dashed border-black/10 bg-white/60 p-6">
-      <h2 className="font-serif text-lg text-[#3D421F]">Leave requests</h2>
-      <p className="mt-2 text-sm text-black/60">
-        Create, review, approve, and cancel leave requests will live here.
-        Coming in a later step.
-      </p>
-    </div>
+    <LeaveRequestsClient
+      requests={data.requests}
+      leaveTypes={data.leaveTypes}
+      canManage={data.canManage}
+      error={data.error}
+    />
   );
 }

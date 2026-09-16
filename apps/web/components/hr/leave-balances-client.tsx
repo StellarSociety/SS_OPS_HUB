@@ -8,6 +8,7 @@ import { LeaveEmployeeDetail } from "@/components/hr/leave-employee-detail";
 import type {
   AnnualLeaveCalculationBreakdown,
   EmployeeLeaveSummary,
+  LeaveRequestListItem,
   ScheduledLeaveLabelStyle,
   ScheduledLeaveRange,
 } from "@/lib/hr/leave";
@@ -38,6 +39,7 @@ type DetailPayload = {
   adjustments: HrLeaveBalanceAdjustment[];
   scheduledLeaves: ScheduledLeaveRange[];
   scheduleLabels: ScheduledLeaveLabelStyle[];
+  leaveRequests: LeaveRequestListItem[];
   policy: HrLeavePolicySettings;
   year: number;
   annualLeaveCalculation?: AnnualLeaveCalculationBreakdown | null;
@@ -118,6 +120,7 @@ export function LeaveBalancesClient({
           adjustments={detail.adjustments}
           scheduledLeaves={detail.scheduledLeaves}
           scheduleLabels={detail.scheduleLabels}
+          leaveRequests={detail.leaveRequests}
           annualLeaveCalculation={detail.annualLeaveCalculation}
           canManage={canManage}
           onBack={() => setParams({ staffId: null, year: String(year) })}

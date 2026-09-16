@@ -28,7 +28,13 @@ export async function signIn(
   });
 
   if (error) {
-    return { error: error.message };
+    const rateLimited =
+      error.status === 429 || error.code === "over_request_rate_limit";
+    return {
+      error: rateLimited
+        ? "Too many sign-in attempts. Wait a minute and try again."
+        : error.message,
+    };
   }
 
   const { data: profile } = await supabase

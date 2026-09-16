@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import {
   tabBarHref,
@@ -9,6 +10,8 @@ import {
   type MobileTabBarApp,
   type MobileTabItem,
 } from "@/lib/mobile/tab-bars";
+import { useMobilePressMotion } from "@/components/mobile/mobile-press";
+import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
 
 const COMPACT_RANGE = 80;
 const MIN_SCALE = 0.84;
@@ -38,8 +41,8 @@ export function MobileTabBar({
   venueSlug,
   onSelectTab,
 }: MobileTabBarProps) {
+  const { beginNav } = useMobileNavBusy();
   const items = tabBarItems(app);
-  const [pressedId, setPressedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const compactRef = useRef(0);
   const lastTopRef = useRef(0);
@@ -106,83 +109,98 @@ export function MobileTabBar({
               gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))`,
             }}
           >
-            {items.map((tab) => {
-              const active = tab.id === activeId;
-              const href = tab.pageId ? tabBarHref(venueSlug, tab.path) : null;
-              const available = Boolean(href) || active;
-              const className = cn(
-                "mobile-ig-tab flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 rounded-full px-1 py-1",
-                "transition-[transform,background-color,color] duration-200",
-                active && "mobile-ig-tab-active",
-                pressedId === tab.id && available && "scale-90",
-                !available && "opacity-40",
-              );
-              const inner = (
-                <>
-                  <tab.icon
-                    aria-hidden
-                    className="h-5 w-5"
-                    strokeWidth={active ? 2.25 : 1.85}
-                  />
-                  <span className="max-w-full truncate text-xs font-semibold leading-none tracking-wide">
-                    {tab.label}
-                  </span>
-                </>
-              );
-              const press = available
-                ? {
-                    onPointerDown: () => setPressedId(tab.id),
-                    onPointerUp: () => setPressedId(null),
-                    onPointerLeave: () => setPressedId(null),
-                  }
-                : {};
-
-              if (onSelectTab) {
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    aria-current={active ? "page" : undefined}
-                    aria-label={tab.label}
-                    disabled={!available}
-                    onClick={() => {
-                      if (tab.pageId) onSelectTab(tab);
-                    }}
-                    className={className}
-                    {...press}
-                  >
-                    {inner}
-                  </button>
-                );
-              }
-
-              if (href && !active) {
-                return (
-                  <Link
-                    key={tab.id}
-                    href={href}
-                    aria-label={tab.label}
-                    className={className}
-                    {...press}
-                  >
-                    {inner}
-                  </Link>
-                );
-              }
-
-              return (
-                <span
-                  key={tab.id}
-                  aria-current={active ? "page" : undefined}
-                  className={className}
-                >
-                  {inner}
-                </span>
-              );
-            })}
+            {items.map((tab) => (
+              <TabBarItem
+                key={tab.id}
+                tab={tab}
+                active={tab.id === activeId}
+                href={tab.pageId ? tabBarHref(venueSlug, tab.path) : null}
+                onSelectTab={onSelectTab}
+                beginNav={beginNav}
+              />
+            ))}
           </div>
         </nav>
       </div>
     </div>
+  );
+}
+
+function TabBarItem({
+  tab,
+  active,
+  href,
+  onSelectTab,
+  beginNav,
+}: {
+  tab: MobileTabItem;
+  active: boolean;
+  href: string | null;
+  onSelectTab?: (tab: MobileTabItem) => void;
+  beginNav: () => void;
+}) {
+  const available = Boolean(href) || active;
+  const { motionProps } = useMobilePressMotion(available);
+  const className = cn(
+    "mobile-ig-tab flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 rounded-full px-1 py-1",
+    "transition-[background-color,color] duration-200",
+    active && "mobile-ig-tab-active",
+    !available && "opacity-40",
+  );
+  const inner = (
+    <>
+      <tab.icon
+        aria-hidden
+        className="h-5 w-5"
+        strokeWidth={active ? 2.25 : 1.85}
+      />
+      <span className="max-w-full truncate text-[10px] font-medium leading-none tracking-wide">
+        {tab.label}
+      </span>
+    </>
+  );
+
+  if (onSelectTab) {
+    return (
+      <motion.button
+        type="button"
+        aria-current={active ? "page" : undefined}
+        aria-label={tab.label}
+        disabled={!available}
+        onClick={() => {
+          if (!tab.pageId || active) return;
+          beginNav();
+          onSelectTab(tab);
+        }}
+        className={className}
+        {...motionProps}
+      >
+        {inner}
+      </motion.button>
+    );
+  }
+
+  if (href && !active) {
+    return (
+      <motion.div className="min-w-0" {...motionProps}>
+        <Link
+          href={href}
+          aria-label={tab.label}
+          className={className}
+          onClick={() => beginNav()}
+        >
+          {inner}
+        </Link>
+      </motion.div>
+    );
+  }
+
+  return (
+    <span
+      aria-current={active ? "page" : undefined}
+      className={className}
+    >
+      {inner}
+    </span>
   );
 }

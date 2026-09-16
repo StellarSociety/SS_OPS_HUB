@@ -1,5 +1,6 @@
 import type { Viewport } from "next";
 import { Suspense } from "react";
+import { HideNextDevOverlay } from "@/components/dev/hide-next-dev-overlay";
 import { MobileNoZoom } from "@/components/mobile/mobile-no-zoom";
 import { MobileAppShell } from "@/components/mobile/mobile-app-shell";
 import { InstallAppBanner } from "@/components/pwa/install-app-banner";
@@ -17,6 +18,7 @@ export default async function MobileAppLayout({
 
   return (
     <>
+      <HideNextDevOverlay />
       <MobileNoZoom />
       <MobileAppShell>{children}</MobileAppShell>
       <Suspense fallback={null}>

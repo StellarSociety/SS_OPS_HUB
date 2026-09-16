@@ -15,10 +15,7 @@ import type {
   LiveDisplayListingStats,
   LiveDisplayView,
 } from "@/lib/sentiment/live-display/types";
-import { handwritten } from "@/lib/fonts";
 import { cn } from "@/lib/utils";
-
-const INK = "#3D421F";
 
 function formatRating(rating: number | null): string {
   if (rating == null) return "—";
@@ -32,31 +29,31 @@ function formatCount(count: number): string {
 export function LiveDisplayScreen({ view }: { view: LiveDisplayView }) {
   return (
     <div
-      className="relative flex h-full min-h-0 w-full flex-col overflow-hidden text-[#3D421F]"
+      className="relative flex h-full min-h-0 w-full flex-col overflow-hidden text-white"
       style={{
         containerType: "size",
         containerName: "live",
         padding:
-          "clamp(1.65rem, 4.4cqh, 3.15rem) clamp(0.9rem, 3cqi, 2.5rem) clamp(0.55rem, 1.5cqh, 1.75rem)",
+          "clamp(1.65rem, 4.4cqh, 3.15rem) clamp(0.9rem, 3cqi, 2.5rem) clamp(1.05rem, 2.6cqh, 2.35rem)",
       }}
     >
       <LiveDisplayAtmosphere />
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Header view={view} />
 
-        <div className="mt-[clamp(0.95rem,2.6cqh,1.85rem)] grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] items-stretch gap-[clamp(0.7rem,2cqi,2rem)] @[900px]/live:grid-cols-[auto_auto] @[900px]/live:grid-rows-1 @[900px]/live:justify-between @[900px]/live:px-[clamp(0.9rem,3cqi,2.5rem)]">
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] items-stretch gap-[clamp(0.7rem,2cqi,2rem)] @[900px]/live:grid-cols-[auto_auto] @[900px]/live:grid-rows-1 @[900px]/live:justify-between @[900px]/live:px-[clamp(0.9rem,3cqi,2.5rem)]">
           <HeroColumn google={view.google} tripadvisor={view.tripadvisor} />
           <ShareColumn channels={view.channels} />
         </div>
 
         <StatsBar view={view} />
 
-        <footer className="mt-[clamp(0.55rem,1.6cqh,0.95rem)] flex shrink-0 flex-col items-center gap-0.5">
+        <footer className="mt-[clamp(0.2rem,0.7cqh,0.4rem)] flex shrink-0 flex-col items-center gap-0.5">
           <OliveBranch />
-          <p className="text-[clamp(8px,1.15cqi,10px)] font-semibold uppercase tracking-[0.32em] text-[#3D421F]/55">
+          <p className="text-[clamp(8px,1.15cqi,10px)] font-semibold uppercase tracking-[0.32em] text-white/65">
             Thank you for dining with us
           </p>
-          <p className="text-[clamp(7px,1cqi,9px)] font-semibold uppercase tracking-[0.28em] text-[#3D421F]/40">
+          <p className="text-[clamp(7px,1cqi,9px)] font-semibold uppercase tracking-[0.28em] text-white/45">
             Stellar Society Group
           </p>
         </footer>
@@ -69,31 +66,31 @@ function Header({ view }: { view: LiveDisplayView }) {
   return (
     <header className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2">
       <span aria-hidden />
-      <div className="flex min-w-0 flex-col items-center text-center">
+      <div className="mt-[clamp(0.55rem,1.8cqh,1.15rem)] flex min-w-0 flex-col items-center text-center">
         {view.venueLogoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={view.venueLogoUrl}
             alt={view.venueName}
-            className="h-[clamp(3.15rem,10cqh,5.75rem)] w-auto max-w-[min(26rem,56cqi)] object-contain"
+            className="h-[clamp(3.85rem,12.5cqh,7rem)] w-auto max-w-[min(30rem,64cqi)] object-contain brightness-0 invert"
           />
         ) : (
-          <h1 className="font-serif text-[clamp(1.15rem,3.2cqi,2rem)] font-medium leading-none tracking-[0.18em] text-[#3D421F]">
+          <h1 className="font-serif text-[clamp(1.15rem,3.2cqi,2rem)] font-medium leading-none tracking-[0.18em] text-white">
             {view.venueName.toUpperCase()}
           </h1>
         )}
         {view.venueTagline ? (
-          <p className="mt-1.5 whitespace-pre-line text-[clamp(8px,1.15cqi,10px)] font-medium uppercase leading-snug tracking-[0.22em] text-[#3D421F]/55">
+          <p className="mt-1.5 whitespace-pre-line text-[clamp(10px,1.45cqi,13px)] font-medium uppercase leading-snug tracking-[0.22em] text-white/60">
             {view.venueTagline}
           </p>
         ) : null}
       </div>
       <div className="flex items-start justify-end gap-2 pt-0.5">
         <span className="min-w-0 text-right">
-          <span className="block text-[clamp(8px,1.15cqi,10px)] font-semibold uppercase tracking-[0.18em] text-[#3D421F]">
+          <span className="block text-[clamp(8px,1.15cqi,10px)] font-semibold uppercase tracking-[0.18em] text-white">
             Live rating
           </span>
-          <span className="block text-[clamp(7px,1cqi,9px)] font-medium uppercase tracking-[0.16em] text-[#3D421F]/45">
+          <span className="block text-[clamp(7px,1cqi,9px)] font-medium uppercase tracking-[0.16em] text-white/50">
             {view.updatedLabel}
           </span>
         </span>
@@ -117,32 +114,29 @@ function HeroColumn({
     tripadvisor.reviewCount > 0 || tripadvisor.rating != null;
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col justify-center">
-      <div className="grid w-fit grid-cols-[auto_minmax(0,1fr)] items-center gap-x-5 gap-y-[clamp(0.95rem,2.7cqh,2.35rem)] self-start">
-        <div className="col-start-2 flex w-fit flex-col items-start">
-          <h2 className="whitespace-nowrap font-serif text-[clamp(1.35rem,3.8cqi,2.15rem)] leading-none tracking-tight text-[#3D421F]">
-            Loved your experience?
-          </h2>
-          <div className="mt-[clamp(0.5rem,1.4cqh,1rem)] h-px w-full bg-[#C4A35A]" />
-          <p className="mt-[clamp(0.5rem,1.4cqh,1rem)] max-w-[22rem] text-left text-[clamp(9px,1.25cqi,11px)] font-medium uppercase leading-relaxed tracking-[0.16em] text-[#3D421F]/55">
-            Share your experience and help us keep getting better.
-          </p>
-        </div>
-        <p className="font-serif text-[clamp(3.85rem,12.5cqh,7.25rem)] font-medium leading-none tabular-nums tracking-tight">
+      <div className="grid w-fit grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 self-start @[900px]/live:ml-[clamp(1.5rem,4.5cqi,3rem)]">
+        <p className="font-serif text-[clamp(4.35rem,14cqh,8rem)] font-medium leading-none tabular-nums tracking-tight">
           {formatRating(google.rating)}
         </p>
         <div className="min-w-0 text-left">
           <div className="@[900px]/live:hidden">
-            <GoogleStars rating={google.rating} size="2xl" pulse />
+            <GoogleStars rating={Math.round(google.rating ?? 0)} size="3xl" pulse />
           </div>
           <div className="hidden @[900px]/live:block">
-            <GoogleStars rating={google.rating} size="3xl" pulse />
+            <GoogleStars rating={Math.round(google.rating ?? 0)} size="4xl" pulse />
           </div>
-          <p className="mt-2 text-[clamp(12px,1.75cqi,16px)] font-semibold uppercase tracking-[0.16em] text-[#3D421F]/50">
-            {formatCount(google.reviewCount)} Google reviews
+          <p className="mt-2.5 font-semibold uppercase tracking-[0.16em] text-white/55">
+            <span className="text-[clamp(18px,2.65cqi,24px)] tabular-nums text-white">
+              {formatCount(google.reviewCount)}
+            </span>
+            <span className="text-[clamp(13px,1.9cqi,18px)]"> Google reviews</span>
           </p>
           {showTripadvisor ? (
-            <p className="mt-1 text-[clamp(12px,1.75cqi,16px)] font-semibold uppercase tracking-[0.16em] text-[#3D421F]/50">
-              {formatCount(tripadvisor.reviewCount)} Tripadvisor reviews
+            <p className="mt-1 font-semibold uppercase tracking-[0.16em] text-white/55">
+              <span className="text-[clamp(18px,2.65cqi,24px)] tabular-nums text-white">
+                {formatCount(tripadvisor.reviewCount)}
+              </span>
+              <span className="text-[clamp(13px,1.9cqi,18px)]"> Tripadvisor reviews</span>
             </p>
           ) : null}
         </div>
@@ -157,30 +151,25 @@ function ShareColumn({ channels }: { channels: LiveDisplayChannelCard[] }) {
       {channels.length > 0 ? (
         <div
           className={cn(
-            "inline-grid max-w-full justify-items-stretch gap-x-3 gap-y-[clamp(0.2rem,0.55cqh,0.4rem)] self-end @[900px]/live:gap-x-4",
+            "inline-grid max-w-full justify-items-stretch gap-x-3 gap-y-[clamp(0.2rem,0.55cqh,0.4rem)] self-end @[900px]/live:mr-[clamp(1.5rem,4.5cqi,3rem)] @[900px]/live:gap-x-4",
             channels.length > 1
               ? "grid-cols-[repeat(2,10.75rem)]"
               : "grid-cols-[10.75rem]",
           )}
         >
-          <div className="col-span-full flex min-w-0 items-center gap-3">
-            <span className="h-px min-w-0 flex-1 bg-[#3D421F]/15" />
-            <p className="whitespace-nowrap text-[clamp(9px,1.25cqi,11px)] font-semibold uppercase tracking-[0.22em] text-[#3D421F]/60">
+          <div className="-mt-[clamp(0.55rem,1.6cqh,0.95rem)] col-span-full flex min-w-0 items-center gap-3">
+            <span className="h-px min-w-0 flex-1 bg-white/20" />
+            <p className="whitespace-nowrap text-[clamp(9px,1.25cqi,11px)] font-semibold uppercase tracking-[0.22em] text-white/70">
               Share your experience
             </p>
-            <span className="h-px min-w-0 flex-1 bg-[#3D421F]/15" />
+            <span className="h-px min-w-0 flex-1 bg-white/20" />
           </div>
           {channels.map((channel) => (
             <ChannelCard key={channel.key} channel={channel} />
           ))}
           <div className="col-span-full mt-[clamp(0.15rem,0.5cqh,0.35rem)] flex flex-col items-center">
             <ScanArrow />
-            <p
-              className={cn(
-                handwritten.className,
-                "whitespace-nowrap px-1 py-[0.15em] text-[clamp(1.7rem,5.4cqi,2.35rem)] leading-tight text-[#3D421F]",
-              )}
-            >
+            <p className="whitespace-nowrap px-1 py-[0.15em] font-serif text-[clamp(1.15rem,3.4cqi,1.55rem)] italic leading-tight tracking-wide text-white">
               Scan to review us
             </p>
           </div>
@@ -188,13 +177,13 @@ function ShareColumn({ channels }: { channels: LiveDisplayChannelCard[] }) {
       ) : (
         <>
           <div className="mb-[clamp(0.2rem,0.55cqh,0.4rem)] flex shrink-0 items-center gap-3">
-            <span className="h-px flex-1 bg-[#3D421F]/15" />
-            <p className="text-[clamp(9px,1.25cqi,11px)] font-semibold uppercase tracking-[0.22em] text-[#3D421F]/60">
+            <span className="h-px flex-1 bg-white/20" />
+            <p className="text-[clamp(9px,1.25cqi,11px)] font-semibold uppercase tracking-[0.22em] text-white/70">
               Share your experience
             </p>
-            <span className="h-px flex-1 bg-[#3D421F]/15" />
+            <span className="h-px flex-1 bg-white/20" />
           </div>
-          <p className="text-sm text-[#3D421F]/50">
+          <p className="text-sm text-white/55">
             Connect Google or Tripadvisor in Sentiment settings to show review QR
             codes here.
           </p>
@@ -228,10 +217,7 @@ function ChannelCard({ channel }: { channel: LiveDisplayChannelCard }) {
           </div>
         )}
       </div>
-      <div
-        className="flex shrink-0 items-center justify-center gap-1.5 px-2 py-[clamp(0.4rem,1cqh,0.65rem)] text-center text-[clamp(7px,1.05cqi,9px)] font-semibold uppercase leading-tight tracking-[0.12em] text-[#F0F3DD]"
-        style={{ backgroundColor: INK }}
-      >
+      <div className="flex shrink-0 items-center justify-center gap-1.5 bg-[#E5E5E5] px-2 py-[clamp(0.4rem,1cqh,0.65rem)] text-center text-[clamp(7px,1.05cqi,9px)] font-semibold uppercase leading-tight tracking-[0.12em] text-[#3D421F]">
         <Smartphone className="h-3 w-3 shrink-0 @[900px]/live:h-3.5 @[900px]/live:w-3.5" strokeWidth={2} />
         <span className="min-w-0">{channel.cta}</span>
       </div>
@@ -243,7 +229,7 @@ function ScanArrow() {
   return (
     <svg
       viewBox="0 0 48 34"
-      className="mb-0.5 h-[clamp(1.2rem,3.6cqh,1.75rem)] w-[clamp(1.7rem,4.6cqi,2.25rem)] text-[#3D421F]"
+      className="mb-0.5 h-[clamp(1.2rem,3.6cqh,1.75rem)] w-[clamp(1.7rem,4.6cqi,2.25rem)] text-white"
       aria-hidden
       fill="none"
     >
@@ -266,7 +252,7 @@ function ScanArrow() {
 
 function StatsBar({ view }: { view: LiveDisplayView }) {
   return (
-    <div className="-mt-[clamp(0.55rem,1.8cqh,1.15rem)] mb-1.5 grid shrink-0 grid-cols-3 divide-x divide-[#3D421F]/10 border-y border-[#3D421F]/10 py-[clamp(0.45rem,1.3cqh,1rem)]">
+    <div className="mb-0.5 grid shrink-0 grid-cols-3 divide-x divide-white/20 border-y border-white/20 py-[clamp(0.55rem,1.5cqh,1.15rem)]">
       <StatCell
         icon={BarChart3}
         label="This month"
@@ -303,16 +289,16 @@ function StatCell({
 }) {
   return (
     <div className="flex min-w-0 flex-col items-center px-[clamp(0.35rem,1.2cqi,0.75rem)] text-center">
-      <span className="mb-[clamp(0.25rem,0.8cqh,0.5rem)] flex h-[clamp(1.7rem,4.6cqh,2.5rem)] w-[clamp(1.7rem,4.6cqh,2.5rem)] items-center justify-center rounded-full border border-[#3D421F]/55 bg-[#3D421F]/10 text-[#3D421F]">
+      <span className="mb-[clamp(0.25rem,0.8cqh,0.5rem)] flex h-[clamp(1.7rem,4.6cqh,2.5rem)] w-[clamp(1.7rem,4.6cqh,2.5rem)] items-center justify-center rounded-full border border-white/50 bg-white/10 text-white">
         <Icon className="h-3.5 w-3.5 @[900px]/live:h-4 @[900px]/live:w-4" strokeWidth={2.2} />
       </span>
-      <p className="text-[clamp(8px,1.1cqi,10px)] font-semibold uppercase tracking-[0.18em] text-[#3D421F]/50">
+      <p className="text-[clamp(11px,1.55cqi,14px)] font-semibold uppercase tracking-[0.18em] text-white/70">
         {label}
       </p>
       {value ? (
         <p
           className={cn(
-            "mt-0.5 font-serif text-[clamp(1.2rem,3.8cqh,1.85rem)] leading-none tabular-nums text-[#3D421F]",
+            "mt-1 font-serif text-[clamp(1.55rem,5cqh,2.4rem)] leading-none tabular-nums text-white",
             valueClassName,
           )}
         >
@@ -320,7 +306,7 @@ function StatCell({
         </p>
       ) : null}
       {hint ? (
-        <p className="mt-0.5 max-w-[16rem] text-[clamp(8px,1.05cqi,10px)] font-medium uppercase leading-snug tracking-[0.12em] text-[#3D421F]/45">
+        <p className="mt-1 max-w-[16rem] text-[clamp(10px,1.4cqi,13px)] font-medium uppercase leading-snug tracking-[0.12em] text-white/55">
           {hint}
         </p>
       ) : null}
@@ -332,7 +318,7 @@ function OliveBranch() {
   return (
     <svg
       viewBox="0 0 64 20"
-      className="h-3.5 w-11 text-[#818a40] @[900px]/live:h-4 @[900px]/live:w-12"
+      className="h-3.5 w-11 text-[#C4A35A] @[900px]/live:h-4 @[900px]/live:w-12"
       aria-hidden
       fill="none"
     >

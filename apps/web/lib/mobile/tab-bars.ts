@@ -2,13 +2,16 @@ import {
   Archive,
   Bell,
   CalendarCheck,
+  CalendarDays,
   CalendarOff,
+  ClipboardList,
   Coins,
   FileBarChart,
+  FolderOpen,
   House,
   LayoutDashboard,
+  MessageSquare,
   OctagonAlert,
-  ReceiptText,
   Settings,
   UserRound,
   type LucideIcon,
@@ -31,7 +34,11 @@ export type MobileTabItem = {
  * Apps that own a 5-icon bar. Home is prepended and is never listed here.
  * Every phone page except Login, Venue selection, Welcome, and Terms must use one.
  */
-export type MobileTabBarApp = "profile" | "notifications" | "revenue";
+export type MobileTabBarApp =
+  | "profile"
+  | "notifications"
+  | "revenue"
+  | "sentiment";
 
 const HOME_TAB: MobileTabItem = {
   id: MOBILE_HOME_TAB_ID,
@@ -61,19 +68,22 @@ const APP_TABS: Record<
       id: "attendance",
       label: "Attendance",
       icon: CalendarCheck,
+      pageId: "attendance",
       path: "/attendance",
     },
     {
       id: "leave",
       label: "Leave",
       icon: CalendarOff,
+      pageId: "leave",
       path: "/leave",
     },
     {
-      id: "payslips",
-      label: "Payslips",
-      icon: ReceiptText,
-      path: "/payslips",
+      id: "docs",
+      label: "Docs",
+      icon: FolderOpen,
+      pageId: "docs",
+      path: "/docs",
     },
   ],
   notifications: [
@@ -128,6 +138,36 @@ const APP_TABS: Record<
       label: "Reports",
       icon: FileBarChart,
       path: "/revenue/reports",
+    },
+  ],
+  sentiment: [
+    {
+      id: "dashboard",
+      label: "Dashboard",
+      icon: LayoutDashboard,
+      pageId: "sentiment",
+      path: "/sentiment",
+    },
+    {
+      id: "reviews",
+      label: "Reviews",
+      icon: MessageSquare,
+      pageId: "sentiment-reviews",
+      path: "/sentiment/reviews",
+    },
+    {
+      id: "calendar",
+      label: "Calendar",
+      icon: CalendarDays,
+      pageId: "sentiment-calendar",
+      path: "/sentiment/calendar",
+    },
+    {
+      id: "actions",
+      label: "Actions",
+      icon: ClipboardList,
+      pageId: "sentiment-actions",
+      path: "/sentiment/actions",
     },
   ],
 };

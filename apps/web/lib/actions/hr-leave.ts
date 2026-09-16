@@ -30,6 +30,7 @@ import {
   normalizeScheduleLeaveCode,
   overlayBalanceUsageFromSchedule,
   pendingLeaveDatesForFamily,
+  leaveRequestDetailsAreLocked,
   PH_WORKED_LABEL_CODES,
   policyCodeToScheduleLeaveCode,
   resolveAnnualLeaveEvalDate,
@@ -40,6 +41,7 @@ import {
   type AnnualLeaveCalculationBreakdown,
   type EmployeeLeaveSummary,
   type LeaveCalendarEvent,
+  type LeaveRequestListItem,
   type LeaveUsageDayEntry,
   type LeaveUsageKind,
   type PhReplacementCreditEntry,
@@ -70,6 +72,7 @@ import {
 } from "@/lib/hr/store";
 import { ATTENDANCE_APPROVED_STATUS } from "@/lib/hr/attendance-approval";
 import { upsertAttendanceDayApprovals } from "@/lib/hr/attendance-day-approvals";
+import { mapLeaveRequestRow } from "@/lib/mobile/employee-leave";
 import {
   DEFAULT_HR_LEAVE_POLICY_SETTINGS,
   HR_MODULE_KEY,
@@ -1014,6 +1017,7 @@ export async function getEmployeeLeaveBalances(input: {
   adjustments: HrLeaveBalanceAdjustment[];
   scheduledLeaves: ScheduledLeaveRange[];
   scheduleLabels: ScheduledLeaveLabelStyle[];
+  leaveRequests: LeaveRequestListItem[];
   annualLeaveCalculation: AnnualLeaveCalculationBreakdown | null;
 }> {
   const { supabase, venue, permissions } = await getAuthContext();
@@ -1030,6 +1034,7 @@ export async function getEmployeeLeaveBalances(input: {
       adjustments: [],
       scheduledLeaves: [],
       scheduleLabels: [],
+      leaveRequests: [],
       annualLeaveCalculation: null,
     };
   }
@@ -1053,6 +1058,7 @@ export async function getEmployeeLeaveBalances(input: {
       adjustments: [],
       scheduledLeaves: [],
       scheduleLabels: [],
+      leaveRequests: [],
       annualLeaveCalculation: null,
     };
   }
@@ -1075,6 +1081,7 @@ export async function getEmployeeLeaveBalances(input: {
       adjustments: [],
       scheduledLeaves: [],
       scheduleLabels: [],
+      leaveRequests: [],
       annualLeaveCalculation: null,
     };
   }
@@ -1175,7 +1182,7 @@ export async function getEmployeeLeaveBalances(input: {
     service
       .from("hr_leave_requests")
       .select(
-        "id, leave_type_id, start_date, end_date, status, approved_at, updated_by, updated_at",
+        "id, request_number, employee_id, leave_type_id, start_date, end_date, calendar_days, status, source, reason, employee_notes, hr_notes, submitted_at, approved_at, rejected_at, created_at, schedule_status, updated_by, updated_at",
       )
       .eq("venue_id", venue.id)
       .eq("employee_id", input.staffId)
@@ -1211,11 +1218,22 @@ export async function getEmployeeLeaveBalances(input: {
   const matchedRequestIds = new Set<string>();
   type RequestMatch = {
     id: string;
+    request_number: string;
+    employee_id: string;
     leave_type_id: string;
     start_date: string;
     end_date: string;
+    calendar_days: number | null;
     status: string;
+    source: string | null;
+    reason: string | null;
+    employee_notes: string | null;
+    hr_notes: string | null;
+    submitted_at: string | null;
     approved_at: string | null;
+    rejected_at: string | null;
+    created_at: string;
+    schedule_status: string | null;
     updated_by: string | null;
     updated_at: string | null;
   };
@@ -1410,6 +1428,10 @@ export async function getEmployeeLeaveBalances(input: {
     | null;
   const nationality = Array.isArray(nat) ? nat[0] ?? null : nat;
 
+  const requestActorNames = await profileNamesById(
+    requests.map((row) => row.updated_by),
+  );
+
   return {
     year,
     policy,
@@ -1438,6 +1460,20 @@ export async function getEmployeeLeaveBalances(input: {
     adjustments,
     scheduledLeaves,
     scheduleLabels,
+    leaveRequests: requests.map((row) =>
+      mapLeaveRequestRow({
+        row,
+        type: typeById.get(row.leave_type_id),
+        staff: {
+          empNo: String(staffRow.emp_no),
+          fullName: String(staffRow.full_name),
+          departmentName: department?.name ?? null,
+        },
+        actorName: row.updated_by
+          ? requestActorNames.get(row.updated_by) ?? null
+          : null,
+      }),
+    ),
     annualLeaveCalculation,
   };
 }
@@ -2934,26 +2970,43 @@ export async function saveLeaveCalendarEntry(input: {
   let requestId = input.requestId ?? null;
 
   if (requestId) {
-    const { error } = await service
+    const { data: existingRequest, error: existingError } = await service
       .from("hr_leave_requests")
-      .update({
-        leave_type_id: leaveType.id,
-        start_date: input.fromDate,
-        end_date: input.toDate,
-        calendar_days: days,
-        scheduled_working_days: days,
-        deductible_days: days,
-        reason: notes,
-        hr_notes: notes,
-        schedule_status: syncSchedule ? "synced" : "not_synced",
-        updated_by: user.id,
-        updated_at: now,
-      })
+      .select("id, status, leave_type_id, start_date, end_date")
       .eq("id", requestId)
-      .eq("venue_id", venue.id);
-    if (error) {
-      console.error("[leave] update request:", error.message);
-      return { error: error.message };
+      .eq("venue_id", venue.id)
+      .maybeSingle();
+    if (existingError) return { error: existingError.message };
+    if (leaveRequestDetailsAreLocked(existingRequest?.status as string | undefined)) {
+      const sameRange =
+        String(existingRequest?.start_date ?? "").slice(0, 10) === input.fromDate &&
+        String(existingRequest?.end_date ?? "").slice(0, 10) === input.toDate &&
+        existingRequest?.leave_type_id === leaveType.id;
+      if (!sameRange) {
+        return { error: "Approved leave cannot be edited." };
+      }
+    } else {
+      const { error } = await service
+        .from("hr_leave_requests")
+        .update({
+          leave_type_id: leaveType.id,
+          start_date: input.fromDate,
+          end_date: input.toDate,
+          calendar_days: days,
+          scheduled_working_days: days,
+          deductible_days: days,
+          reason: notes,
+          hr_notes: notes,
+          schedule_status: syncSchedule ? "synced" : "not_synced",
+          updated_by: user.id,
+          updated_at: now,
+        })
+        .eq("id", requestId)
+        .eq("venue_id", venue.id);
+      if (error) {
+        console.error("[leave] update request:", error.message);
+        return { error: error.message };
+      }
     }
   } else {
     const requestNumber = await nextLeaveRequestNumber(

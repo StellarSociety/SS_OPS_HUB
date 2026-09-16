@@ -130,10 +130,14 @@ export const DEVICE_PRESETS: DevicePreset[] = [
   },
 ];
 
-export const DEFAULT_DEVICE_ID = "iphone-16-pro";
+export const DEFAULT_DEVICE_ID = "iphone-16-pro-max";
 
 export function getDevicePreset(id: string): DevicePreset {
-  return DEVICE_PRESETS.find((device) => device.id === id) ?? DEVICE_PRESETS[2];
+  return (
+    DEVICE_PRESETS.find((device) => device.id === id) ??
+    DEVICE_PRESETS.find((device) => device.id === DEFAULT_DEVICE_ID) ??
+    DEVICE_PRESETS[0]
+  );
 }
 
 export function devicesForBrand(brand: DeviceBrand): DevicePreset[] {

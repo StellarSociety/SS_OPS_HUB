@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Star } from "lucide-react";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { SentimentLink } from "@/components/sentiment/sentiment-link";
 import {
   formatMonthKeyLabel,
   formatMonthKeyShort,
@@ -12,29 +13,45 @@ import { cn } from "@/lib/utils";
 export function ReviewsMonthStrip({
   items,
   selectedMonthKey,
+  onSelectMonth,
 }: {
   items: MonthReviewStats[];
   selectedMonthKey?: string;
+  onSelectMonth?: (monthKey: string) => void;
 }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const target =
+      scroller.querySelector<HTMLElement>("[data-month-selected='true']") ??
+      (scroller.lastElementChild as HTMLElement | null);
+    if (!target) return;
+    const left = target.offsetLeft + target.offsetWidth - scroller.clientWidth;
+    scroller.scrollTo({ left: Math.max(0, left), behavior: "auto" });
+  }, [items, selectedMonthKey]);
+
   return (
-    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 xl:grid-cols-12">
+    <div
+      ref={scrollerRef}
+      role="list"
+      aria-label="Review months"
+      className="relative flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-0.5 xl:overflow-visible xl:snap-none"
+    >
       {items.map(({ key, count, average }) => {
         const selected = key === selectedMonthKey;
         const ratingLabel = average != null ? average.toFixed(1) : "—";
-        return (
-          <ScopedLink
-            key={key}
-            href={`/sentiment/calendar?month=${key}`}
-            aria-current={selected ? "page" : undefined}
-            aria-label={`${formatMonthKeyLabel(key)}, ${
-              average != null ? `${average.toFixed(1)} stars, ` : ""
-            }${count} review${count === 1 ? "" : "s"}`}
-            className={cn(
-              "flex min-w-0 flex-col items-center gap-0.5 rounded-xl border border-black/10 bg-white/70 px-1.5 py-2 text-center transition hover:bg-[var(--venue-secondary)]/35",
-              selected &&
-                "relative z-[1] bg-[var(--venue-primary)]/12 ring-2 ring-inset ring-[var(--venue-primary,#818a40)]",
-            )}
-          >
+        const className = cn(
+          "flex w-[4.75rem] shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl border border-black/10 bg-white/70 px-1.5 py-2 text-center transition hover:bg-[var(--venue-secondary)]/35 xl:w-auto xl:min-w-0 xl:flex-1 xl:snap-align-none",
+          selected &&
+            "relative z-[1] bg-[var(--venue-primary)]/12 ring-2 ring-inset ring-[var(--venue-primary,#818a40)]",
+        );
+        const ariaLabel = `${formatMonthKeyLabel(key)}, ${
+          average != null ? `${average.toFixed(1)} stars, ` : ""
+        }${count} review${count === 1 ? "" : "s"}`;
+        const body = (
+          <>
             <span className="text-[11px] font-semibold uppercase tracking-wide text-[#3D421F]">
               {formatMonthKeyShort(key)}
             </span>
@@ -51,7 +68,36 @@ export function ReviewsMonthStrip({
             <span className="text-[10px] tabular-nums text-black/50">
               {count} review{count === 1 ? "" : "s"}
             </span>
-          </ScopedLink>
+          </>
+        );
+        if (onSelectMonth) {
+          return (
+            <button
+              key={key}
+              type="button"
+              role="listitem"
+              data-month-selected={selected ? "true" : undefined}
+              aria-current={selected ? "page" : undefined}
+              aria-label={ariaLabel}
+              className={className}
+              onClick={() => onSelectMonth(key)}
+            >
+              {body}
+            </button>
+          );
+        }
+        return (
+          <SentimentLink
+            key={key}
+            href={`/sentiment/calendar?month=${key}`}
+            role="listitem"
+            data-month-selected={selected ? "true" : undefined}
+            aria-current={selected ? "page" : undefined}
+            aria-label={ariaLabel}
+            className={className}
+          >
+            {body}
+          </SentimentLink>
         );
       })}
     </div>

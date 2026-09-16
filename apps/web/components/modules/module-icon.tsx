@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
+  BookUser,
   CalendarDays,
   ChartPie,
   ClipboardList,
@@ -131,6 +132,7 @@ const MODULE_ICONS: Record<ModuleIconKey, LucideIcon> = {
   "chart-pie": ChartPie,
   landmark: Landmark,
   users: Users,
+  "book-user": BookUser,
   "graduation-cap": GraduationCap,
   "building-2": HubBuilding,
   "vault-safe": VaultSafe,

@@ -230,6 +230,14 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
       "Manage staff records, roles, contracts, and everything related to your people in one place.",
   },
   {
+    key: "directory",
+    label: "Directory",
+    iconKey: "book-user",
+    category: "people",
+    status: "coming_soon",
+    description: "Staff directory.",
+  },
+  {
     key: "learning",
     label: "Learning & Development",
     iconKey: "graduation-cap",
@@ -283,7 +291,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
  */
 export const HUB_MODULE_ROWS: string[][] = [
   ["team_connect", "operational_lists", "team_projects", "events", "sentiment", "guests_intel", "save_log"],
-  ["cookbook", "poorbook", "sales", "gp_cos", "accounting", "hr", "learning"],
+  ["cookbook", "poorbook", "sales", "gp_cos", "accounting", "hr", "directory", "learning"],
   ["venue_governance", "vault", "maintenance", "approvals", "mobile_app"],
 ];
 

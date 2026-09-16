@@ -10,6 +10,8 @@ import {
 
 const PATH_MIN = 18 * 16;
 const GAP = 24;
+/** Keep the scaled bezel inside the pane (subpixel rounding otherwise clips 1px). */
+const HEIGHT_INSET = 8;
 
 /** CSS scale makes browsers scroll to the unscaled field box — keep the preview still. */
 function keepPreviewScrollStill(event: FocusEvent<HTMLDivElement>) {
@@ -61,13 +63,12 @@ export function DevicePreviewStage({
       const availableWidth = stage.clientWidth;
       const availableHeight = stage.clientHeight;
       if (availableWidth <= 0 || availableHeight <= 0) return;
-      // Fit width so the canvas stays at real CSS pixels (402×874 on
-      // iPhone 16 Pro). Never shrink to fit height — that was zooming
-      // the preview down to ~60% and no longer matched a real phone.
-      const next = Math.min(
-        1,
-        Math.max(0.2, (availableWidth - PATH_MIN - GAP) / frameWidth),
-      );
+      // Contain the full device (bezel included) in the remaining pane
+      // so the whole height stays on-screen. Inner canvas stays at the
+      // device CSS size; only the wrapper is scaled.
+      const widthScale = (availableWidth - PATH_MIN - GAP) / frameWidth;
+      const heightScale = (availableHeight - HEIGHT_INSET) / frameHeight;
+      const next = Math.max(0.2, Math.min(widthScale, heightScale));
       setScale((prev) => (Math.abs(prev - next) < 0.004 ? prev : next));
     };
 
@@ -80,7 +81,7 @@ export function DevicePreviewStage({
   return (
     <div
       ref={stageRef}
-      className="flex min-h-0 flex-1 items-stretch gap-6 overflow-x-hidden overflow-y-auto"
+      className="flex min-h-0 flex-1 items-stretch gap-6 overflow-hidden"
     >
       <div
         className="relative shrink-0 self-start overflow-hidden"

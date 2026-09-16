@@ -28,6 +28,7 @@ export type AcknowledgementEmployeeViewProps = {
     decision: "acknowledged" | "not_acknowledged";
     comments: string;
   }) => void;
+  onOpenContents?: () => void;
 };
 
 export function AcknowledgementEmployeeView({
@@ -43,6 +44,7 @@ export function AcknowledgementEmployeeView({
   submitting = false,
   error = null,
   onSubmit,
+  onOpenContents,
 }: AcknowledgementEmployeeViewProps) {
   const [decision, setDecision] = useState<
     "acknowledged" | "not_acknowledged" | null
@@ -126,9 +128,19 @@ export function AcknowledgementEmployeeView({
               <p className="text-[11px] font-medium uppercase tracking-wide text-black/45">
                 You are acknowledging
               </p>
-              <p className="mt-1 text-sm font-medium text-[#3D421F]">
-                {subject || "(No subject)"}
-              </p>
+              {onOpenContents ? (
+                <button
+                  type="button"
+                  onClick={onOpenContents}
+                  className="mt-1 text-left text-sm font-medium text-[var(--venue-primary,#818a40)] underline decoration-[var(--venue-primary,#818a40)]/50 underline-offset-2"
+                >
+                  {subject || "(No subject)"}
+                </button>
+              ) : (
+                <p className="mt-1 text-sm font-medium text-[#3D421F]">
+                  {subject || "(No subject)"}
+                </p>
+              )}
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">

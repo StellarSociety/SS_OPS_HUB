@@ -25,6 +25,7 @@
     "mailparser": "^3.9.14",
     "next": "16.3.0",
     "nodemailer": "^9.0.3",
+    "pdfjs-dist": "^6.3.289",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",

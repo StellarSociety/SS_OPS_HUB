@@ -18,5 +18,7 @@ export const PUBLIC_ROUTES = [
   "/acknowledge",
   "/g",
   "/f",
+  "/feedbackform",
   "/live",
+  "/livereviewsdisplay",
 ] as const;

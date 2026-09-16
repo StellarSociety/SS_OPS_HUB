@@ -688,6 +688,7 @@ export async function listAttendanceDaysForStaff(
     status: string;
     approval_status: string;
     total_hours: number | null;
+    notes: string | null;
     updated_by: string | null;
     updated_at: string | null;
   }[] = [];
@@ -698,7 +699,7 @@ export async function listAttendanceDaysForStaff(
     let query = supabase
       .from("hr_attendance_days")
       .select(
-        "id, staff_id, emp_no, work_date, clock_in, clock_out, status, approval_status, total_hours, updated_by, updated_at",
+        "id, staff_id, emp_no, work_date, clock_in, clock_out, status, approval_status, total_hours, notes, updated_by, updated_at",
       )
       .eq("venue_id", venueId)
       .gte("work_date", opts.fromDate)
@@ -1200,6 +1201,7 @@ export async function listScheduleDaysByDateRange(
     work_date: string;
     label_code: string;
     shift_template_id: string | null;
+    notes: string | null;
   }[] = [];
   let from = 0;
 
@@ -1214,7 +1216,7 @@ export async function listScheduleDaysByDateRange(
     const to = from + pageSize - 1;
     let query = supabase
       .from("hr_schedule_days")
-      .select("staff_id, emp_no, work_date, label_code, shift_template_id")
+      .select("staff_id, emp_no, work_date, label_code, shift_template_id, notes")
       .eq("venue_id", venueId)
       .gte("work_date", opts.fromDate)
       .lte("work_date", opts.toDate)

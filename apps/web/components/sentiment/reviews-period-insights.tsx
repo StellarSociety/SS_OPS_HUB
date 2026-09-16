@@ -9,10 +9,15 @@ function InsightDivider() {
   return <span className="hidden h-7 w-px bg-black/10 sm:block" aria-hidden />;
 }
 
+const insightCaptionClass =
+  "text-[11px] font-semibold uppercase tracking-wide leading-none text-black/45";
+
 export function ReviewsPeriodInsights({
   reviews,
+  compact = false,
 }: {
   reviews: SentimentReview[];
+  compact?: boolean;
 }) {
   const insights = summarizeReviewPeriod(reviews);
 
@@ -24,32 +29,68 @@ export function ReviewsPeriodInsights({
       )}
       aria-label="Selected period insights"
     >
-      <div className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2">
-        <GoogleStars rating={insights.averageRating} size="sm" />
-        <span className="tabular-nums text-sm font-semibold text-[#3D421F]">
+      <div
+        className={cn(
+          "inline-flex min-w-0 flex-1 items-center justify-center px-3 py-2",
+          compact ? "flex-col gap-1" : "flex-row gap-2",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center justify-center",
+            compact && "min-h-7",
+          )}
+        >
+          <GoogleStars rating={insights.averageRating} size="sm" />
+        </div>
+        <span className="tabular-nums text-sm font-semibold leading-none text-[#3D421F]">
           {insights.averageRating != null
             ? insights.averageRating.toFixed(1)
             : "—"}
         </span>
       </div>
       <InsightDivider />
-      <div className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 px-3 py-2 text-sm text-[#3D421F]">
-        <span className="tabular-nums font-semibold">{insights.total}</span>
-        <span className="text-black/50">
+      <div
+        className={cn(
+          "inline-flex min-w-0 flex-1 items-center justify-center px-3 py-2 text-[#3D421F]",
+          compact ? "flex-col gap-1" : "flex-row gap-1.5 text-sm",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center justify-center",
+            compact && "min-h-7",
+          )}
+        >
+          <span className="tabular-nums text-sm font-semibold">
+            {insights.total}
+          </span>
+        </div>
+        <span className={compact ? insightCaptionClass : "text-black/50"}>
           {insights.total === 1 ? "review" : "reviews"}
         </span>
       </div>
       <InsightDivider />
-      <div className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2">
+      <div
+        className={cn(
+          "inline-flex min-w-0 flex-1 items-center justify-center px-3 py-2",
+          compact ? "flex-col gap-1" : "flex-row gap-2",
+        )}
+      >
         {insights.overallLabel ? (
           <>
-            <SentimentBadge
-              label={insights.overallLabel}
-              score={insights.overallScore}
-            />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-black/45">
-              Overall
-            </span>
+            <div
+              className={cn(
+                "flex items-center justify-center",
+                compact && "min-h-7",
+              )}
+            >
+              <SentimentBadge
+                label={insights.overallLabel}
+                score={insights.overallScore}
+              />
+            </div>
+            <span className={insightCaptionClass}>Overall</span>
           </>
         ) : (
           <span className="text-sm text-black/40">No overall yet</span>

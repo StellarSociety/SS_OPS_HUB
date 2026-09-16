@@ -40,7 +40,7 @@ const dmSans = DM_Sans({
 const googleSans = Google_Sans({
   variable: "--font-google-sans",
   subsets: ["latin"],
-  adjustFontFallback: false,
+  adjustFontFallback: "Arial",
 });
 
 export async function generateMetadata(): Promise<Metadata> {

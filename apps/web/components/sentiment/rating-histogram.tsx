@@ -1,5 +1,5 @@
 import { GoogleStars } from "@/components/sentiment/google-stars";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { SentimentLink } from "@/components/sentiment/sentiment-link";
 import { STAR_LEVELS, type StarCounts, type StarLevel } from "@/lib/sentiment/review-insights";
 import { cn } from "@/lib/utils";
 
@@ -78,12 +78,12 @@ export function RatingHistogram({
         </p>
         <GoogleStars rating={averageRating} size="md" className="mt-1" />
         {href ? (
-          <ScopedLink
+          <SentimentLink
             href={href}
             className="mt-1.5 text-sm font-medium text-[var(--venue-primary,#818a40)] hover:underline"
           >
             {countLabel}
-          </ScopedLink>
+          </SentimentLink>
         ) : (
           <p className="mt-1.5 text-sm font-medium text-[var(--venue-primary,#818a40)]">
             {countLabel}

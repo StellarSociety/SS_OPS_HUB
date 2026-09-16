@@ -43,11 +43,60 @@ export const APP_PATH: AppPathPage[] = [
     from: "welcome",
   },
   {
+    id: "attendance",
+    label: "Attendance",
+    href: `${MOBILE_APP_BASE}/attendance`,
+    venueScoped: true,
+    from: "employee-profile",
+  },
+  {
+    id: "leave",
+    label: "Leave",
+    href: `${MOBILE_APP_BASE}/leave`,
+    venueScoped: true,
+    from: "employee-profile",
+  },
+  {
+    id: "docs",
+    label: "Docs",
+    href: `${MOBILE_APP_BASE}/docs`,
+    venueScoped: true,
+    from: "employee-profile",
+  },
+  {
     id: "revenue",
     label: "Revenue",
     href: `${MOBILE_APP_BASE}/revenue`,
     venueScoped: true,
     from: "welcome",
+  },
+  {
+    id: "sentiment",
+    label: "Sentiment",
+    href: `${MOBILE_APP_BASE}/sentiment`,
+    venueScoped: true,
+    from: "welcome",
+  },
+  {
+    id: "sentiment-reviews",
+    label: "Reviews",
+    href: `${MOBILE_APP_BASE}/sentiment/reviews`,
+    venueScoped: true,
+    from: "sentiment",
+  },
+  {
+    id: "sentiment-calendar",
+    label: "Calendar",
+    href: `${MOBILE_APP_BASE}/sentiment/calendar`,
+    venueScoped: true,
+    from: "sentiment",
+  },
+  {
+    id: "sentiment-actions",
+    label: "Actions",
+    href: `${MOBILE_APP_BASE}/sentiment/actions`,
+    venueScoped: true,
+    from: "sentiment",
   },
   {
     id: "terms",
@@ -90,8 +139,20 @@ export function mobileProfileHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/employee-profile`;
 }
 
+export function mobileAttendanceHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/attendance`;
+}
+
+export function mobileLeaveHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/leave`;
+}
+
 export function mobileRevenueHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/revenue`;
+}
+
+export function mobileSentimentHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/sentiment`;
 }
 
 export function mobileTermsHref(venueSlug: string): string {

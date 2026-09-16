@@ -5,9 +5,12 @@ import {
   computeStatutoryAnnualLeaveFromQualifyingMonths,
   computeStatutoryAnnualLeaveEntitlement,
   countApprovedUnpaidLeaveDays,
+  countUnpaidAndAbsenceDays,
+  prepareAnnualLeaveCalculation,
   qualifyingServiceDays,
   roundLeaveDays,
 } from "@/lib/hr/leave";
+import { computeWorkTime } from "@/lib/hr/derived";
 import { DEFAULT_HR_LEAVE_POLICY_SETTINGS } from "@/lib/hr/types";
 
 const annual = DEFAULT_HR_LEAVE_POLICY_SETTINGS.annual;
@@ -171,5 +174,71 @@ describe("countApprovedUnpaidLeaveDays", () => {
       ],
     });
     expect(n).toBe(2);
+  });
+});
+
+describe("countUnpaidAndAbsenceDays", () => {
+  it("adds unique UPL and ABS days inside the employment window", () => {
+    const result = countUnpaidAndAbsenceDays({
+      joiningDate: "2025-09-08",
+      asOfDate: "2026-09-16",
+      scheduleDays: [
+        { work_date: "2026-01-01", label_code: "UPL" },
+        { work_date: "2026-01-02", label_code: "UPL" },
+        { work_date: "2026-01-02", label_code: "UPL" },
+        { work_date: "2026-03-10", label_code: "ABS" },
+        { work_date: "2024-12-31", label_code: "UPL" },
+        { work_date: "2026-09-17", label_code: "ABS" },
+        { work_date: "2026-02-01", label_code: "AL" },
+      ],
+    });
+    expect(result).toEqual({
+      unpaidLeaveDays: 2,
+      absenceDays: 1,
+      exclusionDays: 3,
+    });
+  });
+});
+
+describe("prepareAnnualLeaveCalculation", () => {
+  it("counts roster UPL and ABS, then seeds the year increment", () => {
+    const prepared = prepareAnnualLeaveCalculation({
+      joiningDate: "2025-09-22",
+      leaveYear: 2026,
+      policy: DEFAULT_HR_LEAVE_POLICY_SETTINGS,
+      terminationDate: "2026-08-26",
+      asOf: new Date(2026, 8, 17),
+      scheduleDays: [
+        { work_date: "2026-01-01", label_code: "UPL" },
+        { work_date: "2026-03-10", label_code: "ABS" },
+        { work_date: "2026-02-01", label_code: "AL" },
+      ],
+      alBalance: {
+        used: 4,
+        carried_forward: 0,
+        adjusted: 0,
+        scheduled: 0,
+        pending: 0,
+        expired: 0,
+      },
+    });
+    expect(prepared.approvedUnpaidLeaveDays).toBe(1);
+    expect(prepared.absenceDays).toBe(1);
+    expect(prepared.calculation.calendarServiceDays).toBe(338);
+    expect(prepared.calculation.qualifyingServiceDays).toBe(336);
+    expect(prepared.calculation.annualLeaveAlreadyTaken).toBe(4);
+    expect(prepared.alSeed.accrued).toBe(prepared.alSeed.entitled);
+    expect(prepared.alSeed.entitled).toBe(
+      prepared.calculation.roundedGrossAnnualLeaveEntitlement,
+    );
+  });
+});
+
+describe("computeWorkTime", () => {
+  it("matches annual-leave work time after subtracting UPL and ABS", () => {
+    expect(computeWorkTime("2025-09-08", "2026-09-16")).toBe("01 Y | 00 M | 08 D");
+    expect(computeWorkTime("2025-09-08", "2026-09-16", 10)).toBe(
+      "00 Y | 11 M | 29 D",
+    );
   });
 });

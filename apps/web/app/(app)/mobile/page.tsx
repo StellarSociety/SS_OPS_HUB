@@ -4,29 +4,63 @@ import { fetchGroupLogoState } from "@/lib/group/branding";
 import { getMobilePageContext } from "@/lib/mobile/page-context";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
 import { MOBILE_APP_MODULE_KEY } from "@/lib/mobile/types";
+import { loadCurrentUserAttendanceMonth } from "@/lib/mobile/employee-attendance";
+import { loadMobileEmployeeDocsPage } from "@/lib/mobile/employee-docs";
+import { loadMobileEmployeeLeavePage } from "@/lib/mobile/employee-leave";
 import { loadMobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { loadMobileNotifications } from "@/lib/mobile/welcome-notifications";
+import { loadMobilePreviewEmployees } from "@/lib/mobile/preview-employees";
 import { loadModulesHubContext } from "@/lib/modules-hub-data";
 import { hubModuleSortIndex } from "@/lib/modules-registry";
 import { loadSalesOverviewData } from "@/lib/sales/sales-overview-data";
+import {
+  loadSentimentWorkspace,
+  loadStaffMentionRows,
+  sentimentEditFlags,
+} from "@/lib/sentiment/workspace";
 import { loadSelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 
 export default async function MobilePage() {
-  const { venue, permissions, supabase } = await getMobilePageContext();
+  const { venue, permissions, supabase, user } = await getMobilePageContext();
 
   if (!canAccessMobileApp(permissions, venue.id)) {
     return <AccessDeniedBounce />;
   }
 
-  const [{ logoUrl }, selectVenue, hub, profile, notices, revenueOverview] =
-    await Promise.all([
-      fetchGroupLogoState(),
-      loadSelectVenuePageData(),
-      loadModulesHubContext(),
-      loadMobileWelcomeProfile(),
-      loadMobileNotifications(venue),
-      loadSalesOverviewData(supabase, venue.id),
-    ]);
+  const [
+    { logoUrl },
+    selectVenue,
+    hub,
+    profile,
+    notices,
+    revenueOverview,
+    sentimentWorkspace,
+    staffRows,
+    attendance,
+    leave,
+    docs,
+    previewEmployees,
+  ] = await Promise.all([
+    fetchGroupLogoState(),
+    loadSelectVenuePageData(),
+    loadModulesHubContext(),
+    loadMobileWelcomeProfile({ venueId: venue.id }),
+    loadMobileNotifications(venue),
+    loadSalesOverviewData(supabase, venue.id),
+    loadSentimentWorkspace(supabase, venue.id),
+    loadStaffMentionRows(venue),
+    loadCurrentUserAttendanceMonth({ venueId: venue.id }),
+    loadMobileEmployeeLeavePage({
+      userId: user.id,
+      venueId: venue.id,
+    }),
+    loadMobileEmployeeDocsPage({
+      userId: user.id,
+      venueId: venue.id,
+    }),
+    loadMobilePreviewEmployees(venue.id),
+  ]);
+  const sentimentFlags = sentimentEditFlags(permissions, venue.id);
 
   const modules = hub.sections
     .flatMap((section) => section.modules)
@@ -47,6 +81,18 @@ export default async function MobilePage() {
         notifications: notices.notifications,
       }}
       revenueOverview={revenueOverview}
+      sentiment={{
+        reviews: sentimentWorkspace.reviews,
+        actionsByReviewId: sentimentWorkspace.actionsByReviewId,
+        templates: sentimentWorkspace.templates,
+        staffRows,
+        googleCanPost: sentimentWorkspace.googleCanPost,
+        ...sentimentFlags,
+      }}
+      attendance={attendance}
+      leave={leave}
+      docs={docs}
+      previewEmployees={previewEmployees}
     />
   );
 }

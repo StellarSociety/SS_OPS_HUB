@@ -861,6 +861,17 @@ export function isWorkDateBeforeJoining(
   return day < join;
 }
 
+export function isOutsideEmploymentWindow(
+  workDate: string,
+  joiningDate: string | null | undefined,
+  terminationDate: string | null | undefined,
+): boolean {
+  return (
+    isWorkDateBeforeJoining(workDate, joiningDate) ||
+    isWorkDateAfterTermination(workDate, terminationDate)
+  );
+}
+
 /**
  * True when the staff member is employed on `workDate`
  * (joining ≤ workDate ≤ termination, inclusive). Missing joining → not employed.

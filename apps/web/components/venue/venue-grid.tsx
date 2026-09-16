@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { VenueTile } from "@/components/venue/venue-tile";
+import { cn } from "@/lib/utils";
 import type { Venue } from "@/lib/types/database";
 
 type VenueGridProps = {
@@ -17,6 +18,8 @@ export function VenueGrid({
   onSelectVenue,
   runtime = "web",
 }: VenueGridProps) {
+  const compact = preview || runtime === "mobile";
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -24,13 +27,28 @@ export function VenueGrid({
       transition={{ duration: 0.5 }}
       className="relative z-10 w-full max-w-3xl text-center"
     >
-      <h1 className="font-serif text-4xl text-[#3D421F]">
+      <h1
+        className={cn(
+          "font-serif text-[#3D421F]",
+          compact ? "text-2xl" : "text-4xl",
+        )}
+      >
         Select a venue
       </h1>
-      <p className="mt-2 text-sm text-[#3D421F]/60">
+      <p
+        className={cn(
+          "text-[#3D421F]/60",
+          compact ? "mt-1.5 text-xs" : "mt-2 text-sm",
+        )}
+      >
         Choose where you want to work today.
       </p>
-      <div className="mt-12 flex flex-wrap items-start justify-center gap-14">
+      <div
+        className={cn(
+          "flex flex-wrap items-start justify-center",
+          compact ? "mt-5 gap-6" : "mt-12 gap-14",
+        )}
+      >
         {venues.map((venue) => (
           <VenueTile
             key={venue.id}
@@ -38,6 +56,7 @@ export function VenueGrid({
             preview={preview}
             onSelectVenue={onSelectVenue}
             runtime={runtime}
+            compact={compact}
           />
         ))}
       </div>

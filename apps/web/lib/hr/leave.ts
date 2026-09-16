@@ -202,6 +202,102 @@ export function leaveCalendarStatusLabel(status: LeaveCalendarStatus): string {
   }
 }
 
+/** Employee self-service submissions from the mobile Leave tab. */
+export const EMPLOYEE_LEAVE_REQUEST_SOURCE = "employee_portal" as const;
+
+/**
+ * Approved (and later closed) leave is frozen — dates, type, and notes
+ * cannot be changed. HR can still reject; employees must apply again.
+ */
+export function leaveRequestDetailsAreLocked(status: string | null | undefined): boolean {
+  switch ((status ?? "").toLowerCase()) {
+    case "approved":
+    case "completed":
+    case "closed":
+    case "in_progress":
+    case "expired":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Employee may edit a request that has not been approved or rejected yet. */
+export function employeeCanEditLeaveRequest(input: {
+  status: string | null | undefined;
+  source?: string | null | undefined;
+}): boolean {
+  return employeeCanDeleteLeaveRequest(input.status);
+}
+
+/** Employee may delete a request that has not been approved or rejected yet. */
+export function employeeCanDeleteLeaveRequest(
+  status: string | null | undefined,
+): boolean {
+  const display = normalizeLeaveCalendarStatus(status);
+  return display === "pending" || display === "scheduled";
+}
+
+export function leaveRequestSourceLabel(source: string | null | undefined): string {
+  switch ((source ?? "").toLowerCase()) {
+    case EMPLOYEE_LEAVE_REQUEST_SOURCE:
+      return "Employee app";
+    case "schedule":
+      return "Schedule";
+    case "hr":
+      return "HR";
+    case "manager":
+      return "Manager";
+    case "system_generated":
+      return "System";
+    case "attendance_reconciliation":
+      return "Validation";
+    default:
+      return source?.trim() || "—";
+  }
+}
+
+export type LeaveRequestTypeOption = {
+  id: string;
+  code: string;
+  name: string;
+  labelCode: string;
+  bgColor: string;
+  textColor: string;
+  borderColor: string;
+};
+
+export type LeaveRequestListItem = {
+  id: string;
+  requestNumber: string;
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  departmentName: string | null;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  labelCode: string;
+  fromDate: string;
+  toDate: string;
+  days: number;
+  status: string;
+  displayStatus: LeaveCalendarStatus;
+  source: string;
+  reason: string | null;
+  employeeNotes: string | null;
+  hrNotes: string | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  approvedByName: string | null;
+  rejectedAt: string | null;
+  rejectedByName: string | null;
+  createdAt: string;
+  onSchedule: boolean;
+  canEmployeeEdit: boolean;
+  canEmployeeDelete: boolean;
+  detailsLocked: boolean;
+};
+
 /** Inclusive calendar-day count between two ISO dates. */
 export function countInclusiveDays(fromDate: string, toDate: string): number {
   const from = parseIsoDate(fromDate);
@@ -831,6 +927,37 @@ export function countApprovedUnpaidLeaveDays(input: {
   return n;
 }
 
+/** Split roster UPL / ABS dates and count unique days in the employment window. */
+export function countUnpaidAndAbsenceDays(input: {
+  joiningDate: string | null | undefined;
+  asOfDate: string;
+  scheduleDays: Iterable<{ work_date?: string; label_code?: string }>;
+}): { unpaidLeaveDays: number; absenceDays: number; exclusionDays: number } {
+  const unpaidLeaveDates: string[] = [];
+  const absenceDates: string[] = [];
+  for (const day of input.scheduleDays) {
+    const date = String(day.work_date ?? "").slice(0, 10);
+    const code = String(day.label_code ?? "").trim().toUpperCase();
+    if (code === "ABS") absenceDates.push(date);
+    else if (code === "UPL") unpaidLeaveDates.push(date);
+  }
+  const unpaidLeaveDays = countApprovedUnpaidLeaveDays({
+    joiningDate: input.joiningDate,
+    asOfDate: input.asOfDate,
+    unpaidLeaveDates,
+  });
+  const absenceDays = countApprovedUnpaidLeaveDays({
+    joiningDate: input.joiningDate,
+    asOfDate: input.asOfDate,
+    unpaidLeaveDates: absenceDates,
+  });
+  return {
+    unpaidLeaveDays,
+    absenceDays,
+    exclusionDays: unpaidLeaveDays + absenceDays,
+  };
+}
+
 export type AnnualLeaveCalcOptions = {
   /** Approved UPL days from joining through the eval/termination date. */
   approvedUnpaidLeaveDays?: number;
@@ -1059,6 +1186,105 @@ export function buildAnnualLeaveCalculation(input: {
     expired,
     finalAnnualLeaveBalance,
     roundedFinalAnnualLeaveBalance: roundedFinal,
+  };
+}
+
+/**
+ * Count UPL/ABS from roster days, seed this year’s AL increment, and build the
+ * auditable breakdown used on HR and the employee leave screen.
+ */
+export function prepareAnnualLeaveCalculation(input: {
+  joiningDate: string | null | undefined;
+  leaveYear: number;
+  policy: HrLeavePolicySettings;
+  terminationDate?: string | null;
+  asOf?: Date;
+  scheduleDays: Iterable<{ work_date?: string; label_code?: string }>;
+  alBalance?: Pick<
+    HrLeaveBalance,
+    "used" | "carried_forward" | "adjusted" | "scheduled" | "pending" | "expired"
+  >;
+}): {
+  approvedUnpaidLeaveDays: number;
+  absenceDays: number;
+  priorPeriodUnpaidLeaveDays: number;
+  priorPeriodAbsenceDays: number;
+  alSeed: { entitled: number; accrued: number };
+  calculation: AnnualLeaveCalculationBreakdown;
+} {
+  const asOf = input.asOf ?? new Date();
+  const evalIso = isoDateOnly(
+    resolveAnnualLeaveEvalDate(input.leaveYear, asOf, input.terminationDate),
+  );
+  const priorIso = isoDateOnly(endOfLeaveYear(input.leaveYear - 1));
+  const unpaidLeaveDates: string[] = [];
+  const absenceDates: string[] = [];
+  for (const day of input.scheduleDays) {
+    const date = String(day.work_date ?? "").slice(0, 10);
+    const code = String(day.label_code ?? "").trim().toUpperCase();
+    if (code === "ABS") absenceDates.push(date);
+    else if (code === "UPL") unpaidLeaveDates.push(date);
+  }
+
+  const approvedUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+    joiningDate: input.joiningDate,
+    asOfDate: evalIso,
+    unpaidLeaveDates,
+  });
+  const absenceDays = countApprovedUnpaidLeaveDays({
+    joiningDate: input.joiningDate,
+    asOfDate: evalIso,
+    unpaidLeaveDates: absenceDates,
+  });
+  const priorPeriodUnpaidLeaveDays = countApprovedUnpaidLeaveDays({
+    joiningDate: input.joiningDate,
+    asOfDate: priorIso,
+    unpaidLeaveDates,
+  });
+  const priorPeriodAbsenceDays = countApprovedUnpaidLeaveDays({
+    joiningDate: input.joiningDate,
+    asOfDate: priorIso,
+    unpaidLeaveDates: absenceDates,
+  });
+  const alSeed = seedEntitlementForType(
+    "AL",
+    input.joiningDate,
+    input.leaveYear,
+    input.policy,
+    {
+      asOf,
+      terminationDate: input.terminationDate,
+      approvedUnpaidLeaveDays,
+      absenceDays,
+      priorPeriodUnpaidLeaveDays,
+      priorPeriodAbsenceDays,
+    },
+  );
+  const calculation = buildAnnualLeaveCalculation({
+    joiningDate: input.joiningDate,
+    leaveYear: input.leaveYear,
+    annual: input.policy.annual,
+    asOf,
+    terminationDate: input.terminationDate,
+    approvedUnpaidLeaveDays,
+    absenceDays,
+    priorPeriodUnpaidLeaveDays,
+    priorPeriodAbsenceDays,
+    annualLeaveTaken: input.alBalance?.used ?? 0,
+    previousCarryForward: input.alBalance?.carried_forward ?? 0,
+    adjusted: input.alBalance?.adjusted ?? 0,
+    scheduled: input.alBalance?.scheduled ?? 0,
+    pending: input.alBalance?.pending ?? 0,
+    expired: input.alBalance?.expired ?? 0,
+  });
+
+  return {
+    approvedUnpaidLeaveDays,
+    absenceDays,
+    priorPeriodUnpaidLeaveDays,
+    priorPeriodAbsenceDays,
+    alSeed,
+    calculation,
   };
 }
 

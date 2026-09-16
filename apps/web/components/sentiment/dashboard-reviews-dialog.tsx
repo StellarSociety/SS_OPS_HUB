@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { ReviewCard } from "@/components/sentiment/review-card";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { SentimentLink } from "@/components/sentiment/sentiment-link";
 import { LiquidGlassPanel, LiquidGlassScrim } from "@/components/ui/liquid-glass";
 import type {
   SentimentReplyTemplate,
@@ -113,12 +113,12 @@ export function DashboardReviewsDialog({
           )}
         </div>
         <div className="relative border-t border-white/35 px-5 py-3">
-          <ScopedLink
+          <SentimentLink
             href={footerHref}
             className="text-sm font-medium text-[var(--venue-primary,#818a40)] hover:underline"
           >
             {footerLabel}
-          </ScopedLink>
+          </SentimentLink>
         </div>
       </LiquidGlassPanel>
     </div>,

@@ -86,7 +86,7 @@ export function LiveDisplaySimulator({
             background:
               "linear-gradient(160deg, #3a3a3c 0%, #1c1c1e 42%, #111113 100%)",
             boxShadow:
-              "0 1px 0 rgba(255,255,255,0.18) inset, 0 24px 48px -20px rgba(0,0,0,0.45), 0 8px 16px -8px rgba(0,0,0,0.3)",
+              "0 1px 0 rgba(255,255,255,0.18) inset",
           }}
           aria-label={`${tablet.label} ${orientation} simulation`}
         >

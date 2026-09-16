@@ -98,6 +98,8 @@ export function LeaveCalendarDialog({
   const statusLabel = leaveCalendarStatusLabel(event.status);
   const isApproved = event.status === "approved";
   const isRejected = event.status === "rejected";
+  const detailsLocked = isApproved;
+  const fieldsDisabled = !canManage || pending || detailsLocked;
 
   function run(action: "save" | "approve" | "reject") {
     if (!event) return;
@@ -251,7 +253,7 @@ export function LeaveCalendarDialog({
             <Label className="text-sm text-[#3D421F]">Leave type</Label>
             <select
               value={labelCode}
-              disabled={!canManage || pending}
+              disabled={fieldsDisabled}
               onChange={(e) => setLabelCode(e.target.value)}
               className="h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F] outline-none transition focus:border-[var(--venue-primary,#818a40)]/50 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/20 disabled:opacity-60"
             >
@@ -271,7 +273,7 @@ export function LeaveCalendarDialog({
             <DateInput
               value={fromDate}
               onChange={setFromDate}
-              disabled={!canManage || pending}
+              disabled={fieldsDisabled}
             />
           </div>
           <div className="space-y-1.5">
@@ -279,7 +281,7 @@ export function LeaveCalendarDialog({
             <DateInput
               value={toDate}
               onChange={setToDate}
-              disabled={!canManage || pending}
+              disabled={fieldsDisabled}
             />
           </div>
 
@@ -288,12 +290,15 @@ export function LeaveCalendarDialog({
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              disabled={!canManage || pending}
+              disabled={fieldsDisabled}
               placeholder="Optional reason or HR notes"
               className="h-10"
             />
             <p className="text-xs text-black/45">
               {days} calendar day{days === 1 ? "" : "s"}
+              {detailsLocked
+                ? " · Approved leave is locked and cannot be edited."
+                : ""}
             </p>
           </div>
         </div>
@@ -325,15 +330,17 @@ export function LeaveCalendarDialog({
                   Reject
                 </button>
               ) : null}
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={pending || !fromDate || !toDate}
-                onClick={() => run("save")}
-              >
-                {pending ? "Saving…" : "Save changes"}
-              </Button>
+              {!detailsLocked ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={pending || !fromDate || !toDate}
+                  onClick={() => run("save")}
+                >
+                  {pending ? "Saving…" : "Save changes"}
+                </Button>
+              ) : null}
               {!isApproved ? (
                 <Button
                   type="button"

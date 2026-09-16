@@ -1,3 +1,6 @@
+"use client";
+
+import { ChevronDown } from "lucide-react";
 import { formatLeaveDays } from "@/lib/hr/leave";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +15,7 @@ type LeaveBalanceRingProps = {
   total?: number;
   size?: number;
   className?: string;
-  /** Optional hint under the used line (e.g. “Click to expand”). */
+  /** Accessible label for the corner arrow (e.g. “View pay stages”). */
   hint?: string;
   onClick?: () => void;
   expanded?: boolean;
@@ -145,37 +148,44 @@ export function LeaveBalanceRing({
         />
       </dl>
 
-      {hint ? (
-        <p className="mt-3 text-[12px] font-medium text-[var(--venue-primary,#818a40)] underline-offset-2 group-hover:underline">
-          {hint}
-        </p>
-      ) : null}
     </>
   );
 
   const shellClass = cn(
-    "group w-full rounded-xl border border-black/10 bg-white p-4 text-left shadow-sm",
-    onClick &&
-      "cursor-pointer transition hover:border-[var(--venue-primary,#818a40)]/40 hover:bg-[var(--venue-secondary,#F0F3DD)]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40",
+    "relative w-full rounded-xl border border-black/10 bg-white p-4 text-left shadow-sm",
     expanded &&
       "border-[var(--venue-primary,#818a40)]/50 bg-[var(--venue-secondary,#F0F3DD)]/50",
     className,
   );
 
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        aria-expanded={expanded}
-        className={shellClass}
-      >
-        {body}
-      </button>
-    );
-  }
-
-  return <div className={shellClass}>{body}</div>;
+  return (
+    <div className={shellClass}>
+      {body}
+      {onClick ? (
+        <button
+          type="button"
+          onClick={onClick}
+          aria-expanded={expanded}
+          aria-label={hint ?? `View ${label} stages`}
+          title={hint ?? `View ${label} stages`}
+          className={cn(
+            "absolute bottom-2.5 right-2.5 inline-flex h-7 w-7 items-center justify-center rounded-full border border-black/10 bg-[var(--venue-secondary,#F0F3DD)] text-[#3D421F] shadow-sm transition",
+            "hover:border-[var(--venue-primary,#818a40)]/50 hover:bg-[var(--venue-primary,#818a40)] hover:text-white",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/40",
+            expanded &&
+              "border-[var(--venue-primary,#818a40)]/50 bg-[var(--venue-primary,#818a40)] text-white",
+          )}
+        >
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function Stat({

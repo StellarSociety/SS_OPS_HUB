@@ -34,6 +34,8 @@ export type LiveDisplayView = {
   overall: LiveDisplayListingStats;
 };
 
+export const LIVE_DISPLAY_PUBLIC_BASE = "/livereviewsdisplay";
+
 export function liveDisplayPath(code: string): string {
-  return `/live/${encodeURIComponent(code.trim().toLowerCase())}`;
+  return `${LIVE_DISPLAY_PUBLIC_BASE}/${encodeURIComponent(code.trim().toLowerCase())}`;
 }

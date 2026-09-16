@@ -14,7 +14,7 @@ import { DashboardReviewsDialog } from "@/components/sentiment/dashboard-reviews
 import { MentionRankCard } from "@/components/sentiment/mention-rank-card";
 import { ReviewsMonthStrip } from "@/components/sentiment/reviews-month-strip";
 import { RatingHistogram } from "@/components/sentiment/rating-histogram";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { SentimentLink } from "@/components/sentiment/sentiment-link";
 import type {
   MonthReviewStats,
   NamedCount,
@@ -102,9 +102,9 @@ function MetricButton({
   );
   if (href) {
     return (
-      <ScopedLink href={href} className={className}>
+      <SentimentLink href={href} className={className}>
         {body}
-      </ScopedLink>
+      </SentimentLink>
     );
   }
   return (
@@ -175,7 +175,7 @@ function RatingCard({
 }) {
   const venueRate = !metric.channel;
   return (
-    <ScopedLink
+    <SentimentLink
       href={metric.href}
       className={cn(
         "group/rating flex h-full flex-col items-center justify-center p-5 text-center",
@@ -213,7 +213,7 @@ function RatingCard({
           metric.emptyHint
         )}
       </p>
-    </ScopedLink>
+    </SentimentLink>
   );
 }
 

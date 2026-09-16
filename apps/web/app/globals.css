@@ -33,9 +33,17 @@ html.mobile-app-no-zoom {
   --ui-density: 1.22;
 }
 
+html.mobile-app-no-zoom.mobile-app-compact {
+  --ui-density: 1;
+}
+
 @media (max-width: 767px) {
   :root {
     --ui-density: 1.22;
+  }
+
+  html.mobile-app-compact {
+    --ui-density: 1;
   }
 }
 
@@ -55,16 +63,36 @@ html.mobile-app-no-zoom {
 html.mobile-app-no-zoom {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  touch-action: pan-x pan-y;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  height: 100%;
+  overflow: hidden;
   color-scheme: light dark;
   background-color: Canvas;
 }
 
 html.mobile-app-no-zoom body {
-  touch-action: pan-x pan-y;
+  touch-action: manipulation;
   overscroll-behavior: none;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
   background-color: Canvas;
   color: CanvasText;
+}
+
+html.mobile-app-no-zoom.mobile-app-parchment,
+html.mobile-app-no-zoom.mobile-app-parchment body {
+  background-color: #e9e3d6;
+  color: #3d421f;
+  color-scheme: light;
+}
+
+html.mobile-app-no-zoom.mobile-app-login,
+html.mobile-app-no-zoom.mobile-app-login body {
+  background-color: #000;
+  color-scheme: dark;
 }
 
 @keyframes ss-refresh-spin {
@@ -93,6 +121,36 @@ html.mobile-app-no-zoom body {
 
 .ss-refresh-armed {
   animation: ss-refresh-armed 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes ss-ptr-pop {
+  0% {
+    transform: scale(0.86);
+  }
+  55% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.ss-ptr-pop {
+  animation: ss-ptr-pop 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes ss-ptr-glow {
+  0%,
+  100% {
+    box-shadow: 0 4px 14px rgba(61, 66, 31, 0.16);
+  }
+  50% {
+    box-shadow: 0 8px 24px rgba(129, 138, 64, 0.4);
+  }
+}
+
+.ss-ptr-busy {
+  animation: ss-ptr-glow 1.1s ease-in-out infinite;
 }
 
 @theme inline {
@@ -311,6 +369,27 @@ body {
 .device-preview-screen {
   container-type: size;
   container-name: device-preview;
+}
+
+/*
+ * iPhone does not show a persistent scrollbar. Keep scrolling, hide the gutter
+ * in the simulator and on live `/m` routes.
+ */
+.device-preview-screen,
+.device-preview-screen *,
+html.mobile-app-no-zoom,
+html.mobile-app-no-zoom * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.device-preview-screen::-webkit-scrollbar,
+.device-preview-screen *::-webkit-scrollbar,
+html.mobile-app-no-zoom::-webkit-scrollbar,
+html.mobile-app-no-zoom *::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Safari / iOS canvas — same page fill the browser uses in light and dark. */

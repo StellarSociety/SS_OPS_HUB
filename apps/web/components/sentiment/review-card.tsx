@@ -275,6 +275,7 @@ export function ReviewCard({
   action = null,
   canEditActions = false,
   compactAction = false,
+  compact = false,
 }: {
   review: SentimentReview;
   canEdit: boolean;
@@ -285,6 +286,8 @@ export function ReviewCard({
   canEditActions?: boolean;
   /** Put a follow-up symbol next to Reply instead of a separate actions card. */
   compactAction?: boolean;
+  /** Phone layout: posted date sits under the guest line. */
+  compact?: boolean;
 }) {
   const router = useRouter();
   const [replyOpen, setReplyOpen] = useState(false);
@@ -351,11 +354,16 @@ export function ReviewCard({
             {localGuideLine ? (
               <p className="text-xs text-black/45">{localGuideLine}</p>
             ) : null}
+            {compact ? (
+              <div className="mt-1.5">
+                <PostedDateBadge iso={review.reviewed_at} />
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <ChannelBadge channel={review.channel} />
-          <PostedDateBadge iso={review.reviewed_at} />
+          {compact ? null : <PostedDateBadge iso={review.reviewed_at} />}
         </div>
       </div>
 

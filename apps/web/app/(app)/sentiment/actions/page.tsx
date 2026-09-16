@@ -1,16 +1,17 @@
 import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { ReviewActionsTable } from "@/components/sentiment/review-actions-table";
+import { SentimentLink } from "@/components/sentiment/sentiment-link";
 import { Card } from "@/components/ui/card";
-import { ScopedLink } from "@/components/layout/scoped-link";
+import { followUpActionRows } from "@/lib/sentiment/action-rows";
 import {
   canAccessActions,
-  canEditActions,
-  canEditReviews,
 } from "@/lib/sentiment/permissions";
 import { getSentimentPageContext } from "@/lib/sentiment/page-context";
-import { listReviewActions, listReviews } from "@/lib/sentiment/store";
-import type { SentimentReview, SentimentReviewAction } from "@/lib/sentiment/types";
+import {
+  loadSentimentWorkspace,
+  sentimentEditFlags,
+} from "@/lib/sentiment/workspace";
 
 export default async function SentimentActionsPage() {
   const { supabase, venue, permissions, user } = await getSentimentPageContext();
@@ -19,50 +20,15 @@ export default async function SentimentActionsPage() {
     return <AccessDeniedBounce />;
   }
 
-  const [reviews, actions] = await Promise.all([
-    listReviews(supabase, venue.id).catch(() => [] as SentimentReview[]),
-    listReviewActions(supabase, venue.id).catch(
-      () => [] as SentimentReviewAction[],
-    ),
-  ]);
-
-  const actionsByReviewId: Record<string, SentimentReviewAction> = {};
-  for (const action of actions) {
-    actionsByReviewId[action.review_id] = action;
-  }
-
-  const rows = reviews
-    .filter((review) => {
-      const action = actionsByReviewId[review.id];
-      const lowRating =
-        typeof review.rating === "number" && review.rating <= 3;
-      return Boolean(action) || lowRating;
-    })
-    .sort((left, right) => {
-      const leftReplied = Boolean(left.reply_text?.trim());
-      const rightReplied = Boolean(right.reply_text?.trim());
-      if (leftReplied !== rightReplied) return leftReplied ? 1 : -1;
-      const leftAction = actionsByReviewId[left.id];
-      const rightAction = actionsByReviewId[right.id];
-      const leftOpen =
-        !leftAction ||
-        leftAction.status === "open" ||
-        leftAction.status === "in_progress";
-      const rightOpen =
-        !rightAction ||
-        rightAction.status === "open" ||
-        rightAction.status === "in_progress";
-      if (leftOpen !== rightOpen) return leftOpen ? -1 : 1;
-      return (right.reviewed_at ?? "").localeCompare(left.reviewed_at ?? "");
-    })
-    .map((review) => ({
-      review,
-      action: actionsByReviewId[review.id] ?? null,
-    }));
-
-  const canEdit =
-    canEditActions(permissions, venue.id) ||
-    canEditReviews(permissions, venue.id);
+  const workspace = await loadSentimentWorkspace(supabase, venue.id);
+  const rows = followUpActionRows(
+    workspace.reviews,
+    workspace.actionsByReviewId,
+  );
+  const { canEditActions: canEdit } = sentimentEditFlags(
+    permissions,
+    venue.id,
+  );
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -82,12 +48,12 @@ export default async function SentimentActionsPage() {
             1–3 star reviews appear here automatically. You can also start a
             follow-up from any review card.
           </p>
-          <ScopedLink
+          <SentimentLink
             href="/sentiment/reviews"
             className="mt-4 inline-flex h-10 items-center rounded-md bg-[var(--venue-primary,#818a40)] px-4 text-sm font-medium text-white hover:opacity-90"
           >
             Open Reviews
-          </ScopedLink>
+          </SentimentLink>
         </Card>
       ) : (
         <ReviewActionsTable

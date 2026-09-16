@@ -189,3 +189,14 @@ export function firstAccessibleSentimentPath(
   if (canAccessSettings(permissions, venueId)) return "/sentiment/settings";
   return null;
 }
+
+/** Phone-app tabs only: Dashboard, Reviews/Calendar, Actions. */
+export function firstAccessibleMobileSentimentPath(
+  permissions: UserPermission[],
+  venueId: string,
+): string | null {
+  if (canAccessOverview(permissions, venueId)) return "/sentiment";
+  if (canAccessReviews(permissions, venueId)) return "/sentiment/reviews";
+  if (canAccessActions(permissions, venueId)) return "/sentiment/actions";
+  return null;
+}

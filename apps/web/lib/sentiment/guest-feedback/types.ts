@@ -213,8 +213,10 @@ export type GuestFeedbackAnswer = {
   value: string | number | boolean | null;
 };
 
+export const GUEST_FEEDBACK_PUBLIC_BASE = "/feedbackform";
+
 export function guestFeedbackPath(code: string): string {
-  return `/f/${encodeURIComponent(code.trim().toLowerCase())}`;
+  return `${GUEST_FEEDBACK_PUBLIC_BASE}/${encodeURIComponent(code.trim().toLowerCase())}`;
 }
 
 export function isSystemQuestionKey(key: string): boolean {

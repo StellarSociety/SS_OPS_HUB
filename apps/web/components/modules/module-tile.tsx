@@ -9,6 +9,12 @@ import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import type { ModuleIconKey } from "@/lib/module-icons";
 import { cn } from "@/lib/utils";
 import type { AppModuleState } from "@/lib/modules-registry";
+import {
+  MOBILE_PRESS_SCALE,
+  MOBILE_PRESS_TRANSITION,
+  useMobilePress,
+} from "@/components/mobile/mobile-press";
+import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
 
 type ModuleTileProps = {
   label: string;
@@ -25,6 +31,8 @@ type ModuleTileProps = {
   selectNoun?: string;
   /** Soft olive well behind the glyph — Apps Hub only. */
   iconWell?: boolean;
+  /** Compact mobile tiles that open a screen (not a local toggle). */
+  navigates?: boolean;
   density?: "default" | "compact";
 };
 
@@ -41,26 +49,35 @@ export function ModuleTile({
   selectNoun = "pages",
   iconWell = false,
   density = "default",
+  navigates = false,
 }: ModuleTileProps) {
   const compact = density === "compact";
+  const { beginNav } = useMobileNavBusy();
   const { notifyAccessDenied } = usePageAccess();
+  const { pressed, pressProps } = useMobilePress();
   const isLive = status === "live" && clickable && Boolean(href);
   const isComingSoon = status === "coming_soon";
   const isLocked = status === "visible_locked";
   const isAccessBlocked = status === "live" && blockedReason === "access";
   const isSelectable = Boolean(onSelect);
+  const scrollSafePress = compact && (isLive || isSelectable);
 
   const inner = (
     <motion.div
-      initial="rest"
-      whileHover="hover"
-      whileTap={isLive || isSelectable ? "tap" : undefined}
-      variants={{
-        rest: { scale: 1, y: 0 },
-        hover: { scale: 1.07, y: -4 },
-        tap: { scale: 0.94 },
-      }}
-      transition={{ type: "spring", stiffness: 460, damping: 22 }}
+      initial={scrollSafePress ? false : "rest"}
+      whileHover={compact ? undefined : "hover"}
+      whileTap={!scrollSafePress && (isLive || isSelectable) ? "tap" : undefined}
+      animate={scrollSafePress ? { scale: pressed ? MOBILE_PRESS_SCALE : 1 } : undefined}
+      variants={
+        scrollSafePress
+          ? undefined
+          : {
+              rest: { scale: 1, y: 0 },
+              hover: { scale: 1.07, y: -4 },
+              tap: { scale: 0.94 },
+            }
+      }
+      transition={compact ? MOBILE_PRESS_TRANSITION : { type: "spring", stiffness: 460, damping: 22 }}
       className={cn(
         "group flex h-full flex-col items-center justify-start text-center",
         compact ? "gap-1 px-0 py-0.5" : "gap-1.5 px-0.5 py-1",
@@ -122,10 +139,10 @@ export function ModuleTile({
       </div>
       <p
         className={cn(
-          "font-google-sans line-clamp-2 w-full font-medium leading-[1.2] tracking-[-0.01em] text-[#3D421F]",
+          "font-google-sans line-clamp-2 w-full leading-[1.2] tracking-[-0.01em] text-[#3D421F]",
           compact
-            ? "max-w-[4.5rem] text-xs leading-tight"
-            : "max-w-[5.75rem] text-xs",
+            ? "max-w-[4.5rem] text-xs font-normal leading-tight"
+            : "max-w-[5.75rem] text-xs font-medium",
           isLocked && "opacity-50",
           selected && "font-semibold",
         )}
@@ -142,6 +159,7 @@ export function ModuleTile({
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          if (compact && navigates) beginNav();
           onSelect();
         }}
         aria-pressed={selected}
@@ -151,6 +169,7 @@ export function ModuleTile({
             : `${label} — show ${selectNoun}`
         }
         className="flex h-full w-full flex-col"
+        {...(scrollSafePress ? pressProps : {})}
       >
         {inner}
       </button>
@@ -159,7 +178,14 @@ export function ModuleTile({
 
   if (isLive && href) {
     return (
-      <Link href={href} className="flex h-full w-full flex-col">
+      <Link
+        href={href}
+        className="flex h-full w-full flex-col"
+        onClick={() => {
+          if (compact) beginNav();
+        }}
+        {...(scrollSafePress ? pressProps : {})}
+      >
         {inner}
       </Link>
     );

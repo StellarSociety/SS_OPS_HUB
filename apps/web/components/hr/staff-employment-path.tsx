@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Loader2, Pencil } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { StaffEmploymentPathPay } from "@/components/hr/staff-employment-path-pay";
 import {
+  ChangePathRow,
   EmploymentStartedMarker,
   resolveStartingEmployment,
   StaffEmploymentPathPositionSalary,
@@ -18,8 +19,6 @@ import {
   type StaffEmploymentPathLifecycle,
 } from "@/lib/actions/hr-offboarding";
 import {
-  computeSalaryBreakdown,
-  formatAed,
   formatDateOnly,
   type SalaryPercentages,
 } from "@/lib/hr/derived";
@@ -33,10 +32,6 @@ import {
   segmentedSubNavShellClass,
 } from "@/lib/sub-nav-ui";
 import { cn } from "@/lib/utils";
-
-function accommodationPhrase(flag: string | null | undefined): string {
-  return flag === "Yes" ? "with Company Accommodation Provided" : "";
-}
 
 export const EMPLOYMENT_PATH_SUBTABS = [
   "path",
@@ -290,91 +285,15 @@ function PathOverview({
           {recentFirst.map((event) => {
             const item = event.change;
             if (item) {
-              const showPosition =
-                item.changeKind === "position" || item.changeKind === "both";
-              const showSalary =
-                item.changeKind === "salary" || item.changeKind === "both";
-              const toAccom = accommodationPhrase(item.toCompanyAccommodation);
               return (
-                <li key={item.id} className="relative pl-6">
-                  <span
-                    className="absolute left-0 top-3 size-2.5 rounded-full border-2 border-white bg-[var(--venue-primary,#6B7B3A)] shadow-sm ring-1 ring-black/10"
-                    aria-hidden
-                  />
-                  <div className="rounded-lg border border-black/8 bg-white/70 px-3 py-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="text-sm font-medium tabular-nums text-[#3D421F]">
-                        {formatDateOnly(item.effectiveDate)}
-                      </p>
-                      {canEdit && onEditItem ? (
-                        <button
-                          type="button"
-                          onClick={() => onEditItem(item)}
-                          className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-[#3D421F] transition hover:bg-[var(--venue-primary)]/10"
-                        >
-                          <Pencil className="h-3 w-3" aria-hidden />
-                          Edit
-                        </button>
-                      ) : null}
-                    </div>
-                    <p className="mt-1 text-sm text-[#3D421F]">
-                      {item.changeKind === "visa"
-                        ? "Visa update"
-                        : item.changeKind === "salary"
-                          ? "Salary update"
-                          : item.changeKind === "both"
-                            ? "Position & salary change"
-                            : "Position change"}
-                      {item.changeVisa && item.changeKind !== "visa"
-                        ? " · Visa"
-                        : ""}
-                      {showPosition && item.toPositionName
-                        ? ` → ${item.toPositionName}`
-                        : ""}
-                    </p>
-                    {item.changeVisa ? (
-                      <p className="mt-1 text-xs text-black/50">
-                        Visa{" "}
-                        <span className="font-semibold text-[#3D421F]">
-                          {item.toVisaStatus || "—"}
-                        </span>
-                        {item.toVisaExpiry
-                          ? ` · ${formatDateOnly(item.toVisaExpiry)}`
-                          : ""}
-                      </p>
-                    ) : null}
-                    {canViewSalary && showSalary && item.toWagePackage != null ? (
-                      <p className="mt-1 text-xs text-black/50">
-                        Package{" "}
-                        <span className="font-semibold tabular-nums text-[#3D421F]">
-                          {formatAed(item.toWagePackage)}
-                        </span>
-                        {toAccom ? (
-                          <>
-                            {" · "}
-                            <span className="font-semibold text-[#3D421F]">
-                              {toAccom}
-                            </span>
-                          </>
-                        ) : null}
-                        {" · "}
-                        Salary to pay{" "}
-                        <span className="font-semibold tabular-nums text-[#3D421F]">
-                          {formatAed(
-                            computeSalaryBreakdown(
-                              item.toWagePackage,
-                              item.toCompanyAccommodation === "Yes",
-                              salaryPct,
-                            ).salaryToPay,
-                          )}
-                        </span>
-                      </p>
-                    ) : null}
-                    {item.reason.trim() ? (
-                      <p className="mt-1 text-xs text-black/45">{item.reason}</p>
-                    ) : null}
-                  </div>
-                </li>
+                <ChangePathRow
+                  key={item.id}
+                  item={item}
+                  canViewSalary={canViewSalary}
+                  canEdit={canEdit}
+                  salaryPct={salaryPct}
+                  onEdit={onEditItem}
+                />
               );
             }
 
@@ -575,7 +494,6 @@ export function StaffEmploymentPath({
       {subtab === "position_salary" ? (
         <StaffEmploymentPathPositionSalary
           staffId={staffId}
-          joiningDate={joiningDate}
           canViewSalary={canViewSalary}
           canEdit={canEdit}
           departments={departments}

@@ -10,6 +10,7 @@ const SIZE_CLASS = {
   xl: "h-10 w-10",
   "2xl": "h-12 w-12",
   "3xl": "h-14 w-14",
+  "4xl": "h-16 w-16",
 } as const;
 
 function StarGlyph({
@@ -35,7 +36,7 @@ export function GoogleStars({
 }: {
   rating: number | null;
   className?: string;
-  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
+  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl";
   animate?: boolean;
   pulse?: boolean;
 }) {
@@ -47,7 +48,11 @@ export function GoogleStars({
     <span
       className={cn(
         "inline-flex items-center",
-        size === "lg" || size === "xl" || size === "2xl" || size === "3xl"
+        size === "lg" ||
+          size === "xl" ||
+          size === "2xl" ||
+          size === "3xl" ||
+          size === "4xl"
           ? "gap-1"
           : "gap-px",
         pulse && "overflow-visible py-0.5",

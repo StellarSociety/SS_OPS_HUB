@@ -4,12 +4,24 @@ import { useCallback, useMemo, useState, useTransition, type CSSProperties, type
 import { useRouter } from "next/navigation";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { AppPathPanel } from "@/components/mobile/app-path-panel";
+import { MobileEmployeeAttendanceScreen } from "@/components/mobile/mobile-employee-attendance-screen";
+import { MobileEmployeeDocsScreen } from "@/components/mobile/mobile-employee-docs-screen";
+import { MobileEmployeeLeaveScreen } from "@/components/mobile/mobile-employee-leave-screen";
 import { MobileEmployeeProfileScreen } from "@/components/mobile/mobile-employee-profile-screen";
 import { MobileNotificationsScreen } from "@/components/mobile/mobile-notifications-screen";
 import { MobileRevenueScreen } from "@/components/mobile/mobile-revenue-screen";
+import {
+  MobileSentimentScreen,
+  type MobileSentimentBundle,
+  type MobileSentimentTab,
+} from "@/components/mobile/mobile-sentiment-screen";
 import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
+import {
+  MobileNavBusyProvider,
+  MobilePageLoadingOverlay,
+} from "@/components/mobile/mobile-nav-busy";
 import { SelectVenueScreen } from "@/components/venue/select-venue-screen";
 import {
   APP_PATH,
@@ -18,12 +30,18 @@ import {
   type AppPathPage,
 } from "@/lib/mobile/app-path";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
+import { loadMobilePreviewEmployeeAction } from "@/lib/actions/mobile-preview-employee";
+import type { MobileAttendanceMonth } from "@/lib/mobile/employee-attendance";
+import type { MobileDocsPage } from "@/lib/mobile/employee-docs";
+import type { MobileLeavePage } from "@/lib/mobile/employee-leave";
+import type { MobilePreviewEmployee } from "@/lib/mobile/preview-employees";
 import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { SelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 import type { SalesOverviewResult } from "@/lib/sales/sales-overview-data";
 import type { Venue } from "@/lib/types/database";
 import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
+import { DevicePreviewDensity, COMPACT_PREVIEW_DENSITY } from "@/components/simulators/device-preview-density";
 import { DevicePreviewStage } from "@/components/simulators/device-preview-stage";
 import {
   DEFAULT_DEVICE_ID,
@@ -57,16 +75,33 @@ function frameSize(device: DevicePreset) {
   };
 }
 
+function sentimentTabFromPageId(pageId: string): MobileSentimentTab {
+  if (pageId === "sentiment-reviews") return "reviews";
+  if (pageId === "sentiment-calendar") return "calendar";
+  if (pageId === "sentiment-actions") return "actions";
+  return "dashboard";
+}
+
 export function DeviceSimulator({
   loginLogoUrl,
   selectVenue,
   welcome,
   revenueOverview,
+  sentiment,
+  attendance,
+  leave,
+  docs,
+  previewEmployees,
 }: {
   loginLogoUrl: string;
   selectVenue: SelectVenuePageData;
   welcome: WelcomePreview;
   revenueOverview: SalesOverviewResult;
+  sentiment: MobileSentimentBundle;
+  attendance: MobileAttendanceMonth;
+  leave: MobileLeavePage;
+  docs: MobileDocsPage;
+  previewEmployees: MobilePreviewEmployee[];
 }) {
   const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [pageId, setPageId] = useState(APP_PATH[0].id);
@@ -110,6 +145,11 @@ export function DeviceSimulator({
         selectVenue={selectVenue}
         welcome={welcome}
         revenueOverview={revenueOverview}
+        sentiment={sentiment}
+        attendance={attendance}
+        leave={leave}
+        docs={docs}
+        previewEmployees={previewEmployees}
         pageId={pageId}
         setPageId={setPageId}
         previewVenue={previewVenue}
@@ -125,6 +165,11 @@ function PhoneStage({
   selectVenue,
   welcome,
   revenueOverview,
+  sentiment,
+  attendance,
+  leave,
+  docs,
+  previewEmployees,
   pageId,
   setPageId,
   previewVenue,
@@ -135,6 +180,11 @@ function PhoneStage({
   selectVenue: SelectVenuePageData;
   welcome: WelcomePreview;
   revenueOverview: SalesOverviewResult;
+  sentiment: MobileSentimentBundle;
+  attendance: MobileAttendanceMonth;
+  leave: MobileLeavePage;
+  docs: MobileDocsPage;
+  previewEmployees: MobilePreviewEmployee[];
   pageId: string;
   setPageId: (id: string) => void;
   previewVenue: Venue;
@@ -143,8 +193,27 @@ function PhoneStage({
   const router = useRouter();
   const [previewNonce, setPreviewNonce] = useState(0);
   const [refreshing, startRefresh] = useTransition();
+  const [staffBusy, startStaffPreview] = useTransition();
+  const [previewStaffId, setPreviewStaffId] = useState("");
+  const [previewOverride, setPreviewOverride] = useState<{
+    profile: MobileWelcomeProfile;
+    attendance: MobileAttendanceMonth;
+    leave: MobileLeavePage;
+    docs: MobileDocsPage;
+    userName: string | null;
+  } | null>(null);
   const frame = frameSize(device);
   const page = getAppPathPage(pageId);
+  const previewWelcome = previewOverride
+    ? {
+        ...welcome,
+        userName: previewOverride.userName,
+        profile: previewOverride.profile,
+      }
+    : welcome;
+  const previewAttendance = previewOverride?.attendance ?? attendance;
+  const previewLeave = previewOverride?.leave ?? leave;
+  const previewDocs = previewOverride?.docs ?? docs;
 
   const handleRefreshPreview = useCallback(() => {
     startRefresh(() => {
@@ -153,6 +222,33 @@ function PhoneStage({
       router.refresh();
     });
   }, [router, setPreviewVenue, startRefresh, welcome.venue]);
+
+  const handlePreviewStaffChange = useCallback(
+    (staffId: string) => {
+      if (!staffId) {
+        setPreviewStaffId("");
+        setPreviewOverride(null);
+        setPreviewNonce((current) => current + 1);
+        return;
+      }
+      setPreviewStaffId(staffId);
+      startStaffPreview(async () => {
+        const bundle = await loadMobilePreviewEmployeeAction({
+          venueId: previewVenue.id,
+          staffId,
+          monthKey: previewAttendance.monthKey,
+        });
+        if (!bundle) {
+          setPreviewStaffId("");
+          setPreviewOverride(null);
+          return;
+        }
+        setPreviewOverride(bundle);
+        setPreviewNonce((current) => current + 1);
+      });
+    },
+    [previewAttendance.monthKey, previewVenue.id],
+  );
 
   const handleAuthenticated = useCallback(() => {
     setPageId("select-venue");
@@ -176,8 +272,12 @@ function PhoneStage({
           selectedId={pageId}
           onSelect={setPageId}
           venue={previewVenue}
-          refreshing={refreshing}
+          refreshing={refreshing || staffBusy}
           onRefreshPreview={handleRefreshPreview}
+          previewEmployees={previewEmployees}
+          previewStaffId={previewStaffId}
+          onPreviewStaffChange={handlePreviewStaffChange}
+          previewStaffBusy={staffBusy}
         />
       }
     >
@@ -200,26 +300,28 @@ function PhoneStage({
                 {...selectVenue}
                 fill
                 preview
+                runtime="mobile"
                 onSelectVenue={handleVenueSelected}
               />
             ) : page.id === "welcome" ? (
               <MobileWelcomeScreen
                 venue={previewVenue}
-                userName={welcome.userName}
-                modules={welcome.modules}
-                profile={welcome.profile}
+                userName={previewWelcome.userName}
+                modules={previewWelcome.modules}
+                profile={previewWelcome.profile}
                 onOpenProfile={() => setPageId("employee-profile")}
-                notificationCount={welcome.notificationCount}
-                unreadCount={welcome.unreadCount}
+                notificationCount={previewWelcome.notificationCount}
+                unreadCount={previewWelcome.unreadCount}
                 onOpenNotifications={() => setPageId("notifications")}
                 onOpenRevenue={() => setPageId("revenue")}
+                onOpenSentiment={() => setPageId("sentiment")}
                 onOpenTerms={() => setPageId("terms")}
                 onLogout={() => setPageId("login")}
               />
             ) : page.id === "notifications" ? (
               <MobileNotificationsScreen
                 venue={previewVenue}
-                notifications={welcome.notifications}
+                notifications={previewWelcome.notifications}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
@@ -227,7 +329,43 @@ function PhoneStage({
             ) : page.id === "employee-profile" ? (
               <MobileEmployeeProfileScreen
                 venue={previewVenue}
-                profile={welcome.profile}
+                profile={previewWelcome.profile}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "attendance" ? (
+              <MobileEmployeeAttendanceScreen
+                venue={previewVenue}
+                initial={previewAttendance}
+                previewStaffId={previewStaffId || null}
+                employeeName={
+                  previewWelcome.profile.fullName ?? previewWelcome.userName
+                }
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "leave" ? (
+              <MobileEmployeeLeaveScreen
+                venue={previewVenue}
+                initial={previewLeave}
+                previewStaffId={previewStaffId || null}
+                employeeName={
+                  previewWelcome.profile.fullName ?? previewWelcome.userName
+                }
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "docs" ? (
+              <MobileEmployeeDocsScreen
+                venue={previewVenue}
+                initial={previewDocs}
+                previewStaffId={previewStaffId || null}
+                employeeName={
+                  previewWelcome.profile.fullName ?? previewWelcome.userName
+                }
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
@@ -236,6 +374,15 @@ function PhoneStage({
               <MobileRevenueScreen
                 venue={previewVenue}
                 overview={revenueOverview}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id.startsWith("sentiment") ? (
+              <MobileSentimentScreen
+                tab={sentimentTabFromPageId(page.id)}
+                venue={previewVenue}
+                bundle={sentiment}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
@@ -285,8 +432,7 @@ function PhoneChrome({
         background: isIphone
           ? "linear-gradient(160deg, #3a3a3c 0%, #1c1c1e 42%, #111113 100%)"
           : "linear-gradient(160deg, #2b2b2b 0%, #141414 48%, #0c0c0c 100%)",
-        boxShadow:
-          "0 1px 0 rgba(255,255,255,0.18) inset, 0 24px 48px -20px rgba(0,0,0,0.45), 0 8px 16px -8px rgba(0,0,0,0.3)",
+        boxShadow: "0 1px 0 rgba(255,255,255,0.18) inset",
       }}
     >
       {isIphone ? <IphoneButtons /> : <SamsungButtons />}
@@ -307,13 +453,16 @@ function PhoneChrome({
               ? "bg-black"
               : page.id === "welcome" ||
                   page.id === "employee-profile" ||
+                  page.id === "attendance" ||
+                  page.id === "leave" ||
+                  page.id === "docs" ||
                   page.id === "notifications" ||
                   page.id === "revenue" ||
+                  page.id.startsWith("sentiment") ||
                   page.id === "terms"
                 ? "bg-[Canvas]"
                 : "bg-[#E9E3D6]"
           }`}
-          style={{ paddingTop: insets.top }}
         >
           <PullToRefresh
             refreshing={refreshing}
@@ -321,9 +470,27 @@ function PhoneChrome({
             contentClassName={
               page.id === "welcome" ? "overflow-auto" : "overflow-hidden"
             }
-            indicatorInsetTop={16}
+            indicatorInsetTop={insets.top > 24 ? insets.top - 10 : 16}
           >
-            {screen}
+            <MobileNavBusyProvider resetKey={page.id}>
+              <div className="relative h-full min-h-0">
+                <div className="h-full min-h-0" style={{ paddingTop: insets.top }}>
+                  <DevicePreviewDensity
+                    fill={page.id !== "welcome"}
+                    density={
+                      page.id === "login" ||
+                      page.id === "select-venue" ||
+                      page.id === "welcome"
+                        ? COMPACT_PREVIEW_DENSITY
+                        : undefined
+                    }
+                  >
+                    {screen}
+                  </DevicePreviewDensity>
+                </div>
+                <MobilePageLoadingOverlay />
+              </div>
+            </MobileNavBusyProvider>
           </PullToRefresh>
         </div>
         {device.island === "dynamic-island" ? (

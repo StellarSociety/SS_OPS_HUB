@@ -97,9 +97,10 @@ export function DevicePreviewChrome({
           {spec}
         </p>
         {extra}
-        <div className="min-w-[16rem] flex-1">
-          <MobileLanHostButton previewPath={previewPath} />
-        </div>
+      </div>
+
+      <div className="w-full min-w-0">
+        <MobileLanHostButton previewPath={previewPath} />
       </div>
     </div>
   );

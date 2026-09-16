@@ -13,6 +13,7 @@ export const MODULE_ICON_KEYS = [
   "chart-pie",
   "landmark",
   "users",
+  "book-user",
   "graduation-cap",
   "building-2",
   "vault-safe",

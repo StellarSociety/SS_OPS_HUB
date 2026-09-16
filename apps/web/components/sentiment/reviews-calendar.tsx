@@ -23,6 +23,20 @@ import type {
 import { cn } from "@/lib/utils";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
 
 type MonthCell = {
   key: string;
@@ -148,6 +162,8 @@ export function ReviewsCalendar({
   venueName,
   templates,
   actionsByReviewId,
+  compact = false,
+  onMonthChange,
 }: {
   monthKey: string;
   stripMonthKeys: string[];
@@ -158,6 +174,8 @@ export function ReviewsCalendar({
   venueName: string;
   templates: SentimentReplyTemplate[];
   actionsByReviewId: Record<string, SentimentReviewAction>;
+  compact?: boolean;
+  onMonthChange?: (monthKey: string) => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -179,14 +197,23 @@ export function ReviewsCalendar({
   const [selectedDay, setSelectedDay] = useState(() =>
     defaultSelectedDay(monthKey, todayIso, reviews),
   );
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     setSelectedDay(defaultSelectedDay(monthKey, todayIsoInDubai(), reviews));
   }, [monthKey]);
 
+  useEffect(() => {
+    setPickerOpen(false);
+  }, [monthKey]);
+
   const selectedReviews = byDay.get(selectedDay) ?? [];
 
   function goToMonth(next: string) {
+    if (onMonthChange) {
+      onMonthChange(next);
+      return;
+    }
     router.push(`${pathname}?month=${next}`);
   }
 
@@ -196,58 +223,134 @@ export function ReviewsCalendar({
 
   return (
     <div className="space-y-4">
-      <ReviewsMonthStrip items={stripStats} selectedMonthKey={monthKey} />
+      <ReviewsMonthStrip
+        items={stripStats}
+        selectedMonthKey={monthKey}
+        onSelectMonth={onMonthChange ? goToMonth : undefined}
+      />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_26rem]">
+      <div
+        className={cn(
+          "grid items-start gap-4",
+          !compact && "xl:grid-cols-[minmax(0,1fr)_26rem]",
+        )}
+      >
         <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => goMonth(-1)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-black/[0.03]"
-                aria-label="Previous month"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <h2 className="min-w-[11rem] text-center font-serif text-xl text-[#3D421F]">
-                {formatMonthKeyLabel(monthKey)}
-              </h2>
-              <button
-                type="button"
-                onClick={() => goMonth(1)}
-                disabled={shiftMonthKey(monthKey, 1) > currentMonthKey}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-black/[0.03] disabled:pointer-events-none disabled:opacity-40"
-                aria-label="Next month"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => goToMonth(currentMonthKey)}
-                className="ml-1 h-9 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] transition hover:bg-black/[0.03]"
-              >
-                Today
-              </button>
+          {compact ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-1 rounded-xl bg-[var(--venue-primary,#818a40)] px-1 py-1 text-white">
+                <button
+                  type="button"
+                  onClick={() => goMonth(-1)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white transition hover:bg-white/15"
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-expanded={pickerOpen}
+                  aria-haspopup="dialog"
+                  onClick={() => setPickerOpen((open) => !open)}
+                  className="min-w-0 flex-1 rounded-md px-2 py-1 text-center font-serif text-lg text-white hover:bg-white/10"
+                >
+                  {formatMonthKeyLabel(monthKey)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goMonth(1)}
+                  disabled={shiftMonthKey(monthKey, 1) > currentMonthKey}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white transition hover:bg-white/15 disabled:pointer-events-none disabled:opacity-40"
+                  aria-label="Next month"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+              {pickerOpen ? (
+                <CalendarMonthPicker
+                  monthKey={monthKey}
+                  currentMonthKey={currentMonthKey}
+                  onSelect={(next) => {
+                    goToMonth(next > currentMonthKey ? currentMonthKey : next);
+                    setPickerOpen(false);
+                  }}
+                  onClose={() => setPickerOpen(false)}
+                />
+              ) : null}
+              <p className="text-sm text-black/50">
+                {monthReviewCount} review{monthReviewCount === 1 ? "" : "s"} this
+                month
+              </p>
             </div>
-            <p className="text-sm text-black/50">
-              {monthReviewCount} review{monthReviewCount === 1 ? "" : "s"} this
-              month
-            </p>
-          </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => goMonth(-1)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-black/[0.03]"
+                  aria-label="Previous month"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <h2 className="min-w-[11rem] text-center font-serif text-xl text-[#3D421F]">
+                  {formatMonthKeyLabel(monthKey)}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => goMonth(1)}
+                  disabled={shiftMonthKey(monthKey, 1) > currentMonthKey}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-black/10 bg-white text-[#3D421F] transition hover:bg-black/[0.03] disabled:pointer-events-none disabled:opacity-40"
+                  aria-label="Next month"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goToMonth(currentMonthKey)}
+                  className="ml-1 h-9 rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] transition hover:bg-black/[0.03]"
+                >
+                  Today
+                </button>
+              </div>
+              <p className="text-sm text-black/50">
+                {monthReviewCount} review{monthReviewCount === 1 ? "" : "s"} this
+                month
+              </p>
+            </div>
+          )}
 
-          <div className="overflow-x-auto rounded-xl border border-black/10 bg-white/70">
-            <div className="grid min-w-[52rem] grid-cols-7 border-b border-black/10">
+          <div
+            className={cn(
+              "rounded-xl border border-black/10 bg-white/70",
+              compact ? "overflow-hidden" : "overflow-x-auto",
+            )}
+          >
+            <div
+              className={cn(
+                "grid grid-cols-7",
+                compact
+                  ? "bg-black/[0.08]"
+                  : "min-w-[52rem] border-b border-black/10",
+              )}
+            >
               {WEEKDAYS.map((label) => (
                 <div
                   key={label}
-                  className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-black/45"
+                  className={cn(
+                    "text-center font-semibold uppercase tracking-wide",
+                    compact
+                      ? "px-0.5 py-1.5 text-[9px] text-[#3D421F]/70"
+                      : "px-2 py-2 text-[11px] text-black/45",
+                  )}
                 >
-                  {label}
+                  {compact ? label.slice(0, 1) : label}
                 </div>
               ))}
             </div>
-            <div className="grid min-w-[52rem] grid-cols-7">
+            <div
+              className={cn("grid grid-cols-7", !compact && "min-w-[52rem]")}
+            >
               {cells.map((cell) => {
                 const dayReviews = cell.inMonth
                   ? (byDay.get(cell.key) ?? [])
@@ -266,7 +369,10 @@ export function ReviewsCalendar({
                     }`}
                     onClick={() => setSelectedDay(cell.key)}
                     className={cn(
-                      "flex min-h-[8.5rem] flex-col gap-1 border-b border-r border-black/5 p-1.5 text-left [&:nth-child(7n)]:border-r-0",
+                      "flex flex-col text-left [&:nth-child(7n)]:border-r-0",
+                      compact
+                        ? "min-h-[2.75rem] items-center gap-0 border-b border-r border-black/5 p-1"
+                        : "min-h-[8.5rem] gap-1 border-b border-r border-black/5 p-1.5",
                       !cell.inMonth &&
                         "bg-[var(--venue-secondary,#F0F3DD)]/30 text-black/30",
                       cell.inMonth && "hover:bg-[var(--venue-secondary)]/35",
@@ -281,7 +387,8 @@ export function ReviewsCalendar({
                   >
                     <span
                       className={cn(
-                        "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold tabular-nums",
+                        "inline-flex items-center justify-center rounded-full font-semibold tabular-nums",
+                        compact ? "h-6 w-6 text-[11px]" : "h-6 w-6 text-xs",
                         selected
                           ? "bg-[var(--venue-primary)] text-white"
                           : cell.isToday && cell.inMonth
@@ -292,7 +399,13 @@ export function ReviewsCalendar({
                     >
                       {cell.day}
                     </span>
-                    {dayReviews.length > 0 ? (
+                    {compact ? (
+                      dayReviews.length > 0 ? (
+                        <span className="text-[9px] font-medium tabular-nums text-[#3D421F]/70">
+                          {dayReviews.length}
+                        </span>
+                      ) : null
+                    ) : dayReviews.length > 0 ? (
                       <div className="flex flex-col gap-0.5">
                         {dayReviews.map((review) => (
                           <CalendarReviewRow key={review.id} review={review} />
@@ -306,7 +419,12 @@ export function ReviewsCalendar({
           </div>
         </div>
 
-        <aside className="min-w-0 space-y-3 xl:sticky xl:top-3 xl:max-h-[calc(100vh-5.5rem)] xl:overflow-y-auto">
+        <aside
+          className={cn(
+            "min-w-0 space-y-3",
+            !compact && "xl:sticky xl:top-3 xl:max-h-[calc(100vh-5.5rem)] xl:overflow-y-auto",
+          )}
+        >
           <div>
             <h2 className="font-serif text-xl text-[#3D421F]">
               {formatDayHeading(selectedDay)}
@@ -332,11 +450,93 @@ export function ReviewsCalendar({
                 action={actionsByReviewId[review.id] ?? null}
                 canEditActions={canEditActions}
                 compactAction
+                compact={compact}
               />
             ))
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+function CalendarMonthPicker({
+  monthKey,
+  currentMonthKey,
+  onSelect,
+  onClose,
+}: {
+  monthKey: string;
+  currentMonthKey: string;
+  onSelect: (monthKey: string) => void;
+  onClose: () => void;
+}) {
+  const selectedYear = Number(monthKey.slice(0, 4));
+  const selectedMonth = Number(monthKey.slice(5, 7));
+  const [year, setYear] = useState(selectedYear);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Select month"
+      className="rounded-xl border border-black/10 bg-white p-2 shadow-sm"
+    >
+      <div className="mb-1 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setYear((current) => current - 1)}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#3D421F] hover:bg-black/[0.04]"
+          aria-label="Previous year"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <p className="font-serif text-sm text-[#3D421F]">{year}</p>
+        <button
+          type="button"
+          onClick={() => setYear((current) => current + 1)}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[#3D421F] hover:bg-black/[0.04]"
+          aria-label="Next year"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="grid grid-cols-4 gap-1">
+        {MONTH_SHORT.map((label, index) => {
+          const key = `${year}-${String(index + 1).padStart(2, "0")}`;
+          const selected = year === selectedYear && index + 1 === selectedMonth;
+          const current = key === currentMonthKey;
+          const future = key > currentMonthKey;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onSelect(key)}
+              disabled={future}
+              aria-current={current ? "date" : undefined}
+              aria-pressed={selected}
+              className={cn(
+                "h-8 rounded-md px-1 text-xs font-medium",
+                selected
+                  ? "bg-[var(--venue-primary,#818a40)] text-white"
+                  : "text-[#3D421F] hover:bg-black/[0.04]",
+                current &&
+                  !selected &&
+                  "bg-[var(--venue-primary,#818a40)]/15 font-semibold text-[var(--venue-primary,#818a40)] ring-1 ring-inset ring-[var(--venue-primary,#818a40)]",
+                future && "pointer-events-none opacity-40",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-1 w-full rounded-md py-1 text-[11px] text-black/45"
+      >
+        Close
+      </button>
     </div>
   );
 }
