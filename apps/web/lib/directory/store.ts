@@ -68,21 +68,21 @@ type DirectoryStaffRow = {
   nationality?: Named;
 };
 
-function namedId(value: Named): string | null {
+function namedId(value: Named | undefined): string | null {
   if (!value) return null;
   const row = Array.isArray(value) ? value[0] : value;
   const id = row?.id?.trim();
   return id || null;
 }
 
-function named(value: Named | DepartmentRel): string | null {
+function named(value: Named | DepartmentRel | undefined): string | null {
   if (!value) return null;
   const row = Array.isArray(value) ? value[0] : value;
   const name = row?.name?.trim();
   return name || null;
 }
 
-function readDepartmentSortOrder(value: DepartmentRel): number | null {
+function readDepartmentSortOrder(value: DepartmentRel | undefined): number | null {
   if (!value) return null;
   const row = Array.isArray(value) ? value[0] : value;
   const order = row?.sort_order;
@@ -265,7 +265,10 @@ export async function loadDirectoryHierarchy(
   }
 
   const known = new Set(staff.map((member) => member.id));
-  const staffRows = ((rows ?? []) as HierarchyNodeRow[]).map(mapHierarchyRow);
+  const nodeRows: HierarchyNodeRow[] = Array.isArray(rows)
+    ? (rows as unknown as HierarchyNodeRow[])
+    : [];
+  const staffRows = nodeRows.map(mapHierarchyRow);
   const hireRows = includeHires
     ? await loadDirectoryHierarchyHires(supabase, venue.id)
     : [];

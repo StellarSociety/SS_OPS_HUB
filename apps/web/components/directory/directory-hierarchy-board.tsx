@@ -838,18 +838,19 @@ export function DirectoryHierarchyBoard({
   useEffect(() => {
     const scroller = treeScrollRef.current;
     if (!scroller) return;
+    const canvas = scroller;
 
-    function abortPan() {
+    const abortPan = () => {
       const pan = panRef.current;
       if (!pan) return;
       panRef.current = null;
       setPanning(false);
-      if (scroller.hasPointerCapture(pan.pointerId)) {
-        scroller.releasePointerCapture(pan.pointerId);
+      if (canvas.hasPointerCapture(pan.pointerId)) {
+        canvas.releasePointerCapture(pan.pointerId);
       }
-    }
+    };
 
-    function onPointerDown(event: PointerEvent) {
+    const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
       if (event.pointerType === "touch") return;
       if (draggingIdRef.current) return;
@@ -858,13 +859,13 @@ export function DirectoryHierarchyBoard({
         pointerId: event.pointerId,
         x: event.clientX,
         y: event.clientY,
-        left: scroller.scrollLeft,
-        top: scroller.scrollTop,
+        left: canvas.scrollLeft,
+        top: canvas.scrollTop,
         moved: false,
       };
-    }
+    };
 
-    function onPointerMove(event: PointerEvent) {
+    const onPointerMove = (event: PointerEvent) => {
       const pan = panRef.current;
       if (!pan || event.pointerId !== pan.pointerId) return;
       if (draggingIdRef.current) {
@@ -878,24 +879,24 @@ export function DirectoryHierarchyBoard({
         pan.moved = true;
         if (event.isTrusted) {
           try {
-            scroller.setPointerCapture(event.pointerId);
+            canvas.setPointerCapture(event.pointerId);
           } catch {
             /* window listeners still pan if capture is unavailable */
           }
         }
         setPanning(true);
       }
-      scroller.scrollLeft = pan.left - dx;
-      scroller.scrollTop = pan.top - dy;
-    }
+      canvas.scrollLeft = pan.left - dx;
+      canvas.scrollTop = pan.top - dy;
+    };
 
-    function onPointerUp(event: PointerEvent) {
+    const onPointerUp = (event: PointerEvent) => {
       const pan = panRef.current;
       if (!pan || event.pointerId !== pan.pointerId) return;
       const moved = pan.moved;
       abortPan();
       if (moved) {
-        scroller.addEventListener(
+        canvas.addEventListener(
           "click",
           (click) => {
             click.preventDefault();
@@ -904,19 +905,19 @@ export function DirectoryHierarchyBoard({
           { capture: true, once: true },
         );
       }
-    }
+    };
 
-    function onNativeDragStart() {
+    const onNativeDragStart = () => {
       abortPan();
-    }
+    };
 
-    scroller.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
     window.addEventListener("dragstart", onNativeDragStart, true);
     return () => {
-      scroller.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);

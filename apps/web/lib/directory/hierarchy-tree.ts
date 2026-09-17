@@ -275,16 +275,19 @@ export function placeStaff(
     );
   }
 
+  if (target.kind !== "parent") return roots;
+
+  const parentId = target.parentId;
+  const child = toPlace;
   let inserted = false;
-  function map(nodes: HierarchyNode[]): HierarchyNode[] {
-    return nodes.map((node) => {
-      if (node.staffId === target.parentId) {
+  const map = (nodes: HierarchyNode[]): HierarchyNode[] =>
+    nodes.map((node) => {
+      if (node.staffId === parentId) {
         inserted = true;
-        return { ...node, children: [...node.children, toPlace] };
+        return { ...node, children: [...node.children, child] };
       }
       return { ...node, children: map(node.children) };
     });
-  }
 
   const next = map(pulled.roots);
   return inserted ? next : roots;

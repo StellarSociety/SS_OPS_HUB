@@ -7,12 +7,12 @@ type VenueScope = {
   isGlobalVenue: boolean;
 };
 
-function applyVenueScope<T extends { eq: (column: string, value: string) => T }>(
-  query: T,
-  options: VenueScope,
-): T {
+function applyVenueScope<Q>(query: Q, options: VenueScope): Q {
   if (options.isGlobalVenue) return query;
-  return query.eq("venue_id", options.venueId);
+  return (query as { eq: (column: string, value: string) => Q }).eq(
+    "venue_id",
+    options.venueId,
+  );
 }
 
 function applyFolder<
