@@ -3,6 +3,7 @@
 import { useTransition, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
+import { DeviceNotificationsManager } from "@/components/pwa/device-notifications";
 import {
   MobileNavBusyProvider,
   MobilePageLoadingOverlay,
@@ -37,6 +38,7 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
           <div className="mobile-shell-inset h-full min-h-0">{children}</div>
         </PullToRefresh>
         <MobilePageLoadingOverlay />
+        {selectVenue || login ? null : <DeviceNotificationsManager />}
       </MobileNavBusyProvider>
     </div>
   );

@@ -1,0 +1,322 @@
+/* Centered org tree: each person sits above the middle of their team.
+ *
+ *        [Parent]
+ *            |
+ *     -------+-------
+ *     |      |      |
+ *   [C1]   [C2]   [C3]
+ *
+ * A leaf (no team) only occupies one card, so they sit next to their
+ * peers instead of being pushed to the far side of a sibling’s team.
+ * Connector bars are measured from the actual cards, not the column box,
+ * so a wide subtree cannot pull the T-junction away from the people.
+ */
+
+.dir-org-tree {
+  --dir-org-line: color-mix(in srgb, var(--venue-primary, #6b7b3a) 55%, #3d421f);
+  --dir-org-gap: 1.25rem;
+  --dir-org-label-stem: 1.25rem;
+  --dir-org-label-w: 11rem; /* 176px — default badge width */
+  --dir-org-label-box: 3.25rem; /* 52px — default badge height */
+  --dir-org-label-h: calc(var(--dir-org-label-box) + var(--dir-org-label-stem));
+  --dir-org-peer: 0.75rem;
+  --dir-org-gutter: calc(var(--dir-org-peer) * 2);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: max-content;
+  margin: 0 auto;
+  padding: 0.5rem 0.5rem 1rem;
+  column-gap: var(--dir-org-gutter);
+}
+
+.dir-org-tree ul {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  position: relative;
+  margin: 0;
+  padding: 0;
+  column-gap: var(--dir-org-gutter);
+}
+
+.dir-org-tree li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  list-style: none;
+  overflow: visible;
+  padding: var(--dir-org-gap) 0 0;
+}
+
+/* Vertical from the sibling T-bar down onto this card. */
+.dir-org-tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--dir-org-card-center, 50%);
+  width: 0;
+  /* +2px tucks the line into the card so it does not float short */
+  height: calc(var(--dir-org-gap) + 2px);
+  border-left: 2px solid var(--dir-org-line);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* Leaf packed toward a following wide team: slide only the card.
+ * --dir-org-person-shift then centers a labeled department’s row. */
+.dir-org-tree li.dir-org-leaf > .dir-org-person {
+  left: calc(var(--dir-org-leaf-shift, 0px) + var(--dir-org-person-shift, 0px));
+}
+
+.dir-org-tree li > ul {
+  padding-top: var(--dir-org-gap);
+}
+
+/* Stem from the parent card down to this row’s T-bar. */
+.dir-org-tree li > ul::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: var(--dir-org-stem-x, 50%);
+  width: 0;
+  height: calc(var(--dir-org-gap) + 2px);
+  border-left: 2px solid var(--dir-org-line);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* Horizontal T-bar across this row’s cards. */
+.dir-org-tree li > ul::after {
+  content: "";
+  position: absolute;
+  top: var(--dir-org-gap);
+  left: var(--dir-org-bar-left, 50%);
+  width: var(--dir-org-bar-width, 0px);
+  height: 0;
+  border-top: 2px solid var(--dir-org-line);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.dir-org-tree > li {
+  padding-top: 0;
+}
+
+.dir-org-tree > li::after {
+  display: none;
+}
+
+/* When anyone in the row has a label, every sibling gets the same extra
+ * space above the card so unlabeled people stay on the same line. */
+.dir-org-tree li.dir-org-row-labels {
+  padding-top: calc(var(--dir-org-gap) + var(--dir-org-label-h));
+}
+
+.dir-org-tree li.dir-org-row-labels::after {
+  height: calc(var(--dir-org-gap) + var(--dir-org-label-h) + 2px);
+}
+
+.dir-org-tree > li.dir-org-row-labels {
+  padding-top: var(--dir-org-label-h);
+}
+
+.dir-org-node-emphasis {
+  z-index: 2;
+  background: #e8e8e4;
+  border-color: #9a9a94;
+}
+
+.dir-org-node-emphasis .dir-org-photo {
+  border: 1.5px solid #fff;
+}
+
+.dir-org-card-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.dir-org-label {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  /* Sit just above the card; stem length bridges the gap. */
+  bottom: calc(100% + var(--dir-org-label-stem));
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: var(--dir-org-label-box);
+  width: var(--dir-org-label-w);
+  min-width: var(--dir-org-label-w);
+  max-width: var(--dir-org-label-w);
+  align-items: center;
+  justify-content: flex-start;
+  box-sizing: border-box;
+}
+
+/* Same-level labels share one top line above the cards. Badge sits at
+ * the top of the band (centered on the card); the stem fills down to it. */
+.dir-org-tree li.dir-org-row-labels .dir-org-label {
+  top: calc(-1 * (var(--dir-org-label-box) + var(--dir-org-label-stem)));
+  bottom: auto;
+  height: calc(var(--dir-org-label-box) + var(--dir-org-label-stem));
+  max-height: none;
+}
+
+/* Stem from the badge down onto the person card. */
+.dir-org-label::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 0;
+  /* +1px closes sub-pixel gaps under transform: scale */
+  height: calc(var(--dir-org-label-stem) + 1px);
+  border-left: 2px solid var(--dir-org-line);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.dir-org-tree li.dir-org-row-labels .dir-org-label::after {
+  position: relative;
+  top: auto;
+  left: auto;
+  flex: 1 1 auto;
+  align-self: center;
+  height: auto;
+  min-height: var(--dir-org-label-stem);
+  margin-top: 0;
+}
+
+.dir-org-label-badge {
+  margin: 0;
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: var(--dir-org-label-w);
+  height: var(--dir-org-label-box);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: normal;
+  border-radius: 0.75rem;
+  padding: 0.35rem 0.4rem;
+  background: var(--venue-primary, #6b7b3a);
+  color: var(--venue-secondary, #f0f3dd);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--venue-primary, #6b7b3a) 45%, transparent);
+}
+
+.dir-org-tree-management {
+  --dir-org-label-box: 4.5rem;
+}
+
+.dir-org-node-hire {
+  box-sizing: border-box;
+}
+
+/* Hire cards share the staff card box so T-bars and stems land on the same edge. */
+.dir-org-node-hire:not(.dir-org-node-emphasis) {
+  width: 10rem; /* w-40 */
+}
+
+.dir-org-label-badge-pay {
+  flex-direction: column;
+  gap: 0.12rem;
+  padding-block: 0.3rem;
+  line-height: 1.15;
+}
+
+.dir-org-label-total {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.92;
+}
+
+.dir-org-person {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  left: var(--dir-org-person-shift, 0px);
+}
+
+.dir-org-collabs {
+  position: relative;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
+.dir-org-collabs-left {
+  flex-direction: row-reverse;
+}
+
+.dir-org-collabs-right {
+  flex-direction: row;
+}
+
+.dir-org-collab-line {
+  width: 1.35rem;
+  flex-shrink: 0;
+  border-top: 2px dashed var(--dir-org-line);
+  pointer-events: none;
+  align-self: center;
+}
+
+.dir-org-node {
+  position: relative;
+  z-index: 1;
+}
+
+.dir-org-node[draggable="true"] {
+  -webkit-user-drag: element;
+}
+
+.dir-org-node img {
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.dir-org-tree-mobile {
+  --dir-org-gap: 1rem;
+  --dir-org-label-stem: 0.9rem;
+  --dir-org-label-w: 6.75rem;
+  --dir-org-label-box: 2.45rem;
+  --dir-org-peer: 0.45rem;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0.35rem 1rem 1.75rem;
+}
+
+.dir-org-tree-mobile .dir-org-label-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  padding: 0.22rem 0.28rem;
+  border-radius: 0.55rem;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--venue-primary, #6b7b3a) 40%, transparent);
+}

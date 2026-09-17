@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useId, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { computeAge, computeWorkedTime } from "@/lib/hr/derived";
@@ -56,7 +62,7 @@ function displayValue(value: string | null | undefined): string {
 }
 
 /** Cleaner photo mark than Lucide at large lightbox sizes. */
-function PhotoPlaceholderMark({
+export function PhotoPlaceholderMark({
   className,
   tone = "muted",
 }: {
@@ -115,6 +121,61 @@ function centeredPreviewRect(): OriginRect {
   };
 }
 
+/** Opens the staff photo / details lightbox from any custom trigger. */
+export function StaffPhotoPreview({
+  fullName,
+  photoUrl,
+  details,
+  children,
+}: {
+  fullName: string;
+  photoUrl: string | null | undefined;
+  details?: StaffPhotoDetails;
+  children: (helpers: {
+    openPreview: (event: MouseEvent<HTMLElement>) => void;
+    isOpen: boolean;
+  }) => ReactNode;
+}) {
+  const titleId = useId();
+  const [origin, setOrigin] = useState<OriginRect | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const cropUrl = photoUrl?.trim() || null;
+  const sourceUrl = staffPhotoSourceUrlFromCropUrl(cropUrl);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  function openPreview(event: MouseEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = rectFromElement(event.currentTarget);
+    // Let the opening click finish before the overlay is in the DOM, so it
+    // cannot receive the same pointer event and immediately close.
+    window.setTimeout(() => setOrigin(rect), 0);
+  }
+
+  return (
+    <>
+      {children({ openPreview, isOpen: Boolean(origin) })}
+      {mounted && origin
+        ? createPortal(
+            <StaffPhotoLightbox
+              fullName={fullName}
+              photoUrl={sourceUrl ?? cropUrl}
+              fallbackUrl={cropUrl}
+              origin={origin}
+              titleId={titleId}
+              details={details ?? {}}
+              onClose={() => setOrigin(null)}
+            />,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
 /** Compact staff photo for employee list rows; falls back to image icon. */
 export function StaffPhotoThumbnail({
   fullName,
@@ -131,10 +192,6 @@ export function StaffPhotoThumbnail({
   joiningDate,
   terminationDate,
 }: StaffPhotoThumbnailProps) {
-  const titleId = useId();
-  const [origin, setOrigin] = useState<OriginRect | null>(null);
-  const [mounted, setMounted] = useState(false);
-
   const sizeClass =
     size === "fill"
       ? "h-auto w-12 self-stretch text-xs"
@@ -149,17 +206,6 @@ export function StaffPhotoThumbnail({
   );
 
   const cropUrl = photoUrl?.trim() || null;
-  const sourceUrl = staffPhotoSourceUrlFromCropUrl(cropUrl);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  function openPreview(event: MouseEvent<HTMLElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    setOrigin(rectFromElement(event.currentTarget));
-  }
 
   const media = cropUrl ? (
     // eslint-disable-next-line @next/next/no-img-element -- staff photo URL from storage
@@ -182,50 +228,41 @@ export function StaffPhotoThumbnail({
   );
 
   return (
-    <>
-      <button
-        type="button"
-        className={cn(
-          shellClass,
-          "cursor-zoom-in p-0 transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/50",
-          origin && "invisible",
-        )}
-        aria-label={
-          cropUrl
-            ? `Enlarge photo of ${fullName}`
-            : `View profile details for ${fullName}`
-        }
-        onClick={openPreview}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        {media}
-      </button>
-
-      {mounted && origin
-        ? createPortal(
-            <StaffPhotoLightbox
-              fullName={fullName}
-              photoUrl={sourceUrl ?? cropUrl}
-              fallbackUrl={cropUrl}
-              origin={origin}
-              titleId={titleId}
-              details={{
-                empNo,
-                department,
-                position,
-                employeeStatus,
-                workingStatus,
-                nationality,
-                dob,
-                joiningDate,
-                terminationDate,
-              }}
-              onClose={() => setOrigin(null)}
-            />,
-            document.body,
-          )
-        : null}
-    </>
+    <StaffPhotoPreview
+      fullName={fullName}
+      photoUrl={photoUrl}
+      details={{
+        empNo,
+        department,
+        position,
+        employeeStatus,
+        workingStatus,
+        nationality,
+        dob,
+        joiningDate,
+        terminationDate,
+      }}
+    >
+      {({ openPreview, isOpen }) => (
+        <button
+          type="button"
+          className={cn(
+            shellClass,
+            "cursor-zoom-in p-0 transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/50",
+            isOpen && "invisible",
+          )}
+          aria-label={
+            cropUrl
+              ? `Enlarge photo of ${fullName}`
+              : `View profile details for ${fullName}`
+          }
+          onClick={openPreview}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {media}
+        </button>
+      )}
+    </StaffPhotoPreview>
   );
 }
 
@@ -265,6 +302,7 @@ function StaffPhotoLightbox({
   const [src, setSrc] = useState(photoUrl ?? "");
   const [loaded, setLoaded] = useState(!hasPhoto);
   const [closing, setClosing] = useState(false);
+  const [overlayReady, setOverlayReady] = useState(false);
   const [target] = useState(centeredPreviewRect);
 
   const nationality = nationalityDisplay(details.nationality);
@@ -297,9 +335,11 @@ function StaffPhotoLightbox({
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKeyDown);
+    const readyTimer = window.setTimeout(() => setOverlayReady(true), 80);
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKeyDown);
+      window.clearTimeout(readyTimer);
     };
   }, []);
 
@@ -311,7 +351,10 @@ function StaffPhotoLightbox({
       <motion.button
         type="button"
         aria-label="Close photo"
-        className="absolute inset-0 bg-black/60"
+        className={cn(
+          "absolute inset-0 bg-black/60",
+          !overlayReady && "pointer-events-none",
+        )}
         initial={{ opacity: 0 }}
         animate={{ opacity: closing ? 0 : 1 }}
         transition={{ duration: 0.2 }}

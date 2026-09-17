@@ -61,7 +61,8 @@ export const ACCOUNT_ROLE_OPTIONS: {
   {
     value: "venue_admin",
     label: "Venue Admin",
-    description: "Manage users & settings for a specific venue.",
+    description:
+      "Manage users & settings for a venue. Does not unlock apps \u2014 grant each app below.",
   },
   {
     value: "global_admin",

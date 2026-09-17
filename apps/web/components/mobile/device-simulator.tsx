@@ -8,6 +8,7 @@ import { MobileEmployeeAttendanceScreen } from "@/components/mobile/mobile-emplo
 import { MobileEmployeeDocsScreen } from "@/components/mobile/mobile-employee-docs-screen";
 import { MobileEmployeeLeaveScreen } from "@/components/mobile/mobile-employee-leave-screen";
 import { MobileEmployeeProfileScreen } from "@/components/mobile/mobile-employee-profile-screen";
+import { MobileNotificationSettingsScreen } from "@/components/mobile/mobile-notification-settings-screen";
 import { MobileNotificationsScreen } from "@/components/mobile/mobile-notifications-screen";
 import { MobileRevenueScreen } from "@/components/mobile/mobile-revenue-screen";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@/components/mobile/mobile-sentiment-screen";
 import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
+import { MobileDirectoryScreen } from "@/components/mobile/mobile-directory-screen";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import {
   MobileNavBusyProvider,
@@ -36,6 +38,12 @@ import type { MobileDocsPage } from "@/lib/mobile/employee-docs";
 import type { MobileLeavePage } from "@/lib/mobile/employee-leave";
 import type { MobilePreviewEmployee } from "@/lib/mobile/preview-employees";
 import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
+import type { DirectoryStaffMember } from "@/lib/directory/types";
+import type { HierarchyNode } from "@/lib/directory/hierarchy-tree";
+import {
+  notificationMatchesFolder,
+  type NotificationFolder,
+} from "@/lib/notifications/folder";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { SelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 import type { SalesOverviewResult } from "@/lib/sales/sales-overview-data";
@@ -82,12 +90,31 @@ function sentimentTabFromPageId(pageId: string): MobileSentimentTab {
   return "dashboard";
 }
 
+function notificationFolderFromPageId(
+  pageId: string,
+): NotificationFolder | null {
+  if (pageId === "notifications") return "inbox";
+  if (pageId === "notification-alerts") return "alerts";
+  if (pageId === "notification-archive") return "archive";
+  return null;
+}
+
+function directoryTabFromPageId(
+  pageId: string,
+): "staff" | "celebrations" | "hierarchy" {
+  if (pageId === "directory-celebrations") return "celebrations";
+  if (pageId === "directory-hierarchy") return "hierarchy";
+  return "staff";
+}
+
 export function DeviceSimulator({
   loginLogoUrl,
   selectVenue,
   welcome,
   revenueOverview,
   sentiment,
+  directoryStaff,
+  directoryHierarchy,
   attendance,
   leave,
   docs,
@@ -98,6 +125,8 @@ export function DeviceSimulator({
   welcome: WelcomePreview;
   revenueOverview: SalesOverviewResult;
   sentiment: MobileSentimentBundle;
+  directoryStaff: DirectoryStaffMember[];
+  directoryHierarchy: HierarchyNode[];
   attendance: MobileAttendanceMonth;
   leave: MobileLeavePage;
   docs: MobileDocsPage;
@@ -146,6 +175,8 @@ export function DeviceSimulator({
         welcome={welcome}
         revenueOverview={revenueOverview}
         sentiment={sentiment}
+        directoryStaff={directoryStaff}
+        directoryHierarchy={directoryHierarchy}
         attendance={attendance}
         leave={leave}
         docs={docs}
@@ -166,6 +197,8 @@ function PhoneStage({
   welcome,
   revenueOverview,
   sentiment,
+  directoryStaff,
+  directoryHierarchy,
   attendance,
   leave,
   docs,
@@ -181,6 +214,8 @@ function PhoneStage({
   welcome: WelcomePreview;
   revenueOverview: SalesOverviewResult;
   sentiment: MobileSentimentBundle;
+  directoryStaff: DirectoryStaffMember[];
+  directoryHierarchy: HierarchyNode[];
   attendance: MobileAttendanceMonth;
   leave: MobileLeavePage;
   docs: MobileDocsPage;
@@ -315,13 +350,28 @@ function PhoneStage({
                 onOpenNotifications={() => setPageId("notifications")}
                 onOpenRevenue={() => setPageId("revenue")}
                 onOpenSentiment={() => setPageId("sentiment")}
+                onOpenDirectory={() => setPageId("directory")}
                 onOpenTerms={() => setPageId("terms")}
                 onLogout={() => setPageId("login")}
               />
-            ) : page.id === "notifications" ? (
+            ) : notificationFolderFromPageId(page.id) ? (
               <MobileNotificationsScreen
+                key={page.id}
                 venue={previewVenue}
-                notifications={previewWelcome.notifications}
+                folder={notificationFolderFromPageId(page.id)!}
+                notifications={previewWelcome.notifications.filter((n) =>
+                  notificationMatchesFolder(
+                    n,
+                    notificationFolderFromPageId(page.id)!,
+                  ),
+                )}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "notification-settings" ? (
+              <MobileNotificationSettingsScreen
+                venue={previewVenue}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
@@ -383,6 +433,16 @@ function PhoneStage({
                 tab={sentimentTabFromPageId(page.id)}
                 venue={previewVenue}
                 bundle={sentiment}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id.startsWith("directory") ? (
+              <MobileDirectoryScreen
+                tab={directoryTabFromPageId(page.id)}
+                venue={previewVenue}
+                staff={directoryStaff}
+                hierarchy={directoryHierarchy}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
@@ -451,17 +511,9 @@ function PhoneChrome({
           className={`absolute inset-0 ${
             page.id === "login"
               ? "bg-black"
-              : page.id === "welcome" ||
-                  page.id === "employee-profile" ||
-                  page.id === "attendance" ||
-                  page.id === "leave" ||
-                  page.id === "docs" ||
-                  page.id === "notifications" ||
-                  page.id === "revenue" ||
-                  page.id.startsWith("sentiment") ||
-                  page.id === "terms"
-                ? "bg-[Canvas]"
-                : "bg-[#E9E3D6]"
+              : page.id === "select-venue"
+                ? "bg-[#E9E3D6]"
+                : "bg-[Canvas]"
           }`}
         >
           <PullToRefresh

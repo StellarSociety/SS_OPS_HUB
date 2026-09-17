@@ -16,11 +16,15 @@ export default async function MobileNotificationsPage({ params }: PageProps) {
     return <MobileAccessDenied />;
   }
 
-  const { notifications } = await loadMobileNotifications(venue);
+  const { notifications } = await loadMobileNotifications(venue, "inbox");
 
   return (
     <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">
-      <MobileNotificationsScreen venue={venue} notifications={notifications} />
+      <MobileNotificationsScreen
+        venue={venue}
+        notifications={notifications}
+        folder="inbox"
+      />
     </div>
   );
 }

@@ -14,7 +14,7 @@ import { useMobilePressMotion } from "@/components/mobile/mobile-press";
 import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
 
 const COMPACT_RANGE = 80;
-const MIN_SCALE = 0.84;
+const MIN_SCALE = 0.76;
 
 type MobileTabBarProps = {
   app: MobileTabBarApp;

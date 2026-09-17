@@ -6,17 +6,25 @@ import { cn } from "@/lib/utils";
 const STAR_PATH =
   "M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z";
 
+const STAR_SIZE = {
+  md: "h-6 w-6",
+  lg: "h-8 w-8",
+} as const;
+
 export function AnimatedRatingStars({
   rating,
   className,
+  size = "lg",
 }: {
   rating: number | null;
   className?: string;
+  size?: keyof typeof STAR_SIZE;
 }) {
   const uid = useId().replace(/:/g, "");
   const goldId = `rating-gold-${uid}`;
   const clamped = Math.max(0, Math.min(5, rating ?? 0));
   const display = Math.round(clamped * 10) / 10;
+  const starClass = STAR_SIZE[size];
 
   return (
     <span
@@ -39,8 +47,8 @@ export function AnimatedRatingStars({
       {Array.from({ length: 5 }, (_, index) => {
         const fill = Math.max(0, Math.min(1, clamped - index));
         return (
-          <span key={index} className="relative block h-8 w-8 shrink-0">
-            <svg viewBox="0 0 24 24" className="block h-8 w-8" aria-hidden>
+          <span key={index} className={cn("relative block shrink-0", starClass)}>
+            <svg viewBox="0 0 24 24" className={cn("block", starClass)} aria-hidden>
               <path d={STAR_PATH} fill="#E6E6E6" />
             </svg>
             {fill > 0 ? (
@@ -48,7 +56,7 @@ export function AnimatedRatingStars({
                 className="absolute inset-y-0 left-0 overflow-hidden"
                 style={{ width: `${fill * 100}%` }}
               >
-                <svg viewBox="0 0 24 24" className="block h-8 w-8" aria-hidden>
+                <svg viewBox="0 0 24 24" className={cn("block", starClass)} aria-hidden>
                   <path d={STAR_PATH} fill={`url(#${goldId})`} />
                 </svg>
               </span>

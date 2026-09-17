@@ -1,8 +1,11 @@
 "use client";
 
 import {
+  Archive,
   Bell,
+  Cake,
   CalendarCheck,
+  Settings,
   CalendarDays,
   CalendarOff,
   ClipboardList,
@@ -11,10 +14,13 @@ import {
   LogIn,
   MapPinned,
   MessageSquare,
+  Network,
+  OctagonAlert,
   ScanFace,
   ScrollText,
   TrendingUp,
   UserRound,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -35,6 +41,9 @@ const PATH_ICONS: Record<string, LucideIcon> = {
   "select-venue": MapPinned,
   welcome: House,
   notifications: Bell,
+  "notification-alerts": OctagonAlert,
+  "notification-archive": Archive,
+  "notification-settings": Settings,
   "employee-profile": UserRound,
   attendance: CalendarCheck,
   leave: CalendarOff,
@@ -44,6 +53,9 @@ const PATH_ICONS: Record<string, LucideIcon> = {
   "sentiment-reviews": MessageSquare,
   "sentiment-calendar": CalendarDays,
   "sentiment-actions": ClipboardList,
+  directory: Users,
+  "directory-celebrations": Cake,
+  "directory-hierarchy": Network,
   terms: ScrollText,
 };
 

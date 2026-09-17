@@ -1,4 +1,5 @@
 import { AccessLogger } from "@/components/layout/access-logger";
+import { DeviceNotificationsManager } from "@/components/pwa/device-notifications";
 import { AppShellLayout } from "@/components/layout/app-shell-layout";
 import { OnlinePresence } from "@/components/layout/online-presence";
 import type { ShellUser } from "@/components/layout/user-profile-menu";
@@ -58,6 +59,7 @@ export function AppShell({
           <VenueFavicon url={faviconUrl} />
           <AccessLogger />
           <OnlinePresence />
+          <DeviceNotificationsManager />
           <div
             className="mobile-shell-inset h-dvh overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]/30 pb-[env(safe-area-inset-bottom,0px)]"
             style={venueThemeStyle(venue)}

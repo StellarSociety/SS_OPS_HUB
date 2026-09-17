@@ -9,7 +9,9 @@ import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { ModuleTile } from "@/components/modules/module-tile";
 import {
   MOBILE_PRESS_SCALE,
+  MOBILE_PRESS_SCALE_SOFT,
   MOBILE_PRESS_TRANSITION,
+  MOBILE_PRESS_TRANSITION_SOFT,
   MobilePressTarget,
   useMobilePress,
 } from "@/components/mobile/mobile-press";
@@ -51,6 +53,8 @@ type MobileWelcomeScreenProps = {
   revenueHref?: string;
   onOpenSentiment?: () => void;
   sentimentHref?: string;
+  onOpenDirectory?: () => void;
+  directoryHref?: string;
   onOpenTerms?: () => void;
   termsHref?: string;
   onLogout?: () => void;
@@ -70,6 +74,8 @@ export function MobileWelcomeScreen({
   revenueHref,
   onOpenSentiment,
   sentimentHref,
+  onOpenDirectory,
+  directoryHref,
   onOpenTerms,
   termsHref,
   onLogout,
@@ -203,9 +209,17 @@ export function MobileWelcomeScreen({
                               onOpen: onOpenSentiment,
                               noun: "Sentiment",
                             }
-                          : null;
+                          : live && mod.key === "directory"
+                            ? {
+                                href: directoryHref,
+                                onOpen: onOpenDirectory,
+                                noun: "Directory",
+                              }
+                            : null;
                     const reservedToggle =
-                      mod.key === "sales" || mod.key === "sentiment";
+                      mod.key === "sales" ||
+                      mod.key === "sentiment" ||
+                      mod.key === "directory";
                     return (
                       <ModuleTile
                         key={mod.key}
@@ -416,8 +430,8 @@ function WelcomeProfileCard({
   const inner = (
     <motion.span
       className="flex w-full items-center gap-2"
-      animate={{ scale: pressed ? MOBILE_PRESS_SCALE : 1 }}
-      transition={MOBILE_PRESS_TRANSITION}
+      animate={{ scale: pressed ? MOBILE_PRESS_SCALE_SOFT : 1 }}
+      transition={MOBILE_PRESS_TRANSITION_SOFT}
     >
       {row}
     </motion.span>

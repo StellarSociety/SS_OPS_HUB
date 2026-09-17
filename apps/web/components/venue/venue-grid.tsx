@@ -49,16 +49,29 @@ export function VenueGrid({
           compact ? "mt-5 gap-6" : "mt-12 gap-14",
         )}
       >
-        {venues.map((venue) => (
-          <VenueTile
-            key={venue.id}
-            venue={venue}
-            preview={preview}
-            onSelectVenue={onSelectVenue}
-            runtime={runtime}
-            compact={compact}
-          />
-        ))}
+        {venues.length === 0 ? (
+          <p
+            className={cn(
+              "max-w-sm text-[#3D421F]/70",
+              compact ? "mt-1 text-sm" : "mt-2 text-base",
+            )}
+          >
+            {runtime === "mobile"
+              ? "You do not have Mobile App access for any venue. Ask an administrator to enable it."
+              : "You do not have access to any venue yet. Ask an administrator to grant access."}
+          </p>
+        ) : (
+          venues.map((venue) => (
+            <VenueTile
+              key={venue.id}
+              venue={venue}
+              preview={preview}
+              onSelectVenue={onSelectVenue}
+              runtime={runtime}
+              compact={compact}
+            />
+          ))
+        )}
       </div>
     </motion.div>
   );

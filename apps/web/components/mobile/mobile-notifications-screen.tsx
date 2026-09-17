@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useTransition, type CSSProperties } from "react";
-import { Bell, Check, X } from "lucide-react";
+import { useEffect, useState, useTransition, type CSSProperties } from "react";
+import { ArchiveRestore, Bell, Check, Trash2, X } from "lucide-react";
 import {
+  archiveNotificationById,
   deleteNotificationById,
   markNotificationAsRead,
+  unarchiveNotificationById,
 } from "@/lib/actions/notifications";
 import { formatDateOnly } from "@/lib/hr/derived";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
+import type { NotificationFolder } from "@/lib/notifications/folder";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
 import type { Venue } from "@/lib/types/database";
@@ -16,7 +19,29 @@ import { cn } from "@/lib/utils";
 type MobileNotificationsScreenProps = {
   venue: Venue;
   notifications: NotificationRow[];
+  folder?: NotificationFolder;
   onSelectTab?: (tab: MobileTabItem) => void;
+};
+
+const COPY: Record<
+  NotificationFolder,
+  { title: string; subtitle: string; empty: string }
+> = {
+  inbox: {
+    title: "Inbox",
+    subtitle: "Active notices for this venue",
+    empty: "No active notifications.",
+  },
+  alerts: {
+    title: "Alerts",
+    subtitle: "Warnings and critical notices that still need attention",
+    empty: "No alerts right now.",
+  },
+  archive: {
+    title: "Archive",
+    subtitle: "Dismissed notices. Restore them, or delete for good.",
+    empty: "Archive is empty.",
+  },
 };
 
 function severityDot(severity: NotificationRow["severity"]) {
@@ -28,10 +53,16 @@ function severityDot(severity: NotificationRow["severity"]) {
 export function MobileNotificationsScreen({
   venue,
   notifications: initial,
+  folder = "inbox",
   onSelectTab,
 }: MobileNotificationsScreenProps) {
   const [items, setItems] = useState(initial);
   const [pending, startTransition] = useTransition();
+  const copy = COPY[folder];
+
+  useEffect(() => {
+    setItems(initial);
+  }, [initial]);
 
   return (
     <div
@@ -45,10 +76,10 @@ export function MobileNotificationsScreen({
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-4">
         <h1 className="text-center font-serif text-2xl font-semibold text-[#3D421F] dark:text-[CanvasText]">
-          Notifications
+          {copy.title}
         </h1>
         <p className="mt-1 text-center text-sm text-black/50 dark:text-white/50">
-          User central notifications
+          {copy.subtitle}
         </p>
         <hr className="mt-3 border-black/10 dark:border-white/12" />
 
@@ -56,7 +87,7 @@ export function MobileNotificationsScreen({
           <div className="mt-10 flex flex-col items-center gap-2 px-6 text-center">
             <Bell className="h-8 w-8 text-[#3D421F]/30 dark:text-white/30" />
             <p className="text-sm text-black/50 dark:text-white/50">
-              No notifications for this venue.
+              {copy.empty}
             </p>
           </div>
         ) : (
@@ -97,44 +128,86 @@ export function MobileNotificationsScreen({
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-0.5">
-                    {unread ? (
-                      <button
-                        type="button"
-                        className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-[#3D421F] dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white"
-                        aria-label="Mark as read"
-                        disabled={pending}
-                        onClick={() => {
-                          startTransition(async () => {
-                            await markNotificationAsRead(n.id);
-                            setItems((current) =>
-                              current.map((item) =>
-                                item.id === n.id
-                                  ? { ...item, read_at: new Date().toISOString() }
-                                  : item,
-                              ),
-                            );
-                          });
-                        }}
-                      >
-                        <Check className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-red-600 dark:text-white/40 dark:hover:bg-white/10"
-                      aria-label="Dismiss notification"
-                      disabled={pending}
-                      onClick={() => {
-                        startTransition(async () => {
-                          await deleteNotificationById(n.id);
-                          setItems((current) =>
-                            current.filter((item) => item.id !== n.id),
-                          );
-                        });
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                    {folder === "archive" ? (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-[#3D421F] dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white"
+                          aria-label="Restore notification"
+                          disabled={pending}
+                          onClick={() => {
+                            startTransition(async () => {
+                              await unarchiveNotificationById(n.id);
+                              setItems((current) =>
+                                current.filter((item) => item.id !== n.id),
+                              );
+                            });
+                          }}
+                        >
+                          <ArchiveRestore className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-red-600 dark:text-white/40 dark:hover:bg-white/10"
+                          aria-label="Delete notification"
+                          disabled={pending}
+                          onClick={() => {
+                            startTransition(async () => {
+                              await deleteNotificationById(n.id);
+                              setItems((current) =>
+                                current.filter((item) => item.id !== n.id),
+                              );
+                            });
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {unread ? (
+                          <button
+                            type="button"
+                            className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-[#3D421F] dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white"
+                            aria-label="Mark as read"
+                            disabled={pending}
+                            onClick={() => {
+                              startTransition(async () => {
+                                await markNotificationAsRead(n.id);
+                                setItems((current) =>
+                                  current.map((item) =>
+                                    item.id === n.id
+                                      ? {
+                                          ...item,
+                                          read_at: new Date().toISOString(),
+                                        }
+                                      : item,
+                                  ),
+                                );
+                              });
+                            }}
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="rounded p-1 text-black/40 hover:bg-black/5 hover:text-red-600 dark:text-white/40 dark:hover:bg-white/10"
+                          aria-label="Archive notification"
+                          disabled={pending}
+                          onClick={() => {
+                            startTransition(async () => {
+                              await archiveNotificationById(n.id);
+                              setItems((current) =>
+                                current.filter((item) => item.id !== n.id),
+                              );
+                            });
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </li>
               );
@@ -145,7 +218,7 @@ export function MobileNotificationsScreen({
 
       <MobileTabBar
         app="notifications"
-        activeId="inbox"
+        activeId={folder}
         venueSlug={venue.slug}
         onSelectTab={onSelectTab}
       />

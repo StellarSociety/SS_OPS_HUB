@@ -1,7 +1,7 @@
 "use server";
 
 import { listAccessEvents } from "@/lib/access/store";
-import { isAppAdmin } from "@/lib/role-permissions";
+import { canManageHubSettings } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { AccessEventRow } from "@/lib/access/types";
@@ -66,7 +66,7 @@ export async function loadUserAccessLogs(userId: string): Promise<{
       .from("user_permissions")
       .select("*")
       .eq("user_id", user.id);
-    if (!isAppAdmin(permissions ?? [])) {
+    if (!canManageHubSettings(permissions ?? [])) {
       return { error: "You do not have permission to view these logs." };
     }
   }

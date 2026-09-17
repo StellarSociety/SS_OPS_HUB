@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
 import { listUsers } from "@/lib/access/store";
+import { dispatchPendingPushes } from "@/lib/push/send";
 import type { UserListRow } from "@/lib/access/types";
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import { decryptSecret, encryptSecret } from "@/lib/email/secret";
@@ -535,6 +536,7 @@ export async function requestReviewJustification(formData: FormData) {
       entity_id: reviewId,
       severity: "warning",
       read_at: null,
+      push_sent_at: null,
       dedupe_key: `sentiment-justification:${auth.venue.id}:${reviewId}:${assignee.id}`,
     },
     { onConflict: "dedupe_key" },
@@ -544,6 +546,8 @@ export async function requestReviewJustification(formData: FormData) {
       "[sentiment] justification notify failed:",
       notifyError.message,
     );
+  } else {
+    await dispatchPendingPushes(service);
   }
 
   await writeAuditLog({
@@ -617,10 +621,12 @@ export async function submitReviewJustification(formData: FormData) {
         entity_id: reviewId,
         severity: "info",
         read_at: null,
+        push_sent_at: null,
         dedupe_key: `sentiment-justification-done:${auth.venue.id}:${reviewId}`,
       },
       { onConflict: "dedupe_key" },
     );
+    await dispatchPendingPushes(service);
   }
 
   revalidateSentimentReviews();

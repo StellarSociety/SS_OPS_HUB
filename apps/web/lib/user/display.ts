@@ -1,7 +1,12 @@
-import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
+import {
+  isGlobalAdmin,
+  isVenueAdmin,
+  type UserPermission,
+} from "@/lib/role-permissions";
 
 export function getUserRoleLabel(permissions: UserPermission[]): string {
-  if (isAppAdmin(permissions)) return "Administrator";
+  if (isGlobalAdmin(permissions)) return "Administrator";
+  if (isVenueAdmin(permissions)) return "Venue Admin";
 
   const hasEdit = permissions.some(
     (p) => p.access_level === "edit" || p.access_level === "admin",

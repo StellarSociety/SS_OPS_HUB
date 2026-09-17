@@ -37,6 +37,12 @@ export function normalizeEmploymentStatusName(
   return EMPLOYMENT_STATUS_ALIASES[raw.toLowerCase()] ?? raw;
 }
 
+export function isHiringEmploymentStatus(
+  name: string | null | undefined,
+): boolean {
+  return normalizeEmploymentStatusName(name) === EMPLOYMENT_STATUS_NAMES.hiring;
+}
+
 export function isOffBoardEmploymentStatus(
   name: string | null | undefined,
 ): boolean {

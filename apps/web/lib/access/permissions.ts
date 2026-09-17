@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
+import {
+  canManageHubSettings,
+  type UserPermission,
+} from "@/lib/role-permissions";
 import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
 import { scopedPath } from "@/lib/venue/active-venue";
 
@@ -14,7 +17,7 @@ export async function requireAppAdmin() {
     .eq("user_id", user.id);
 
   const perms = (permissions ?? []) as UserPermission[];
-  if (!isAppAdmin(perms)) {
+  if (!canManageHubSettings(perms)) {
     redirect(await scopedPath("/dashboard"));
   }
 

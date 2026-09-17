@@ -553,6 +553,50 @@ export const moduleCatalog: ModuleDef[] = [
     ],
   },
   {
+    key: "directory",
+    label: "Directory",
+    description: "Staff contacts, birthdays, work anniversaries, and the reporting tree.",
+    featureGroups: [
+      { key: "staff", label: "Staff" },
+      { key: "celebrations", label: "Celebrations" },
+      { key: "hierarchy", label: "Hierarchy" },
+      { key: "hierarchy_management", label: "Hierarchy Management" },
+    ],
+    features: [
+      {
+        key: "staff",
+        label: "Staff",
+        href: "/directory",
+        group: "staff",
+        viewOnly: true,
+      },
+      {
+        key: "celebrations",
+        label: "Celebrations",
+        href: "/directory/celebrations",
+        group: "celebrations",
+        viewOnly: true,
+      },
+      {
+        key: "hierarchy",
+        label: "Hierarchy",
+        href: "/directory/hierarchy",
+        group: "hierarchy",
+        viewOnly: true,
+        description: "View the reporting tree.",
+      },
+      {
+        key: "hierarchy_management",
+        label: "Hierarchy Management",
+        href: "/directory/hierarchy-management",
+        group: "hierarchy_management",
+        viewOnly: true,
+        description:
+          "Edit the reporting tree, hire cards, employee numbers, payable salary, and department totals.",
+      },
+    ],
+  },
+  {
     key: "learning",
     label: "Learning & Development",
     description: "Training, courses, and staff development.",

@@ -66,7 +66,7 @@ const nextConfig: NextConfig = {
   // Trace from the workspace root so pnpm's symlinked store is followed.
   outputFileTracingRoot: workspaceRoot,
   // sharp is a native module; keep it external and ship its platform binaries.
-  serverExternalPackages: ["sharp"],
+  serverExternalPackages: ["sharp", "web-push"],
   // Do not use broad @img/** includes — they copy every platform arch into every
   // route and blow past Vercel's 250 MB function limit at "Deploying outputs".
   outputFileTracingExcludes: {

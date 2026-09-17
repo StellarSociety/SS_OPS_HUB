@@ -4,7 +4,7 @@ import {
   countUnreadNotifications,
   listNotificationsForUser,
 } from "@/lib/notifications/store";
-import { isAppAdmin } from "@/lib/role-permissions";
+import { canManageHubSettings } from "@/lib/role-permissions";
 import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { getUserRoleLabel } from "@/lib/user/display";
@@ -93,7 +93,7 @@ export default async function AppLayout({
   });
 
   const perms = permissions ?? [];
-  const showSettings = isAppAdmin(perms);
+  const showSettings = canManageHubSettings(perms);
   const venues = (allVenues ?? []).filter((v) => !v.is_global);
 
   const metadata = user.user_metadata as Record<string, unknown> | undefined;

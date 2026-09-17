@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { canAccessGlobal } from "@/lib/role-permissions";
+import { canAccessGlobal, type UserPermission } from "@/lib/role-permissions";
 import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
+import { canAccessMobileApp } from "@/lib/mobile/permissions";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { normalizeVenueRows } from "@/lib/venue/normalize";
@@ -39,7 +40,7 @@ function unwrapStaff(staff: ProfileShape extends infer P
 }
 
 export async function loadSelectVenuePageData(
-  options?: { signInHref?: string },
+  options?: { signInHref?: string; requireMobileAppAccess?: boolean },
 ): Promise<SelectVenuePageData> {
   const supabase = await getRenderClient();
   const user = await getRenderUser();
@@ -111,9 +112,15 @@ export async function loadSelectVenuePageData(
   const normalized = normalizeVenueRows(venues ?? []);
   const globalVenue = normalized.find((venue) => venue.is_global);
   const operational = normalized.filter((venue) => !venue.is_global);
-  const showGlobal = canAccessGlobal(permissions ?? []);
-  const displayVenues =
+  const perms = (permissions ?? []) as UserPermission[];
+  const showGlobal = canAccessGlobal(perms);
+  let displayVenues =
     showGlobal && globalVenue ? [globalVenue, ...operational] : operational;
+  if (options?.requireMobileAppAccess) {
+    displayVenues = displayVenues.filter((venue) =>
+      canAccessMobileApp(perms, venue.id),
+    );
+  }
 
   return {
     fullName: profile?.full_name ?? null,

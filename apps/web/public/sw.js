@@ -3,7 +3,7 @@
  * Purpose: satisfy installability and keep icons/static shell available.
  * Does not cache HTML documents, auth responses, or API data.
  */
-const CACHE_NAME = "ss-ops-hub-pwa-v10";
+const CACHE_NAME = "ss-ops-hub-pwa-v11";
 const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -89,3 +89,61 @@ self.addEventListener("fetch", (event) => {
     }),
   );
 });
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    try {
+      data = { body: event.data ? event.data.text() : "" };
+    } catch {
+      data = {};
+    }
+  }
+
+  const title = data.title || "SS Ops Hub";
+  const url = data.url || "/m/";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: {
+        url,
+        notificationId: data.notificationId || null,
+      },
+      tag: data.tag || data.notificationId || "ss-ops-hub",
+      renotify: true,
+      requireInteraction: data.severity === "critical",
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || "/m/";
+  event.waitUntil(openNotificationUrl(target));
+});
+
+async function openNotificationUrl(target) {
+  const url = new URL(target, self.location.origin).href;
+  const windows = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+  for (const client of windows) {
+    if (client.url.startsWith(self.location.origin) && "focus" in client) {
+      await client.focus();
+      if ("navigate" in client) {
+        try {
+          await client.navigate(url);
+        } catch {
+          // Older clients may reject navigate; the focused app is still useful.
+        }
+      }
+      return;
+    }
+  }
+  await self.clients.openWindow(url);
+}

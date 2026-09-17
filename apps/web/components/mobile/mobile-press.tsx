@@ -10,14 +10,24 @@ import {
 } from "react";
 import { motion, type HTMLMotionProps } from "framer-motion";
 
-/** Strong press-in used on mobile controls that open a page. */
-export const MOBILE_PRESS_SCALE = 0.66;
+/** Press-in used on compact mobile icons and controls. */
+export const MOBILE_PRESS_SCALE = 0.86;
+
+/** Gentle press-in for wide rows (profile hub, full-width cards). */
+export const MOBILE_PRESS_SCALE_SOFT = 0.97;
 
 export const MOBILE_PRESS_TRANSITION = {
   type: "spring" as const,
-  stiffness: 820,
-  damping: 13,
-  mass: 0.55,
+  stiffness: 640,
+  damping: 22,
+  mass: 0.5,
+};
+
+export const MOBILE_PRESS_TRANSITION_SOFT = {
+  type: "spring" as const,
+  stiffness: 500,
+  damping: 32,
+  mass: 0.5,
 };
 
 export const mobilePressTap = { scale: MOBILE_PRESS_SCALE };

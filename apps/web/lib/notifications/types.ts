@@ -17,6 +17,8 @@ export type NotificationRow = {
   lead_days: number | null;
   read_at: string | null;
   email_sent_at: string | null;
+  push_sent_at: string | null;
+  archived_at: string | null;
   dedupe_key: string;
   created_at: string;
 };

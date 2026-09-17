@@ -4,11 +4,13 @@ import { emailPendingNotificationsForRecipient } from "./email";
 import { getNotificationRules } from "./registry";
 import type { ExpiryNotificationDraft, NotificationRecipient } from "./types";
 import { buildDedupeKey } from "./types";
+import { sendPendingPushNotifications } from "@/lib/push/send";
 
 type SyncResult = {
   venuesProcessed: number;
   notificationsUpserted: number;
   emailsSent: number;
+  pushesSent: number;
 };
 
 async function listNonGlobalVenues(supabase: SupabaseClient) {
@@ -91,11 +93,19 @@ export async function syncNotifications(
   }
 
   const emailsSent = await sendPendingEmails(service);
+  let pushesSent = 0;
+  try {
+    const pushed = await sendPendingPushNotifications(service);
+    pushesSent = pushed.sent;
+  } catch (error) {
+    console.error("[notifications] Push send failed:", error);
+  }
 
   return {
     venuesProcessed: venues.length,
     notificationsUpserted,
     emailsSent,
+    pushesSent,
   };
 }
 
@@ -104,6 +114,7 @@ async function sendPendingEmails(service: SupabaseClient): Promise<number> {
     .from("notifications")
     .select("*")
     .is("email_sent_at", null)
+    .is("archived_at", null)
     .order("due_date", { ascending: true })
     .limit(500);
 

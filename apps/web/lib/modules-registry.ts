@@ -234,8 +234,10 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     label: "Directory",
     iconKey: "book-user",
     category: "people",
-    status: "coming_soon",
-    description: "Staff directory.",
+    href: "/directory",
+    status: "live",
+    description:
+      "Browse staff, birthdays, work anniversaries, and the reporting tree.",
   },
   {
     key: "learning",

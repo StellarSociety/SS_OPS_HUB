@@ -90,7 +90,7 @@ export function RightClickMenu({
         ? createPortal(
             <>
               <div
-                className="fixed inset-0 z-[200]"
+                className="fixed inset-0 z-[450]"
                 aria-hidden
                 onClick={close}
                 onContextMenu={(event) => {
@@ -108,7 +108,7 @@ export function RightClickMenu({
                   left: coords.x,
                 }}
                 className={cn(
-                  "z-[201] overflow-hidden rounded-lg border border-black/10 bg-white py-1.5 shadow-lg",
+                  "z-[451] overflow-hidden rounded-lg border border-black/10 bg-white py-1.5 shadow-lg",
                   menuClassName,
                 )}
               >

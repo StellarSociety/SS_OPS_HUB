@@ -169,16 +169,19 @@ function ChannelIcon({
 function RatingCard({
   metric,
   venue,
+  compact = false,
 }: {
   metric: RatingMetric;
   venue: VenueBrand;
+  compact?: boolean;
 }) {
   const venueRate = !metric.channel;
   return (
     <SentimentLink
       href={metric.href}
       className={cn(
-        "group/rating flex h-full flex-col items-center justify-center p-5 text-center",
+        "group/rating flex h-full min-w-0 flex-col items-center justify-center text-center",
+        compact ? "p-4" : "p-5",
         "rounded-xl border border-black/5 shadow-sm backdrop-blur-xl",
         "transition-[transform,box-shadow,border-color,background-color] duration-500 ease-out",
         "hover:-translate-y-px hover:border-black/10",
@@ -192,8 +195,11 @@ function RatingCard({
         <ChannelIcon channel={metric.channel} venue={venue} />
         {metric.label}
       </p>
-      <div className="mt-2 flex items-center justify-center gap-2">
-        <AnimatedRatingStars rating={metric.rating} />
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+        <AnimatedRatingStars
+          rating={metric.rating}
+          size={compact ? "md" : "lg"}
+        />
         {metric.rating != null ? (
           <span className="font-google-sans text-2xl font-semibold tabular-nums leading-none text-[#3D421F]">
             {metric.rating.toFixed(1)}
@@ -223,19 +229,21 @@ function HistogramCard({
   href,
   reviews,
   followUp,
+  compact = false,
 }: {
   label: string;
   insights: ReviewPeriodInsights;
   href: string;
   reviews: SentimentReview[];
   followUp: FollowUpLists;
+  compact?: boolean;
 }) {
   const [star, setStar] = useState<StarLevel | null>(null);
   const list = star ? reviewsAtStarLevel(reviews, star) : [];
 
   return (
     <>
-      <Card className="flex h-full flex-col p-5">
+      <Card className={cn("flex h-full min-w-0 flex-col", compact ? "p-4" : "p-5")}>
         <p className="text-center text-xs font-semibold uppercase tracking-wide text-black/45">
           {label}
         </p>
@@ -245,6 +253,7 @@ function HistogramCard({
           starCounts={insights.starCounts}
           total={insights.total}
           href={href}
+          compact={compact}
           onSelectStar={setStar}
         />
       </Card>
@@ -282,6 +291,7 @@ export function SentimentDashboardMetrics({
   staffMentions,
   monthStrip,
   selectedMonthKey,
+  compact = false,
 }: {
   venue: VenueBrand;
   ratings: RatingMetric[];
@@ -295,23 +305,35 @@ export function SentimentDashboardMetrics({
   staffMentions: NamedCount[];
   monthStrip: MonthReviewStats[];
   selectedMonthKey: string;
+  compact?: boolean;
 }) {
   const [dialog, setDialog] = useState<"awaiting" | "actions" | null>(null);
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={cn(
+          "grid gap-3",
+          !compact && "sm:grid-cols-2 lg:grid-cols-4",
+        )}
+      >
         {ratings.map((metric) => (
-          <RatingCard key={metric.label} metric={metric} venue={venue} />
+          <RatingCard
+            key={metric.label}
+            metric={metric}
+            venue={venue}
+            compact={compact}
+          />
         ))}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={cn("grid gap-3", !compact && "sm:grid-cols-2")}>
         <HistogramCard
           label="Venue Overall Rates"
           insights={overall}
           href="/sentiment/reviews?period=all"
           reviews={overallReviews}
           followUp={followUp}
+          compact={compact}
         />
         <HistogramCard
           label="This month"
@@ -319,9 +341,15 @@ export function SentimentDashboardMetrics({
           href={`/sentiment/reviews?period=month&month=${selectedMonthKey}`}
           reviews={thisMonthReviews}
           followUp={followUp}
+          compact={compact}
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div
+        className={cn(
+          "grid gap-3",
+          !compact && "sm:grid-cols-2 lg:grid-cols-3",
+        )}
+      >
         <MetricButton
           label="Calendar"
           value={thisMonth.total}
@@ -350,7 +378,12 @@ export function SentimentDashboardMetrics({
         items={monthStrip}
         selectedMonthKey={selectedMonthKey}
       />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div
+        className={cn(
+          "grid gap-3",
+          !compact && "sm:grid-cols-2 xl:grid-cols-3",
+        )}
+      >
         <MentionRankCard
           title="Most used tags"
           items={topicCounts}

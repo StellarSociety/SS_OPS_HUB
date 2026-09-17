@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAppAdmin } from "@/lib/access/permissions";
-import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
+import { canManageHubSettings, type UserPermission } from "@/lib/role-permissions";
 import { expandAccess, type AccessEditorState } from "@/lib/access/roles";
 import {
   getUserById,
@@ -863,7 +863,7 @@ export async function updateUserAvatar(userId: string, formData: FormData) {
       .from("user_permissions")
       .select("*")
       .eq("user_id", actor.id);
-    if (!isAppAdmin((permissions ?? []) as UserPermission[])) {
+    if (!canManageHubSettings((permissions ?? []) as UserPermission[])) {
       return { error: "You do not have permission to update this profile photo." };
     }
   } else if (!canManageProfileAvatar(before)) {

@@ -13,13 +13,16 @@ import {
   X,
 } from "lucide-react";
 import {
-  deleteAllNotificationsForVenue,
-  deleteNotificationById,
+  archiveAllNotificationsForVenue,
+  archiveNotificationById,
   fetchNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
 } from "@/lib/actions/notifications";
+import { isArchivedNotification } from "@/lib/notifications/folder";
+import { DeviceNotificationEnableRow } from "@/components/pwa/device-notifications";
 import { formatDateOnly } from "@/lib/hr/derived";
+import { notificationCanonicalHref as notificationHref } from "@/lib/notifications/href";
 import type { NotificationRow } from "@/lib/notifications/types";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -39,22 +42,6 @@ function severityDot(severity: NotificationRow["severity"]) {
   if (severity === "critical") return "bg-red-500";
   if (severity === "warning") return "bg-amber-500";
   return "bg-[#818a40]";
-}
-
-function notificationHref(n: NotificationRow): string | null {
-  if (n.module_key === "sentiment" && n.entity === "sentiment_review") {
-    return `/sentiment/justify/${n.entity_id}`;
-  }
-  if (n.module_key === "hr" && n.entity === "staff") {
-    return `/hr/${n.entity_id}`;
-  }
-  if (n.module_key === "hr" && n.entity === "schedule_week") {
-    return `/hr/schedules`;
-  }
-  if (n.module_key === "hr" && n.entity === "payroll_run") {
-    return `/hr/payroll/${n.entity_id}`;
-  }
-  return null;
 }
 
 function isAlert(n: NotificationRow) {
@@ -83,7 +70,7 @@ function matchesVenue(
 }
 
 function unreadCountFrom(list: NotificationRow[]) {
-  return list.filter((n) => !n.read_at).length;
+  return list.filter((n) => !n.read_at && !isArchivedNotification(n)).length;
 }
 
 export function NotificationCenter({
@@ -109,7 +96,7 @@ export function NotificationCenter({
   const unreadAlerts = useMemo(
     () =>
       notifications
-        .filter((n) => !n.read_at && isAlert(n))
+        .filter((n) => !n.read_at && isAlert(n) && !isArchivedNotification(n))
         .slice()
         .sort(sortAlerts),
     [notifications],
@@ -217,6 +204,16 @@ export function NotificationCenter({
 
       if (!row || !matchesVenue(row, venueId, isGlobalVenue)) return;
 
+      if (isArchivedNotification(row)) {
+        knownIdsRef.current.delete(row.id);
+        setNotifications((prev) => {
+          const next = prev.filter((n) => n.id !== row.id);
+          setUnreadCount(unreadCountFrom(next));
+          return next;
+        });
+        return;
+      }
+
       const isNew = !knownIdsRef.current.has(row.id);
       knownIdsRef.current.add(row.id);
 
@@ -321,10 +318,10 @@ export function NotificationCenter({
     });
   }
 
-  function handleDelete(id: string) {
+  function handleArchive(id: string) {
     const removed = notifications.find((n) => n.id === id);
     startTransition(async () => {
-      await deleteNotificationById(id);
+      await archiveNotificationById(id);
       knownIdsRef.current.delete(id);
       setNotifications((prev) => {
         const next = prev.filter((n) => n.id !== id);
@@ -338,7 +335,7 @@ export function NotificationCenter({
 
   function handleClearAll() {
     startTransition(async () => {
-      await deleteAllNotificationsForVenue({ venueId, isGlobalVenue });
+      await archiveAllNotificationsForVenue({ venueId, isGlobalVenue });
       knownIdsRef.current = new Set();
       setNotifications([]);
       setUnreadCount(0);
@@ -471,7 +468,7 @@ export function NotificationCenter({
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          handleDelete(n.id);
+                          handleArchive(n.id);
                         }}
                       >
                         <X className="h-4 w-4" />
@@ -504,6 +501,7 @@ export function NotificationCenter({
               })
             )}
           </ul>
+          <DeviceNotificationEnableRow />
         </div>
       ) : null}
 

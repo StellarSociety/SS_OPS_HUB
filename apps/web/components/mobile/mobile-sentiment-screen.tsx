@@ -131,7 +131,7 @@ export function MobileSentimentScreen({
 
           <div className="mx-auto mt-4 w-full max-w-none space-y-4">
             {tab === "dashboard" ? (
-              <SentimentDashboardMetrics {...dashboard} />
+              <SentimentDashboardMetrics {...dashboard} compact />
             ) : null}
 
             {tab === "reviews" ? (

@@ -9,6 +9,7 @@ export function RatingHistogram({
   total,
   href,
   className,
+  compact = false,
   onSelectStar,
 }: {
   averageRating: number | null;
@@ -16,6 +17,7 @@ export function RatingHistogram({
   total: number;
   href?: string;
   className?: string;
+  compact?: boolean;
   onSelectStar?: (stars: StarLevel) => void;
 }) {
   const ratedTotal = STAR_LEVELS.reduce(
@@ -26,10 +28,16 @@ export function RatingHistogram({
 
   return (
     <div
-      className={cn("flex min-w-0 items-center gap-4", className)}
+      className={cn(
+        "flex min-w-0",
+        compact
+          ? "flex-col-reverse items-stretch gap-3"
+          : "items-center gap-4",
+        className,
+      )}
       aria-label="Star rating breakdown"
     >
-      <div className="grid min-w-0 flex-1 grid-cols-[0.75rem_minmax(0,1fr)_2.25rem] items-center gap-x-2 gap-y-1.5">
+      <div className="grid min-w-0 w-full flex-1 grid-cols-[0.75rem_minmax(0,1fr)_2.25rem] items-center gap-x-2 gap-y-1.5">
         {STAR_LEVELS.map((stars) => {
           const count = starCounts[stars];
           const pct = ratedTotal > 0 ? (count / ratedTotal) * 100 : 0;
@@ -73,7 +81,12 @@ export function RatingHistogram({
         })}
       </div>
       <div className="flex shrink-0 flex-col items-center justify-center">
-        <p className="font-google-sans text-4xl font-semibold tabular-nums leading-none text-[#3D421F]">
+        <p
+          className={cn(
+            "font-google-sans font-semibold tabular-nums leading-none text-[#3D421F]",
+            compact ? "text-3xl" : "text-4xl",
+          )}
+        >
           {averageRating != null ? averageRating.toFixed(1) : "—"}
         </p>
         <GoogleStars rating={averageRating} size="md" className="mt-1" />

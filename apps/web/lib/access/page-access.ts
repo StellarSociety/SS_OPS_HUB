@@ -54,6 +54,12 @@ import {
   canAccessSettings as canAccessGuestsIntelSettings,
 } from "@/lib/guests-intel/permissions";
 import {
+  canAccessDirectoryCelebrations,
+  canAccessDirectoryHierarchy,
+  canAccessDirectoryHierarchyManagement,
+  canAccessDirectoryStaff,
+} from "@/lib/directory/permissions";
+import {
   canAccessMobileApp,
   canAccessSettings as canAccessMobileSettings,
 } from "@/lib/mobile/permissions";
@@ -260,6 +266,22 @@ export function canOpenAppPath(
       return canAccessSaveLogLogs(permissions, venueId);
     }
     return canAccessModule(permissions, "save_log", venueId);
+  }
+
+  if (startsWithPath(pathname, "/directory")) {
+    if (pathname === "/directory") {
+      return canAccessDirectoryStaff(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/directory/celebrations")) {
+      return canAccessDirectoryCelebrations(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/directory/hierarchy-management")) {
+      return canAccessDirectoryHierarchyManagement(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/directory/hierarchy")) {
+      return canAccessDirectoryHierarchy(permissions, venueId);
+    }
+    return canAccessModule(permissions, "directory", venueId);
   }
 
   if (startsWithPath(pathname, "/mobile")) {

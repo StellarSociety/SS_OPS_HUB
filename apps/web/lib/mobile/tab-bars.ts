@@ -1,9 +1,11 @@
 import {
   Archive,
   Bell,
+  Cake,
   CalendarCheck,
   CalendarDays,
   CalendarOff,
+  CircleDashed,
   ClipboardList,
   Coins,
   FileBarChart,
@@ -11,9 +13,11 @@ import {
   House,
   LayoutDashboard,
   MessageSquare,
+  Network,
   OctagonAlert,
   Settings,
   UserRound,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { MOBILE_APP_BASE } from "@/lib/mobile/app-path";
@@ -31,14 +35,15 @@ export type MobileTabItem = {
 };
 
 /**
- * Apps that own a 5-icon bar. Home is prepended and is never listed here.
+ * Apps that own a 5-icon bar. Home is appended on the right and is never listed here.
  * Every phone page except Login, Venue selection, Welcome, and Terms must use one.
  */
 export type MobileTabBarApp =
   | "profile"
   | "notifications"
   | "revenue"
-  | "sentiment";
+  | "sentiment"
+  | "directory";
 
 const HOME_TAB: MobileTabItem = {
   id: MOBILE_HOME_TAB_ID,
@@ -49,7 +54,7 @@ const HOME_TAB: MobileTabItem = {
 };
 
 /**
- * Four app-specific tabs. Combined with Home this is always 5 icons.
+ * Four app-specific tabs. Combined with Home (last / right) this is always 5 icons.
  * Add a new key when another operational app gets a phone shell.
  */
 const APP_TABS: Record<
@@ -98,18 +103,21 @@ const APP_TABS: Record<
       id: "alerts",
       label: "Alerts",
       icon: OctagonAlert,
+      pageId: "notification-alerts",
       path: "/notifications/alerts",
     },
     {
       id: "archive",
       label: "Archive",
       icon: Archive,
+      pageId: "notification-archive",
       path: "/notifications/archive",
     },
     {
       id: "settings",
       label: "Settings",
       icon: Settings,
+      pageId: "notification-settings",
       path: "/notifications/settings",
     },
   ],
@@ -170,10 +178,39 @@ const APP_TABS: Record<
       path: "/sentiment/actions",
     },
   ],
+  directory: [
+    {
+      id: "staff",
+      label: "Staff",
+      icon: Users,
+      pageId: "directory",
+      path: "/directory",
+    },
+    {
+      id: "celebrations",
+      label: "Celebrations",
+      icon: Cake,
+      pageId: "directory-celebrations",
+      path: "/directory/celebrations",
+    },
+    {
+      id: "hierarchy",
+      label: "Hierarchy",
+      icon: Network,
+      pageId: "directory-hierarchy",
+      path: "/directory/hierarchy",
+    },
+    {
+      id: "reserved",
+      label: " ",
+      icon: CircleDashed,
+      path: "/directory/reserved",
+    },
+  ],
 };
 
 export function tabBarItems(app: MobileTabBarApp): MobileTabItem[] {
-  return [HOME_TAB, ...APP_TABS[app]];
+  return [...APP_TABS[app], HOME_TAB];
 }
 
 export function tabBarHref(venueSlug: string, path: string): string {

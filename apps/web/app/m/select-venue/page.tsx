@@ -13,6 +13,7 @@ export const viewport: Viewport = {
 export default async function MobileSelectVenuePage() {
   const data = await loadSelectVenuePageData({
     signInHref: `${MOBILE_APP_BASE}/login`,
+    requireMobileAppAccess: true,
   });
   return <SelectVenueScreen {...data} fill runtime="mobile" />;
 }

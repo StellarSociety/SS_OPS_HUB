@@ -36,6 +36,27 @@ export const APP_PATH: AppPathPage[] = [
     from: "welcome",
   },
   {
+    id: "notification-alerts",
+    label: "Alerts",
+    href: `${MOBILE_APP_BASE}/notifications/alerts`,
+    venueScoped: true,
+    from: "notifications",
+  },
+  {
+    id: "notification-archive",
+    label: "Archive",
+    href: `${MOBILE_APP_BASE}/notifications/archive`,
+    venueScoped: true,
+    from: "notifications",
+  },
+  {
+    id: "notification-settings",
+    label: "Notification settings",
+    href: `${MOBILE_APP_BASE}/notifications/settings`,
+    venueScoped: true,
+    from: "notifications",
+  },
+  {
     id: "employee-profile",
     label: "Employee Profile",
     href: `${MOBILE_APP_BASE}/employee-profile`,
@@ -99,6 +120,27 @@ export const APP_PATH: AppPathPage[] = [
     from: "sentiment",
   },
   {
+    id: "directory",
+    label: "Directory",
+    href: `${MOBILE_APP_BASE}/directory`,
+    venueScoped: true,
+    from: "welcome",
+  },
+  {
+    id: "directory-celebrations",
+    label: "Celebrations",
+    href: `${MOBILE_APP_BASE}/directory/celebrations`,
+    venueScoped: true,
+    from: "directory",
+  },
+  {
+    id: "directory-hierarchy",
+    label: "Hierarchy",
+    href: `${MOBILE_APP_BASE}/directory/hierarchy`,
+    venueScoped: true,
+    from: "directory",
+  },
+  {
     id: "terms",
     label: "Terms & Conditions",
     href: `${MOBILE_APP_BASE}/terms`,
@@ -135,6 +177,18 @@ export function mobileNotificationsHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/notifications`;
 }
 
+export function mobileNotificationSettingsHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/notifications/settings`;
+}
+
+export function mobileNotificationAlertsHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/notifications/alerts`;
+}
+
+export function mobileNotificationArchiveHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/notifications/archive`;
+}
+
 export function mobileProfileHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/employee-profile`;
 }
@@ -153,6 +207,14 @@ export function mobileRevenueHref(venueSlug: string): string {
 
 export function mobileSentimentHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/sentiment`;
+}
+
+export function mobileDirectoryHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/directory`;
+}
+
+export function mobileDirectoryCelebrationsHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/directory/celebrations`;
 }
 
 export function mobileTermsHref(venueSlug: string): string {

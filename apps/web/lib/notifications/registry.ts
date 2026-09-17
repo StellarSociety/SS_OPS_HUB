@@ -16,6 +16,6 @@ export const notificationSettingsMeta = {
   key: "notifications",
   label: "Notifications",
   description:
-    "In-app alerts and email reminders. Per-user preferences coming soon.",
+    "In-app alerts, email reminders, and device notifications on the installed app.",
   status: "live" as const,
 };

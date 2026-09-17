@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
+import { dispatchPendingPushes } from "@/lib/push/send";
 import { listUsers } from "@/lib/access/store";
 import { sendAppEmail } from "@/lib/email/transport";
 import { joinAppUrl } from "@/lib/public-app-url";
@@ -418,6 +419,7 @@ export async function requestPayrollApproval(params: {
     severity: "warning" as const,
     dedupe_key: `payroll-approval:${venue.id}:${params.runId}:${step}:${approverId}`,
     read_at: null,
+    push_sent_at: null,
   }));
 
   const { error: notifyError } = await service
@@ -425,6 +427,8 @@ export async function requestPayrollApproval(params: {
     .upsert(rows, { onConflict: "dedupe_key" });
   if (notifyError) {
     console.error("[payroll] approval notify failed:", notifyError.message);
+  } else {
+    await dispatchPendingPushes(service);
   }
 
   let emailWarning: string | undefined;
@@ -549,9 +553,11 @@ export async function approvePayrollStep(params: {
         severity: "info",
         dedupe_key: `payroll-approval-done:${venue.id}:${params.runId}:${step}:${pending.id}`,
         read_at: null,
+        push_sent_at: null,
       },
       { onConflict: "dedupe_key" },
     );
+    await dispatchPendingPushes(service);
   }
 
   if (step === "final_approval") {

@@ -1,4 +1,5 @@
 import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
+import type { NotificationFolder } from "@/lib/notifications/folder";
 import {
   countNotifications,
   countUnreadNotifications,
@@ -15,6 +16,7 @@ export type MobileNotificationsData = {
 
 export async function loadMobileNotifications(
   venue: Venue,
+  folder: NotificationFolder = "inbox",
 ): Promise<MobileNotificationsData> {
   const supabase = await getRenderClient();
   const user = await getRenderUser();
@@ -28,8 +30,12 @@ export async function loadMobileNotifications(
   };
 
   const [notifications, totalCount, unreadCount] = await Promise.all([
-    listNotificationsForUser(supabase, user.id, { ...venueContext, limit: 50 }),
-    countNotifications(supabase, user.id, venueContext),
+    listNotificationsForUser(supabase, user.id, {
+      ...venueContext,
+      folder,
+      limit: 50,
+    }),
+    countNotifications(supabase, user.id, { ...venueContext, folder }),
     countUnreadNotifications(supabase, user.id, venueContext),
   ]);
 

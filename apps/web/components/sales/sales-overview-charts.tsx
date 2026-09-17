@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   formatMoney,
   formatMonthLabel,
@@ -285,6 +286,108 @@ function LunchDinnerBreakdown({
   );
 }
 
+function MobileAsphCenter({
+  title,
+  isVenue,
+  currentAsph,
+  previousAsph,
+  lunchAsph,
+  dinnerAsph,
+  maxAsph,
+}: {
+  title: string;
+  isVenue: boolean;
+  currentAsph: number | null;
+  previousAsph: number | null;
+  lunchAsph: number | null;
+  dinnerAsph: number | null;
+  maxAsph: number;
+}) {
+  const current = currentAsph ?? 0;
+  const previous = previousAsph ?? 0;
+  const trend = compareToPreviousMonth(currentAsph, previousAsph);
+  const deltaLabel = formatAsphDelta(currentAsph, previousAsph);
+  const mealDelta = formatLunchDinnerDelta(lunchAsph, dinnerAsph);
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl px-3 py-2.5",
+        isVenue
+          ? "bg-[var(--venue-primary,#6B7B3A)]/10"
+          : "bg-black/[0.03]",
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <p
+          className={cn(
+            "truncate text-sm",
+            isVenue
+              ? "font-semibold uppercase tracking-wide text-[#3D421F]"
+              : "font-medium text-black/65",
+          )}
+        >
+          {title}
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          <p className="text-base font-semibold tabular-nums text-[#3D421F]">
+            {formatAsphLabel(currentAsph)}
+          </p>
+          <TrendIndicator direction={trend} />
+        </div>
+      </div>
+
+      <div className="mt-1.5 space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="w-10 shrink-0 text-[9px] uppercase tracking-wide text-black/40">
+            Now
+          </span>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-black/10">
+            <div
+              className="h-full rounded-full bg-[#3D421F]/85"
+              style={{ width: `${Math.min((current / maxAsph) * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="w-10 shrink-0 text-[9px] uppercase tracking-wide text-black/40">
+            Prev
+          </span>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-black/10">
+            <div
+              className="h-full rounded-full bg-[#B6BE68]/70"
+              style={{ width: `${Math.min((previous / maxAsph) * 100, 100)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] tabular-nums">
+        <span style={{ color: LUNCH_ACCENT }}>
+          Lunch {formatAsphLabel(lunchAsph)}
+        </span>
+        <span style={{ color: DINNER_ACCENT }}>
+          Dinner {formatAsphLabel(dinnerAsph)}
+        </span>
+      </div>
+      {deltaLabel || mealDelta ? (
+        <p
+          className={cn(
+            "mt-1 text-[10px]",
+            trend === "up"
+              ? "font-medium text-emerald-600"
+              : trend === "down"
+                ? "font-medium text-red-600"
+                : "text-black/45",
+          )}
+        >
+          {[deltaLabel, mealDelta?.text].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function AverageSpendInsightsPanel({
   metrics,
   currentMtdRange,
@@ -319,33 +422,55 @@ function AverageSpendInsightsPanel({
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 className="font-serif text-base text-[#3D421F]">
-            Average Spend by Revenue Center
+            {compact ? "Average Spend" : "Average Spend by Revenue Center"}
           </h3>
           <p className="mt-1 text-xs text-black/50">
-            ASPH · MTD ({currentMtdRange}) vs prev MTD ({previousMtdRange})
+            {compact
+              ? `ASPH · MTD (${currentMtdRange}) vs prev`
+              : `ASPH · MTD (${currentMtdRange}) vs prev MTD (${previousMtdRange})`}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] text-black/55">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-black/55">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-4 rounded-sm bg-[#3D421F]/80" />
-            Current MTD
+            {compact ? "Now" : "Current MTD"}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-4 rounded-sm bg-[#B6BE68]/50" />
             Prev MTD
           </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-4 rounded-sm bg-[#C45C3E]/80" />
-            Lunch
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-4 rounded-sm bg-[#3D421F]/80" />
-            Dinner
-          </span>
+          {compact ? null : (
+            <>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-4 rounded-sm bg-[#C45C3E]/80" />
+                Lunch
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-4 rounded-sm bg-[#3D421F]/80" />
+                Dinner
+              </span>
+            </>
+          )}
         </div>
       </div>
 
       {hasData ? (
+        compact ? (
+          <div className="space-y-2">
+            {metrics.map((metric) => (
+              <MobileAsphCenter
+                key={metric.key}
+                title={metric.title}
+                isVenue={metric.key === "venue"}
+                currentAsph={metric.currentAsph}
+                previousAsph={metric.previousAsph}
+                lunchAsph={metric.currentLunchAsph}
+                dinnerAsph={metric.currentDinnerAsph}
+                maxAsph={maxAsph}
+              />
+            ))}
+          </div>
+        ) : (
         <div className="space-y-3">
           {metrics.map((metric) => {
             const current = metric.currentAsph ?? 0;
@@ -364,13 +489,9 @@ function AverageSpendInsightsPanel({
               <div
                 key={metric.key}
                 className={
-                  compact
-                    ? isVenue
-                      ? "space-y-2 border-b border-black/5 pb-3"
-                      : "space-y-2"
-                    : isVenue
-                      ? "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3 border-b border-black/5 pb-3"
-                      : "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3"
+                  isVenue
+                    ? "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3 border-b border-black/5 pb-3"
+                    : "grid grid-cols-[6.5rem_minmax(6rem,0.75fr)_minmax(5rem,1.5fr)_auto] items-center gap-3"
                 }
               >
                 <p
@@ -427,6 +548,7 @@ function AverageSpendInsightsPanel({
             );
           })}
         </div>
+        )
       ) : (
         <div className="flex flex-1 items-center justify-center text-xs text-black/45">
           No average spend data for this MTD period

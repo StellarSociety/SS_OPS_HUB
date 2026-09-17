@@ -46,6 +46,8 @@ export type Notification = {
   lead_days: number | null;
   read_at: string | null;
   email_sent_at: string | null;
+  push_sent_at: string | null;
+  archived_at: string | null;
   dedupe_key: string;
   created_at: string;
 };
@@ -364,16 +366,69 @@ export type Database = {
       departments: { Row: Department };
       positions: { Row: Position };
       staff: { Row: Staff };
+      directory_hierarchy_charts: {
+        Row: {
+          venue_id: string;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          venue_id: string;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: Partial<{
+          updated_at: string;
+          updated_by: string | null;
+        }>;
+      };
+      directory_hierarchy_nodes: {
+        Row: {
+          id: string;
+          venue_id: string;
+          staff_id: string;
+          reports_to_staff_id: string | null;
+          sort_order: number;
+          label: string | null;
+          collabs: unknown;
+          highlighted: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          venue_id: string;
+          staff_id: string;
+          reports_to_staff_id?: string | null;
+          sort_order?: number;
+          label?: string | null;
+          collabs?: unknown;
+          highlighted?: boolean;
+        };
+        Update: Partial<{
+          reports_to_staff_id: string | null;
+          sort_order: number;
+          label: string | null;
+          collabs: unknown;
+          highlighted: boolean;
+        }>;
+      };
       notifications: {
         Row: Notification;
         Insert: Omit<
           Notification,
-          "id" | "created_at" | "read_at" | "email_sent_at"
+          | "id"
+          | "created_at"
+          | "read_at"
+          | "email_sent_at"
+          | "push_sent_at"
+          | "archived_at"
         > & {
           id?: string;
           created_at?: string;
           read_at?: string | null;
           email_sent_at?: string | null;
+          push_sent_at?: string | null;
+          archived_at?: string | null;
         };
         Update: Partial<Notification>;
       };

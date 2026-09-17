@@ -57,8 +57,10 @@ export function MobileLanHostButton({
 
   useEffect(() => {
     if (!lanEnabled) return;
-    startTransition(async () => {
+    let cancelled = false;
+    void (async () => {
       const result = await createMobileLanHost();
+      if (cancelled) return;
       if (!result.ok) {
         setError(result.error);
         return;
@@ -66,7 +68,10 @@ export function MobileLanHostButton({
       setUrl(result.url);
       window.localStorage.setItem(LAN_HOST_STORAGE_KEY, result.url);
       setError(null);
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [lanEnabled]);
 
   function handleClick() {

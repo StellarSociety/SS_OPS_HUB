@@ -64,6 +64,8 @@ import {
   Wallet,
   Wine,
   Wrench,
+  Cake,
+  Network,
   type LucideIcon,
 } from "lucide-react";
 import { saveUserAccess } from "@/lib/actions/users";
@@ -173,6 +175,9 @@ const FEATURE_ICONS: Partial<Record<string, LucideIcon>> = {
   "hr:offboarding": UserMinus,
   "hr:salary": Banknote,
   "hr:schedule_approval": PackageCheck,
+  "directory:staff": Users,
+  "directory:celebrations": Cake,
+  "directory:hierarchy": Network,
   "learning:courses": BookOpen,
   "learning:progress": GraduationCap,
   "venue_governance:legal_docs": Scale,
@@ -198,6 +203,9 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   guests: UserRound,
   rewards: Gift,
   logs: SafeLogHaccp,
+  staff: Users,
+  celebrations: Cake,
+  hierarchy: Network,
   all: Layers,
   other: Layers,
 };

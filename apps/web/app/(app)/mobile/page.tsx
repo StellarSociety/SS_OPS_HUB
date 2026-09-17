@@ -10,6 +10,7 @@ import { loadMobileEmployeeLeavePage } from "@/lib/mobile/employee-leave";
 import { loadMobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { loadMobileNotifications } from "@/lib/mobile/welcome-notifications";
 import { loadMobilePreviewEmployees } from "@/lib/mobile/preview-employees";
+import { loadDirectoryHierarchy, loadDirectoryStaff } from "@/lib/directory/store";
 import { loadModulesHubContext } from "@/lib/modules-hub-data";
 import { hubModuleSortIndex } from "@/lib/modules-registry";
 import { loadSalesOverviewData } from "@/lib/sales/sales-overview-data";
@@ -36,6 +37,7 @@ export default async function MobilePage() {
     revenueOverview,
     sentimentWorkspace,
     staffRows,
+    directory,
     attendance,
     leave,
     docs,
@@ -49,6 +51,10 @@ export default async function MobilePage() {
     loadSalesOverviewData(supabase, venue.id),
     loadSentimentWorkspace(supabase, venue.id),
     loadStaffMentionRows(venue),
+    loadDirectoryStaff(supabase, venue).then(async (staff) => ({
+      staff,
+      hierarchy: await loadDirectoryHierarchy(supabase, venue, staff),
+    })),
     loadCurrentUserAttendanceMonth({ venueId: venue.id }),
     loadMobileEmployeeLeavePage({
       userId: user.id,
@@ -89,6 +95,8 @@ export default async function MobilePage() {
         googleCanPost: sentimentWorkspace.googleCanPost,
         ...sentimentFlags,
       }}
+      directoryStaff={directory.staff}
+      directoryHierarchy={directory.hierarchy}
       attendance={attendance}
       leave={leave}
       docs={docs}

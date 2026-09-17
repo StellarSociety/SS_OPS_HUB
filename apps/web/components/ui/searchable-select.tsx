@@ -27,6 +27,7 @@ type SearchableSelectProps = {
   /** Placeholder inside the search input. */
   searchPlaceholder?: string;
   className?: string;
+  triggerClassName?: string;
   disabled?: boolean;
   /** When false, hides clear control and empty option. Default true. */
   clearable?: boolean;
@@ -44,6 +45,7 @@ export function SearchableSelect({
   placeholder,
   searchPlaceholder = "Type to search…",
   className,
+  triggerClassName,
   disabled = false,
   clearable = true,
   id,
@@ -136,7 +138,7 @@ export function SearchableSelect({
           if (disabled) return;
           setOpen((o) => !o);
         }}
-        className={triggerClass}
+        className={cn(triggerClass, triggerClassName)}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}

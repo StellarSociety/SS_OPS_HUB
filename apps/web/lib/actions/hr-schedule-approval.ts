@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { listUsers } from "@/lib/access/store";
+import { dispatchPendingPushes } from "@/lib/push/send";
 import {
   canAdminLookups,
   canApproveSchedules,
@@ -404,6 +405,7 @@ export async function requestScheduleApproval(params: {
     severity: "warning" as const,
     dedupe_key: `schedule-approval:${venue.id}:${week}:${departmentKey}:${approverId}`,
     read_at: null,
+    push_sent_at: null,
   }));
 
   const { error: notifyError } = await service.from("notifications").upsert(rows, {
@@ -411,6 +413,8 @@ export async function requestScheduleApproval(params: {
   });
   if (notifyError) {
     console.error("[hr] schedule approval notify failed:", notifyError.message);
+  } else {
+    await dispatchPendingPushes(service);
   }
 
   await writeAuditLog({
@@ -673,10 +677,13 @@ async function notifyScheduleRequester(params: {
       severity,
       dedupe_key: `schedule-approval-result:${params.venueId}:${params.requestId}:${params.outcome}`,
       read_at: null,
+      push_sent_at: null,
     },
     { onConflict: "dedupe_key" },
   );
   if (error) {
     console.error("[hr] schedule approval requester notify failed:", error.message);
+  } else {
+    await dispatchPendingPushes(params.service);
   }
 }

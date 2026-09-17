@@ -37,13 +37,13 @@ export function ReviewsMonthStrip({
       ref={scrollerRef}
       role="list"
       aria-label="Review months"
-      className="relative flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-0.5 xl:overflow-visible xl:snap-none"
+      className="relative flex w-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain pb-0.5 [touch-action:pan-x]"
     >
       {items.map(({ key, count, average }) => {
         const selected = key === selectedMonthKey;
         const ratingLabel = average != null ? average.toFixed(1) : "—";
         const className = cn(
-          "flex w-[4.75rem] shrink-0 snap-start flex-col items-center gap-0.5 rounded-xl border border-black/10 bg-white/70 px-1.5 py-2 text-center transition hover:bg-[var(--venue-secondary)]/35 xl:w-auto xl:min-w-0 xl:flex-1 xl:snap-align-none",
+          "flex w-[4.75rem] min-w-[4.75rem] shrink-0 grow-0 snap-start flex-col items-center gap-0.5 rounded-xl border border-black/10 bg-white/70 px-1.5 py-2 text-center transition hover:bg-[var(--venue-secondary)]/35",
           selected &&
             "relative z-[1] bg-[var(--venue-primary)]/12 ring-2 ring-inset ring-[var(--venue-primary,#818a40)]",
         );
