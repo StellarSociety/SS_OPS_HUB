@@ -56,8 +56,8 @@ export function useMobileInAppBack<T extends HTMLElement>(
 
   useEffect(() => {
     if (!active) return;
-    const node = rootRef.current;
-    if (!node) return;
+    const host = rootRef.current;
+    if (!host) return;
 
     let tracking = false;
     let startX = 0;
@@ -66,7 +66,9 @@ export function useMobileInAppBack<T extends HTMLElement>(
 
     function onDown(event: PointerEvent) {
       if (event.pointerType === "mouse" && event.button !== 0) return;
-      const rect = node.getBoundingClientRect();
+      const el = event.currentTarget;
+      if (!(el instanceof HTMLElement)) return;
+      const rect = el.getBoundingClientRect();
       if (event.clientX - rect.left > EDGE_PX) return;
       tracking = true;
       startX = event.clientX;
@@ -98,12 +100,12 @@ export function useMobileInAppBack<T extends HTMLElement>(
       pointerId = null;
     }
 
-    node.addEventListener("pointerdown", onDown);
+    host.addEventListener("pointerdown", onDown);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
     return () => {
-      node.removeEventListener("pointerdown", onDown);
+      host.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
