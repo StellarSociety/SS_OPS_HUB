@@ -20,6 +20,7 @@ import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
 import { MobileDirectoryScreen } from "@/components/mobile/mobile-directory-screen";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
+import { MobileChromeHostProvider } from "@/components/mobile/mobile-chrome-host";
 import {
   MobileNavBusyProvider,
   MobilePageLoadingOverlay,
@@ -507,44 +508,13 @@ function PhoneChrome({
           } as CSSProperties
         }
       >
-        <div
-          className={`absolute inset-0 ${
-            page.id === "login"
-              ? "bg-black"
-              : page.id === "select-venue"
-                ? "bg-[#E9E3D6]"
-                : "bg-[Canvas]"
-          }`}
-        >
-          <PullToRefresh
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            contentClassName={
-              page.id === "welcome" ? "overflow-auto" : "overflow-hidden"
-            }
-            indicatorInsetTop={insets.top > 24 ? insets.top - 10 : 16}
-          >
-            <MobileNavBusyProvider resetKey={page.id}>
-              <div className="relative h-full min-h-0">
-                <div className="h-full min-h-0" style={{ paddingTop: insets.top }}>
-                  <DevicePreviewDensity
-                    fill={page.id !== "welcome"}
-                    density={
-                      page.id === "login" ||
-                      page.id === "select-venue" ||
-                      page.id === "welcome"
-                        ? COMPACT_PREVIEW_DENSITY
-                        : undefined
-                    }
-                  >
-                    {screen}
-                  </DevicePreviewDensity>
-                </div>
-                <MobilePageLoadingOverlay />
-              </div>
-            </MobileNavBusyProvider>
-          </PullToRefresh>
-        </div>
+        <PhoneScreen
+          page={page}
+          screen={screen}
+          insets={insets}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+        />
         {device.island === "dynamic-island" ? (
           <div
             aria-hidden
@@ -578,6 +548,71 @@ function PhoneChrome({
           <span className="h-7 w-7 rounded-full border border-white/20" />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function PhoneScreen({
+  page,
+  screen,
+  insets,
+  refreshing,
+  onRefresh,
+}: {
+  page: AppPathPage;
+  screen: ReactNode;
+  insets: { top: number; bottom: number };
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const [chromeHost, setChromeHost] = useState<HTMLDivElement | null>(null);
+
+  return (
+    <div
+      className={`absolute inset-0 ${
+        page.id === "login"
+          ? "bg-black"
+          : page.id === "select-venue"
+            ? "bg-[#E9E3D6]"
+            : "bg-[Canvas]"
+      }`}
+    >
+      <MobileChromeHostProvider host={chromeHost}>
+        <MobileNavBusyProvider resetKey={page.id}>
+          <div className="relative h-full min-h-0">
+            <div
+              className="h-full min-h-0"
+              style={{ paddingTop: insets.top }}
+            >
+              <PullToRefresh
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                className="h-full min-h-0"
+                contentClassName="h-full min-h-0 overflow-hidden"
+                indicatorInsetTop={10}
+              >
+                <DevicePreviewDensity
+                  fill
+                  density={
+                    page.id === "login" ||
+                    page.id === "select-venue" ||
+                    page.id === "welcome"
+                      ? COMPACT_PREVIEW_DENSITY
+                      : undefined
+                  }
+                >
+                  {screen}
+                </DevicePreviewDensity>
+              </PullToRefresh>
+            </div>
+            <div
+              ref={setChromeHost}
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-50"
+            />
+            <MobilePageLoadingOverlay />
+          </div>
+        </MobileNavBusyProvider>
+      </MobileChromeHostProvider>
     </div>
   );
 }

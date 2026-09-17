@@ -1,7 +1,11 @@
 import "server-only";
 
 export function webPushPublicKey(): string {
-  return process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY?.trim() ?? "";
+  return (
+    process.env.NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY?.trim() ||
+    process.env.WEB_PUSH_PUBLIC_KEY?.trim() ||
+    ""
+  );
 }
 
 export function webPushPrivateKey(): string {

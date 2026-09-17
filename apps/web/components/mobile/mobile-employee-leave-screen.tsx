@@ -32,6 +32,7 @@ import type { MobileLeavePage } from "@/lib/mobile/employee-leave";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
 import type { Venue } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
+import { useMobileInAppBack } from "@/components/mobile/use-mobile-in-app-back";
 
 type MobileEmployeeLeaveScreenProps = {
   venue: Venue;
@@ -181,6 +182,8 @@ export function MobileEmployeeLeaveScreen({
     setError(null);
   }
 
+  const backRef = useMobileInAppBack<HTMLDivElement>(closeForm, formOpen);
+
   function openApply() {
     setForm(emptyForm(page.leaveTypes));
     setOpenItem(null);
@@ -252,6 +255,7 @@ export function MobileEmployeeLeaveScreen({
 
   return (
     <div
+      ref={backRef}
       className="mobile-app-canvas relative flex h-full min-h-0 flex-col"
       style={
         {

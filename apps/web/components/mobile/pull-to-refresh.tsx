@@ -330,6 +330,7 @@ export function PullToRefresh({
 
       <div
         ref={contentRef}
+        data-ptr-content=""
         className={cn("h-full min-h-0 overscroll-none", contentClassName)}
         style={{
           transform: `translate3d(0, ${reveal}px, 0)`,

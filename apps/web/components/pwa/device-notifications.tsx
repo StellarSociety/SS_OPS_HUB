@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { Bell, X } from "lucide-react";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/components/pwa/pwa-install-provider";
 import {
   getPushSubscriptionStatus,
+  getWebPushClientConfig,
   removePushSubscription,
   savePushSubscription,
   sendTestDeviceNotification,
@@ -18,13 +19,16 @@ import {
   PUSH_BANNER_DISMISS_KEY,
   PUSH_BANNER_DISMISS_MS,
 } from "@/lib/push/constants";
+import { WEB_PUSH_PUBLIC_KEY } from "@/lib/push/constants";
 import {
-  canUseWebPush,
+  inspectWindowWebPush,
   iosNeedsHomeScreenInstall,
   pushPlatformFromDevice,
+  type WebPushBlockReason,
 } from "@/lib/push/platform";
 import {
   createBrowserPushSubscription,
+  ensurePushServiceWorker,
   getExistingPushSubscription,
   serializePushSubscription,
 } from "@/lib/push/subscribe";
@@ -69,6 +73,24 @@ function currentPermission(): NotificationPermission | "unsupported" {
   return Notification.permission;
 }
 
+function settingsCopy(reason: WebPushBlockReason): string | null {
+  switch (reason) {
+    case "missing-key":
+      return "Lock-screen alerts are not configured on the server yet. Ask an admin to set the web push keys and redeploy.";
+    case "insecure":
+      return "This page is not on a secure connection. Open the installed app from https://opshub.stellarsocietygroup.com — HTTP network addresses cannot receive alerts.";
+    case "ios-needs-safari":
+      return "On iPhone, open SS Ops Hub in Safari, add it to your Home Screen, then enable alerts from the installed app.";
+    case "ios-not-standalone":
+      return "On iPhone and iPad, add SS Ops Hub to your Home Screen first, then open the installed app and enable notifications here.";
+    case "no-service-worker":
+    case "no-push-api":
+      return "This phone cannot receive lock-screen alerts. iPhone needs iOS 16.4 or later, and the Hub must be opened from the Home Screen icon — not from a Safari tab.";
+    default:
+      return null;
+  }
+}
+
 export function useDeviceNotifications(options?: { loadCount?: boolean }) {
   const loadCount = options?.loadCount ?? false;
   const { standalone, device } = usePWAInstall();
@@ -81,9 +103,17 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [publicKey, setPublicKey] = useState(WEB_PUSH_PUBLIC_KEY);
 
-  const supported = hydrated && canUseWebPush();
-  const needsInstall = hydrated && iosNeedsHomeScreenInstall();
+  const blockReason = hydrated
+    ? inspectWindowWebPush(window, publicKey)
+    : "missing-key";
+  const supported = hydrated && blockReason === null;
+  const needsInstall =
+    hydrated &&
+    (blockReason === "ios-not-standalone" ||
+      blockReason === "ios-needs-safari" ||
+      iosNeedsHomeScreenInstall());
   const platform = pushPlatformFromDevice(resolved);
 
   const refresh = useCallback(async () => {
@@ -106,6 +136,16 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
   useEffect(() => {
     setHydrated(true);
     setPermission(currentPermission());
+    void getWebPushClientConfig()
+      .then((config) => {
+        if (config.publicKey.trim()) setPublicKey(config.publicKey.trim());
+      })
+      .catch(() => {
+        /* keep the build-time key */
+      });
+    void ensurePushServiceWorker().catch(() => {
+      /* registration is retried on Enable */
+    });
   }, []);
 
   useEffect(() => {
@@ -127,7 +167,7 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
         );
         return { ok: false as const };
       }
-      const subscription = await createBrowserPushSubscription();
+      const subscription = await createBrowserPushSubscription(publicKey);
       const saved = await savePushSubscription(
         serializePushSubscription(subscription, platform),
       );
@@ -147,7 +187,7 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
     } finally {
       setBusy(false);
     }
-  }, [platform, refresh]);
+  }, [platform, publicKey, refresh]);
 
   const disable = useCallback(async () => {
     setBusy(true);
@@ -194,7 +234,7 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
     if (!supported) return;
     if (currentPermission() !== "granted") return;
     try {
-      const subscription = await createBrowserPushSubscription();
+      const subscription = await createBrowserPushSubscription(publicKey);
       await savePushSubscription(
         serializePushSubscription(subscription, platform),
       );
@@ -202,12 +242,13 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
     } catch {
       // Browser may already have a subscription we cannot refresh.
     }
-  }, [platform, supported]);
+  }, [platform, publicKey, supported]);
 
   return {
     hydrated,
     supported,
     needsInstall,
+    blockReason,
     standalone,
     permission,
     subscribed,
@@ -319,19 +360,26 @@ export function DeviceNotificationSettingsCard({
   className?: string;
 }) {
   const push = useDeviceNotifications({ loadCount: true });
+  const cardRef = useRef<HTMLElement>(null);
+  const [insidePreview, setInsidePreview] = useState(false);
 
   useEffect(() => {
     void push.syncIfGranted();
   }, [push.syncIfGranted]);
 
+  useEffect(() => {
+    setInsidePreview(Boolean(cardRef.current?.closest(".device-preview-screen")));
+  }, [push.hydrated]);
+
+  const blockedCopy = settingsCopy(push.hydrated ? push.blockReason : null);
   let body: string;
   if (!push.hydrated) {
     body = "Checking this device…";
-  } else if (push.needsInstall) {
+  } else if (insidePreview) {
     body =
-      "On iPhone and iPad, add SS Ops Hub to your Home Screen first, then open the installed app and enable notifications here.";
-  } else if (!push.supported) {
-    body = "This browser cannot receive device notifications.";
+      "This Mac preview cannot turn on alerts for your phone. Open the installed SS Ops Hub app on the phone (Home Screen icon), then tap Enable there.";
+  } else if (blockedCopy) {
+    body = blockedCopy;
   } else if (push.permission === "denied") {
     body =
       "Notifications are blocked for this app. Turn them on in the device settings, then return here.";
@@ -345,8 +393,15 @@ export function DeviceNotificationSettingsCard({
       "Allow notifications to get alerts on this phone even when you are not in the app.";
   }
 
+  const showEnable =
+    push.supported &&
+    !insidePreview &&
+    push.permission !== "denied" &&
+    !push.subscribed;
+
   return (
     <section
+      ref={cardRef}
       className={cn(
         "rounded-xl border border-black/10 bg-black/[0.03] p-4 dark:border-white/12 dark:bg-white/[0.08]",
         className,
@@ -364,7 +419,7 @@ export function DeviceNotificationSettingsCard({
         </p>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
-        {push.supported && push.permission !== "denied" && !push.subscribed ? (
+        {showEnable ? (
           <button
             type="button"
             disabled={push.busy}
@@ -374,7 +429,7 @@ export function DeviceNotificationSettingsCard({
             Enable on this device
           </button>
         ) : null}
-        {push.subscribed ? (
+        {push.subscribed && !insidePreview ? (
           <>
             <button
               type="button"

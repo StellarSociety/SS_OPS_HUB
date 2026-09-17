@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -12,6 +13,7 @@ import {
 } from "@/lib/mobile/tab-bars";
 import { useMobilePressMotion } from "@/components/mobile/mobile-press";
 import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
+import { useMobileChromeHost } from "@/components/mobile/mobile-chrome-host";
 
 const COMPACT_RANGE = 80;
 const MIN_SCALE = 0.76;
@@ -24,13 +26,32 @@ type MobileTabBarProps = {
   onSelectTab?: (tab: MobileTabItem) => void;
 };
 
-function findNearbyScroller(host: HTMLElement): HTMLElement | null {
-  const parent = host.parentElement;
-  if (!parent) return null;
-  for (const child of Array.from(parent.children)) {
-    if (!(child instanceof HTMLElement) || child === host) continue;
-    const overflowY = getComputedStyle(child).overflowY;
-    if (overflowY === "auto" || overflowY === "scroll") return child;
+function isScrollableY(el: HTMLElement) {
+  const overflowY = getComputedStyle(el).overflowY;
+  return overflowY === "auto" || overflowY === "scroll";
+}
+
+function findOverflowScroller(root: HTMLElement): HTMLElement | null {
+  if (isScrollableY(root) && root.scrollHeight > root.clientHeight + 1) {
+    return root;
+  }
+  const walk = (node: HTMLElement): HTMLElement | null => {
+    for (const child of Array.from(node.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (isScrollableY(child)) return child;
+      const nested = walk(child);
+      if (nested) return nested;
+    }
+    return null;
+  };
+  return walk(root);
+}
+
+function findPageScroller(): HTMLElement | null {
+  const ptrContent = document.querySelector<HTMLElement>("[data-ptr-content]");
+  if (ptrContent) {
+    const inner = findOverflowScroller(ptrContent);
+    if (inner) return inner;
   }
   return null;
 }
@@ -41,6 +62,7 @@ export function MobileTabBar({
   venueSlug,
   onSelectTab,
 }: MobileTabBarProps) {
+  const host = useMobileChromeHost();
   const { beginNav } = useMobileNavBusy();
   const items = tabBarItems(app);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -50,9 +72,7 @@ export function MobileTabBar({
   const [compact, setCompact] = useState(0);
 
   useEffect(() => {
-    const host = rootRef.current;
-    if (!host) return;
-    const scroller = findNearbyScroller(host);
+    const scroller = findPageScroller();
     if (!scroller) return;
 
     const apply = () => {
@@ -84,14 +104,17 @@ export function MobileTabBar({
       scroller.removeEventListener("scroll", onScroll);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, []);
+  }, [activeId, app]);
 
   const scale = 1 - compact * (1 - MIN_SCALE);
 
-  return (
+  const bar = (
     <div
       ref={rootRef}
-      className="pointer-events-none absolute inset-x-0 bottom-0 z-50 bg-transparent"
+      className={cn(
+        "pointer-events-none bg-transparent",
+        host ? null : "absolute inset-x-0 bottom-0 z-50",
+      )}
     >
       <div className="pointer-events-none relative mx-auto flex w-full max-w-md justify-center bg-transparent px-4 pb-[max(10px,var(--mobile-safe-bottom,0px))] pt-1">
         <nav
@@ -124,6 +147,10 @@ export function MobileTabBar({
       </div>
     </div>
   );
+
+  if (host) return createPortal(bar, host);
+  if (host === null) return null;
+  return bar;
 }
 
 function TabBarItem({

@@ -66,6 +66,8 @@ html.mobile-app-no-zoom {
   touch-action: manipulation;
   overscroll-behavior: none;
   height: 100%;
+  height: 100dvh;
+  height: -webkit-fill-available;
   overflow: hidden;
   color-scheme: light dark;
   background-color: Canvas;
@@ -76,10 +78,25 @@ html.mobile-app-no-zoom body {
   overscroll-behavior: none;
   height: 100%;
   height: 100dvh;
-  max-height: 100dvh;
+  height: -webkit-fill-available;
+  max-height: none;
   overflow: hidden;
   background-color: Canvas;
   color: CanvasText;
+}
+
+/*
+ * Standalone iPhone PWAs often leave a dead band under 100dvh (home
+ * indicator). Fill that with -webkit-fill-available / visualViewport height.
+ */
+.mobile-app-frame {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  height: -webkit-fill-available;
+  height: var(--mobile-app-height, 100dvh);
 }
 
 html.mobile-app-no-zoom.mobile-app-parchment,

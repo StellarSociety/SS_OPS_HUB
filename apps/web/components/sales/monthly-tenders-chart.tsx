@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { useMemo, useState } from "react";
+import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import type { PieLabelRenderProps } from "recharts";
 import { Card } from "@/components/ui/card";
 import { formatMoney } from "@/lib/sales/daily-sales-calculations";
@@ -74,6 +74,15 @@ export function MonthlyTendersChart({
     ...slice,
     color: TENDER_COLORS[index % TENDER_COLORS.length],
   }));
+  const [activeSlice, setActiveSlice] = useState<(typeof data)[number] | null>(
+    null,
+  );
+  const [touchPinned, setTouchPinned] = useState(false);
+
+  function showSlice(index: number, pin: boolean) {
+    setActiveSlice(data[index] ?? null);
+    if (pin) setTouchPinned(true);
+  }
 
   return (
     <Card className="flex h-full flex-col p-4">
@@ -84,42 +93,13 @@ export function MonthlyTendersChart({
 
       {total > 0 ? (
         <div className="flex flex-1 flex-col">
-          <div className="relative mx-auto h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-                <Pie
-                  data={data}
-                  dataKey="totalGs"
-                  nameKey="name"
-                  innerRadius={64}
-                  outerRadius={94}
-                  paddingAngle={2}
-                  stroke="none"
-                  labelLine={{ stroke: "rgba(0,0,0,0.2)" }}
-                  label={renderPercentLabel}
-                >
-                  {data.map((slice) => (
-                    <Cell key={slice.tenderId} fill={slice.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const slice = payload[0].payload as (typeof data)[number];
-                    return (
-                      <OverviewTooltipCard
-                        title={slice.name}
-                        rows={[
-                          { label: "MTD total", value: formatMoney(slice.totalGs) },
-                          { label: "Share", value: `${slice.pct.toFixed(1)}%` },
-                        ]}
-                      />
-                    );
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <div
+            className="relative mx-auto h-64 w-full overflow-visible"
+            onPointerDown={(event) => {
+              if (event.pointerType === "touch") setTouchPinned(true);
+            }}
+          >
+            <div className="pointer-events-none absolute left-1/2 top-1/2 z-0 flex w-[7.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center">
               <span className="text-[10px] font-medium uppercase tracking-wide text-black/45">
                 Total
               </span>
@@ -127,6 +107,60 @@ export function MonthlyTendersChart({
                 {formatMoney(total)}
               </span>
             </div>
+            <div className="relative z-10 h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                  <Pie
+                    data={data}
+                    dataKey="totalGs"
+                    nameKey="name"
+                    innerRadius={64}
+                    outerRadius={94}
+                    paddingAngle={2}
+                    stroke="none"
+                    labelLine={{ stroke: "rgba(0,0,0,0.2)" }}
+                    label={renderPercentLabel}
+                    onMouseEnter={(_, index) => {
+                      if (!touchPinned) showSlice(index, false);
+                    }}
+                    onMouseLeave={() => {
+                      if (!touchPinned) setActiveSlice(null);
+                    }}
+                    onClick={(_, index) => showSlice(index, true)}
+                  >
+                    {data.map((slice) => (
+                      <Cell
+                        key={slice.tenderId}
+                        fill={slice.color}
+                        opacity={
+                          !activeSlice || activeSlice.tenderId === slice.tenderId
+                            ? 1
+                            : 0.45
+                        }
+                        className="cursor-pointer outline-none"
+                      />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {activeSlice ? (
+              <div className="pointer-events-none absolute inset-x-2 top-2 z-50 flex justify-center">
+                <OverviewTooltipCard
+                  title={activeSlice.name}
+                  rows={[
+                    {
+                      label: "MTD total",
+                      value: formatMoney(activeSlice.totalGs),
+                    },
+                    {
+                      label: "Share",
+                      value: `${activeSlice.pct.toFixed(1)}%`,
+                    },
+                  ]}
+                />
+              </div>
+            ) : null}
           </div>
 
           <ul className="mt-auto space-y-1 pt-3">

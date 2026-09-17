@@ -7,6 +7,15 @@ const COMPACT_RE = /\/(login|select-venue|welcome)\/?$/;
 const PARCHMENT_RE = /\/select-venue\/?$/;
 const LOGIN_RE = /\/login\/?$/;
 
+function syncMobileAppHeight() {
+  const vv = window.visualViewport;
+  const height = Math.max(window.innerHeight, vv?.height ?? 0);
+  document.documentElement.style.setProperty(
+    "--mobile-app-height",
+    `${Math.round(height)}px`,
+  );
+}
+
 /** Document-level no-zoom for real mobile-app routes (not the device preview). */
 export function MobileNoZoom() {
   const pathname = usePathname();
@@ -26,6 +35,20 @@ export function MobileNoZoom() {
       );
     };
   }, [pathname]);
+
+  useLayoutEffect(() => {
+    syncMobileAppHeight();
+    const vv = window.visualViewport;
+    window.addEventListener("resize", syncMobileAppHeight);
+    vv?.addEventListener("resize", syncMobileAppHeight);
+    vv?.addEventListener("scroll", syncMobileAppHeight);
+    return () => {
+      window.removeEventListener("resize", syncMobileAppHeight);
+      vv?.removeEventListener("resize", syncMobileAppHeight);
+      vv?.removeEventListener("scroll", syncMobileAppHeight);
+      document.documentElement.style.removeProperty("--mobile-app-height");
+    };
+  }, []);
 
   return null;
 }

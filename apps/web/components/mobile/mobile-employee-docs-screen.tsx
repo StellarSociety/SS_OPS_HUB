@@ -25,6 +25,7 @@ import type {
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
 import type { Venue } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
+import { useMobileInAppBack } from "@/components/mobile/use-mobile-in-app-back";
 
 type MobileEmployeeDocsScreenProps = {
   venue: Venue;
@@ -595,8 +596,10 @@ function InCanvasOverlay({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const rootRef = useMobileInAppBack<HTMLDivElement>(onClose);
   return (
     <div
+      ref={rootRef}
       className="mobile-app-canvas relative flex h-full min-h-0 flex-col"
       style={
         {

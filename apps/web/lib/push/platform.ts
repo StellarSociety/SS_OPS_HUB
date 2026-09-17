@@ -6,10 +6,50 @@ import { readStandaloneFromWindow } from "@/lib/pwa/standalone";
 import { WEB_PUSH_PUBLIC_KEY } from "./constants";
 import type { PushPlatform } from "./types";
 
+export type WebPushBlockReason =
+  | null
+  | "missing-key"
+  | "insecure"
+  | "ios-needs-safari"
+  | "ios-not-standalone"
+  | "no-service-worker"
+  | "no-push-api";
+
 export function pushPlatformFromDevice(device: PWADeviceState): PushPlatform {
   if (device.isIOS) return "ios";
   if (device.isAndroid) return "android";
   return "desktop";
+}
+
+export function windowHasPushManager(
+  target: Window & { navigator: Navigator } = window,
+): boolean {
+  if ("PushManager" in target) return true;
+  return (
+    "ServiceWorkerRegistration" in target &&
+    "pushManager" in ServiceWorkerRegistration.prototype
+  );
+}
+
+export function inspectWebPushSupport(input: {
+  publicKey: string;
+  isSecureContext: boolean;
+  hasServiceWorker: boolean;
+  hasPushManager: boolean;
+  hasNotification: boolean;
+  isIOS: boolean;
+  needsSafari: boolean;
+  standalone: boolean;
+}): WebPushBlockReason {
+  if (!input.publicKey.trim()) return "missing-key";
+  if (!input.isSecureContext) return "insecure";
+  if (input.isIOS && input.needsSafari && !input.standalone) {
+    return "ios-needs-safari";
+  }
+  if (input.isIOS && !input.standalone) return "ios-not-standalone";
+  if (!input.hasServiceWorker) return "no-service-worker";
+  if (!input.hasPushManager || !input.hasNotification) return "no-push-api";
+  return null;
 }
 
 export function webPushIsAvailable(input: {
@@ -19,18 +59,16 @@ export function webPushIsAvailable(input: {
   isIOS: boolean;
   standalone: boolean;
   publicKey: string;
+  isSecureContext?: boolean;
+  needsSafari?: boolean;
 }): boolean {
-  if (!input.publicKey.trim()) return false;
-  if (
-    !input.hasServiceWorker ||
-    !input.hasPushManager ||
-    !input.hasNotification
-  ) {
-    return false;
-  }
-  // iOS 16.4+ only exposes Web Push inside a Home Screen PWA.
-  if (input.isIOS && !input.standalone) return false;
-  return true;
+  return (
+    inspectWebPushSupport({
+      ...input,
+      isSecureContext: input.isSecureContext ?? true,
+      needsSafari: input.needsSafari ?? false,
+    }) === null
+  );
 }
 
 export function browserSupportsWebPush(
@@ -38,23 +76,33 @@ export function browserSupportsWebPush(
 ): boolean {
   return (
     "serviceWorker" in target.navigator &&
-    "PushManager" in target &&
+    windowHasPushManager(target) &&
     "Notification" in target
   );
 }
 
-export function canUseWebPush(
+export function inspectWindowWebPush(
   target: Window & { navigator: Navigator } = window,
-): boolean {
+  publicKey: string = WEB_PUSH_PUBLIC_KEY,
+): WebPushBlockReason {
   const device = detectPWADeviceFromWindow(target);
-  return webPushIsAvailable({
+  return inspectWebPushSupport({
+    publicKey,
+    isSecureContext: target.isSecureContext,
     hasServiceWorker: "serviceWorker" in target.navigator,
-    hasPushManager: "PushManager" in target,
+    hasPushManager: windowHasPushManager(target),
     hasNotification: "Notification" in target,
     isIOS: device.isIOS,
+    needsSafari: device.needsSafari,
     standalone: readStandaloneFromWindow(target),
-    publicKey: WEB_PUSH_PUBLIC_KEY,
   });
+}
+
+export function canUseWebPush(
+  target: Window & { navigator: Navigator } = window,
+  publicKey: string = WEB_PUSH_PUBLIC_KEY,
+): boolean {
+  return inspectWindowWebPush(target, publicKey) === null;
 }
 
 export function iosNeedsHomeScreenInstall(

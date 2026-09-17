@@ -127,7 +127,7 @@ export function MobileWelcomeScreen({
 
   return (
     <div
-      className="mobile-app-canvas"
+      className="mobile-app-canvas flex h-full min-h-0 flex-col"
       style={
         {
           "--venue-primary": venue.primary_color,
@@ -135,7 +135,7 @@ export function MobileWelcomeScreen({
         } as CSSProperties
       }
     >
-      <header className="px-4 pb-2 pt-3 text-center">
+      <header className="shrink-0 px-4 pb-2 pt-3 text-center">
         <VenueBrandIcon
           slug={venue.slug}
           name={venue.name}
@@ -161,7 +161,7 @@ export function MobileWelcomeScreen({
         </p>
       </header>
 
-      <div className="space-y-3 px-3 pb-6">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-[max(1.25rem,var(--mobile-safe-bottom,0px))]">
         <div className="flex items-stretch gap-2">
           <WelcomeProfileCard
             profile={profile}

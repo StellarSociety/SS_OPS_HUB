@@ -40,6 +40,7 @@ import type { MobileTabItem } from "@/lib/mobile/tab-bars";
 import { firstLastName } from "@/lib/user/display";
 import type { Venue } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
+import { useMobileInAppBack } from "@/components/mobile/use-mobile-in-app-back";
 import { packOrgTreeLeaves } from "@/components/directory/pack-org-tree-leaves";
 import "@/components/directory/directory-hierarchy-tree.css";
 
@@ -268,6 +269,7 @@ function StaffDetail({
   backLabel: string;
   onBack: () => void;
 }) {
+  const rootRef = useMobileInAppBack<HTMLDivElement>(onBack);
   const nationality = nationalityDisplay(member.nationalityName);
   const phoneUrl = phoneTelUrl(member.contactPhone);
   const whatsappUrl = directoryWhatsappUrl(member.whatsapp);
@@ -275,7 +277,7 @@ function StaffDetail({
   const workMailto = mailtoUrl(member.workEmail);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 pt-3">
+    <div ref={rootRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 pt-3">
       <button
         type="button"
         onClick={onBack}

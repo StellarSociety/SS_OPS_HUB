@@ -11,6 +11,7 @@ import { DEFAULT_HR_ACKNOWLEDGEMENT_PAGE_SETTINGS } from "@/lib/hr/acknowledgeme
 import type { MobileProfileAssetTerms, MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 import type { Venue } from "@/lib/types/database";
+import { useMobileInAppBack } from "@/components/mobile/use-mobile-in-app-back";
 
 type MobileAssetTermsScreenProps = {
   venue: Venue;
@@ -28,6 +29,7 @@ export function MobileAssetTermsScreen({
   onSubmitted,
 }: MobileAssetTermsScreenProps) {
   const { beginNav } = useMobileNavBusy();
+  const backRef = useMobileInAppBack<HTMLDivElement>(onBack);
   const [current, setCurrent] = useState(terms);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -40,6 +42,7 @@ export function MobileAssetTermsScreen({
 
   return (
     <div
+      ref={backRef}
       className="mobile-app-canvas relative flex h-full min-h-0 flex-col"
       style={
         {

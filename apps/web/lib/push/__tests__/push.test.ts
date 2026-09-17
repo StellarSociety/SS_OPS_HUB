@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { notificationCanonicalHref, notificationClickPath } from "@/lib/notifications/href";
 import { urlBase64ToUint8Array } from "@/lib/push/application-server-key";
-import { webPushIsAvailable } from "@/lib/push/platform";
+import { inspectWebPushSupport, webPushIsAvailable } from "@/lib/push/platform";
 
 describe("web push availability", () => {
   it("requires iOS to be installed on the Home Screen", () => {
@@ -43,6 +43,45 @@ describe("web push availability", () => {
         publicKey: "test-key",
       }),
     ).toBe(false);
+  });
+
+  it("explains missing keys instead of blaming the browser", () => {
+    expect(
+      inspectWebPushSupport({
+        publicKey: "",
+        isSecureContext: true,
+        hasServiceWorker: true,
+        hasPushManager: true,
+        hasNotification: true,
+        isIOS: true,
+        needsSafari: false,
+        standalone: true,
+      }),
+    ).toBe("missing-key");
+    expect(
+      inspectWebPushSupport({
+        publicKey: "test-key",
+        isSecureContext: true,
+        hasServiceWorker: true,
+        hasPushManager: false,
+        hasNotification: false,
+        isIOS: true,
+        needsSafari: false,
+        standalone: false,
+      }),
+    ).toBe("ios-not-standalone");
+    expect(
+      inspectWebPushSupport({
+        publicKey: "test-key",
+        isSecureContext: false,
+        hasServiceWorker: false,
+        hasPushManager: false,
+        hasNotification: false,
+        isIOS: false,
+        needsSafari: false,
+        standalone: true,
+      }),
+    ).toBe("insecure");
   });
 });
 

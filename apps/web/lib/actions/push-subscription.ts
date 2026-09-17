@@ -2,6 +2,7 @@
 
 import { envAppUrl, joinAppUrl } from "@/lib/public-app-url";
 import { sendPushToUser } from "@/lib/push/send";
+import { webPushPublicKey } from "@/lib/push/vapid";
 import {
   countPushSubscriptionsForUser,
   deletePushSubscriptionByEndpoint,
@@ -10,6 +11,10 @@ import {
 } from "@/lib/push/store";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+
+export async function getWebPushClientConfig() {
+  return { publicKey: webPushPublicKey() };
+}
 
 export async function savePushSubscription(input: {
   endpoint: string;
