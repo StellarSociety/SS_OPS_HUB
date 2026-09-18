@@ -229,6 +229,26 @@ export function canEditStaff(
   return hasHrPermission(permissions, HR_FEATURES.staff, "edit", venueId);
 }
 
+export function canAccessHiring(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrFeatureAccess(permissions, HR_FEATURES.hiring, venueId) ||
+    canAccessStaff(permissions, venueId)
+  );
+}
+
+export function canEditHiring(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasHrPermission(permissions, HR_FEATURES.hiring, "edit", venueId) ||
+    canEditStaff(permissions, venueId)
+  );
+}
+
 export function canEditOwnStaff(
   permissions: UserPermission[],
   venueId: string,

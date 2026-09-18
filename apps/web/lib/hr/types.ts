@@ -1194,6 +1194,7 @@ export const HR_FEATURES = {
   payroll: "payroll",
   payslips: "payslips",
   benefits: "benefits",
+  hiring: "hiring",
 } as const;
 
 export const EXPIRY_FIELDS = [

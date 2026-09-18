@@ -3,9 +3,10 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Bell, LogOut } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
+import { HiringIcon } from "@/components/modules/hiring-icon";
 import { ModuleTile } from "@/components/modules/module-tile";
 import {
   MOBILE_PRESS_SCALE,
@@ -25,6 +26,8 @@ import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { getUserInitials } from "@/lib/user/display";
 import type { Venue } from "@/lib/types/database";
 import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
+import { scopedHrefForVenue } from "@/lib/venue/scope-routing";
+import { cn } from "@/lib/utils";
 
 const LOGOUT_BUTTON_CLASS =
   "flex w-full items-center justify-center gap-1.5 rounded-xl border border-black/10 bg-black/[0.03] py-2 text-[15px] font-medium text-[#3D421F] dark:border-white/12 dark:bg-white/[0.08] dark:text-[CanvasText]";
@@ -37,6 +40,16 @@ const WELCOME_CATEGORY_ORDER: ModuleCategoryKey[] = [
 ];
 
 const PEOPLE_MODULE_ORDER = ["directory", "learning", "hr"] as const;
+
+const WELCOME_SHORTCUTS = [
+  {
+    key: "hiring",
+    label: "Hiring",
+    subtitle: "Candidate replies",
+    href: "/hr/hiring/replies",
+    Icon: HiringIcon,
+  },
+] as const;
 
 type MobileWelcomeScreenProps = {
   venue: Venue;
@@ -86,6 +99,7 @@ export function MobileWelcomeScreen({
     ? "All Venues Operational HUB"
     : `${venue.name} Operational HUB`;
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const sections = useMemo(() => {
     const categoryByKey = new Map(
       moduleCategories.map((category) => [category.key, category]),
@@ -176,7 +190,7 @@ export function MobileWelcomeScreen({
           />
         </div>
 
-        <div className="flex-1 rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
+        <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
           <div className="flex flex-col gap-y-2.5">
             {sections.map((section) => (
               <section key={section.category.key} className="flex flex-col gap-y-2">
@@ -254,6 +268,47 @@ export function MobileWelcomeScreen({
           </div>
         </div>
 
+        <div className="overflow-hidden rounded-xl border border-black/10 bg-black/[0.03] dark:border-white/12 dark:bg-white/[0.08]">
+          <MobilePressTarget
+            type="button"
+            aria-expanded={shortcutsOpen}
+            onClick={() => setShortcutsOpen((open) => !open)}
+            className="flex w-full items-center gap-2 px-3 py-2.5"
+          >
+            <span
+              aria-hidden
+              className="h-px min-w-0 flex-1 bg-[#3D421F]/25 dark:bg-white/25"
+            />
+            <span className="flex shrink-0 items-center gap-1 font-serif text-xs font-bold leading-none text-[#3D421F] dark:text-[CanvasText]">
+              Shortcuts
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-black/40 transition-transform dark:text-white/40",
+                  shortcutsOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </span>
+            <span
+              aria-hidden
+              className="h-px min-w-0 flex-1 bg-[#3D421F]/25 dark:bg-white/25"
+            />
+          </MobilePressTarget>
+          {shortcutsOpen ? (
+            <div className="space-y-1 border-t border-black/10 px-2 py-2 dark:border-white/12">
+              {WELCOME_SHORTCUTS.map((shortcut) => (
+                <WelcomeShortcutRow
+                  key={shortcut.key}
+                  href={scopedHrefForVenue(venue, shortcut.href)}
+                  label={shortcut.label}
+                  subtitle={shortcut.subtitle}
+                  Icon={shortcut.Icon}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+
         <div className="mt-auto space-y-2 px-1 pb-1">
           {onLogout ? (
             <MobilePressTarget
@@ -296,6 +351,55 @@ export function MobileWelcomeScreen({
         </div>
       </div>
     </div>
+  );
+}
+
+function WelcomeShortcutRow({
+  href,
+  label,
+  subtitle,
+  Icon,
+}: {
+  href: string;
+  label: string;
+  subtitle: string;
+  Icon: typeof HiringIcon;
+}) {
+  const { pressed, pressProps } = useMobilePress();
+  const { beginNav } = useMobileNavBusy();
+
+  return (
+    <motion.div
+      animate={{ scale: pressed ? MOBILE_PRESS_SCALE_SOFT : 1 }}
+      transition={MOBILE_PRESS_TRANSITION_SOFT}
+    >
+      <Link
+        href={href}
+        aria-label={`${label}, ${subtitle}`}
+        onClick={() => beginNav()}
+        className="flex min-h-14 items-center gap-3 rounded-xl px-2 py-2 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+        {...pressProps}
+      >
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--venue-primary)]/12">
+          <Icon
+            className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
+            strokeWidth={1.5}
+          />
+        </div>
+        <div className="min-w-0 flex-1 text-left">
+          <p className="truncate font-serif text-base leading-tight text-[#3D421F] dark:text-[CanvasText]">
+            {label}
+          </p>
+          <p className="mt-0.5 truncate text-[12px] leading-snug text-black/50 dark:text-white/50">
+            {subtitle}
+          </p>
+        </div>
+        <ChevronRight
+          className="h-5 w-5 shrink-0 text-black/30 dark:text-white/30"
+          aria-hidden
+        />
+      </Link>
+    </motion.div>
   );
 }
 

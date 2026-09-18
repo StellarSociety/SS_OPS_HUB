@@ -506,6 +506,12 @@ export const moduleCatalog: ModuleDef[] = [
       { key: "payslips", label: "Payslips", href: "/hr/payslips", group: "pay" },
       { key: "expenses", label: "Expenses", href: "/hr/expenses", group: "pay" },
       {
+        key: "hiring",
+        label: "Hiring",
+        href: "/hr/hiring",
+        group: "boarding",
+      },
+      {
         key: "communications",
         label: "Communications",
         href: "/hr/communications",

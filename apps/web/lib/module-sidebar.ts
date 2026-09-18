@@ -138,7 +138,6 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         label: "Hiring",
         href: "/hr/hiring",
         icon: UserRoundSearch,
-        comingSoon: true,
       },
       { label: "Communications", href: "/hr/communications", icon: MessagesSquare, activePathPrefix: "/hr/communications" },
       { label: "ON-Boarding", href: "/hr/onboarding", icon: UserPlus },

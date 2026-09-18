@@ -170,6 +170,7 @@ const FEATURE_ICONS: Partial<Record<string, LucideIcon>> = {
   "hr:payroll": Wallet,
   "hr:payslips": ReceiptText,
   "hr:expenses": Receipt,
+  "hr:hiring": UserRoundSearch,
   "hr:communications": MessagesSquare,
   "hr:onboarding": UserPlus,
   "hr:offboarding": UserMinus,

@@ -6,6 +6,7 @@ import {
   canAccessLeave,
   canAccessPayroll,
   canAccessSchedules,
+  canAccessHiring,
   canAccessStaff,
   canAccessStaffCompliance,
   canAdminLookups,
@@ -136,6 +137,9 @@ export function canOpenAppPath(
         hasHrFeatureAccess(permissions, "expenses", venueId) ||
         canAccessPayroll(permissions, venueId)
       );
+    }
+    if (startsWithPath(pathname, "/hr/hiring")) {
+      return canAccessHiring(permissions, venueId);
     }
     if (startsWithPath(pathname, "/hr/communications")) {
       return (
