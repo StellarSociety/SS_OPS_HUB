@@ -56,13 +56,13 @@ export default async function PublicHiringApplyPage({ params }: PageProps) {
       className="min-h-dvh overflow-x-hidden"
       style={{
         ...venueThemeStyle(venueRow),
-        backgroundColor:
-          "color-mix(in srgb, var(--venue-secondary, #F0F3DD) 35%, white)",
+        backgroundColor: "var(--background, #faf9f6)",
       }}
     >
       <HiringPublicForm
         form={form}
         blocks={blocks}
+        venue={venueRow}
         venueName={venueRow?.name?.trim() || "Venue"}
         socials={socials}
         closedReason={accepting.ok ? undefined : accepting.reason}

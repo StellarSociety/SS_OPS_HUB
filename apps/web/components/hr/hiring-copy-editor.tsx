@@ -7,6 +7,7 @@ import {
   AlignRight,
   Baseline,
   Bold,
+  ChevronDown,
   Highlighter,
   IndentDecrease,
   IndentIncrease,
@@ -24,12 +25,15 @@ import {
   Underline,
 } from "lucide-react";
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   hiringCopyIsEmpty,
   sanitizeHiringCopyHtml,
@@ -38,11 +42,30 @@ import { cn } from "@/lib/utils";
 
 const FONT_FACES = [
   { value: "", label: "Venue" },
-  { value: 'Georgia, "Times New Roman", serif', label: "Serif" },
-  { value: "Arial, Helvetica, sans-serif", label: "Sans" },
+  { value: "Playfair Display, Georgia, serif", label: "Playfair" },
+  { value: "DM Sans, system-ui, sans-serif", label: "DM Sans" },
+  { value: "Inter, system-ui, sans-serif", label: "Inter" },
+  { value: "Google Sans, Arial, sans-serif", label: "Google Sans" },
+  { value: "Georgia, serif", label: "Georgia" },
+  { value: "Times New Roman, Times, serif", label: "Times New Roman" },
+  { value: "Palatino Linotype, Palatino, serif", label: "Palatino" },
+  { value: "Arial, Helvetica, sans-serif", label: "Arial" },
+  { value: "Helvetica, Arial, sans-serif", label: "Helvetica" },
+  { value: "Verdana, Geneva, sans-serif", label: "Verdana" },
+  { value: "Trebuchet MS, sans-serif", label: "Trebuchet" },
+  { value: "Courier New, Courier, monospace", label: "Courier" },
 ] as const;
 
-const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px"] as const;
+const FONT_SIZES = [
+  "12px",
+  "14px",
+  "16px",
+  "18px",
+  "20px",
+  "24px",
+  "28px",
+  "32px",
+] as const;
 
 const HIGHLIGHTS = [
   { value: "transparent", label: "None" },
@@ -70,6 +93,8 @@ type FormatCommand =
   | "createLink"
   | "unlink"
   | "removeFormat";
+
+type ToolbarMenuId = "font" | "size" | "highlight" | "case" | null;
 
 function ToolbarButton({
   label,
@@ -110,12 +135,42 @@ function Divider() {
   return <span className="mx-0.5 h-5 w-px shrink-0 bg-black/10" aria-hidden />;
 }
 
-function wrapSelection(style: string) {
+function selectionIsIn(editor: HTMLElement | null): Range | null {
+  if (!editor) return null;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  const node = range.commonAncestorContainer;
+  if (node === editor || editor.contains(node)) return range.cloneRange();
+  return null;
+}
+
+function restoreRange(editor: HTMLElement | null, range: Range | null) {
+  if (!editor || !range) return false;
+  editor.focus();
+  const selection = window.getSelection();
+  if (!selection) return false;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
+function styleWithCss(on: boolean) {
+  try {
+    document.execCommand("styleWithCSS", false, on ? "true" : "false");
+  } catch {
+    // Unsupported in some browsers.
+  }
+}
+
+function applyCssToSelection(css: Record<string, string>) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
   const range = selection.getRangeAt(0);
   const span = document.createElement("span");
-  span.setAttribute("style", style);
+  for (const [property, value] of Object.entries(css)) {
+    span.style.setProperty(property, value);
+  }
   try {
     range.surroundContents(span);
   } catch {
@@ -128,12 +183,213 @@ function wrapSelection(style: string) {
   selection.addRange(next);
 }
 
+function applyFontSize(editor: HTMLElement, size: string) {
+  styleWithCss(false);
+  document.execCommand("fontSize", false, "7");
+  const marked = [
+    ...editor.querySelectorAll('font[size="7"]'),
+    ...editor.querySelectorAll('span[style*="xxx-large"]'),
+  ];
+  for (const node of marked) {
+    const span = document.createElement("span");
+    span.style.fontSize = size;
+    while (node.firstChild) span.appendChild(node.firstChild);
+    node.replaceWith(span);
+  }
+  if (marked.length === 0) applyCssToSelection({ "font-size": size });
+}
+
+function applyFontFamily(family: string) {
+  styleWithCss(true);
+  if (!family) {
+    document.execCommand("fontName", false, "Inter, system-ui, sans-serif");
+    return;
+  }
+  document.execCommand("fontName", false, family);
+}
+
 function applyCase(mode: "upper" | "lower") {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
   const text = selection.toString();
   const next = mode === "upper" ? text.toUpperCase() : text.toLowerCase();
   document.execCommand("insertText", false, next);
+}
+
+function matchingFontValue(computedFamily: string): string {
+  const normalized = computedFamily.toLowerCase().replace(/['"]/g, "");
+  const match = FONT_FACES.find((face) => {
+    if (!face.value) return false;
+    const name = face.value.split(",")[0]!.trim().toLowerCase();
+    return normalized.includes(name);
+  });
+  return match?.value ?? "";
+}
+
+function matchingSizeValue(computedSize: string): string {
+  const px = `${Math.round(Number.parseFloat(computedSize))}px`;
+  return px;
+}
+
+function ToolbarPicker({
+  id,
+  openId,
+  setOpenId,
+  label,
+  disabled,
+  display,
+  displayStyle,
+  icon,
+  align = "left",
+  children,
+}: {
+  id: Exclude<ToolbarMenuId, null>;
+  openId: ToolbarMenuId;
+  setOpenId: (next: ToolbarMenuId) => void;
+  label: string;
+  disabled?: boolean;
+  display: string;
+  displayStyle?: CSSProperties;
+  icon?: ReactNode;
+  align?: "left" | "right";
+  children: ReactNode;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0, minWidth: 0 });
+  const open = openId === id;
+
+  useEffect(() => {
+    if (!open) return;
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const minWidth = Math.max(rect.width, 168);
+    let left = rect.left;
+    if (align === "right" || left + minWidth > window.innerWidth - 8) {
+      left = Math.max(8, rect.right - minWidth);
+    }
+    setCoords({
+      top: rect.bottom + 4,
+      left,
+      minWidth,
+    });
+  }, [open, align]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointer(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpenId(null);
+    }
+    function onKey(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") setOpenId(null);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, setOpenId]);
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        disabled={disabled}
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={label}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          const rect = buttonRef.current?.getBoundingClientRect();
+          if (rect) {
+            const minWidth = Math.max(rect.width, 168);
+            let left = rect.left;
+            if (align === "right" || left + minWidth > window.innerWidth - 8) {
+              left = Math.max(8, rect.right - minWidth);
+            }
+            setCoords({
+              top: rect.bottom + 4,
+              left,
+              minWidth,
+            });
+          }
+          setOpenId(open ? null : id);
+        }}
+        className={cn(
+          "inline-flex h-7 items-center gap-0.5 rounded px-1 text-xs text-[#3D421F]",
+          icon ? "size-7 max-w-none justify-center" : "max-w-[9.5rem]",
+          "hover:bg-black/5 disabled:opacity-40",
+          open && "bg-black/5",
+        )}
+      >
+        {icon ?? (
+          <>
+            <span className="truncate" style={displayStyle}>
+              {display}
+            </span>
+            <ChevronDown className="size-3 shrink-0 opacity-50" />
+          </>
+        )}
+      </button>
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="listbox"
+              aria-label={label}
+              className="z-[80] max-h-72 overflow-y-auto rounded-md border border-black/10 bg-white py-1 shadow-lg"
+              style={{
+                position: "fixed",
+                top: coords.top,
+                left: coords.left,
+                minWidth: coords.minWidth,
+              }}
+            >
+              {children}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
+function MenuOption({
+  label,
+  active,
+  style,
+  onSelect,
+}: {
+  label: string;
+  active?: boolean;
+  style?: CSSProperties;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={active}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onSelect();
+      }}
+      className={cn(
+        "flex w-full px-3 py-1.5 text-left text-sm text-[#3D421F] hover:bg-black/5",
+        active && "bg-[var(--venue-primary,#818a40)]/12",
+      )}
+      style={style}
+    >
+      {label}
+    </button>
+  );
 }
 
 export function HiringCopyHtml({
@@ -152,7 +408,7 @@ export function HiringCopyHtml({
   return (
     <div
       className={cn(
-        "text-sm leading-6 text-[#3D421F]/80",
+        "text-[16px] leading-6 text-[#3D421F]/80",
         "[&_a]:underline [&_a]:underline-offset-2",
         "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:text-left",
         "[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:text-left",
@@ -188,13 +444,31 @@ export function HiringCopyEditor({
   "aria-label"?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const savedRange = useRef<Range | null>(null);
   const lastEmitted = useRef(value);
   const isFocused = useRef(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkValue, setLinkValue] = useState("https://");
+  const [menu, setMenu] = useState<ToolbarMenuId>(null);
+  const [fontValue, setFontValue] = useState("");
+  const [sizeValue, setSizeValue] = useState("16px");
   const [active, setActive] = useState<Partial<Record<FormatCommand, boolean>>>(
     {},
   );
+
+  function rememberSelection() {
+    const range = selectionIsIn(ref.current);
+    if (range) savedRange.current = range;
+  }
+
+  function withSelection(action: () => void) {
+    if (disabled) return;
+    restoreRange(ref.current, savedRange.current);
+    action();
+    rememberSelection();
+    emitFromDom();
+    refreshActive();
+  }
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -204,6 +478,18 @@ export function HiringCopyEditor({
     el.innerHTML = sanitizeHiringCopyHtml(value);
     lastEmitted.current = value;
   }, [value]);
+
+  useEffect(() => {
+    function onSelectionChange() {
+      const range = selectionIsIn(ref.current);
+      if (!range) return;
+      savedRange.current = range;
+      refreshActive();
+    }
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () =>
+      document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
 
   function emitFromDom() {
     const el = ref.current;
@@ -233,26 +519,27 @@ export function HiringCopyEditor({
     } catch {
       // queryCommandState is not available in every browser/context.
     }
+    const node = window.getSelection()?.anchorNode;
+    const el =
+      node instanceof HTMLElement
+        ? node
+        : node?.parentElement ?? ref.current;
+    if (!el) return;
+    const styles = window.getComputedStyle(el);
+    setFontValue(matchingFontValue(styles.fontFamily));
+    setSizeValue(matchingSizeValue(styles.fontSize));
   }
 
   function run(command: FormatCommand, argument?: string) {
-    if (disabled) return;
-    ref.current?.focus();
-    try {
-      document.execCommand("defaultParagraphSeparator", false, "p");
-    } catch {
-      // Unsupported in some browsers.
-    }
-    document.execCommand(command, false, argument);
-    emitFromDom();
-    refreshActive();
-  }
-
-  function applyStyle(style: string) {
-    if (disabled) return;
-    ref.current?.focus();
-    wrapSelection(style);
-    emitFromDom();
+    withSelection(() => {
+      try {
+        document.execCommand("defaultParagraphSeparator", false, "p");
+      } catch {
+        // Unsupported in some browsers.
+      }
+      styleWithCss(true);
+      document.execCommand(command, false, argument);
+    });
   }
 
   function applyLink() {
@@ -280,8 +567,11 @@ export function HiringCopyEditor({
   }
 
   const minHeight = `${Math.max(rows, 3) * 1.5}rem`;
-  const selectClass =
-    "h-7 max-w-[7.5rem] rounded border-0 bg-transparent px-1 text-xs text-[#3D421F] outline-none";
+  const fontLabel =
+    FONT_FACES.find((face) => face.value === fontValue)?.label ?? "Venue";
+  const fontPreview =
+    FONT_FACES.find((face) => face.value === fontValue)?.value ||
+    "Inter, system-ui, sans-serif";
 
   return (
     <div
@@ -290,7 +580,10 @@ export function HiringCopyEditor({
         className,
       )}
     >
-      <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b border-black/10 px-1.5 py-1">
+      <div
+        className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b border-black/10 px-1.5 py-1"
+        onMouseDown={rememberSelection}
+      >
         <ToolbarButton
           label="Bold"
           disabled={disabled}
@@ -324,41 +617,55 @@ export function HiringCopyEditor({
           <Strikethrough className="size-3.5" />
         </ToolbarButton>
         <Divider />
-        <select
-          aria-label="Font"
+        <ToolbarPicker
+          id="font"
+          openId={menu}
+          setOpenId={setMenu}
+          label="Font"
           disabled={disabled}
-          className={selectClass}
-          defaultValue=""
-          onMouseDown={() => ref.current?.focus()}
-          onChange={(event) => {
-            const face = event.target.value;
-            if (!face) {
-              run("removeFormat");
-              return;
-            }
-            applyStyle(`font-family: ${face}`);
-          }}
+          display={fontLabel}
+          displayStyle={{ fontFamily: fontPreview }}
         >
           {FONT_FACES.map((face) => (
-            <option key={face.label} value={face.value}>
-              {face.label}
-            </option>
+            <MenuOption
+              key={face.label}
+              label={face.label}
+              active={face.value === fontValue}
+              style={{
+                fontFamily: face.value || "Inter, system-ui, sans-serif",
+              }}
+              onSelect={() => {
+                withSelection(() => applyFontFamily(face.value));
+                setFontValue(face.value);
+                setMenu(null);
+              }}
+            />
           ))}
-        </select>
-        <select
-          aria-label="Size"
+        </ToolbarPicker>
+        <ToolbarPicker
+          id="size"
+          openId={menu}
+          setOpenId={setMenu}
+          label="Size"
           disabled={disabled}
-          className={cn(selectClass, "max-w-[4.5rem]")}
-          defaultValue="16px"
-          onMouseDown={() => ref.current?.focus()}
-          onChange={(event) => applyStyle(`font-size: ${event.target.value}`)}
+          display={sizeValue}
         >
           {FONT_SIZES.map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
+            <MenuOption
+              key={size}
+              label={size}
+              active={size === sizeValue}
+              style={{ fontSize: size, lineHeight: 1.2 }}
+              onSelect={() => {
+                const editor = ref.current;
+                if (!editor) return;
+                withSelection(() => applyFontSize(editor, size));
+                setSizeValue(size);
+                setMenu(null);
+              }}
+            />
           ))}
-        </select>
+        </ToolbarPicker>
         <Divider />
         <label className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded hover:bg-black/5">
           <Baseline className="size-3.5 text-[#3D421F]/80" />
@@ -368,34 +675,44 @@ export function HiringCopyEditor({
             disabled={disabled}
             defaultValue="#3D421F"
             className="absolute inset-0 cursor-pointer opacity-0"
-            onChange={(event) => applyStyle(`color: ${event.target.value}`)}
+            onMouseDown={rememberSelection}
+            onChange={(event) => {
+              const color = event.target.value;
+              withSelection(() => {
+                styleWithCss(true);
+                document.execCommand("foreColor", false, color);
+              });
+            }}
           />
         </label>
-        <div className="relative">
-          <ToolbarButton
-            label="Highlight"
-            disabled={disabled}
-            onMouseDown={() => undefined}
-          >
-            <Highlighter className="size-3.5" />
-          </ToolbarButton>
-          <select
-            aria-label="Highlight"
-            disabled={disabled}
-            className="absolute inset-0 cursor-pointer opacity-0"
-            defaultValue="transparent"
-            onMouseDown={() => ref.current?.focus()}
-            onChange={(event) =>
-              applyStyle(`background-color: ${event.target.value}`)
-            }
-          >
-            {HIGHLIGHTS.map((swatch) => (
-              <option key={swatch.value} value={swatch.value}>
-                {swatch.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <ToolbarPicker
+          id="highlight"
+          openId={menu}
+          setOpenId={setMenu}
+          label="Highlight"
+          disabled={disabled}
+          display="Highlight"
+          icon={<Highlighter className="size-3.5" />}
+        >
+          {HIGHLIGHTS.map((swatch) => (
+            <MenuOption
+              key={swatch.value}
+              label={swatch.label}
+              style={{
+                backgroundColor:
+                  swatch.value === "transparent" ? undefined : swatch.value,
+              }}
+              onSelect={() => {
+                withSelection(() => {
+                  styleWithCss(true);
+                  document.execCommand("hiliteColor", false, swatch.value);
+                  document.execCommand("backColor", false, swatch.value);
+                });
+                setMenu(null);
+              }}
+            />
+          ))}
+        </ToolbarPicker>
         <Divider />
         <ToolbarButton
           label="Align left"
@@ -480,11 +797,11 @@ export function HiringCopyEditor({
         <ToolbarButton
           label="Quote"
           disabled={disabled}
-          onMouseDown={() => {
-            ref.current?.focus();
-            document.execCommand("formatBlock", false, "blockquote");
-            emitFromDom();
-          }}
+          onMouseDown={() =>
+            withSelection(() => {
+              document.execCommand("formatBlock", false, "blockquote");
+            })
+          }
         >
           <Quote className="size-3.5" />
         </ToolbarButton>
@@ -492,6 +809,7 @@ export function HiringCopyEditor({
           label="Insert link"
           disabled={disabled}
           onMouseDown={() => {
+            rememberSelection();
             setLinkOpen((open) => !open);
             setLinkValue("https://");
           }}
@@ -519,23 +837,29 @@ export function HiringCopyEditor({
         >
           <RemoveFormatting className="size-3.5" />
         </ToolbarButton>
-        <select
-          aria-label="Change case"
+        <ToolbarPicker
+          id="case"
+          openId={menu}
+          setOpenId={setMenu}
+          label="Change case"
           disabled={disabled}
-          className={cn(selectClass, "max-w-[3.25rem]")}
-          defaultValue=""
-          onMouseDown={() => ref.current?.focus()}
-          onChange={(event) => {
-            const mode = event.target.value;
-            if (mode === "upper" || mode === "lower") applyCase(mode);
-            event.currentTarget.value = "";
-            emitFromDom();
-          }}
+          display="Aa"
         >
-          <option value="">Aa</option>
-          <option value="upper">AB</option>
-          <option value="lower">ab</option>
-        </select>
+          <MenuOption
+            label="UPPERCASE"
+            onSelect={() => {
+              withSelection(() => applyCase("upper"));
+              setMenu(null);
+            }}
+          />
+          <MenuOption
+            label="lowercase"
+            onSelect={() => {
+              withSelection(() => applyCase("lower"));
+              setMenu(null);
+            }}
+          />
+        </ToolbarPicker>
         {tokens?.map((token) => (
           <button
             key={token.insert}
@@ -545,9 +869,9 @@ export function HiringCopyEditor({
             className="ml-1 shrink-0 rounded border border-black/10 px-1.5 py-0.5 font-mono text-[11px] text-[#3D421F] hover:bg-black/5 disabled:opacity-50"
             onMouseDown={(event) => {
               event.preventDefault();
-              ref.current?.focus();
-              document.execCommand("insertText", false, token.insert);
-              emitFromDom();
+              withSelection(() => {
+                document.execCommand("insertText", false, token.insert);
+              });
             }}
           >
             {token.label}
@@ -613,7 +937,7 @@ export function HiringCopyEditor({
           emitFromDom();
         }}
         className={cn(
-          "min-h-[96px] w-full overflow-y-auto px-3 py-2 text-[16px] text-[#3D421F] outline-none md:text-sm",
+          "min-h-[96px] w-full overflow-y-auto px-3 py-2 text-[16px] text-[#3D421F] outline-none",
           "[&_p]:m-0 [&_p+p]:mt-2 [&_div]:m-0",
           "[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5",
           "[&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5",

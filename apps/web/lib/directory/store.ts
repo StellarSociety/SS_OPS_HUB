@@ -11,6 +11,7 @@ import {
   initialHierarchyRoots,
   isHireId,
   parseCollabs,
+  staffManagerId,
   type HierarchyNode,
   type HierarchyPersistRow,
 } from "./hierarchy-tree";
@@ -203,16 +204,24 @@ export async function loadDirectoryStaffPay(
 type HierarchyNodeRow = {
   staff_id: string;
   reports_to_staff_id: string | null;
+  reports_to_hire_id?: string | null;
   sort_order: number;
   label?: string | null;
   collabs?: unknown;
   highlighted?: boolean | null;
 };
 
-function mapHierarchyRow(row: HierarchyNodeRow): HierarchyPersistRow {
+function mapHierarchyRow(
+  row: HierarchyNodeRow,
+  includeHires: boolean,
+): HierarchyPersistRow {
+  const hireParent =
+    includeHires && row.reports_to_hire_id
+      ? createHireId(row.reports_to_hire_id)
+      : null;
   return {
     staffId: row.staff_id,
-    reportsToStaffId: row.reports_to_staff_id,
+    reportsToStaffId: hireParent ?? row.reports_to_staff_id,
     sortOrder: row.sort_order,
     label: row.label?.trim() || null,
     collabs: parseCollabs(row.collabs),
@@ -247,11 +256,20 @@ export async function loadDirectoryHierarchy(
 
   const [{ data: chart, error: chartError }, firstNodes] = await Promise.all([
     chartQuery,
-    nodesQuery("staff_id, reports_to_staff_id, sort_order, label, collabs, highlighted"),
+    nodesQuery(
+      "staff_id, reports_to_staff_id, reports_to_hire_id, sort_order, label, collabs, highlighted",
+    ),
   ]);
 
   let rows = firstNodes.data;
   let rowsError = firstNodes.error;
+  if (rowsError?.message.includes("does not exist")) {
+    const fallback = await nodesQuery(
+      "staff_id, reports_to_staff_id, sort_order, label, collabs, highlighted",
+    );
+    rows = fallback.data;
+    rowsError = fallback.error;
+  }
   if (rowsError?.message.includes("does not exist")) {
     const fallback = await nodesQuery(
       "staff_id, reports_to_staff_id, sort_order, label, collabs",
@@ -271,7 +289,7 @@ export async function loadDirectoryHierarchy(
   const nodeRows: HierarchyNodeRow[] = Array.isArray(rows)
     ? (rows as unknown as HierarchyNodeRow[])
     : [];
-  const staffRows = nodeRows.map(mapHierarchyRow);
+  const staffRows = nodeRows.map((row) => mapHierarchyRow(row, includeHires));
   const hireRows = includeHires
     ? await loadDirectoryHierarchyHires(supabase, venue.id)
     : [];
@@ -378,13 +396,15 @@ export async function loadDirectoryPositions(
 }
 
 export function hierarchyPayload(roots: HierarchyNode[]) {
-  return flattenHierarchy(roots)
+  const rows = flattenHierarchy(roots);
+  return rows
     .filter((row) => !isHireId(row.staffId))
     .map((row) => ({
       staff_id: row.staffId,
-      reports_to_staff_id:
-        row.reportsToStaffId && !isHireId(row.reportsToStaffId)
-          ? row.reportsToStaffId
+      reports_to_staff_id: staffManagerId(rows, row.reportsToStaffId),
+      reports_to_hire_id:
+        row.reportsToStaffId && isHireId(row.reportsToStaffId)
+          ? hireRecordId(row.reportsToStaffId)
           : null,
       sort_order: row.sortOrder,
       label: row.label,

@@ -139,7 +139,6 @@ export function canPlaceStaff(
   if (target.kind === "root") return true;
   const moving = findNode(roots, staffId);
   if (target.kind === "parent") {
-    if (isHireId(target.parentId)) return false;
     if (target.parentId === staffId) return false;
     if (moving && subtreeContains(moving, target.parentId)) return false;
     return findNode(roots, target.parentId) != null;
@@ -510,6 +509,22 @@ export function flattenHierarchy(roots: HierarchyNode[]): HierarchyPersistRow[] 
 
   visit(roots, null);
   return rows;
+}
+
+/** Skip vacancy cards to the nearest real person (for the reporting tree). */
+export function staffManagerId(
+  rows: HierarchyPersistRow[],
+  reportsToId: string | null,
+): string | null {
+  const byId = new Map(rows.map((row) => [row.staffId, row]));
+  let parent = reportsToId;
+  const seen = new Set<string>();
+  while (parent && isHireId(parent)) {
+    if (seen.has(parent)) return null;
+    seen.add(parent);
+    parent = byId.get(parent)?.reportsToStaffId ?? null;
+  }
+  return parent;
 }
 
 export function buildHierarchy(

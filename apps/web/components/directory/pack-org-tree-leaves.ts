@@ -53,12 +53,6 @@ function cardBox(card: HTMLElement, root: HTMLElement, scale: number) {
   };
 }
 
-function siblingGap(parent: HTMLElement | null): number {
-  if (!parent) return 8;
-  const gap = Number.parseFloat(getComputedStyle(parent).columnGap);
-  return Number.isFinite(gap) && gap > 0 ? gap : 8;
-}
-
 function liDepth(li: HTMLElement): number {
   let depth = 0;
   let cur: HTMLElement | null = li;
@@ -73,14 +67,17 @@ function roomBetween(left: HTMLElement, right: HTMLElement, root: HTMLElement, s
   const a = personIn(left);
   const b = personIn(right);
   if (!a || !b) return 0;
-  const gap = siblingGap(left.parentElement);
-  return Math.round(cardBox(b, root, scale).l - cardBox(a, root, scale).r - gap);
+  return Math.round(cardBox(b, root, scale).l - cardBox(a, root, scale).r - CARD_GAP);
 }
 
 function personIn(li: HTMLElement): HTMLElement | null {
   const person = li.querySelector(":scope > .dir-org-person");
   return person instanceof HTMLElement ? person : null;
 }
+
+/** Layout pixels between sibling people. Viewport-pixel gaps shrink as the
+ * tree zooms in, so highlighted (w-44) cards look stacked in fullscreen. */
+const CARD_GAP = 32;
 
 export function packOrgTreeLeaves(root: HTMLElement) {
   const items = [...root.querySelectorAll<HTMLElement>(".dir-org-tree li")];
@@ -149,8 +146,83 @@ export function packOrgTreeLeaves(root: HTMLElement) {
   spaceSiblingPeople(root, scaleOf(root));
   centerLabeledLevels(root, scaleOf(root));
   spaceSiblingPeople(root, scaleOf(root));
-  alignOrgTreeConnectors(root, scaleOf(root));
+  // Slide managers toward their team, but never onto a sibling. That shift
+  // is position:relative and does not widen the column, so a leaf packed
+  // into the same row (Yusuf next to an expanded Shuhrat) would sit under
+  // the card. Clamp the slide, push siblings, then redraw T-bars only.
+  alignOrgTreeConnectors(root, scaleOf(root), true);
+  spaceSiblingPeople(root, scaleOf(root));
+  // Parent slides are relative and leave leftover air on one side of a
+  // manager (Yusuf↔Shuhrat vs Shuhrat↔Tasmia). Pull leaves back to CARD_GAP.
+  closeLeafGaps(root, scaleOf(root));
+  spaceSiblingPeople(root, scaleOf(root));
+  syncNextPull(root);
+  separateOverlappingCards(root);
+  alignOrgTreeConnectors(root, scaleOf(root), false);
   alignSiblingLabelTops(root, scaleOf(root));
+}
+
+function syncNextPull(root: HTMLElement) {
+  for (const li of root.querySelectorAll<HTMLElement>(".dir-org-tree li")) {
+    const next = li.nextElementSibling;
+    const nextPull =
+      isLeaf(next) && next.style.marginLeft.startsWith("-")
+        ? next.style.marginLeft.slice(1)
+        : "";
+    assignProp(li, "--dir-org-next-pull", nextPull);
+  }
+}
+
+function slideLeaf(li: HTMLElement, delta: number) {
+  if (!delta) return;
+  const shift =
+    Number.parseFloat(li.style.getPropertyValue("--dir-org-leaf-shift")) || 0;
+  const margin = Number.parseFloat(li.style.marginLeft) || 0;
+  // Negative margin pulls the column; leaf-shift slides only the card.
+  // Prefer the channel this leaf already uses so T-bars stay on the person.
+  if (margin < 0 || (margin !== 0 && shift === 0)) {
+    assignStyle(li, "marginLeft", `${margin + delta}px`);
+    return;
+  }
+  const next = shift + delta;
+  assignProp(li, "--dir-org-leaf-shift", next ? `${next}px` : "");
+}
+
+/** After a manager card slides, leftover space on one side of the row is
+ * closed by moving only the neighboring leaf — never the wide team column. */
+function closeLeafGaps(root: HTMLElement, scale: number) {
+  const rows: HTMLElement[] = [
+    root.querySelector<HTMLElement>(".dir-org-tree"),
+    ...root.querySelectorAll<HTMLElement>(".dir-org-tree li > ul"),
+  ].filter((el): el is HTMLElement => Boolean(el));
+
+  for (const row of rows) {
+    const kids = [...row.children]
+      .filter(
+        (el): el is HTMLElement => el instanceof HTMLElement && el.tagName === "LI",
+      )
+      .sort((a, b) => {
+        const aa = personVisualBox(a);
+        const bb = personVisualBox(b);
+        return (aa?.left ?? 0) - (bb?.left ?? 0);
+      });
+    for (let i = 0; i < kids.length - 1; i++) {
+      const left = kids[i];
+      const right = kids[i + 1];
+      const a = personVisualBox(left);
+      const b = personVisualBox(right);
+      if (!a || !b) continue;
+      const extra = Math.floor((b.left - a.right) / scale - CARD_GAP);
+      if (extra <= 0) continue;
+      if (isLeaf(left) && !isLeaf(right)) {
+        slideLeaf(left, extra);
+        void root.offsetWidth;
+      } else if (!isLeaf(left) && isLeaf(right)) {
+        slideLeaf(right, -extra);
+        void root.offsetWidth;
+      }
+    }
+  }
 }
 
 /** Keep department badges on one horizontal line across each sibling row. */
@@ -299,8 +371,43 @@ function centerLabeledLevels(root: HTMLElement, scale: number) {
   }
 }
 
+function clampParentShift(
+  parentLi: HTMLElement,
+  parentCard: HTMLElement,
+  shift: number,
+  scale: number,
+): number {
+  if (!shift) return 0;
+  const row = parentLi.parentElement;
+  if (!row) return shift;
+  const siblings = [...row.children].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && el.tagName === "LI",
+  );
+  const idx = siblings.indexOf(parentLi);
+  const box = parentCard.getBoundingClientRect();
+  const gap = CARD_GAP * scale;
+  if (shift > 0 && idx < siblings.length - 1) {
+    const next = personVisualBox(siblings[idx + 1]);
+    if (next) {
+      const room = Math.floor((next.left - gap - box.right) / scale);
+      shift = Math.min(shift, Math.max(0, room));
+    }
+  } else if (shift < 0 && idx > 0) {
+    const prev = personVisualBox(siblings[idx - 1]);
+    if (prev) {
+      const room = Math.floor((box.left - gap - prev.right) / scale);
+      shift = Math.max(shift, -Math.max(0, room));
+    }
+  }
+  return shift;
+}
+
 /** Draw T-bars through the people, and drop the parent stem onto that bar. */
-function alignOrgTreeConnectors(root: HTMLElement, scale: number) {
+function alignOrgTreeConnectors(
+  root: HTMLElement,
+  scale: number,
+  moveParents = true,
+) {
   const uls = [...root.querySelectorAll<HTMLElement>(".dir-org-tree li > ul")];
   uls.sort(
     (a, b) =>
@@ -337,10 +444,20 @@ function alignOrgTreeConnectors(root: HTMLElement, scale: number) {
     const parentPerson = parentLi.querySelector<HTMLElement>(
       ":scope > .dir-org-person",
     );
-    if (parentCard && parentPerson && !closestLabeled(parentLi)) {
+    if (
+      moveParents &&
+      parentCard &&
+      parentPerson &&
+      !closestLabeled(parentLi)
+    ) {
       const parentBox = parentCard.getBoundingClientRect();
       const parentMid = ((parentBox.left + parentBox.right) / 2 - ulLeft) / scale;
-      const shift = Math.round(kidsMid - parentMid);
+      const shift = clampParentShift(
+        parentLi,
+        parentCard,
+        Math.round(kidsMid - parentMid),
+        scale,
+      );
       if (shift) {
         const current =
           Number.parseFloat(
@@ -382,6 +499,21 @@ function employeeCards(root: HTMLElement) {
   });
 }
 
+function personVisualBox(li: HTMLElement) {
+  const person = personIn(li);
+  if (!person) return null;
+  const cards = [
+    ...person.querySelectorAll<HTMLElement>(":scope .dir-org-node"),
+  ].filter((el) => el.tagName !== "BUTTON");
+  const rects = (cards.length > 0 ? cards : [person]).map((el) =>
+    el.getBoundingClientRect(),
+  );
+  return {
+    left: Math.min(...rects.map((rect) => rect.left)),
+    right: Math.max(...rects.map((rect) => rect.right)),
+  };
+}
+
 /** Push sibling columns apart when person rows (including side collabs) collide. */
 function spaceSiblingPeople(root: HTMLElement, scale: number) {
   const rows: HTMLElement[] = [
@@ -389,18 +521,15 @@ function spaceSiblingPeople(root: HTMLElement, scale: number) {
     ...root.querySelectorAll<HTMLElement>(".dir-org-tree li > ul"),
   ].filter((el): el is HTMLElement => Boolean(el));
 
-  const GAP = 10;
   for (const row of rows) {
     const kids = [...row.children].filter(
       (el): el is HTMLElement => el instanceof HTMLElement && el.tagName === "LI",
     );
     for (let i = 0; i < kids.length - 1; i++) {
-      const left = personIn(kids[i]);
-      const right = personIn(kids[i + 1]);
-      if (!left || !right) continue;
-      const a = left.getBoundingClientRect();
-      const b = right.getBoundingClientRect();
-      const need = Math.ceil((a.right + GAP - b.left) / scale);
+      const a = personVisualBox(kids[i]);
+      const b = personVisualBox(kids[i + 1]);
+      if (!a || !b) continue;
+      const need = Math.ceil((a.right - b.left) / scale + CARD_GAP);
       if (need <= 0) continue;
       const current = Number.parseFloat(kids[i + 1].style.marginLeft) || 0;
       assignStyle(kids[i + 1], "marginLeft", `${current + need}px`);
@@ -413,7 +542,7 @@ function separateOverlappingCards(root: HTMLElement) {
   const cards = employeeCards(root);
   if (cards.length < 2) return;
 
-  const GAP = 4;
+  const HIT = 4;
   for (let pass = 0; pass < 6; pass++) {
     const boxes = cards.map(nodeBox);
     let hit = false;
@@ -423,9 +552,10 @@ function separateOverlappingCards(root: HTMLElement) {
         const b = boxes[j];
         const ox = Math.min(a.r, b.r) - Math.max(a.l, b.l);
         const oy = Math.min(a.b, b.b) - Math.max(a.t, b.t);
-        if (ox <= GAP || oy <= GAP) continue;
+        if (ox <= HIT || oy <= HIT) continue;
         hit = true;
         if (!relaxLeaf(a.el) && !relaxLeaf(b.el)) return;
+        void root.offsetWidth;
       }
     }
     if (!hit) return;

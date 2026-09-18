@@ -2,7 +2,10 @@ import { forwardRef } from "react";
 import type { LucideProps } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Candidate + search glass — reads at Apps Hub size. */
+/**
+ * Candidate beside a hiring form — two marks, no overlapping strokes,
+ * so it stays readable in the compact shortcut well.
+ */
 export const HiringIcon = forwardRef<SVGSVGElement, LucideProps>(
   function HiringIcon(
     {
@@ -38,10 +41,13 @@ export const HiringIcon = forwardRef<SVGSVGElement, LucideProps>(
         aria-hidden
         {...props}
       >
-        <circle cx="9" cy="7.5" r="3.1" />
-        <path d="M3.4 20c.4-3.2 2.7-5.2 5.6-5.2 1.2 0 2.3.35 3.15 1" />
-        <circle cx="16.4" cy="15.1" r="3.35" />
-        <path d="m18.85 17.55 2.55 2.55" />
+        <circle cx="8" cy="7.6" r="3.15" />
+        <path d="M3.15 20.4c.4-3.35 2.55-5.45 5.1-5.45 1.65 0 3.05.9 4.05 2.4" />
+        <rect x="13.35" y="6.55" width="7.85" height="13.05" rx="1.55" />
+        <rect x="15.45" y="5" width="3.65" height="2.7" rx="0.65" />
+        <path d="M15.05 11.25h4.45" />
+        <path d="M15.05 14h4.45" />
+        <path d="M15.05 16.75h2.85" />
       </svg>
     );
   },

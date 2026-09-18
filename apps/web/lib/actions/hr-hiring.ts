@@ -6,15 +6,20 @@ import {
   canEditHiring,
 } from "@/lib/hr/permissions";
 import {
+  DEFAULT_HIRING_BODY_BACKGROUND,
   DEFAULT_HIRING_INTRO_BACKGROUND,
   DEFAULT_HIRING_INTRO2_BACKGROUND,
   DEFAULT_INTERVIEW_CONFIRM_BODY,
   DEFAULT_INTERVIEW_CONFIRM_SUBJECT,
+  DEFAULT_INTERVIEW_CONFIRM_VIDEO_BODY,
+  DEFAULT_INTERVIEW_CONFIRM_VIDEO_SUBJECT,
   DEFAULT_INTERVIEW_REQUEST_BODY,
   DEFAULT_INTERVIEW_REQUEST_SUBJECT,
   DEFAULT_HIRING_FIELD_CONFIG,
+  HIRING_FIELD_PLACEHOLDERS,
   HIRING_STORAGE_BUCKET,
   fillHiringEmailTemplate,
+  hiringInterviewConfirmCopy,
   mergeHiringFieldConfig,
   slugifyHiringFieldKey,
   type HiringApplicationStatus,
@@ -25,6 +30,7 @@ import {
   HIRING_SHORTLIST_STATUSES,
 } from "@/lib/hr/hiring/types";
 import { sanitizeHiringCopyHtml } from "@/lib/hr/hiring/copy-format";
+import { listHiringNotifyCandidates } from "@/lib/hr/hiring/notify";
 import { normalizeHexColor } from "@/lib/venue/branding-validation";
 import {
   getHiringApplication,
@@ -77,40 +83,51 @@ const DEFAULT_BLOCKS: Array<{
     kind: "field",
     field_label: "Photo",
     field_type: "picture",
-    required: false,
+    required: true,
+    config: { placeholder: HIRING_FIELD_PLACEHOLDERS.picture },
   },
   {
     kind: "field",
     field_label: "Full name",
     field_type: "short_text",
     required: true,
-    config: { allowNumbers: false, allowSymbols: false, allowPunctuation: true },
+    config: {
+      allowNumbers: false,
+      allowSymbols: false,
+      allowPunctuation: true,
+      placeholder: HIRING_FIELD_PLACEHOLDERS.short_text,
+    },
   },
   {
     kind: "field",
     field_label: "Email",
     field_type: "email",
     required: true,
+    config: { placeholder: HIRING_FIELD_PLACEHOLDERS.email },
   },
   {
     kind: "field",
     field_label: "Nationality",
-    field_type: "short_text",
-    required: false,
-    config: { allowNumbers: false, allowSymbols: false, allowPunctuation: true },
+    field_type: "nationality",
+    required: true,
+    config: { placeholder: HIRING_FIELD_PLACEHOLDERS.nationality },
   },
   {
     kind: "field",
     field_label: "Position applied for",
     field_type: "short_text",
     required: true,
+    config: { placeholder: "e.g. Commis Chef" },
   },
   {
     kind: "field",
     field_label: "Date of birth",
     field_type: "date",
-    required: false,
-    config: { computeAge: true },
+    required: true,
+    config: {
+      computeAge: true,
+      placeholder: HIRING_FIELD_PLACEHOLDERS.date,
+    },
   },
 ];
 
@@ -129,12 +146,15 @@ export async function createHiringForm(name?: string) {
     intro_description: `Join ${ctx.auth.venue.name ?? "our team"}. Tell us a little about yourself.`,
     intro_background_color: DEFAULT_HIRING_INTRO_BACKGROUND,
     intro2_background_color: DEFAULT_HIRING_INTRO2_BACKGROUND,
+    body_background_color: DEFAULT_HIRING_BODY_BACKGROUND,
     end_message:
       "Thank you — we have received your application and will be in touch.",
     interview_request_subject: DEFAULT_INTERVIEW_REQUEST_SUBJECT,
     interview_request_body: DEFAULT_INTERVIEW_REQUEST_BODY,
     interview_confirm_subject: DEFAULT_INTERVIEW_CONFIRM_SUBJECT,
     interview_confirm_body: DEFAULT_INTERVIEW_CONFIRM_BODY,
+    interview_confirm_video_subject: DEFAULT_INTERVIEW_CONFIRM_VIDEO_SUBJECT,
+    interview_confirm_video_body: DEFAULT_INTERVIEW_CONFIRM_VIDEO_BODY,
     created_by: ctx.auth.user.id,
   });
   if (error) return fail(error.message);
@@ -218,15 +238,19 @@ export async function duplicateHiringForm(formId: string) {
     intro2_button_label: source.intro2_button_label,
     intro2_department_id: source.intro2_department_id,
     intro2_position_ids: source.intro2_position_ids,
+    body_background_color: source.body_background_color,
     end_message: source.end_message,
     show_socials: source.show_socials,
     table_column_ids: tableColumnIds,
+    notify_user_ids: source.notify_user_ids,
     sort_field_id: sortFieldId,
     sort_direction: source.sort_direction,
     interview_request_subject: source.interview_request_subject,
     interview_request_body: source.interview_request_body,
     interview_confirm_subject: source.interview_confirm_subject,
     interview_confirm_body: source.interview_confirm_body,
+    interview_confirm_video_subject: source.interview_confirm_video_subject,
+    interview_confirm_video_body: source.interview_confirm_video_body,
     created_by: ctx.auth.user.id,
   });
   if (error) return fail(error.message);
@@ -402,15 +426,19 @@ export type HiringFormPatch = {
   intro2_background_color?: string;
   intro2_department_id?: string | null;
   intro2_position_ids?: string[];
+  body_background_color?: string;
   end_message?: string;
   show_socials?: boolean;
   table_column_ids?: string[];
+  notify_user_ids?: string[];
   sort_field_id?: string | null;
   sort_direction?: "asc" | "desc";
   interview_request_subject?: string;
   interview_request_body?: string;
   interview_confirm_subject?: string;
   interview_confirm_body?: string;
+  interview_confirm_video_subject?: string;
+  interview_confirm_video_body?: string;
 };
 
 export async function saveHiringForm(formId: string, patch: HiringFormPatch) {
@@ -461,11 +489,19 @@ export async function saveHiringForm(formId: string, patch: HiringFormPatch) {
   if (patch.intro2_position_ids !== undefined) {
     payload.intro2_position_ids = patch.intro2_position_ids.filter(Boolean);
   }
+  if (typeof patch.body_background_color === "string") {
+    payload.body_background_color =
+      normalizeHexColor(patch.body_background_color) ??
+      DEFAULT_HIRING_BODY_BACKGROUND;
+  }
   if (typeof patch.end_message === "string") {
     payload.end_message = sanitizeHiringCopyHtml(patch.end_message);
   }
   if (typeof patch.show_socials === "boolean") payload.show_socials = patch.show_socials;
   if (patch.table_column_ids) payload.table_column_ids = patch.table_column_ids;
+  if (patch.notify_user_ids !== undefined) {
+    payload.notify_user_ids = patch.notify_user_ids.filter(Boolean);
+  }
   if (patch.sort_field_id !== undefined) {
     payload.sort_field_id = patch.sort_field_id || null;
   }
@@ -482,6 +518,13 @@ export async function saveHiringForm(formId: string, patch: HiringFormPatch) {
   if (typeof patch.interview_confirm_body === "string") {
     payload.interview_confirm_body = patch.interview_confirm_body;
   }
+  if (typeof patch.interview_confirm_video_subject === "string") {
+    payload.interview_confirm_video_subject =
+      patch.interview_confirm_video_subject;
+  }
+  if (typeof patch.interview_confirm_video_body === "string") {
+    payload.interview_confirm_video_body = patch.interview_confirm_video_body;
+  }
 
   const { error } = await ctx.service
     .from("hiring_forms")
@@ -489,6 +532,35 @@ export async function saveHiringForm(formId: string, patch: HiringFormPatch) {
     .eq("id", formId)
     .eq("venue_id", ctx.auth.venue.id);
   if (error) return fail(error.message);
+  return { ok: true as const };
+}
+
+export async function saveHiringFormNotifications(
+  assignments: { formId: string; userIds: string[] }[],
+) {
+  const ctx = await hiringContext(true);
+  if ("error" in ctx) return fail(ctx.error);
+
+  const allowed = new Set(
+    (await listHiringNotifyCandidates(ctx.service, ctx.auth.venue.id)).map(
+      (candidate) => candidate.id,
+    ),
+  );
+
+  for (const assignment of assignments) {
+    const formId = assignment.formId.trim();
+    if (!formId) continue;
+    const notifyUserIds = [
+      ...new Set(assignment.userIds.filter((id) => allowed.has(id))),
+    ];
+    const { error } = await ctx.service
+      .from("hiring_forms")
+      .update({ notify_user_ids: notifyUserIds })
+      .eq("id", formId)
+      .eq("venue_id", ctx.auth.venue.id);
+    if (error) return fail(error.message);
+  }
+
   return { ok: true as const };
 }
 
@@ -581,7 +653,7 @@ export async function saveHiringFormBlocks(
       description:
         block.kind === "description"
           ? sanitizeHiringCopyHtml(block.description ?? "")
-          : (block.description ?? null),
+          : null,
       field_key:
         block.kind === "field"
           ? slugifyHiringFieldKey(label, `field_${index + 1}`)
@@ -648,7 +720,7 @@ export async function sendHiringInterviewEmail(input: {
   const { data: form } = await ctx.service
     .from("hiring_forms")
     .select(
-      "id, name, interview_request_subject, interview_request_body, interview_confirm_subject, interview_confirm_body",
+      "id, name, interview_request_subject, interview_request_body, interview_confirm_subject, interview_confirm_body, interview_confirm_video_subject, interview_confirm_video_body",
     )
     .eq("id", application.form_id)
     .eq("venue_id", ctx.auth.venue.id)
@@ -684,25 +756,51 @@ export async function sendHiringInterviewEmail(input: {
     datetime,
     details,
   };
+  const confirmCopy =
+    input.kind === "confirm"
+      ? hiringInterviewConfirmCopy(
+          {
+            interview_confirm_subject: String(
+              form.interview_confirm_subject ?? "",
+            ),
+            interview_confirm_body: String(form.interview_confirm_body ?? ""),
+            interview_confirm_video_subject: String(
+              form.interview_confirm_video_subject ?? "",
+            ),
+            interview_confirm_video_body: String(
+              form.interview_confirm_video_body ?? "",
+            ),
+          },
+          input.format === "video" ? "video" : "in_person",
+        )
+      : null;
+  const defaultConfirmSubject =
+    input.format === "video"
+      ? DEFAULT_INTERVIEW_CONFIRM_VIDEO_SUBJECT
+      : DEFAULT_INTERVIEW_CONFIRM_SUBJECT;
+  const defaultConfirmBody =
+    input.format === "video"
+      ? DEFAULT_INTERVIEW_CONFIRM_VIDEO_BODY
+      : DEFAULT_INTERVIEW_CONFIRM_BODY;
   const subject = fillHiringEmailTemplate(
     (input.subject ??
       (input.kind === "confirm"
-        ? form.interview_confirm_subject
+        ? confirmCopy?.subject
         : form.interview_request_subject) ??
       "") ||
       (input.kind === "confirm"
-        ? DEFAULT_INTERVIEW_CONFIRM_SUBJECT
+        ? defaultConfirmSubject
         : DEFAULT_INTERVIEW_REQUEST_SUBJECT),
     vars,
   );
   const body = fillHiringEmailTemplate(
     (input.body ??
       (input.kind === "confirm"
-        ? form.interview_confirm_body
+        ? confirmCopy?.body
         : form.interview_request_body) ??
       "") ||
       (input.kind === "confirm"
-        ? DEFAULT_INTERVIEW_CONFIRM_BODY
+        ? defaultConfirmBody
         : DEFAULT_INTERVIEW_REQUEST_BODY),
     vars,
   );

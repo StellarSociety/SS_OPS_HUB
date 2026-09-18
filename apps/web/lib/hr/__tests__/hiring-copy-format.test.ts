@@ -3,7 +3,10 @@ import {
   hiringCopyIsEmpty,
   sanitizeHiringCopyHtml,
 } from "@/lib/hr/hiring/copy-format";
-import { fillHiringCopyTokens } from "@/lib/hr/hiring/types";
+import {
+  fillHiringCopyTokens,
+  hiringApplicantNameFromFieldValues,
+} from "@/lib/hr/hiring/types";
 
 describe("sanitizeHiringCopyHtml", () => {
   it("keeps plain text and converts line breaks", () => {
@@ -42,6 +45,14 @@ describe("sanitizeHiringCopyHtml", () => {
       "<p>Chef\u00A0Saradhi</p>",
     );
   });
+
+  it("keeps font family and pixel font size", () => {
+    const html =
+      '<span style="font-family: Playfair Display, Georgia, serif; font-size: 24px">Hello</span>';
+    const clean = sanitizeHiringCopyHtml(html);
+    expect(clean).toContain("font-family: Playfair Display, Georgia, serif");
+    expect(clean).toContain("font-size: 24px");
+  });
 });
 
 describe("fillHiringCopyTokens", () => {
@@ -58,5 +69,47 @@ describe("fillHiringCopyTokens", () => {
     expect(fillHiringCopyTokens("Roles: {positions}.", { positions: "" })).toBe(
       "Roles: .",
     );
+  });
+
+  it("replaces {name} and {firstname} from the applicant name", () => {
+    expect(
+      fillHiringCopyTokens("Hi {firstname}. Thank you {name}.", {
+        name: "Yusuf Khan",
+      }),
+    ).toBe("Hi Yusuf. Thank you Yusuf Khan.");
+  });
+
+  it("clears name tokens when the applicant has not typed a name yet", () => {
+    expect(fillHiringCopyTokens("Hello {name}.", { name: "" })).toBe("Hello .");
+  });
+
+  it("escapes HTML in the applicant name", () => {
+    expect(
+      fillHiringCopyTokens("Hi {name}.", { name: "A <b>B</b>" }),
+    ).toBe("Hi A &lt;b&gt;B&lt;/b&gt;.");
+  });
+});
+
+describe("hiringApplicantNameFromFieldValues", () => {
+  it("prefers a short-text field whose label includes name", () => {
+    expect(
+      hiringApplicantNameFromFieldValues(
+        [
+          {
+            id: "email",
+            kind: "field",
+            field_type: "email",
+            field_label: "Email",
+          },
+          {
+            id: "full",
+            kind: "field",
+            field_type: "short_text",
+            field_label: "Full name",
+          },
+        ],
+        { email: "a@b.com", full: "Lina Daifi" },
+      ),
+    ).toBe("Lina Daifi");
   });
 });

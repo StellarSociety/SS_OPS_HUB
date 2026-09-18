@@ -20,6 +20,7 @@ import {
   ScrollText,
   TrendingUp,
   UserRound,
+  UserRoundSearch,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -56,6 +57,8 @@ const PATH_ICONS: Record<string, LucideIcon> = {
   directory: Users,
   "directory-celebrations": Cake,
   "directory-hierarchy": Network,
+  hiring: UserRoundSearch,
+  "hiring-calendar": CalendarDays,
   terms: ScrollText,
 };
 

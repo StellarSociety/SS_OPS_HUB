@@ -21,6 +21,7 @@ export type DateInputProps = {
   name?: string;
   /** Accessible name when no visible label is associated. */
   "aria-label"?: string;
+  required?: boolean;
   /** When set, dates after this (YYYY-MM-DD) cannot be selected. */
   maxDate?: string;
   /**
@@ -31,6 +32,20 @@ export type DateInputProps = {
 };
 
 const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
+const MONTH_LABELS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
 
 function dateToIso(date: Date): string {
   const year = date.getFullYear();
@@ -103,35 +118,72 @@ function DateCalendar({
   const today = new Date();
   const todayIso = dateToIso(today);
   const selectedDate = isoToDate(selectedIso);
-  const monthLabel = viewMonth.toLocaleString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
   const days = buildCalendarDays(viewMonth);
   const todayDisabled = maxDate ? todayIso > maxDate : false;
+  const maxYear = maxDate
+    ? Number(maxDate.slice(0, 4))
+    : today.getFullYear() + 5;
+  const minYear = 1920;
+  const years: number[] = [];
+  for (let year = maxYear; year >= minYear; year -= 1) years.push(year);
+  const selectClass =
+    "h-8 rounded-lg border border-black/10 bg-white px-1.5 text-xs font-semibold text-[#3D421F] outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]";
 
   return (
     <div
-      className="w-[17.5rem] overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_12px_40px_-12px_rgba(61,66,31,0.35)]"
-      onMouseDown={(event) => event.preventDefault()}
+      className="w-[18.5rem] overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_12px_40px_-12px_rgba(61,66,31,0.35)]"
+      onMouseDown={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("select")) return;
+        event.preventDefault();
+      }}
     >
-      <div className="border-b border-black/5 bg-[var(--venue-secondary,#F0F3DD)]/45 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-2">
+      <div className="border-b border-black/5 bg-[var(--venue-secondary,#F0F3DD)]/45 px-2.5 py-2.5">
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => onViewMonthChange(addMonths(viewMonth, -1))}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-white text-[#3D421F] transition-colors hover:bg-white/90"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-white text-[#3D421F] transition-colors hover:bg-white/90"
             aria-label="Previous month"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <p className="text-sm font-semibold tracking-tight text-[#3D421F]">
-            {monthLabel}
-          </p>
+          <select
+            aria-label="Month"
+            value={viewMonth.getMonth()}
+            onChange={(event) =>
+              onViewMonthChange(
+                new Date(viewMonth.getFullYear(), Number(event.target.value), 1),
+              )
+            }
+            className={cn(selectClass, "min-w-0 flex-1")}
+          >
+            {MONTH_LABELS.map((label, month) => (
+              <option key={label} value={month}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Year"
+            value={viewMonth.getFullYear()}
+            onChange={(event) =>
+              onViewMonthChange(
+                new Date(Number(event.target.value), viewMonth.getMonth(), 1),
+              )
+            }
+            className={cn(selectClass, "w-[4.85rem] shrink-0")}
+          >
+            {years.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => onViewMonthChange(addMonths(viewMonth, 1))}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/10 bg-white text-[#3D421F] transition-colors hover:bg-white/90"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-white text-[#3D421F] transition-colors hover:bg-white/90"
             aria-label="Next month"
           >
             <ChevronRight className="h-4 w-4" />
@@ -228,6 +280,7 @@ export function DateInput({
   value,
   onChange,
   disabled = false,
+  required = false,
   className,
   inputClassName,
   placeholder = "DD/MM/YYYY",
@@ -260,8 +313,8 @@ export function DateInput({
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    const popoverWidth = 280;
-    const popoverHeight = 320;
+    const popoverWidth = 300;
+    const popoverHeight = 360;
     const gap = 6;
     const viewportPadding = 8;
 
@@ -363,13 +416,17 @@ export function DateInput({
   return (
     <>
       {name ? <input type="hidden" name={name} value={value} /> : null}
-      <div ref={containerRef} className={cn("relative inline-flex", className)}>
+      <div
+        ref={containerRef}
+        className={cn("relative inline-flex h-10 w-full items-stretch", className)}
+      >
         <input
           id={id}
           type="text"
           inputMode="numeric"
           autoComplete="off"
           disabled={disabled}
+          required={required}
           value={text}
           placeholder={placeholder}
           aria-label={ariaLabel}

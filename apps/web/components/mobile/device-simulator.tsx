@@ -19,6 +19,7 @@ import {
 import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
 import { MobileDirectoryScreen } from "@/components/mobile/mobile-directory-screen";
+import { MobileHiringScreen } from "@/components/mobile/mobile-hiring-screen";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import { MobileChromeHostProvider } from "@/components/mobile/mobile-chrome-host";
 import {
@@ -39,6 +40,10 @@ import type { MobileDocsPage } from "@/lib/mobile/employee-docs";
 import type { MobileLeavePage } from "@/lib/mobile/employee-leave";
 import type { MobilePreviewEmployee } from "@/lib/mobile/preview-employees";
 import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
+import type {
+  MobileHiringAppointment,
+  MobileHiringPage,
+} from "@/lib/mobile/hiring-replies";
 import type { DirectoryStaffMember } from "@/lib/directory/types";
 import type { HierarchyNode } from "@/lib/directory/hierarchy-tree";
 import {
@@ -108,6 +113,10 @@ function directoryTabFromPageId(
   return "staff";
 }
 
+function hiringTabFromPageId(pageId: string): "replies" | "calendar" {
+  return pageId === "hiring-calendar" ? "calendar" : "replies";
+}
+
 export function DeviceSimulator({
   loginLogoUrl,
   selectVenue,
@@ -120,6 +129,8 @@ export function DeviceSimulator({
   leave,
   docs,
   previewEmployees,
+  hiring,
+  hiringAppointments,
 }: {
   loginLogoUrl: string;
   selectVenue: SelectVenuePageData;
@@ -132,6 +143,8 @@ export function DeviceSimulator({
   leave: MobileLeavePage;
   docs: MobileDocsPage;
   previewEmployees: MobilePreviewEmployee[];
+  hiring: MobileHiringPage;
+  hiringAppointments: MobileHiringAppointment[];
 }) {
   const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [pageId, setPageId] = useState(APP_PATH[0].id);
@@ -182,6 +195,8 @@ export function DeviceSimulator({
         leave={leave}
         docs={docs}
         previewEmployees={previewEmployees}
+        hiring={hiring}
+        hiringAppointments={hiringAppointments}
         pageId={pageId}
         setPageId={setPageId}
         previewVenue={previewVenue}
@@ -204,6 +219,8 @@ function PhoneStage({
   leave,
   docs,
   previewEmployees,
+  hiring,
+  hiringAppointments,
   pageId,
   setPageId,
   previewVenue,
@@ -221,6 +238,8 @@ function PhoneStage({
   leave: MobileLeavePage;
   docs: MobileDocsPage;
   previewEmployees: MobilePreviewEmployee[];
+  hiring: MobileHiringPage;
+  hiringAppointments: MobileHiringAppointment[];
   pageId: string;
   setPageId: (id: string) => void;
   previewVenue: Venue;
@@ -352,6 +371,7 @@ function PhoneStage({
                 onOpenRevenue={() => setPageId("revenue")}
                 onOpenSentiment={() => setPageId("sentiment")}
                 onOpenDirectory={() => setPageId("directory")}
+                onOpenHiring={() => setPageId("hiring")}
                 onOpenTerms={() => setPageId("terms")}
                 onLogout={() => setPageId("login")}
               />
@@ -444,6 +464,16 @@ function PhoneStage({
                 venue={previewVenue}
                 staff={directoryStaff}
                 hierarchy={directoryHierarchy}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id.startsWith("hiring") ? (
+              <MobileHiringScreen
+                tab={hiringTabFromPageId(page.id)}
+                venue={previewVenue}
+                initial={hiring}
+                appointments={hiringAppointments}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}

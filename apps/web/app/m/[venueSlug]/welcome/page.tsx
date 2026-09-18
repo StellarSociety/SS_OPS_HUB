@@ -2,7 +2,8 @@ import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
 import { getMobileAppContext } from "@/lib/mobile/page-context";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
-import { mobileNotificationsHref, mobileProfileHref, mobileRevenueHref, mobileSentimentHref, mobileDirectoryHref, mobileTermsHref, MOBILE_APP_BASE } from "@/lib/mobile/app-path";
+import { canAccessHiring } from "@/lib/hr/permissions";
+import { mobileNotificationsHref, mobileProfileHref, mobileRevenueHref, mobileSentimentHref, mobileDirectoryHref, mobileHiringHref, mobileTermsHref, MOBILE_APP_BASE } from "@/lib/mobile/app-path";
 import { MOBILE_APP_MODULE_KEY } from "@/lib/mobile/types";
 import { loadMobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { loadMobileNotifications } from "@/lib/mobile/welcome-notifications";
@@ -50,6 +51,11 @@ export default async function MobileWelcomePage({ params }: PageProps) {
         revenueHref={mobileRevenueHref(venue.slug)}
         sentimentHref={mobileSentimentHref(venue.slug)}
         directoryHref={mobileDirectoryHref(venue.slug)}
+        hiringHref={
+          canAccessHiring(permissions, venue.id)
+            ? mobileHiringHref(venue.slug)
+            : undefined
+        }
         termsHref={mobileTermsHref(venue.slug)}
       />
     </div>

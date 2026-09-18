@@ -482,6 +482,83 @@ html.mobile-app-no-zoom *::-webkit-scrollbar {
   animation: live-display-glow-pulse 10s ease-in-out infinite;
 }
 
+@keyframes hiring-public-btn-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 8px 18px rgb(0 0 0 / 0.28),
+      0 2px 4px rgb(0 0 0 / 0.18);
+  }
+  50% {
+    box-shadow:
+      0 14px 30px rgb(0 0 0 / 0.4),
+      0 4px 10px rgb(0 0 0 / 0.22);
+  }
+}
+
+@keyframes hiring-public-btn-shine {
+  0% {
+    background-position: 160% 0;
+  }
+  100% {
+    background-position: -40% 0;
+  }
+}
+
+.hiring-public-btn {
+  background-color: #000;
+  background-image: linear-gradient(
+    110deg,
+    #000 38%,
+    #3a3a3a 50%,
+    #000 62%
+  );
+  background-size: 220% 100%;
+  color: #fff;
+  animation:
+    hiring-public-btn-glow 2.4s ease-in-out infinite,
+    hiring-public-btn-shine 3.2s ease-in-out infinite;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    background-color 0.25s ease;
+}
+
+.hiring-public-btn:hover {
+  background-color: #171717;
+  background-image: none;
+  animation: none;
+  box-shadow:
+    0 16px 32px rgb(0 0 0 / 0.42),
+    0 4px 10px rgb(0 0 0 / 0.22);
+  transform: translateY(-2px);
+}
+
+.hiring-public-btn:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.3);
+}
+
+.hiring-public-btn:disabled {
+  animation: none;
+  box-shadow: none;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hiring-public-btn {
+    animation: none;
+    box-shadow:
+      0 8px 18px rgb(0 0 0 / 0.28),
+      0 2px 4px rgb(0 0 0 / 0.18);
+  }
+
+  .hiring-public-btn:hover,
+  .hiring-public-btn:active {
+    transform: none;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   .mobile-app-canvas .font-google-sans {
     color: CanvasText;

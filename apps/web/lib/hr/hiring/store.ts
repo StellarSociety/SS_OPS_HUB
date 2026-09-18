@@ -1,9 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
 import {
+  DEFAULT_HIRING_BODY_BACKGROUND,
   DEFAULT_HIRING_INTRO_BACKGROUND,
   DEFAULT_HIRING_INTRO2_BACKGROUND,
   mergeHiringFieldConfig,
+  isHiringBlockKind,
+  isHiringFieldType,
   type HiringAnswers,
   type HiringApplication,
   type HiringApplicationFile,
@@ -14,7 +17,7 @@ import {
 } from "./types";
 
 const FORM_SELECT =
-  "id, venue_id, name, public_code, status, accept_from, accept_until, max_entries, intro_image_url, intro_background_color, intro_description, intro_button_label, intro2_image_url, intro2_background_color, intro2_title, intro2_description, intro2_button_label, intro2_department_id, intro2_position_ids, end_message, show_socials, table_column_ids, sort_field_id, sort_direction, interview_request_subject, interview_request_body, interview_confirm_subject, interview_confirm_body, created_at, updated_at";
+  "id, venue_id, name, public_code, status, accept_from, accept_until, max_entries, intro_image_url, intro_background_color, intro_description, intro_button_label, intro2_image_url, intro2_background_color, intro2_title, intro2_description, intro2_button_label, intro2_department_id, intro2_position_ids, body_background_color, end_message, show_socials, table_column_ids, notify_user_ids, sort_field_id, sort_direction, interview_request_subject, interview_request_body, interview_confirm_subject, interview_confirm_body, interview_confirm_video_subject, interview_confirm_video_body, created_at, updated_at";
 
 const BLOCK_SELECT =
   "id, form_id, sort_order, kind, title, description, field_key, field_label, field_type, required, config, created_at, updated_at";
@@ -50,15 +53,25 @@ function mapForm(row: Record<string, unknown>, applicationCount?: number): Hirin
     intro2_button_label: String(row.intro2_button_label ?? "Continue"),
     intro2_department_id: (row.intro2_department_id as string | null) ?? null,
     intro2_position_ids: asStringArray(row.intro2_position_ids),
+    body_background_color: String(
+      row.body_background_color ?? DEFAULT_HIRING_BODY_BACKGROUND,
+    ),
     end_message: String(row.end_message ?? ""),
     show_socials: row.show_socials !== false,
     table_column_ids: asStringArray(row.table_column_ids),
+    notify_user_ids: asStringArray(row.notify_user_ids),
     sort_field_id: (row.sort_field_id as string | null) ?? null,
     sort_direction: row.sort_direction === "asc" ? "asc" : "desc",
     interview_request_subject: String(row.interview_request_subject ?? ""),
     interview_request_body: String(row.interview_request_body ?? ""),
     interview_confirm_subject: String(row.interview_confirm_subject ?? ""),
     interview_confirm_body: String(row.interview_confirm_body ?? ""),
+    interview_confirm_video_subject: String(
+      row.interview_confirm_video_subject || row.interview_confirm_subject || "",
+    ),
+    interview_confirm_video_body: String(
+      row.interview_confirm_video_body || row.interview_confirm_body || "",
+    ),
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
     application_count: applicationCount,
@@ -96,21 +109,12 @@ function mapBlock(row: Record<string, unknown>): HiringFormBlock {
     id: String(row.id),
     form_id: String(row.form_id),
     sort_order: Number(row.sort_order) || 0,
-    kind: row.kind === "title" || row.kind === "description" ? row.kind : "field",
+    kind: isHiringBlockKind(row.kind) ? row.kind : "field",
     title: (row.title as string | null) ?? null,
     description: (row.description as string | null) ?? null,
     field_key: (row.field_key as string | null) ?? null,
     field_label: (row.field_label as string | null) ?? null,
-    field_type:
-      row.field_type === "short_text" ||
-      row.field_type === "long_text" ||
-      row.field_type === "date" ||
-      row.field_type === "number" ||
-      row.field_type === "email" ||
-      row.field_type === "picture" ||
-      row.field_type === "file"
-        ? row.field_type
-        : null,
+    field_type: isHiringFieldType(row.field_type) ? row.field_type : null,
     required: row.required === true,
     config: mergeHiringFieldConfig(row.config),
   };

@@ -141,6 +141,20 @@ export const APP_PATH: AppPathPage[] = [
     from: "directory",
   },
   {
+    id: "hiring",
+    label: "Hiring Forms",
+    href: `${MOBILE_APP_BASE}/hiring`,
+    venueScoped: true,
+    from: "welcome",
+  },
+  {
+    id: "hiring-calendar",
+    label: "Calendar",
+    href: `${MOBILE_APP_BASE}/hiring/calendar`,
+    venueScoped: true,
+    from: "hiring",
+  },
+  {
     id: "terms",
     label: "Terms & Conditions",
     href: `${MOBILE_APP_BASE}/terms`,
@@ -211,6 +225,14 @@ export function mobileSentimentHref(venueSlug: string): string {
 
 export function mobileDirectoryHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/directory`;
+}
+
+export function mobileHiringHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/hiring`;
+}
+
+export function mobileHiringCalendarHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/hiring/calendar`;
 }
 
 export function mobileDirectoryCelebrationsHref(venueSlug: string): string {

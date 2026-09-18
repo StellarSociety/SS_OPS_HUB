@@ -3,10 +3,9 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Bell, ChevronDown, ChevronRight, LogOut } from "lucide-react";
+import { Bell, ChevronDown, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
-import { HiringIcon } from "@/components/modules/hiring-icon";
 import { ModuleTile } from "@/components/modules/module-tile";
 import {
   MOBILE_PRESS_SCALE,
@@ -26,7 +25,6 @@ import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { getUserInitials } from "@/lib/user/display";
 import type { Venue } from "@/lib/types/database";
 import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
-import { scopedHrefForVenue } from "@/lib/venue/scope-routing";
 import { cn } from "@/lib/utils";
 
 const LOGOUT_BUTTON_CLASS =
@@ -42,13 +40,7 @@ const WELCOME_CATEGORY_ORDER: ModuleCategoryKey[] = [
 const PEOPLE_MODULE_ORDER = ["directory", "learning", "hr"] as const;
 
 const WELCOME_SHORTCUTS = [
-  {
-    key: "hiring",
-    label: "Hiring",
-    subtitle: "Candidate replies",
-    href: "/hr/hiring/replies",
-    Icon: HiringIcon,
-  },
+  { key: "hiring", label: "Hiring Forms", iconKey: "hiring" },
 ] as const;
 
 type MobileWelcomeScreenProps = {
@@ -68,6 +60,8 @@ type MobileWelcomeScreenProps = {
   sentimentHref?: string;
   onOpenDirectory?: () => void;
   directoryHref?: string;
+  onOpenHiring?: () => void;
+  hiringHref?: string;
   onOpenTerms?: () => void;
   termsHref?: string;
   onLogout?: () => void;
@@ -89,6 +83,8 @@ export function MobileWelcomeScreen({
   sentimentHref,
   onOpenDirectory,
   directoryHref,
+  onOpenHiring,
+  hiringHref,
   onOpenTerms,
   termsHref,
   onLogout,
@@ -138,6 +134,13 @@ export function MobileWelcomeScreen({
         : [...current, key],
     );
   }
+
+  const visibleShortcuts = WELCOME_SHORTCUTS.filter((shortcut) => {
+    if (shortcut.key === "hiring") {
+      return Boolean(onOpenHiring || hiringHref);
+    }
+    return true;
+  });
 
   return (
     <div
@@ -268,6 +271,7 @@ export function MobileWelcomeScreen({
           </div>
         </div>
 
+        {visibleShortcuts.length > 0 ? (
         <div className="overflow-hidden rounded-xl border border-black/10 bg-black/[0.03] dark:border-white/12 dark:bg-white/[0.08]">
           <MobilePressTarget
             type="button"
@@ -295,19 +299,32 @@ export function MobileWelcomeScreen({
             />
           </MobilePressTarget>
           {shortcutsOpen ? (
-            <div className="space-y-1 border-t border-black/10 px-2 py-2 dark:border-white/12">
-              {WELCOME_SHORTCUTS.map((shortcut) => (
-                <WelcomeShortcutRow
-                  key={shortcut.key}
-                  href={scopedHrefForVenue(venue, shortcut.href)}
-                  label={shortcut.label}
-                  subtitle={shortcut.subtitle}
-                  Icon={shortcut.Icon}
-                />
-              ))}
+            <div className="grid grid-cols-4 items-start justify-items-center gap-x-1 gap-y-1.5 border-t border-black/10 px-3 py-3 dark:border-white/12">
+              {visibleShortcuts.map((shortcut) => {
+                const opensHiring =
+                  shortcut.key === "hiring" &&
+                  (Boolean(onOpenHiring) || Boolean(hiringHref));
+                return (
+                  <ModuleTile
+                    key={shortcut.key}
+                    label={shortcut.label}
+                    iconKey={shortcut.iconKey}
+                    status="live"
+                    href={onOpenHiring ? undefined : hiringHref}
+                    clickable={opensHiring}
+                    onSelect={onOpenHiring}
+                    comingSoonStyle="none"
+                    selectNoun="Hiring Forms"
+                    iconWell
+                    density="compact"
+                    navigates={opensHiring}
+                  />
+                );
+              })}
             </div>
           ) : null}
         </div>
+        ) : null}
 
         <div className="mt-auto space-y-2 px-1 pb-1">
           {onLogout ? (
@@ -351,55 +368,6 @@ export function MobileWelcomeScreen({
         </div>
       </div>
     </div>
-  );
-}
-
-function WelcomeShortcutRow({
-  href,
-  label,
-  subtitle,
-  Icon,
-}: {
-  href: string;
-  label: string;
-  subtitle: string;
-  Icon: typeof HiringIcon;
-}) {
-  const { pressed, pressProps } = useMobilePress();
-  const { beginNav } = useMobileNavBusy();
-
-  return (
-    <motion.div
-      animate={{ scale: pressed ? MOBILE_PRESS_SCALE_SOFT : 1 }}
-      transition={MOBILE_PRESS_TRANSITION_SOFT}
-    >
-      <Link
-        href={href}
-        aria-label={`${label}, ${subtitle}`}
-        onClick={() => beginNav()}
-        className="flex min-h-14 items-center gap-3 rounded-xl px-2 py-2 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-        {...pressProps}
-      >
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--venue-primary)]/12">
-          <Icon
-            className="h-7 w-7 shrink-0 text-[var(--venue-primary,#818a40)]"
-            strokeWidth={1.5}
-          />
-        </div>
-        <div className="min-w-0 flex-1 text-left">
-          <p className="truncate font-serif text-base leading-tight text-[#3D421F] dark:text-[CanvasText]">
-            {label}
-          </p>
-          <p className="mt-0.5 truncate text-[12px] leading-snug text-black/50 dark:text-white/50">
-            {subtitle}
-          </p>
-        </div>
-        <ChevronRight
-          className="h-5 w-5 shrink-0 text-black/30 dark:text-white/30"
-          aria-hidden
-        />
-      </Link>
-    </motion.div>
   );
 }
 

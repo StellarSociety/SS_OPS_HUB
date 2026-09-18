@@ -20,6 +20,8 @@ type RightClickMenuProps = {
   ariaLabel: string;
   children: ReactNode;
   renderMenu: (close: () => void) => ReactNode;
+  /** Return false to keep the browser’s native menu (e.g. on text fields). */
+  shouldHandle?: (event: MouseEvent) => boolean;
 };
 
 export function RightClickMenu({
@@ -28,35 +30,47 @@ export function RightClickMenu({
   ariaLabel,
   children,
   renderMenu,
+  shouldHandle,
 }: RightClickMenuProps) {
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => setCoords(null), []);
 
-  const onContextMenu = useCallback((event: MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setCoords({ x: event.clientX, y: event.clientY });
-  }, []);
+  const onContextMenu = useCallback(
+    (event: MouseEvent) => {
+      if (shouldHandle && !shouldHandle(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCoords({ x: event.clientX, y: event.clientY });
+    },
+    [shouldHandle],
+  );
 
   useLayoutEffect(() => {
     if (!coords || !menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    let left = coords.x;
-    let top = coords.y;
-    if (left + rect.width > window.innerWidth - MENU_PAD) {
-      left = window.innerWidth - rect.width - MENU_PAD;
+    const el = menuRef.current;
+
+    function clamp() {
+      const rect = el.getBoundingClientRect();
+      let left = coords.x;
+      let top = coords.y;
+      if (left + rect.width > window.innerWidth - MENU_PAD) {
+        left = window.innerWidth - rect.width - MENU_PAD;
+      }
+      if (top + rect.height > window.innerHeight - MENU_PAD) {
+        top = window.innerHeight - rect.height - MENU_PAD;
+      }
+      left = Math.max(MENU_PAD, left);
+      top = Math.max(MENU_PAD, top);
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
     }
-    if (top + rect.height > window.innerHeight - MENU_PAD) {
-      top = window.innerHeight - rect.height - MENU_PAD;
-    }
-    left = Math.max(MENU_PAD, left);
-    top = Math.max(MENU_PAD, top);
-    if (left !== coords.x || top !== coords.y) {
-      menuRef.current.style.left = `${left}px`;
-      menuRef.current.style.top = `${top}px`;
-    }
+
+    clamp();
+    const observer = new ResizeObserver(clamp);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [coords]);
 
   useEffect(() => {

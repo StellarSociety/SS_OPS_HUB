@@ -6,6 +6,7 @@ import {
   listHiringFormBlocks,
   listHiringForms,
 } from "@/lib/hr/hiring/store";
+import { listHiringNotifyCandidates } from "@/lib/hr/hiring/notify";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -17,9 +18,10 @@ export default async function HiringRepliesFormPage({
   const { formId } = await params;
   const { venue, permissions } = await getHrPageContext();
   const service = createServiceClient();
-  const [forms, selectedForm] = await Promise.all([
+  const [forms, selectedForm, notifyCandidates] = await Promise.all([
     listHiringForms(service, venue.id),
     getHiringForm(service, venue.id, formId),
+    listHiringNotifyCandidates(service, venue.id),
   ]);
   const [blocks, applications] = selectedForm
     ? await Promise.all([
@@ -34,6 +36,7 @@ export default async function HiringRepliesFormPage({
       selectedForm={selectedForm}
       blocks={blocks}
       applications={applications}
+      notifyCandidates={notifyCandidates}
       canEdit={canEditHiring(permissions, venue.id)}
     />
   );

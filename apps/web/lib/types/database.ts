@@ -388,6 +388,7 @@ export type Database = {
           venue_id: string;
           staff_id: string;
           reports_to_staff_id: string | null;
+          reports_to_hire_id: string | null;
           sort_order: number;
           label: string | null;
           collabs: unknown;
@@ -399,6 +400,7 @@ export type Database = {
           venue_id: string;
           staff_id: string;
           reports_to_staff_id?: string | null;
+          reports_to_hire_id?: string | null;
           sort_order?: number;
           label?: string | null;
           collabs?: unknown;
@@ -406,6 +408,7 @@ export type Database = {
         };
         Update: Partial<{
           reports_to_staff_id: string | null;
+          reports_to_hire_id: string | null;
           sort_order: number;
           label: string | null;
           collabs: unknown;

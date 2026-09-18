@@ -220,7 +220,7 @@
   box-shadow: 0 3px 12px color-mix(in srgb, var(--venue-primary, #6b7b3a) 45%, transparent);
 }
 
-.dir-org-tree-management {
+.dir-org-tree-management.dir-org-tree-show-pay {
   --dir-org-label-box: 4.5rem;
 }
 

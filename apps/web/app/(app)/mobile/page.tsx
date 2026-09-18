@@ -10,6 +10,10 @@ import { loadMobileEmployeeLeavePage } from "@/lib/mobile/employee-leave";
 import { loadMobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { loadMobileNotifications } from "@/lib/mobile/welcome-notifications";
 import { loadMobilePreviewEmployees } from "@/lib/mobile/preview-employees";
+import {
+  loadMobileHiringAppointments,
+  loadMobileHiringPage,
+} from "@/lib/mobile/hiring-replies";
 import { loadDirectoryHierarchy, loadDirectoryStaff } from "@/lib/directory/store";
 import { loadModulesHubContext } from "@/lib/modules-hub-data";
 import { hubModuleSortIndex } from "@/lib/modules-registry";
@@ -42,6 +46,8 @@ export default async function MobilePage() {
     leave,
     docs,
     previewEmployees,
+    hiring,
+    hiringAppointments,
   ] = await Promise.all([
     fetchGroupLogoState(),
     loadSelectVenuePageData(),
@@ -65,6 +71,8 @@ export default async function MobilePage() {
       venueId: venue.id,
     }),
     loadMobilePreviewEmployees(venue.id),
+    loadMobileHiringPage(venue.id),
+    loadMobileHiringAppointments(venue.id),
   ]);
   const sentimentFlags = sentimentEditFlags(permissions, venue.id);
 
@@ -101,6 +109,8 @@ export default async function MobilePage() {
       leave={leave}
       docs={docs}
       previewEmployees={previewEmployees}
+      hiring={hiring}
+      hiringAppointments={hiringAppointments}
     />
   );
 }

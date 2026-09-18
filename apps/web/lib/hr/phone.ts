@@ -244,6 +244,20 @@ const PHONE_COUNTRY_ROWS: PhoneCountry[] = [
   { code: "+263", label: "ZW", name: "Zimbabwe" },
 ];
 
+export type WorldCountry = { iso: string; name: string };
+
+/** Every territory in the dial-code table, sorted for nationality pickers. */
+export const WORLD_COUNTRIES: WorldCountry[] = [...PHONE_COUNTRY_ROWS]
+  .map((row) => ({ iso: row.label.toUpperCase(), name: row.name }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+export function canonicalWorldCountryName(value: string): string | null {
+  const key = value.trim().toLowerCase();
+  if (!key) return null;
+  return WORLD_COUNTRIES.find((country) => country.name.toLowerCase() === key)
+    ?.name ?? null;
+}
+
 export const DEFAULT_PHONE_COUNTRY_CODE = "+971";
 
 const ISO_TO_DIAL = new Map(

@@ -20,6 +20,7 @@ export const MODULE_ICON_KEYS = [
   "stamp",
   "smartphone",
   "settings",
+  "hiring",
 ] as const;
 
 export type ModuleIconKey = (typeof MODULE_ICON_KEYS)[number];

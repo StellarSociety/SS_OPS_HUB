@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition, type CSSProperties } from "react";
 import { ArchiveRestore, Bell, Check, Trash2, X } from "lucide-react";
+import Link from "next/link";
 import {
   archiveNotificationById,
   deleteNotificationById,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/actions/notifications";
 import { formatDateOnly } from "@/lib/hr/derived";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
+import { mobileHiringHref } from "@/lib/mobile/app-path";
 import type { NotificationFolder } from "@/lib/notifications/folder";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
@@ -94,6 +96,10 @@ export function MobileNotificationsScreen({
           <ul className="mt-4 space-y-2">
             {items.map((n) => {
               const unread = !n.read_at;
+              const hiringHref =
+                n.module_key === "hr" && n.entity === "hiring_form"
+                  ? mobileHiringHref(venue.slug)
+                  : null;
               return (
                 <li
                   key={n.id}
@@ -108,19 +114,58 @@ export function MobileNotificationsScreen({
                     aria-hidden
                   />
                   <div className="min-w-0 flex-1">
-                    <p
-                      className={cn(
-                        "text-sm text-[#3D421F] dark:text-[CanvasText]",
-                        unread && "font-medium",
-                      )}
-                    >
-                      {n.title}
-                    </p>
-                    {n.body ? (
-                      <p className="mt-0.5 line-clamp-3 text-xs text-black/55 dark:text-white/55">
-                        {n.body}
-                      </p>
-                    ) : null}
+                    {hiringHref ? (
+                      <Link
+                        href={hiringHref}
+                        className="block"
+                        onClick={() => {
+                          if (!unread) return;
+                          startTransition(async () => {
+                            await markNotificationAsRead(n.id);
+                            setItems((current) =>
+                              current.map((item) =>
+                                item.id === n.id
+                                  ? {
+                                      ...item,
+                                      read_at: new Date().toISOString(),
+                                    }
+                                  : item,
+                              ),
+                            );
+                          });
+                        }}
+                      >
+                        <p
+                          className={cn(
+                            "text-sm text-[#3D421F] dark:text-[CanvasText]",
+                            unread && "font-medium",
+                          )}
+                        >
+                          {n.title}
+                        </p>
+                        {n.body ? (
+                          <p className="mt-0.5 line-clamp-3 text-xs text-black/55 dark:text-white/55">
+                            {n.body}
+                          </p>
+                        ) : null}
+                      </Link>
+                    ) : (
+                      <>
+                        <p
+                          className={cn(
+                            "text-sm text-[#3D421F] dark:text-[CanvasText]",
+                            unread && "font-medium",
+                          )}
+                        >
+                          {n.title}
+                        </p>
+                        {n.body ? (
+                          <p className="mt-0.5 line-clamp-3 text-xs text-black/55 dark:text-white/55">
+                            {n.body}
+                          </p>
+                        ) : null}
+                      </>
+                    )}
                     <p className="mt-1 text-xs text-black/40 dark:text-white/40">
                       {n.due_date
                         ? `Due ${formatDateOnly(n.due_date)}`

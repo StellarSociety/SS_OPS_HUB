@@ -23,6 +23,9 @@ import {
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  Eye,
+  EyeOff,
+  Pencil,
   Plus,
   Search,
   Tag,
@@ -283,6 +286,7 @@ export function DirectoryHierarchyBoard({
   const saveGen = useRef(0);
   const draggingIdRef = useRef<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
+  const [showSalary, setShowSalary] = useState(false);
   const [treeZoom, setTreeZoom] = useState(TREE_ZOOM_DEFAULT);
   const [zoomMin, setZoomMin] = useState(TREE_ZOOM_FLOOR);
   const [fullWindow, setFullWindow] = useState(false);
@@ -494,6 +498,7 @@ export function DirectoryHierarchyBoard({
     setDropTarget(null);
     draggingIdRef.current = null;
     setDraggingId(null);
+    if (target.kind === "parent") expandBranch(target.parentId);
   }
 
   function remove(staffId: string, mode: "level" | "chart") {
@@ -1031,6 +1036,36 @@ export function DirectoryHierarchyBoard({
                   {labeledBranchesCollapsed ? "Expand labels" : "Collapse labels"}
                 </span>
               </button>
+              {management ? (
+              <button
+                type="button"
+                onClick={() => setShowSalary((open) => !open)}
+                aria-pressed={showSalary}
+                aria-label={
+                  showSalary
+                    ? "Hide salary details in AED"
+                    : "Show salary details in AED"
+                }
+                title={
+                  showSalary
+                    ? "Hide salary details"
+                    : "Show salary details"
+                }
+                className={cn(
+                  "flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                  showSalary
+                    ? "border-[var(--venue-primary,#6B7B3A)] bg-[var(--venue-primary,#6B7B3A)]/10 text-[#3D421F]"
+                    : "border-black/10 bg-white text-black/60 hover:bg-black/5 hover:text-[#3D421F]",
+                )}
+              >
+                {showSalary ? (
+                  <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                ) : (
+                  <EyeOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                )}
+                <span>AED</span>
+              </button>
+              ) : null}
               <div
                 role="group"
                 aria-label="Reporting tree zoom"
@@ -1198,7 +1233,13 @@ export function DirectoryHierarchyBoard({
                 </p>
               </div>
             ) : (
-              <ul className={cn("dir-org-tree", management && "dir-org-tree-management")}>
+              <ul
+                className={cn(
+                  "dir-org-tree",
+                  management && "dir-org-tree-management",
+                  management && showSalary && "dir-org-tree-show-pay",
+                )}
+              >
                 {roots.map((node) => (
                   <HierarchyBranch
                     key={node.staffId}
@@ -1235,6 +1276,7 @@ export function DirectoryHierarchyBoard({
                     reserveLabel={rowHasLabel(roots)}
                     reserveEmphasis={rowHasEmphasis(roots)}
                     management={management}
+                    showSalary={showSalary}
                     payByStaffId={payByStaffId}
                     positions={positions}
                     onSaveHire={saveHire}
@@ -1400,6 +1442,85 @@ function dropTargetKey(target: HierarchyDropTarget): string {
 
 type PickerMode = "collab" | "before" | "after";
 
+function HierarchyLabelBadge({
+  label,
+  management,
+  showSalary,
+  salaryTotal,
+  canEdit,
+  onEdit,
+  onRemove,
+}: {
+  label: string;
+  management: boolean;
+  showSalary: boolean;
+  salaryTotal: number | null;
+  canEdit: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const payVisible = management && showSalary;
+  const badge = (
+    <p
+      className={cn(
+        "dir-org-label-badge",
+        payVisible && "dir-org-label-badge-pay",
+        canEdit && "cursor-context-menu",
+      )}
+      onPointerDown={(event) => {
+        if (canEdit) event.stopPropagation();
+      }}
+    >
+      <span>{label}</span>
+      {payVisible ? (
+        <span className="dir-org-label-total">{formatAed(salaryTotal)}</span>
+      ) : null}
+    </p>
+  );
+
+  if (!canEdit) {
+    return <div className="dir-org-label">{badge}</div>;
+  }
+
+  return (
+    <RightClickMenu
+      className="dir-org-label"
+      ariaLabel={`Actions for ${label}`}
+      menuClassName="min-w-44"
+      renderMenu={(close) => (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            className={rightClickMenuItemClass}
+            onClick={() => {
+              onEdit();
+              close();
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+            Edit name
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={rightClickMenuItemClass}
+            onClick={() => {
+              onRemove();
+              close();
+            }}
+          >
+            <X className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+            Remove label
+          </button>
+        </>
+      )}
+    >
+      {badge}
+    </RightClickMenu>
+  );
+}
+
 function HierarchyBranch({
   node,
   staff,
@@ -1428,6 +1549,7 @@ function HierarchyBranch({
   collapsedIds,
   onToggleCollapsed,
   management,
+  showSalary,
   payByStaffId,
   positions,
   onSaveHire,
@@ -1463,6 +1585,7 @@ function HierarchyBranch({
   collapsedIds: Set<string>;
   onToggleCollapsed: (staffId: string) => void;
   management: boolean;
+  showSalary: boolean;
   payByStaffId: Record<string, DirectoryStaffPay>;
   positions: DirectoryPositionOption[];
   onSaveHire: (
@@ -1522,9 +1645,8 @@ function HierarchyBranch({
   const isAfterDrop = dropTarget === afterKey;
   const isDragging = draggingStaffId === node.staffId;
   const canAddReport = Boolean(
-    !isHire &&
-      ((selectedId && selectedId !== node.staffId) ||
-        (placing && !selectedId)),
+    (selectedId && selectedId !== node.staffId) ||
+      (placing && !selectedId),
   );
   const hasBranch = node.children.length > 0;
   const branchCollapsed = collapsedIds.has(node.staffId);
@@ -1570,6 +1692,10 @@ function HierarchyBranch({
       if (aOn !== bOn) return aOn - bOn;
       return a.fullName.localeCompare(b.fullName);
     });
+
+  function beginEditLabel() {
+    setLabelDraft(node.label ?? member?.departmentName ?? "");
+  }
 
   function commitLabel() {
     if (skipLabelBlur.current) {
@@ -1694,6 +1820,7 @@ function HierarchyBranch({
           positions={positions}
           canEdit={canEdit}
           management={management}
+          showSalary={showSalary}
           emphasized={emphasized}
           onSaveHire={onSaveHire}
         />
@@ -1740,6 +1867,7 @@ function HierarchyBranch({
             <StaffCardPay
               member={member}
               pay={payByStaffId[node.staffId]}
+              showSalary={showSalary}
             />
           ) : null}
         </>
@@ -1844,9 +1972,7 @@ function HierarchyBranch({
                 role="menuitem"
                 className={rightClickMenuItemClass}
                 onClick={() => {
-                  setLabelDraft(
-                    node.label ?? member?.departmentName ?? "",
-                  );
+                  beginEditLabel();
                   close();
                 }}
               >
@@ -1942,6 +2068,7 @@ function HierarchyBranch({
     collapsedIds,
     onToggleCollapsed,
     management,
+    showSalary,
     payByStaffId,
     positions,
     onSaveHire,
@@ -1967,6 +2094,7 @@ function HierarchyBranch({
                 canEdit={canEdit}
                 onRemove={onRemoveCollab}
                 management={management}
+                showSalary={showSalary}
                 pay={payByStaffId[collab.staffId]}
               />
             ))}
@@ -2002,21 +2130,15 @@ function HierarchyBranch({
               />
             </form>
           ) : node.label ? (
-            <div className="dir-org-label">
-              <p
-                className={cn(
-                  "dir-org-label-badge",
-                  management && "dir-org-label-badge-pay",
-                )}
-              >
-                <span>{node.label}</span>
-                {management ? (
-                  <span className="dir-org-label-total">
-                    {formatAed(subtreeSalaryTotal(node, payByStaffId))}
-                  </span>
-                ) : null}
-              </p>
-            </div>
+            <HierarchyLabelBadge
+              label={node.label}
+              management={management}
+              showSalary={showSalary}
+              salaryTotal={subtreeSalaryTotal(node, payByStaffId)}
+              canEdit={canEdit}
+              onEdit={beginEditLabel}
+              onRemove={() => onSaveLabel(node.staffId, null)}
+            />
           ) : null}
 
           <div className="relative inline-flex">
@@ -2205,6 +2327,7 @@ function HierarchyBranch({
                 canEdit={canEdit}
                 onRemove={onRemoveCollab}
                 management={management}
+                showSalary={showSalary}
                 pay={payByStaffId[collab.staffId]}
               />
             ))}
@@ -2234,6 +2357,7 @@ function HireCardBody({
   positions,
   canEdit,
   management,
+  showSalary,
   emphasized,
   onSaveHire,
 }: {
@@ -2241,6 +2365,7 @@ function HireCardBody({
   positions: DirectoryPositionOption[];
   canEdit: boolean;
   management: boolean;
+  showSalary: boolean;
   emphasized: boolean;
   onSaveHire: (
     staffId: string,
@@ -2354,7 +2479,7 @@ function HireCardBody({
           {positionLabel}
         </p>
       )}
-      {management ? (
+      {management && showSalary ? (
         editable ? (
           <div
             data-hire-field
@@ -2404,6 +2529,7 @@ function CollabChip({
   canEdit,
   onRemove,
   management,
+  showSalary,
   pay,
 }: {
   hostId: string;
@@ -2412,6 +2538,7 @@ function CollabChip({
   canEdit: boolean;
   onRemove: (hostId: string, staffId: string) => void;
   management: boolean;
+  showSalary: boolean;
   pay: DirectoryStaffPay | undefined;
 }) {
   return (
@@ -2444,7 +2571,9 @@ function CollabChip({
       <p className="mt-0.5 w-full truncate leading-tight text-[11px] text-black/45">
         {member?.positionName?.trim() || "—"}
       </p>
-      {management ? <StaffCardPay member={member} pay={pay} /> : null}
+      {management ? (
+        <StaffCardPay member={member} pay={pay} showSalary={showSalary} />
+      ) : null}
     </div>
   );
 }
@@ -2452,9 +2581,11 @@ function CollabChip({
 function StaffCardPay({
   member,
   pay,
+  showSalary,
 }: {
   member: DirectoryStaffMember | undefined;
   pay: DirectoryStaffPay | undefined;
+  showSalary: boolean;
 }) {
   return (
     <div
@@ -2473,22 +2604,24 @@ function StaffCardPay({
           —
         </span>
       )}
-      <span className="flex min-w-0 items-center gap-0.5 text-[10px] tabular-nums leading-none text-[#3D421F]">
-        <span className="truncate">{formatAed(pay?.salaryToPay)}</span>
-        {pay?.inAccommodation ? (
-          <span
-            title="Company accommodation"
-            className="inline-flex shrink-0"
-          >
-            <House
-              className="h-2.5 w-2.5 text-[var(--venue-primary,#6B7B3A)]"
-              strokeWidth={2}
-              aria-hidden
-            />
-            <span className="sr-only">Company accommodation</span>
-          </span>
-        ) : null}
-      </span>
+      {showSalary ? (
+        <span className="flex min-w-0 items-center gap-0.5 text-[10px] tabular-nums leading-none text-[#3D421F]">
+          <span className="truncate">{formatAed(pay?.salaryToPay)}</span>
+          {pay?.inAccommodation ? (
+            <span
+              title="Company accommodation"
+              className="inline-flex shrink-0"
+            >
+              <House
+                className="h-2.5 w-2.5 text-[var(--venue-primary,#6B7B3A)]"
+                strokeWidth={2}
+                aria-hidden
+              />
+              <span className="sr-only">Company accommodation</span>
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </div>
   );
 }

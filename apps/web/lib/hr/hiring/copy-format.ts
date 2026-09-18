@@ -83,7 +83,14 @@ function isSafeStyleValue(prop: string, value: string): boolean {
   if (prop === "color" || prop === "background-color") {
     return /^(#[0-9a-f]{3,8}|rgba?\([^)]+\)|[a-z]+)$/i.test(value);
   }
-  if (prop === "font-size") return /^\d+(\.\d+)?(px|pt|em|rem)$/i.test(value);
+  if (prop === "font-size") {
+    return (
+      /^\d+(\.\d+)?(px|pt|em|rem)$/i.test(value) ||
+      /^(xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large)$/i.test(
+        value,
+      )
+    );
+  }
   if (prop === "font-weight") return /^(normal|bold|bolder|[1-9]00)$/i.test(value);
   if (prop === "font-style") return /^(normal|italic)$/i.test(value);
   if (prop === "text-decoration" || prop === "text-decoration-line") {
@@ -91,6 +98,9 @@ function isSafeStyleValue(prop: string, value: string): boolean {
   }
   if (prop === "font-family") {
     return /^[a-z0-9\s,"'-]+$/i.test(value);
+  }
+  if (prop === "margin-left" || prop === "padding-left") {
+    return /^\d+(\.\d+)?(px|em|rem)$/i.test(value);
   }
   return false;
 }
@@ -112,7 +122,9 @@ function sanitizeStyle(raw: string): string {
       prop !== "font-style" &&
       prop !== "text-decoration" &&
       prop !== "text-decoration-line" &&
-      prop !== "font-family"
+      prop !== "font-family" &&
+      prop !== "margin-left" &&
+      prop !== "padding-left"
     ) {
       continue;
     }

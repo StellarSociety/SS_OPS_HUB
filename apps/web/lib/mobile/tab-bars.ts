@@ -17,6 +17,7 @@ import {
   OctagonAlert,
   Settings,
   UserRound,
+  UserRoundSearch,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -43,7 +44,8 @@ export type MobileTabBarApp =
   | "notifications"
   | "revenue"
   | "sentiment"
-  | "directory";
+  | "directory"
+  | "hiring";
 
 const HOME_TAB: MobileTabItem = {
   id: MOBILE_HOME_TAB_ID,
@@ -55,6 +57,7 @@ const HOME_TAB: MobileTabItem = {
 
 /**
  * Four app-specific tabs. Combined with Home (last / right) this is always 5 icons.
+ * Unused / reserved slots always sit on the left; live tabs pack toward Home.
  * Add a new key when another operational app gets a phone shell.
  */
 const APP_TABS: Record<
@@ -205,6 +208,34 @@ const APP_TABS: Record<
       icon: Network,
       pageId: "directory-hierarchy",
       path: "/directory/hierarchy",
+    },
+  ],
+  hiring: [
+    {
+      id: "reserved-2",
+      label: " ",
+      icon: CircleDashed,
+      path: "/hiring/reserved-2",
+    },
+    {
+      id: "reserved-3",
+      label: " ",
+      icon: CircleDashed,
+      path: "/hiring/reserved-3",
+    },
+    {
+      id: "replies",
+      label: "Replies",
+      icon: UserRoundSearch,
+      pageId: "hiring",
+      path: "/hiring",
+    },
+    {
+      id: "calendar",
+      label: "Calendar",
+      icon: CalendarDays,
+      pageId: "hiring-calendar",
+      path: "/hiring/calendar",
     },
   ],
 };

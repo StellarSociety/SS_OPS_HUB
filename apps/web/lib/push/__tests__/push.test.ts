@@ -141,6 +141,23 @@ describe("notification click paths", () => {
         platform: "desktop",
       }),
     ).toBe("/venue/orilla/hr/payroll/run-1");
+    expect(
+      notificationCanonicalHref({
+        module_key: "hr",
+        entity: "hiring_form",
+        entity_id: "form-1",
+      }),
+    ).toBe("/hr/hiring/replies/form-1");
+    expect(
+      notificationClickPath({
+        module_key: "hr",
+        entity: "hiring_form",
+        entity_id: "form-1",
+        venueSlug: "orilla",
+        isGlobalVenue: false,
+        platform: "desktop",
+      }),
+    ).toBe("/venue/orilla/hr/hiring/replies/form-1");
   });
 });
 

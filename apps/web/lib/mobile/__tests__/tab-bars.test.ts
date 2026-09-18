@@ -12,6 +12,7 @@ const APPS: MobileTabBarApp[] = [
   "revenue",
   "sentiment",
   "directory",
+  "hiring",
 ];
 
 describe("tab bars", () => {
@@ -68,5 +69,25 @@ describe("directory tab bar", () => {
     expect(items[2]?.pageId).toBe("directory-celebrations");
     expect(items[3]?.pageId).toBe("directory-hierarchy");
     expect(tabBarHref("orilla", items[1]!.path)).toBe("/m/orilla/directory");
+  });
+});
+
+describe("hiring tab bar", () => {
+  it("keeps empty slots on the left, then Replies, Calendar, and Home", () => {
+    const items = tabBarItems("hiring");
+    expect(items.map((tab) => tab.id)).toEqual([
+      "reserved-2",
+      "reserved-3",
+      "replies",
+      "calendar",
+      MOBILE_HOME_TAB_ID,
+    ]);
+    expect(items[0]?.pageId).toBeUndefined();
+    expect(items[2]?.pageId).toBe("hiring");
+    expect(items[3]?.pageId).toBe("hiring-calendar");
+    expect(tabBarHref("orilla", items[2]!.path)).toBe("/m/orilla/hiring");
+    expect(tabBarHref("orilla", items[3]!.path)).toBe(
+      "/m/orilla/hiring/calendar",
+    );
   });
 });

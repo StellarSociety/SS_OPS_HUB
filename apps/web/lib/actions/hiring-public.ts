@@ -3,13 +3,17 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import {
   HIRING_STORAGE_BUCKET,
+  hiringApplicantNameFromFieldValues,
+  hiringFieldChoiceOptions,
   isHiringFormAccepting,
   mergeHiringFieldConfig,
   type HiringAnswers,
   type HiringFieldType,
   type HiringFormBlock,
 } from "@/lib/hr/hiring/types";
+import { canonicalWorldCountryName } from "@/lib/hr/phone";
 import { getHiringFormByCode, listHiringFormBlocks } from "@/lib/hr/hiring/store";
+import { notifyHiringApplicationSubmitted } from "@/lib/hr/hiring/notify";
 import {
   asUploadBlob,
   convertImageToWebp,
@@ -49,30 +53,19 @@ function extractIdentity(
   blocks: HiringFormBlock[],
   answers: HiringAnswers,
 ): { name: string | null; email: string | null } {
-  let name: string | null = null;
   let email: string | null = null;
+  const flat: Record<string, string> = {};
   for (const block of fieldBlocks(blocks)) {
     const answer = answers[block.id];
     const value =
       typeof answer?.value === "string" ? answer.value.trim() : "";
     if (!value) continue;
+    flat[block.id] = value;
     if (!email && (block.field_type === "email" || EMAIL_RE.test(value))) {
       email = value;
     }
-    const label = `${block.field_label ?? ""} ${block.field_key ?? ""}`.toLowerCase();
-    if (!name && block.field_type === "short_text" && label.includes("name")) {
-      name = value;
-    }
   }
-  if (!name) {
-    const firstText = fieldBlocks(blocks).find(
-      (block) =>
-        block.field_type === "short_text" &&
-        typeof answers[block.id]?.value === "string" &&
-        String(answers[block.id]?.value).trim(),
-    );
-    if (firstText) name = String(answers[firstText.id]?.value).trim();
-  }
+  const name = hiringApplicantNameFromFieldValues(blocks, flat) || null;
   return { name, email };
 }
 
@@ -214,7 +207,49 @@ export async function submitHiringApplication(code: string, formData: FormData) 
       continue;
     }
 
+    if (type === "multiple_choice") {
+      const options = hiringFieldChoiceOptions(type, config.options);
+      const selected = formData
+        .getAll(`field_${block.id}`)
+        .map((value) => String(value ?? "").trim())
+        .filter((value) => options.includes(value));
+      if (block.required && selected.length === 0) {
+        return fail(`Please choose at least one option for ${label}.`);
+      }
+      answers[block.id] = {
+        label,
+        type,
+        value: selected.length > 0 ? selected : null,
+      };
+      continue;
+    }
+
     const raw = String(formData.get(`field_${block.id}`) ?? "").trim();
+
+    if (type === "checkbox") {
+      if (raw !== "Yes") {
+        if (block.required) return fail(`Please tick ${label}.`);
+        answers[block.id] = { label, type, value: null };
+        continue;
+      }
+      answers[block.id] = { label, type, value: "Yes" };
+      continue;
+    }
+
+    if (type === "yes_no" || type === "dropdown" || type === "radio") {
+      const options = hiringFieldChoiceOptions(type, config.options);
+      if (!raw) {
+        if (block.required) return fail(`Please fill in ${label}.`);
+        answers[block.id] = { label, type, value: null };
+        continue;
+      }
+      if (!options.includes(raw)) {
+        return fail(`Choose a valid option for ${label}.`);
+      }
+      answers[block.id] = { label, type, value: raw };
+      continue;
+    }
+
     if (!raw) {
       if (block.required) return fail(`Please fill in ${label}.`);
       answers[block.id] = { label, type, value: null };
@@ -243,6 +278,24 @@ export async function submitHiringApplication(code: string, formData: FormData) 
       continue;
     }
 
+    if (type === "phone") {
+      const digits = raw.replace(/\D/g, "");
+      if (!raw.startsWith("+") || digits.length < 8 || digits.length > 15) {
+        return fail(`Enter a valid phone number for ${label}.`);
+      }
+      answers[block.id] = { label, type, value: raw };
+      continue;
+    }
+
+    if (type === "nationality") {
+      const country = canonicalWorldCountryName(raw);
+      if (!country) {
+        return fail(`Choose a nationality from the list for ${label}.`);
+      }
+      answers[block.id] = { label, type, value: country };
+      continue;
+    }
+
     const textError = validateText(raw, config, label);
     if (textError) return fail(textError);
     answers[block.id] = { label, type, value: raw };
@@ -267,6 +320,15 @@ export async function submitHiringApplication(code: string, formData: FormData) 
       .insert(filesToInsert);
     if (fileError) return fail(fileError.message);
   }
+
+  await notifyHiringApplicationSubmitted(service, {
+    venueId: form.venue_id,
+    formId: form.id,
+    formName: form.name,
+    applicationId,
+    applicantName: identity.name,
+    notifyUserIds: form.notify_user_ids,
+  });
 
   return { ok: true as const };
 }

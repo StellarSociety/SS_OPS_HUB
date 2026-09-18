@@ -18,6 +18,9 @@ export function notificationCanonicalHref(n: {
   if (n.module_key === "hr" && n.entity === "payroll_run") {
     return `/hr/payroll/${n.entity_id}`;
   }
+  if (n.module_key === "hr" && n.entity === "hiring_form") {
+    return `/hr/hiring/replies/${n.entity_id}`;
+  }
   return null;
 }
 

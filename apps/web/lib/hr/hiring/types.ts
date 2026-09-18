@@ -1,5 +1,7 @@
 export const DEFAULT_HIRING_INTRO_BACKGROUND = "#323232";
 export const DEFAULT_HIRING_INTRO2_BACKGROUND = "#E8E8E8";
+/** Matches the logged-in app canvas (`--background` in globals.css). */
+export const DEFAULT_HIRING_BODY_BACKGROUND = "#FAF9F6";
 export const HIRING_PUBLIC_BASE = "/apply";
 export const HIRING_STORAGE_BUCKET = "hiring";
 
@@ -22,14 +24,64 @@ export const HIRING_FIELD_TYPES = [
   "date",
   "number",
   "email",
+  "phone",
+  "nationality",
+  "yes_no",
+  "dropdown",
+  "radio",
+  "checkbox",
+  "multiple_choice",
   "picture",
   "file",
 ] as const;
 
 export type HiringFieldType = (typeof HIRING_FIELD_TYPES)[number];
 
-export const HIRING_BLOCK_KINDS = ["title", "description", "field"] as const;
+export const HIRING_BLOCK_KINDS = [
+  "title",
+  "description",
+  "field",
+  "page",
+] as const;
 export type HiringBlockKind = (typeof HIRING_BLOCK_KINDS)[number];
+
+export function isHiringBlockKind(value: unknown): value is HiringBlockKind {
+  return (
+    typeof value === "string" &&
+    (HIRING_BLOCK_KINDS as readonly string[]).includes(value)
+  );
+}
+
+export function hiringBodyPageLabel(pageNumber: number): string {
+  return `BODY PAGE ${pageNumber}`;
+}
+
+export function hiringBodyPageNumberAt(
+  blocks: { kind: string }[],
+  index: number,
+): number {
+  let page = 1;
+  for (let i = 0; i <= index; i += 1) {
+    if (blocks[i]?.kind === "page") page += 1;
+  }
+  return page;
+}
+
+/** Splits questionnaire blocks on `page` dividers. Empty pages are omitted. */
+export function splitHiringBodyPages<T extends { kind: string }>(
+  blocks: T[],
+): T[][] {
+  const pages: T[][] = [[]];
+  for (const block of blocks) {
+    if (block.kind === "page") {
+      pages.push([]);
+      continue;
+    }
+    pages[pages.length - 1]!.push(block);
+  }
+  const filled = pages.filter((page) => page.length > 0);
+  return filled.length > 0 ? filled : [[]];
+}
 
 export const HIRING_FORM_STATUSES = ["live", "paused", "scheduled"] as const;
 export type HiringFormStatus = (typeof HIRING_FORM_STATUSES)[number];
@@ -58,9 +110,89 @@ export const HIRING_FIELD_TYPE_LABELS: Record<HiringFieldType, string> = {
   date: "Date",
   number: "Numbers",
   email: "Email",
+  phone: "Phone",
+  nationality: "Nationality",
+  yes_no: "Yes or No",
+  dropdown: "Drop down",
+  radio: "Radio",
+  checkbox: "Checkbox",
+  multiple_choice: "Multiple choices",
   picture: "Picture upload",
   file: "File upload",
 };
+
+export const HIRING_FIELD_PLACEHOLDERS: Record<HiringFieldType, string> = {
+  short_text: "e.g. Jane Smith",
+  long_text: "e.g. Tell us a bit about yourself",
+  date: "DD/MM/YYYY",
+  number: "e.g. 5",
+  email: "e.g. name@email.com",
+  phone: "e.g. 50 123 4567",
+  nationality: "Search country…",
+  yes_no: "",
+  dropdown: "Select…",
+  radio: "",
+  checkbox: "",
+  multiple_choice: "",
+  picture: "JPG, PNG or WebP",
+  file: "PDF or document, up to 8 MB",
+};
+
+export function hiringFieldPlaceholder(
+  type: HiringFieldType,
+  custom?: string | null,
+): string {
+  const trimmed = custom?.trim() ?? "";
+  return trimmed || HIRING_FIELD_PLACEHOLDERS[type];
+}
+
+export const HIRING_YES_NO_OPTIONS = ["Yes", "No"] as const;
+
+export const DEFAULT_HIRING_OPTIONS = ["Option 1", "Option 2", "Option 3"];
+
+export const HIRING_OPTION_FIELD_TYPES = [
+  "dropdown",
+  "radio",
+  "multiple_choice",
+] as const;
+
+export function hiringFieldHasOptions(type: HiringFieldType): boolean {
+  return (HIRING_OPTION_FIELD_TYPES as readonly string[]).includes(type);
+}
+
+export function hiringFieldShowsPlaceholder(type: HiringFieldType): boolean {
+  return (
+    type !== "yes_no" &&
+    type !== "radio" &&
+    type !== "checkbox" &&
+    type !== "multiple_choice"
+  );
+}
+
+export function isHiringFieldType(value: unknown): value is HiringFieldType {
+  return (
+    typeof value === "string" &&
+    (HIRING_FIELD_TYPES as readonly string[]).includes(value)
+  );
+}
+
+export function normalizeHiringOptions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_HIRING_OPTIONS];
+  const options = raw
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 30);
+  return options.length > 0 ? options : [...DEFAULT_HIRING_OPTIONS];
+}
+
+export function hiringFieldChoiceOptions(
+  type: HiringFieldType,
+  options: string[] | undefined,
+): string[] {
+  if (type === "yes_no") return [...HIRING_YES_NO_OPTIONS];
+  if (hiringFieldHasOptions(type)) return normalizeHiringOptions(options);
+  return [];
+}
 
 export const HIRING_CATEGORY_LABELS: Record<HiringCategory, string> = {
   not_fit: "Not Fit",
@@ -89,6 +221,9 @@ export type HiringFieldConfig = {
   maxFileMb: number;
   maxFiles: number;
   computeAge: boolean;
+  placeholder: string;
+  instructions: string;
+  options: string[];
 };
 
 export const DEFAULT_HIRING_FIELD_CONFIG: HiringFieldConfig = {
@@ -98,6 +233,9 @@ export const DEFAULT_HIRING_FIELD_CONFIG: HiringFieldConfig = {
   maxFileMb: 8,
   maxFiles: 1,
   computeAge: false,
+  placeholder: "",
+  instructions: "",
+  options: [...DEFAULT_HIRING_OPTIONS],
 };
 
 export type HiringFormBlock = {
@@ -135,15 +273,19 @@ export type HiringForm = {
   intro2_department_id: string | null;
   intro2_position_ids: string[];
   intro2_position_labels?: string[];
+  body_background_color: string;
   end_message: string;
   show_socials: boolean;
   table_column_ids: string[];
+  notify_user_ids: string[];
   sort_field_id: string | null;
   sort_direction: "asc" | "desc";
   interview_request_subject: string;
   interview_request_body: string;
   interview_confirm_subject: string;
   interview_confirm_body: string;
+  interview_confirm_video_subject: string;
+  interview_confirm_video_body: string;
   created_at: string;
   updated_at: string;
   application_count?: number;
@@ -229,15 +371,50 @@ Kind regards,
 {venue}`;
 
 export const DEFAULT_INTERVIEW_CONFIRM_SUBJECT =
-  "Interview confirmed — {venue}";
+  "In-person interview confirmed — {venue}";
 export const DEFAULT_INTERVIEW_CONFIRM_BODY = `Hello {name},
 
-Your interview is confirmed for {datetime}.
+Your in-person interview is confirmed for {datetime}.
 
 {details}
 
 Kind regards,
 {venue}`;
+
+export const DEFAULT_INTERVIEW_CONFIRM_VIDEO_SUBJECT =
+  "Online interview confirmed — {venue}";
+export const DEFAULT_INTERVIEW_CONFIRM_VIDEO_BODY = `Hello {name},
+
+Your online interview is confirmed for {datetime}.
+
+{details}
+
+Kind regards,
+{venue}`;
+
+export function hiringInterviewConfirmCopy(
+  form: Pick<
+    HiringForm,
+    | "interview_confirm_subject"
+    | "interview_confirm_body"
+    | "interview_confirm_video_subject"
+    | "interview_confirm_video_body"
+  >,
+  format: "in_person" | "video",
+): { subject: string; body: string } {
+  if (format === "video") {
+    const subject = form.interview_confirm_video_subject.trim();
+    const body = form.interview_confirm_video_body.trim();
+    return {
+      subject: subject || form.interview_confirm_subject,
+      body: body || form.interview_confirm_body,
+    };
+  }
+  return {
+    subject: form.interview_confirm_subject,
+    body: form.interview_confirm_body,
+  };
+}
 
 export function mergeHiringFieldConfig(
   raw: unknown,
@@ -261,13 +438,22 @@ export function mergeHiringFieldConfig(
         : DEFAULT_HIRING_FIELD_CONFIG.allowPunctuation,
     maxFileMb:
       Number.isFinite(maxFileMb) && maxFileMb > 0
-        ? Math.min(15, Math.round(maxFileMb))
+        ? Math.min(20, Math.round(maxFileMb))
         : DEFAULT_HIRING_FIELD_CONFIG.maxFileMb,
     maxFiles:
       Number.isFinite(maxFiles) && maxFiles > 0
         ? Math.min(5, Math.round(maxFiles))
         : DEFAULT_HIRING_FIELD_CONFIG.maxFiles,
     computeAge: value.computeAge === true,
+    placeholder:
+      typeof value.placeholder === "string"
+        ? value.placeholder.trim().slice(0, 800)
+        : DEFAULT_HIRING_FIELD_CONFIG.placeholder,
+    instructions:
+      typeof value.instructions === "string"
+        ? value.instructions.trim().slice(0, 400)
+        : DEFAULT_HIRING_FIELD_CONFIG.instructions,
+    options: normalizeHiringOptions(value.options),
   };
 }
 
@@ -335,14 +521,63 @@ export function fillHiringEmailTemplate(
 }
 
 export const HIRING_COPY_POSITIONS_TOKEN = "{positions}";
+export const HIRING_COPY_NAME_TOKEN = "{name}";
+export const HIRING_COPY_FIRST_NAME_TOKEN = "{firstname}";
 
 export function formatHiringPositionNames(names: string[]): string {
   return names.map((name) => name.trim()).filter(Boolean).join(", ");
 }
 
+export function hiringFirstNameFromFullName(fullName: string): string {
+  return fullName.trim().split(/\s+/).filter(Boolean)[0] ?? "";
+}
+
+/** Live / saved applicant name from a Full name (or similar) short-text field. */
+export function hiringApplicantNameFromFieldValues(
+  blocks: Array<{
+    id: string;
+    kind: string;
+    field_type: string | null;
+    field_label: string | null;
+    field_key?: string | null;
+  }>,
+  values: Record<string, string>,
+): string {
+  const fields = blocks.filter(
+    (block) => block.kind === "field" && block.field_type,
+  );
+  for (const block of fields) {
+    const value = (values[block.id] ?? "").trim();
+    if (!value || block.field_type !== "short_text") continue;
+    const label =
+      `${block.field_label ?? ""} ${block.field_key ?? ""}`.toLowerCase();
+    if (label.includes("name")) return value;
+  }
+  const firstText = fields.find(
+    (block) =>
+      block.field_type === "short_text" && (values[block.id] ?? "").trim(),
+  );
+  return firstText ? (values[firstText.id] ?? "").trim() : "";
+}
+
+function escapeHiringCopyTokenValue(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export function fillHiringCopyTokens(
   html: string,
-  vars: { positions?: string },
+  vars: { positions?: string; name?: string },
 ): string {
-  return html.replace(/\{positions\}/gi, vars.positions ?? "");
+  const positions = escapeHiringCopyTokenValue(vars.positions ?? "");
+  const name = escapeHiringCopyTokenValue(vars.name ?? "");
+  const firstName = escapeHiringCopyTokenValue(
+    hiringFirstNameFromFullName(vars.name ?? ""),
+  );
+  return html
+    .replace(/\{positions\}/gi, positions)
+    .replace(/\{firstname\}/gi, firstName)
+    .replace(/\{name\}/gi, name);
 }

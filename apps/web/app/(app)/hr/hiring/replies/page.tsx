@@ -19,6 +19,7 @@ export default async function HiringRepliesIndexPage() {
       selectedForm={null}
       blocks={[]}
       applications={[]}
+      notifyCandidates={[]}
       canEdit={canEditHiring(permissions, venue.id)}
     />
   );

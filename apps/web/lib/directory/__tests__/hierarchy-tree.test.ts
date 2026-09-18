@@ -14,6 +14,7 @@ import {
   setHireDetails,
   setNodeHighlighted,
   setNodeLabel,
+  staffManagerId,
   stripHireNodes,
   takeSubtree,
 } from "@/lib/directory/hierarchy-tree";
@@ -313,10 +314,51 @@ describe("hierarchy tree", () => {
     expect(assignedStaffIds(next).has(hireId)).toBe(false);
     expect(
       canPlaceStaff(next, "commis", { kind: "parent", parentId: hireId }),
-    ).toBe(false);
+    ).toBe(true);
+    const withReport = placeStaff(next, "commis", {
+      kind: "parent",
+      parentId: hireId,
+    });
+    const hireAfter = findChef(withReport)?.children.find(
+      (child) => child.staffId === hireId,
+    );
+    expect(hireAfter?.children.map((child) => child.staffId)).toEqual(["commis"]);
+    expect(
+      flattenHierarchy(withReport).find((row) => row.staffId === "commis"),
+    ).toMatchObject({ reportsToStaffId: hireId });
+    expect(
+      stripHireNodes(withReport)
+        .find((root) => root.staffId === "gm")
+        ?.children.find((child) => child.staffId === "chef")
+        ?.children.map((child) => child.staffId)
+        .sort(),
+    ).toEqual(["cdp", "commis"]);
     expect(
       canPlaceStaff(next, hireId, { kind: "above", staffId: "fnb" }),
     ).toBe(false);
+  });
+
+  it("saves the nearest staff manager when someone reports to a hire", () => {
+    const hireId = "hire:opening-1";
+    const withHire = placeStaff(tree, hireId, { kind: "parent", parentId: "chef" });
+    const next = placeStaff(withHire, "commis", {
+      kind: "parent",
+      parentId: hireId,
+    });
+    const rows = flattenHierarchy(next);
+    expect(staffManagerId(rows, hireId)).toBe("chef");
+    expect(
+      staffManagerId(
+        rows,
+        rows.find((row) => row.staffId === "commis")?.reportsToStaffId ?? null,
+      ),
+    ).toBe("chef");
+    expect(
+      buildHierarchy(rows).find((root) => root.staffId === "gm")
+        ?.children.find((child) => child.staffId === "chef")
+        ?.children.find((child) => child.staffId === hireId)
+        ?.children.map((child) => child.staffId),
+    ).toEqual(["commis"]);
   });
 
   it("updates a hire vacancy position and budget", () => {
