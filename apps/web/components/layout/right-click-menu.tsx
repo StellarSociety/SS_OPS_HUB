@@ -50,11 +50,12 @@ export function RightClickMenu({
   useLayoutEffect(() => {
     if (!coords || !menuRef.current) return;
     const el = menuRef.current;
+    const { x, y } = coords;
 
     function clamp() {
       const rect = el.getBoundingClientRect();
-      let left = coords.x;
-      let top = coords.y;
+      let left = x;
+      let top = y;
       if (left + rect.width > window.innerWidth - MENU_PAD) {
         left = window.innerWidth - rect.width - MENU_PAD;
       }

@@ -352,7 +352,7 @@ export function HiringRepliesClient({
                 {columns.map((column) => (
                   <SortableHeader
                     key={column.id}
-                    label={column.field_label}
+                    label={column.field_label || "Field"}
                     fieldId={column.id}
                     sortFieldId={sortFieldId}
                     sortDirection={sortDirection}
