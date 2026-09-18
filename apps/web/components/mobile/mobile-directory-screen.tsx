@@ -34,6 +34,7 @@ import { formatDisplayDate } from "@/lib/dates/display";
 import {
   PhotoPlaceholderMark,
   StaffPhotoPreview,
+  staffPhotoDetailsFromDirectoryMember,
 } from "@/components/hr/staff-photo-thumbnail";
 import { nationalityDisplay } from "@/lib/hr/nationality-flag";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
@@ -42,6 +43,12 @@ import type { Venue } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
 import { useMobileInAppBack } from "@/components/mobile/use-mobile-in-app-back";
 import { packOrgTreeLeaves } from "@/components/directory/pack-org-tree-leaves";
+import { useHierarchyCanvasZoom } from "@/components/mobile/use-hierarchy-canvas-zoom";
+import {
+  captureElementViewOffset,
+  scrollDeltaToRestoreOffset,
+  type HierarchyViewOffset,
+} from "@/lib/directory/hierarchy-view-anchor";
 import "@/components/directory/directory-hierarchy-tree.css";
 
 export type MobileDirectoryTab = "staff" | "celebrations" | "hierarchy";
@@ -137,7 +144,6 @@ export function MobileDirectoryScreen({
           onFocus={setHierarchyFocusId}
           collapsedIds={hierarchyCollapsedIds}
           onCollapsedIdsChange={setHierarchyCollapsedIds}
-          onOpen={setSelectedId}
         />
       ) : (
         <StaffPane
@@ -533,7 +539,6 @@ function HierarchyPane({
   onFocus,
   collapsedIds,
   onCollapsedIdsChange,
-  onOpen,
 }: {
   venueName: string;
   staff: DirectoryStaffMember[];
@@ -542,11 +547,16 @@ function HierarchyPane({
   onFocus: (id: string | null) => void;
   collapsedIds: string[] | null;
   onCollapsedIdsChange: (ids: string[]) => void;
-  onOpen: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const treeBoxRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLUListElement>(null);
+  const [treeSize, setTreeSize] = useState({ w: 0, h: 0 });
+  const viewAnchorRef = useRef<
+    (HierarchyViewOffset & { staffId: string }) | null
+  >(null);
+  const didCenterRef = useRef(false);
   const byId = useMemo(
     () => new Map(staff.map((member) => [member.id, member])),
     [staff],
@@ -561,6 +571,13 @@ function HierarchyPane({
   }, [collapsedIds, reportingRoots]);
 
   const searching = search.trim().length > 0;
+  const { boxStyle, contentStyle } = useHierarchyCanvasZoom({
+    scrollerRef,
+    boxRef: treeBoxRef,
+    contentRef: treeRef,
+    enabled: !searching && reportingRoots.length > 0,
+    size: treeSize,
+  });
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
@@ -576,50 +593,95 @@ function HierarchyPane({
     });
   }, [byId, chartPeople, search]);
 
-  useLayoutEffect(() => {
-    const tree = treeRef.current;
+  function applyViewAnchor() {
+    const anchor = viewAnchorRef.current;
     const scroller = scrollerRef.current;
-    if (!tree || !scroller || searching) return;
-    packOrgTreeLeaves(tree);
-  }, [reportingRoots, collapsed, searching]);
+    if (!anchor || !scroller) return;
+    const el = scroller.querySelector(
+      `[data-org-staff-id="${CSS.escape(anchor.staffId)}"]`,
+    );
+    if (!(el instanceof HTMLElement)) return;
+    const viewport = scroller.getBoundingClientRect();
+    const delta = scrollDeltaToRestoreOffset(
+      viewport,
+      el.getBoundingClientRect(),
+      anchor,
+    );
+    const scale = viewport.width / (scroller.offsetWidth || 1) || 1;
+    if (delta.dx) scroller.scrollLeft += delta.dx / scale;
+    if (delta.dy) scroller.scrollTop += delta.dy / scale;
+  }
 
   useLayoutEffect(() => {
     const tree = treeRef.current;
     const scroller = scrollerRef.current;
-    if (!tree || !scroller || searching) return;
+    if (!tree || !scroller || searching) {
+      if (searching) didCenterRef.current = false;
+      return;
+    }
 
     let cancelled = false;
+    let raf2 = 0;
+    let raf3 = 0;
 
-    const centerCanvas = () => {
+    const layoutTree = () => {
       if (cancelled) return;
       packOrgTreeLeaves(tree);
+      const w = Math.max(1, Math.ceil(tree.offsetWidth), Math.ceil(tree.scrollWidth));
+      const h = Math.max(
+        1,
+        Math.ceil(tree.offsetHeight),
+        Math.ceil(tree.scrollHeight),
+      );
+      setTreeSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+      if (viewAnchorRef.current) {
+        applyViewAnchor();
+        didCenterRef.current = true;
+        return;
+      }
+      if (didCenterRef.current) return;
       const extra = scroller.scrollWidth - scroller.clientWidth;
       scroller.scrollLeft = extra > 0 ? extra / 2 : 0;
       scroller.scrollTop = 0;
+      didCenterRef.current = true;
     };
 
-    centerCanvas();
-    const raf = requestAnimationFrame(() => {
-      requestAnimationFrame(centerCanvas);
+    layoutTree();
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        layoutTree();
+        raf3 = requestAnimationFrame(() => {
+          applyViewAnchor();
+          viewAnchorRef.current = null;
+        });
+      });
     });
+
+    const onImage = () => {
+      if (cancelled) return;
+      packOrgTreeLeaves(tree);
+      applyViewAnchor();
+    };
 
     const images = Array.from(tree.querySelectorAll("img"));
     for (const img of images) {
       if (!img.complete) {
-        img.addEventListener("load", centerCanvas);
-        img.addEventListener("error", centerCanvas);
+        img.addEventListener("load", onImage);
+        img.addEventListener("error", onImage);
       }
     }
 
     return () => {
       cancelled = true;
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      cancelAnimationFrame(raf3);
       for (const img of images) {
-        img.removeEventListener("load", centerCanvas);
-        img.removeEventListener("error", centerCanvas);
+        img.removeEventListener("load", onImage);
+        img.removeEventListener("error", onImage);
       }
     };
-  }, [reportingRoots, searching]);
+  }, [reportingRoots, collapsed, searching]);
 
   useEffect(() => {
     if (!focusedId || searching) return;
@@ -634,6 +696,19 @@ function HierarchyPane({
   }
 
   function toggle(staffId: string) {
+    const scroller = scrollerRef.current;
+    const el = scroller?.querySelector(
+      `[data-org-staff-id="${CSS.escape(staffId)}"]`,
+    );
+    if (scroller && el instanceof HTMLElement) {
+      viewAnchorRef.current = {
+        staffId,
+        ...captureElementViewOffset(
+          scroller.getBoundingClientRect(),
+          el.getBoundingClientRect(),
+        ),
+      };
+    }
     const next = new Set(collapsed);
     if (next.has(staffId)) next.delete(staffId);
     else next.add(staffId);
@@ -720,9 +795,20 @@ function HierarchyPane({
       ) : (
         <div
           ref={scrollerRef}
-          className="min-h-0 flex-1 overflow-auto pb-32 pt-3"
+          data-org-tree-scroll=""
+          className="min-h-0 flex-1 overflow-auto pb-32 pt-3 [overflow-anchor:none] [touch-action:pan-x_pan-y]"
+          style={{
+            overflowAnchor: "none",
+            scrollBehavior: "auto",
+            touchAction: "pan-x pan-y",
+          }}
         >
-          <ul ref={treeRef} className="dir-org-tree dir-org-tree-mobile">
+          <div ref={treeBoxRef} style={boxStyle}>
+            <ul
+              ref={treeRef}
+              className="dir-org-tree dir-org-tree-mobile"
+              style={contentStyle}
+            >
             {reportingRoots.map((node) => (
               <MobileHierarchyBranch
                 key={node.staffId}
@@ -731,12 +817,12 @@ function HierarchyPane({
                 collapsedIds={collapsed}
                 focusedId={focusedId}
                 onToggle={toggle}
-                onOpen={onOpen}
                 reserveLabel={rowHasLabel(reportingRoots)}
                 reserveEmphasis={rowHasEmphasis(reportingRoots)}
               />
             ))}
-          </ul>
+            </ul>
+          </div>
         </div>
       )}
     </div>
@@ -749,7 +835,6 @@ function MobileHierarchyBranch({
   collapsedIds,
   focusedId,
   onToggle,
-  onOpen,
   reserveLabel,
   reserveEmphasis,
 }: {
@@ -758,7 +843,6 @@ function MobileHierarchyBranch({
   collapsedIds: Set<string>;
   focusedId: string | null;
   onToggle: (staffId: string) => void;
-  onOpen: (staffId: string) => void;
   reserveLabel: boolean;
   reserveEmphasis: boolean;
 }) {
@@ -786,11 +870,6 @@ function MobileHierarchyBranch({
               <MobileCollabChip
                 key={collab.staffId}
                 member={byId.get(collab.staffId)}
-                onOpen={
-                  byId.has(collab.staffId)
-                    ? () => onOpen(collab.staffId)
-                    : undefined
-                }
               />
             ))}
             <span className="dir-org-collab-line" aria-hidden />
@@ -803,10 +882,8 @@ function MobileHierarchyBranch({
             </div>
           ) : null}
           <div className="relative inline-flex">
-            <button
-              type="button"
+            <div
               data-org-staff-id={node.staffId}
-              onClick={() => (member ? onOpen(node.staffId) : undefined)}
               className={cn(
                 "dir-org-node relative flex select-none flex-col items-center rounded-2xl border px-2 py-2 text-center",
                 emphasized
@@ -820,6 +897,7 @@ function MobileHierarchyBranch({
                 <StaffAvatar
                   member={member}
                   size="md"
+                  preview
                   emphasized={emphasized}
                 />
               ) : (
@@ -852,7 +930,7 @@ function MobileHierarchyBranch({
               >
                 {member?.positionName?.trim() || "—"}
               </p>
-            </button>
+            </div>
             {hasBranch ? (
               <button
                 type="button"
@@ -862,7 +940,16 @@ function MobileHierarchyBranch({
                     ? `Show reports under ${name}`
                     : `Hide reports under ${name}`
                 }
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  event.currentTarget.focus({ preventScroll: true });
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
                 onClick={(event) => {
+                  event.preventDefault();
                   event.stopPropagation();
                   onToggle(node.staffId);
                 }}
@@ -889,11 +976,6 @@ function MobileHierarchyBranch({
               <MobileCollabChip
                 key={collab.staffId}
                 member={byId.get(collab.staffId)}
-                onOpen={
-                  byId.has(collab.staffId)
-                    ? () => onOpen(collab.staffId)
-                    : undefined
-                }
               />
             ))}
           </div>
@@ -909,7 +991,6 @@ function MobileHierarchyBranch({
               collapsedIds={collapsedIds}
               focusedId={focusedId}
               onToggle={onToggle}
-              onOpen={onOpen}
               reserveLabel={rowHasLabel(node.children)}
               reserveEmphasis={rowHasEmphasis(node.children)}
             />
@@ -922,15 +1003,13 @@ function MobileHierarchyBranch({
 
 function MobileCollabChip({
   member,
-  onOpen,
 }: {
   member: DirectoryStaffMember | undefined;
-  onOpen?: () => void;
 }) {
-  const inner = (
-    <>
+  return (
+    <div className="dir-org-node flex w-28 flex-col items-center rounded-2xl border border-dashed border-black/20 bg-white/80 px-2 py-2 text-center dark:border-white/20 dark:bg-white/10">
       {member ? (
-        <StaffAvatar member={member} size="md" />
+        <StaffAvatar member={member} size="md" preview />
       ) : (
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-black/10 text-xs text-black/40">
           ?
@@ -942,17 +1021,7 @@ function MobileCollabChip({
       <p className="mt-0.5 w-full truncate text-[10px] leading-tight text-black/45 dark:text-white/45">
         {member?.positionName?.trim() || "—"}
       </p>
-    </>
-  );
-  const className =
-    "dir-org-node flex w-28 flex-col items-center rounded-2xl border border-dashed border-black/20 bg-white/80 px-2 py-2 text-center dark:border-white/20 dark:bg-white/10";
-  if (!onOpen) {
-    return <div className={className}>{inner}</div>;
-  }
-  return (
-    <button type="button" onClick={onOpen} className={className}>
-      {inner}
-    </button>
+    </div>
   );
 }
 
@@ -1009,15 +1078,7 @@ function StaffAvatar({
     <StaffPhotoPreview
       fullName={member.fullName}
       photoUrl={member.photoUrl}
-      details={{
-        empNo: member.empNo,
-        department: member.departmentName,
-        position: member.positionName,
-        employeeStatus: member.employmentStatusName,
-        nationality: member.nationalityName,
-        dob: member.dob,
-        joiningDate: member.joiningDate,
-      }}
+      details={staffPhotoDetailsFromDirectoryMember(member)}
     >
       {({ openPreview, isOpen }) => (
         <button

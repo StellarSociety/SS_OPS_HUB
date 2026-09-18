@@ -2,6 +2,8 @@
 
 import { useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
+import { mobileAppFrameHeight } from "@/lib/mobile/frame-height";
+import { readStandaloneFromWindow } from "@/lib/pwa/standalone";
 
 const COMPACT_RE = /\/(login|select-venue|welcome)\/?$/;
 const PARCHMENT_RE = /\/select-venue\/?$/;
@@ -9,10 +11,17 @@ const LOGIN_RE = /\/login\/?$/;
 
 function syncMobileAppHeight() {
   const vv = window.visualViewport;
-  const height = Math.max(window.innerHeight, vv?.height ?? 0);
+  const height = mobileAppFrameHeight({
+    innerHeight: window.innerHeight,
+    clientHeight: document.documentElement.clientHeight,
+    visualViewportHeight: vv?.height,
+    visualViewportOffsetTop: vv?.offsetTop,
+    screenHeight: window.screen?.height,
+    standalone: readStandaloneFromWindow(window),
+  });
   document.documentElement.style.setProperty(
     "--mobile-app-height",
-    `${Math.round(height)}px`,
+    `${height}px`,
   );
 }
 

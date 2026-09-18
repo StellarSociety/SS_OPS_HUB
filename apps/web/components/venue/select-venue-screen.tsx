@@ -39,10 +39,10 @@ export function SelectVenueScreen({
       {compact ? null : (
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_55%)]" />
       )}
-      <div className="relative grid h-full grid-rows-[3fr_auto_auto_1fr]">
+      <div className="relative flex h-full min-h-0 flex-col">
         <div
           className={cn(
-            "flex min-h-0 items-end justify-center px-4",
+            "flex min-h-0 flex-1 items-end justify-center px-4",
             compact ? "pb-5 pt-4" : "pb-10 pt-6",
           )}
         >
@@ -62,8 +62,10 @@ export function SelectVenueScreen({
         />
         <div
           className={cn(
-            "flex min-h-0 items-center justify-center overflow-hidden px-4",
-            compact ? "pt-4" : "pt-6",
+            "flex shrink-0 items-center justify-center overflow-hidden px-4",
+            compact
+              ? "pb-[max(1.25rem,var(--mobile-safe-bottom,0px))] pt-4"
+              : "pb-[max(2rem,env(safe-area-inset-bottom,0px))] pt-6",
           )}
         >
           <VenueGrid
@@ -73,7 +75,6 @@ export function SelectVenueScreen({
             runtime={runtime}
           />
         </div>
-        <div aria-hidden />
       </div>
     </div>
   );

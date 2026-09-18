@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isVisibleDirectoryStaff } from "@/lib/directory/store";
+import {
+  isVisibleDirectoryStaff,
+  mapDirectoryStaffRow,
+} from "@/lib/directory/store";
 
 describe("isVisibleDirectoryStaff", () => {
   it("shows ON Board and OFF Boarding until they are OUT", () => {
@@ -21,5 +24,22 @@ describe("isVisibleDirectoryStaff", () => {
     expect(isVisibleDirectoryStaff({ employmentStatusName: "OUT" })).toBe(
       false,
     );
+  });
+});
+
+describe("mapDirectoryStaffRow", () => {
+  it("maps employment and working status lookup names", () => {
+    expect(
+      mapDirectoryStaffRow({
+        id: "s1",
+        emp_no: "ORL0001",
+        full_name: "Shuhrat Djalilov",
+        employment_status: { name: "ON Board" },
+        working_status: { name: "Full Time" },
+      }),
+    ).toMatchObject({
+      employmentStatusName: "ON Board",
+      workingStatusName: "Full Time",
+    });
   });
 });

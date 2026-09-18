@@ -41,6 +41,7 @@ const DIRECTORY_STAFF_SELECT = `
   department:departments(name, sort_order),
   position:positions(id, name),
   employment_status:employment_statuses(name),
+  working_status:working_statuses(name),
   nationality:nationalities(name)
 `;
 
@@ -65,6 +66,7 @@ type DirectoryStaffRow = {
   position?: Named;
   position_id?: string | null;
   employment_status?: Named;
+  working_status?: Named;
   nationality?: Named;
 };
 
@@ -110,6 +112,7 @@ export function mapDirectoryStaffRow(row: DirectoryStaffRow): DirectoryStaffMemb
     positionName: named(row.position),
     positionId: text(row.position_id) || namedId(row.position),
     employmentStatusName: named(row.employment_status),
+    workingStatusName: named(row.working_status),
     nationalityName: named(row.nationality),
     dob: isoDate(row.dob),
     joiningDate: isoDate(row.joining_date),

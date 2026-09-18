@@ -116,7 +116,7 @@ export function MobileTabBar({
         host ? null : "absolute inset-x-0 bottom-0 z-50",
       )}
     >
-      <div className="pointer-events-none relative mx-auto flex w-full max-w-md justify-center bg-transparent px-4 pb-[max(10px,var(--mobile-safe-bottom,0px))] pt-1">
+      <div className="pointer-events-none relative mx-auto flex w-full max-w-md justify-center bg-transparent px-4 pb-[max(8px,var(--mobile-safe-bottom,0px))] pt-1">
         <nav
           aria-label="App"
           className="pointer-events-auto relative z-10 w-full bg-transparent"

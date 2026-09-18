@@ -1,5 +1,6 @@
 "use server";
 
+import { unstable_noStore as noStore } from "next/cache";
 import { envAppUrl, joinAppUrl } from "@/lib/public-app-url";
 import { sendPushToUser } from "@/lib/push/send";
 import { webPushPublicKey } from "@/lib/push/vapid";
@@ -13,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export async function getWebPushClientConfig() {
+  noStore();
   return { publicKey: webPushPublicKey() };
 }
 

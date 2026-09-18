@@ -21,6 +21,7 @@ function member(
     positionName: "Chef",
     positionId: null,
     employmentStatusName: "ON Board",
+    workingStatusName: null,
     nationalityName: "United Kingdom",
     dob: null,
     joiningDate: null,

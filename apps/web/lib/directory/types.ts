@@ -17,6 +17,7 @@ export type DirectoryStaffMember = {
   positionName: string | null;
   positionId: string | null;
   employmentStatusName: string | null;
+  workingStatusName: string | null;
   nationalityName: string | null;
   dob: string | null;
   joiningDate: string | null;

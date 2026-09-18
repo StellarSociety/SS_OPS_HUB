@@ -42,6 +42,7 @@ import {
 import {
   PhotoPlaceholderMark,
   StaffPhotoPreview,
+  staffPhotoDetailsFromDirectoryMember,
 } from "@/components/hr/staff-photo-thumbnail";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { toast } from "@/components/ui/toast";
@@ -2575,15 +2576,7 @@ function StaffAvatar({
     <StaffPhotoPreview
       fullName={member.fullName}
       photoUrl={member.photoUrl}
-      details={{
-        empNo: member.empNo,
-        department: member.departmentName,
-        position: member.positionName,
-        employeeStatus: member.employmentStatusName,
-        nationality: member.nationalityName,
-        dob: member.dob,
-        joiningDate: member.joiningDate,
-      }}
+      details={staffPhotoDetailsFromDirectoryMember(member)}
     >
       {({ openPreview, isOpen }) => (
         <div

@@ -104,11 +104,11 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
   const [message, setMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [publicKey, setPublicKey] = useState(WEB_PUSH_PUBLIC_KEY);
+  const [configReady, setConfigReady] = useState(Boolean(WEB_PUSH_PUBLIC_KEY));
 
-  const blockReason = hydrated
-    ? inspectWindowWebPush(window, publicKey)
-    : "missing-key";
-  const supported = hydrated && blockReason === null;
+  const blockReason =
+    hydrated && configReady ? inspectWindowWebPush(window, publicKey) : null;
+  const supported = hydrated && configReady && blockReason === null;
   const needsInstall =
     hydrated &&
     (blockReason === "ios-not-standalone" ||
@@ -134,18 +134,27 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
   }, [loadCount]);
 
   useEffect(() => {
+    let cancelled = false;
     setHydrated(true);
     setPermission(currentPermission());
     void getWebPushClientConfig()
       .then((config) => {
-        if (config.publicKey.trim()) setPublicKey(config.publicKey.trim());
+        if (cancelled) return;
+        const next = config.publicKey.trim();
+        if (next) setPublicKey(next);
       })
       .catch(() => {
         /* keep the build-time key */
+      })
+      .finally(() => {
+        if (!cancelled) setConfigReady(true);
       });
     void ensurePushServiceWorker().catch(() => {
       /* registration is retried on Enable */
     });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -246,6 +255,7 @@ export function useDeviceNotifications(options?: { loadCount?: boolean }) {
 
   return {
     hydrated,
+    configReady,
     supported,
     needsInstall,
     blockReason,
@@ -373,7 +383,7 @@ export function DeviceNotificationSettingsCard({
 
   const blockedCopy = settingsCopy(push.hydrated ? push.blockReason : null);
   let body: string;
-  if (!push.hydrated) {
+  if (!push.hydrated || !push.configReady) {
     body = "Checking this device…";
   } else if (insidePreview) {
     body =

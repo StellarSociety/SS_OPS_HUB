@@ -180,6 +180,12 @@ const APP_TABS: Record<
   ],
   directory: [
     {
+      id: "reserved",
+      label: " ",
+      icon: CircleDashed,
+      path: "/directory/reserved",
+    },
+    {
       id: "staff",
       label: "Staff",
       icon: Users,
@@ -199,12 +205,6 @@ const APP_TABS: Record<
       icon: Network,
       pageId: "directory-hierarchy",
       path: "/directory/hierarchy",
-    },
-    {
-      id: "reserved",
-      label: " ",
-      icon: CircleDashed,
-      path: "/directory/reserved",
     },
   ],
 };

@@ -161,7 +161,8 @@ export function MobileWelcomeScreen({
         </p>
       </header>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-[max(1.25rem,var(--mobile-safe-bottom,0px))]">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-[max(1.25rem,var(--mobile-safe-bottom,0px))]">
+        <div className="flex min-h-full flex-col gap-3">
         <div className="flex items-stretch gap-2">
           <WelcomeProfileCard
             profile={profile}
@@ -175,7 +176,7 @@ export function MobileWelcomeScreen({
           />
         </div>
 
-        <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
+        <div className="flex-1 rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
           <div className="flex flex-col gap-y-2.5">
             {sections.map((section) => (
               <section key={section.category.key} className="flex flex-col gap-y-2">
@@ -253,7 +254,7 @@ export function MobileWelcomeScreen({
           </div>
         </div>
 
-        <div className="space-y-2 px-1 pb-1">
+        <div className="mt-auto space-y-2 px-1 pb-1">
           {onLogout ? (
             <MobilePressTarget
               type="button"
@@ -291,6 +292,7 @@ export function MobileWelcomeScreen({
               <WelcomeTermsLink href={termsHref} />
             ) : null}
           </p>
+        </div>
         </div>
       </div>
     </div>

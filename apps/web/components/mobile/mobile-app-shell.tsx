@@ -29,7 +29,7 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
     >
       <MobileChromeHostProvider host={chromeHost}>
         <MobileNavBusyProvider resetKey={pathname}>
-          <div className="relative h-full min-h-0">
+          <div className="relative h-full min-h-0" data-mobile-shell="">
             <div className="mobile-shell-inset h-full min-h-0">
               <PullToRefresh
                 refreshing={refreshing}

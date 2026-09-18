@@ -242,12 +242,20 @@ export function PullToRefresh({
     }
 
     function onTouchStart(event: TouchEvent) {
+      if (event.touches.length >= 2) {
+        endTrack();
+        return;
+      }
       const point = touchPoint(event);
       if (!point) return;
       beginTrack(event.target, point.x, point.y);
     }
 
     function onTouchMove(event: TouchEvent) {
+      if (event.touches.length >= 2) {
+        endTrack();
+        return;
+      }
       const point = touchPoint(event);
       if (!point) return;
       moveTrack(point.x, point.y, event);

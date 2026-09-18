@@ -54,17 +54,19 @@ describe("notification tab bar", () => {
 });
 
 describe("directory tab bar", () => {
-  it("keeps Staff, Celebrations, and Hierarchy live, with an empty fourth slot", () => {
+  it("keeps an empty slot on the left, then Staff, Celebrations, and Hierarchy", () => {
     const items = tabBarItems("directory");
-    const staff = items.find((tab) => tab.id === "staff");
-    const celebrations = items.find((tab) => tab.id === "celebrations");
-    const hierarchy = items.find((tab) => tab.id === "hierarchy");
-    const reserved = items.find((tab) => tab.id === "reserved");
-
-    expect(staff?.pageId).toBe("directory");
-    expect(celebrations?.pageId).toBe("directory-celebrations");
-    expect(hierarchy?.pageId).toBe("directory-hierarchy");
-    expect(reserved?.pageId).toBeUndefined();
-    expect(tabBarHref("orilla", staff!.path)).toBe("/m/orilla/directory");
+    expect(items.map((tab) => tab.id)).toEqual([
+      "reserved",
+      "staff",
+      "celebrations",
+      "hierarchy",
+      MOBILE_HOME_TAB_ID,
+    ]);
+    expect(items[0]?.pageId).toBeUndefined();
+    expect(items[1]?.pageId).toBe("directory");
+    expect(items[2]?.pageId).toBe("directory-celebrations");
+    expect(items[3]?.pageId).toBe("directory-hierarchy");
+    expect(tabBarHref("orilla", items[1]!.path)).toBe("/m/orilla/directory");
   });
 });

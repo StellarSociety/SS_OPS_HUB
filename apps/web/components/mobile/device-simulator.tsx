@@ -579,7 +579,7 @@ function PhoneScreen({
     >
       <MobileChromeHostProvider host={chromeHost}>
         <MobileNavBusyProvider resetKey={page.id}>
-          <div className="relative h-full min-h-0">
+          <div className="relative h-full min-h-0" data-mobile-shell="">
             <div
               className="h-full min-h-0"
               style={{ paddingTop: insets.top }}

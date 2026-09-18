@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { notificationCanonicalHref, notificationClickPath } from "@/lib/notifications/href";
 import { urlBase64ToUint8Array } from "@/lib/push/application-server-key";
 import { inspectWebPushSupport, webPushIsAvailable } from "@/lib/push/platform";
+import { resolveWebPushPublicKey } from "@/lib/push/resolve-public-key";
 
 describe("web push availability", () => {
   it("requires iOS to be installed on the Home Screen", () => {
@@ -20,6 +21,21 @@ describe("web push availability", () => {
     expect(
       webPushIsAvailable({ ...base, isIOS: false, standalone: false }),
     ).toBe(true);
+  });
+
+  it("prefers the runtime server key over an empty inlined NEXT_PUBLIC key", () => {
+    expect(
+      resolveWebPushPublicKey({
+        WEB_PUSH_PUBLIC_KEY: " runtime-key ",
+        NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY: "",
+      }),
+    ).toBe("runtime-key");
+    expect(
+      resolveWebPushPublicKey({
+        NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY: " build-key ",
+      }),
+    ).toBe("build-key");
+    expect(resolveWebPushPublicKey({})).toBe("");
   });
 
   it("is off without a VAPID public key or PushManager", () => {
