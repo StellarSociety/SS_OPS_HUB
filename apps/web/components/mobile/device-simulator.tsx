@@ -503,7 +503,7 @@ function PhoneChrome({
         style={
           {
             borderRadius: screenRadius,
-            "--mobile-safe-top": "0px",
+            "--mobile-safe-top": `${insets.top}px`,
             "--mobile-safe-bottom": `${insets.bottom}px`,
           } as CSSProperties
         }

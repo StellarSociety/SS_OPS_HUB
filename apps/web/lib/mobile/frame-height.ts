@@ -6,6 +6,10 @@ const STANDALONE_SCREEN_SLACK_PX = 96;
  * grow to the hardware screen when a standalone PWA sits short of it.
  * Never use visualViewport.height alone — it is often smaller than the
  * painted screen and leaves a dead band above the home indicator.
+ *
+ * `window.screen.height` and `outerHeight` are only used when they are a
+ * small step above the layout viewport (home-indicator slack), not when
+ * they look like physical-pixel Android values.
  */
 export function mobileAppFrameHeight(input: {
   innerHeight: number;
@@ -13,6 +17,7 @@ export function mobileAppFrameHeight(input: {
   visualViewportHeight?: number;
   visualViewportOffsetTop?: number;
   screenHeight?: number;
+  outerHeight?: number;
   standalone?: boolean;
 }): number {
   const visual = Math.round(
@@ -23,13 +28,12 @@ export function mobileAppFrameHeight(input: {
     Math.round(input.clientHeight) || 0,
     visual,
   );
-  const screen = Math.round(input.screenHeight ?? 0);
-  if (
-    input.standalone &&
-    screen > layout &&
-    screen - layout <= STANDALONE_SCREEN_SLACK_PX
-  ) {
-    return screen;
-  }
-  return layout;
+  if (!input.standalone) return layout;
+
+  const grown = [input.screenHeight, input.outerHeight]
+    .map((value) => Math.round(value ?? 0))
+    .filter(
+      (value) => value > layout && value - layout <= STANDALONE_SCREEN_SLACK_PX,
+    );
+  return grown.length > 0 ? Math.max(layout, ...grown) : layout;
 }

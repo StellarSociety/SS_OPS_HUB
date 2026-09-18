@@ -39,42 +39,63 @@ export function SelectVenueScreen({
       {compact ? null : (
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_55%)]" />
       )}
-      <div className="relative flex h-full min-h-0 flex-col">
-        <div
-          className={cn(
-            "flex min-h-0 flex-1 items-end justify-center px-4",
-            compact ? "pb-5 pt-4" : "pb-10 pt-6",
-          )}
-        >
-          <SelectVenueWelcome
-            fullName={fullName}
-            email={email}
-            avatarUrl={avatarUrl}
-            empNo={empNo}
-            position={position}
-            compact={compact}
-          />
-        </div>
-        <div
-          className="mx-auto h-px w-full max-w-3xl shrink-0 bg-[#3D421F]/15"
-          role="separator"
-          aria-hidden
-        />
-        <div
-          className={cn(
-            "flex shrink-0 items-center justify-center overflow-hidden px-4",
-            compact
-              ? "pb-[max(1.25rem,var(--mobile-safe-bottom,0px))] pt-4"
-              : "pb-[max(2rem,env(safe-area-inset-bottom,0px))] pt-6",
-          )}
-        >
-          <VenueGrid
-            venues={venues}
-            preview={preview}
-            onSelectVenue={onSelectVenue}
-            runtime={runtime}
-          />
-        </div>
+      <div className="relative h-full min-h-0">
+        {compact ? (
+          <div className="absolute inset-x-0 top-[calc(50%-var(--mobile-safe-top,0px)/2)]">
+            <div className="flex justify-center px-4 pb-5">
+              <SelectVenueWelcome
+                fullName={fullName}
+                email={email}
+                avatarUrl={avatarUrl}
+                empNo={empNo}
+                position={position}
+                compact
+              />
+            </div>
+            <div
+              className="mx-auto h-px w-full max-w-3xl bg-[#3D421F]/15"
+              role="separator"
+              aria-hidden
+            />
+            <div className="flex items-center justify-center overflow-hidden px-4 pb-[max(1.25rem,var(--mobile-safe-bottom,0px))] pt-4">
+              <VenueGrid
+                venues={venues}
+                preview={preview}
+                onSelectVenue={onSelectVenue}
+                runtime={runtime}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="relative flex h-full min-h-0 flex-col">
+            <div className="flex min-h-0 flex-1 items-end justify-center px-4 pb-10 pt-6">
+              <SelectVenueWelcome
+                fullName={fullName}
+                email={email}
+                avatarUrl={avatarUrl}
+                empNo={empNo}
+                position={position}
+              />
+            </div>
+            <div
+              className="mx-auto h-px w-full max-w-3xl shrink-0 bg-[#3D421F]/15"
+              role="separator"
+              aria-hidden
+            />
+            <div className="flex shrink-0 items-center justify-center overflow-hidden px-4 pt-6">
+              <VenueGrid
+                venues={venues}
+                preview={preview}
+                onSelectVenue={onSelectVenue}
+                runtime={runtime}
+              />
+            </div>
+            <div
+              className="h-[max(4rem,calc(env(safe-area-inset-bottom,0px)+2.5rem))] shrink-0"
+              aria-hidden
+            />
+          </div>
+        )}
       </div>
     </div>
   );

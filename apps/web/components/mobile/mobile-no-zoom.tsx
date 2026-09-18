@@ -17,12 +17,14 @@ function syncMobileAppHeight() {
     visualViewportHeight: vv?.height,
     visualViewportOffsetTop: vv?.offsetTop,
     screenHeight: window.screen?.height,
+    outerHeight: window.outerHeight,
     standalone: readStandaloneFromWindow(window),
   });
-  document.documentElement.style.setProperty(
-    "--mobile-app-height",
-    `${height}px`,
-  );
+  const px = `${height}px`;
+  const root = document.documentElement;
+  root.style.setProperty("--mobile-app-height", px);
+  root.style.height = px;
+  document.body.style.height = px;
 }
 
 /** Document-level no-zoom for real mobile-app routes (not the device preview). */
@@ -56,6 +58,8 @@ export function MobileNoZoom() {
       vv?.removeEventListener("resize", syncMobileAppHeight);
       vv?.removeEventListener("scroll", syncMobileAppHeight);
       document.documentElement.style.removeProperty("--mobile-app-height");
+      document.documentElement.style.removeProperty("height");
+      document.body.style.removeProperty("height");
     };
   }, []);
 

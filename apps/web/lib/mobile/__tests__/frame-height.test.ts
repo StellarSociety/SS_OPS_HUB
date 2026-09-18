@@ -36,6 +36,18 @@ describe("mobile app frame height", () => {
     ).toBe(800);
   });
 
+  it("grows to outerHeight when that is the home-indicator slack", () => {
+    expect(
+      mobileAppFrameHeight({
+        innerHeight: 840,
+        clientHeight: 840,
+        visualViewportHeight: 840,
+        outerHeight: 874,
+        standalone: true,
+      }),
+    ).toBe(874);
+  });
+
   it("includes visualViewport.offsetTop so a scrolled visual viewport still fills", () => {
     expect(
       mobileAppFrameHeight({
