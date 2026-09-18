@@ -410,15 +410,15 @@ function ContactRow({
   const display = displayValue(value);
   const linked = Boolean(href);
   const content = (
-    <div className="flex min-w-0 items-baseline justify-center gap-2 text-sm leading-snug">
+    <div className="flex w-full min-w-0 flex-col items-center gap-0.5 text-sm leading-snug">
       <span className="shrink-0 text-white/55">{label}</span>
-      <span className="inline-flex min-w-0 items-center gap-1.5 text-white/95">
+      <span className="inline-flex max-w-full min-w-0 items-center justify-center gap-1.5 text-white/95">
         {linked ? (
           <span className="shrink-0 text-white/80" aria-hidden>
             {icon}
           </span>
         ) : null}
-        <span className="min-w-0 break-all">{display}</span>
+        <span className="min-w-0 break-all text-center">{display}</span>
       </span>
     </div>
   );

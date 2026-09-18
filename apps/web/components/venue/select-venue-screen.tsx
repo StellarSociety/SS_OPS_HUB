@@ -41,8 +41,8 @@ export function SelectVenueScreen({
       )}
       <div className="relative h-full min-h-0">
         {compact ? (
-          <div className="absolute inset-x-0 top-[calc(50%-var(--mobile-safe-top,0px)/2)]">
-            <div className="flex justify-center px-4 pb-5">
+          <div className="flex h-full min-h-0 flex-col pb-[max(1.5rem,var(--mobile-safe-bottom,0px))] pt-2">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4">
               <SelectVenueWelcome
                 fullName={fullName}
                 email={email}
@@ -51,19 +51,19 @@ export function SelectVenueScreen({
                 position={position}
                 compact
               />
-            </div>
-            <div
-              className="mx-auto h-px w-full max-w-3xl bg-[#3D421F]/15"
-              role="separator"
-              aria-hidden
-            />
-            <div className="flex items-center justify-center overflow-hidden px-4 pb-[max(1.25rem,var(--mobile-safe-bottom,0px))] pt-4">
-              <VenueGrid
-                venues={venues}
-                preview={preview}
-                onSelectVenue={onSelectVenue}
-                runtime={runtime}
+              <div
+                className="mx-auto mt-4 h-px w-full max-w-3xl shrink-0 bg-[#3D421F]/15"
+                role="separator"
+                aria-hidden
               />
+              <div className="w-full shrink-0 pt-4">
+                <VenueGrid
+                  venues={venues}
+                  preview={preview}
+                  onSelectVenue={onSelectVenue}
+                  runtime={runtime}
+                />
+              </div>
             </div>
           </div>
         ) : (
