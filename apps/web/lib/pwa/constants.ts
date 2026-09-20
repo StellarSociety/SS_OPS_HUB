@@ -106,7 +106,8 @@ export const PWA_ICON_512 = "/icons/icon-512.png";
 export const PWA_ICON_MASKABLE = "/icons/icon-512-maskable.png";
 export const PWA_APPLE_TOUCH_ICON = "/apple-touch-icon.png";
 export const PWA_LOGO_SRC = "/brand/ss-ops-hub-app-icon.webp";
-export const PWA_INSTALL_QR_SRC = "/icons/install-qr.svg?v=2";
+/** Static QR must encode PRODUCTION_APP_URL + /install. Bump ?v= when regenerating. */
+export const PWA_INSTALL_QR_SRC = "/icons/install-qr.svg?v=3";
 
 export const PWA_BANNER_DISMISS_KEY = "ss-ops-pwa-banner-dismissed";
 export const PWA_RETURN_PATH_KEY = "ss-ops-pwa-return-path";

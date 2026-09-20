@@ -42,7 +42,7 @@ export function SelectVenueScreen({
       <div className="relative h-full min-h-0">
         {compact ? (
           <div className="flex h-full min-h-0 flex-col pb-[max(1.5rem,var(--mobile-safe-bottom,0px))] pt-2">
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto overflow-x-hidden px-4">
               <SelectVenueWelcome
                 fullName={fullName}
                 email={email}
@@ -56,7 +56,7 @@ export function SelectVenueScreen({
                 role="separator"
                 aria-hidden
               />
-              <div className="w-full shrink-0 pt-4">
+              <div className="w-full min-w-0 shrink-0 pt-4">
                 <VenueGrid
                   venues={venues}
                   preview={preview}

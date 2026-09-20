@@ -54,7 +54,7 @@ export function VenueTile({
       onClick={handleSelect}
       className={cn(
         "group flex flex-col items-center disabled:cursor-not-allowed disabled:opacity-40",
-        compact ? "gap-2" : "gap-3",
+        compact ? "w-20 shrink-0 gap-2" : "gap-3",
       )}
       whileHover={disabled || intense ? undefined : { scale: 1.06, y: -6 }}
       whileTap={disabled || intense ? undefined : { scale: 0.98 }}
@@ -89,7 +89,7 @@ export function VenueTile({
       <span
         className={cn(
           "font-serif text-[#3D421F]",
-          compact ? "text-sm" : "text-lg",
+          compact ? "w-full text-center text-sm leading-tight" : "text-lg",
         )}
       >
         {venue.name}
