@@ -131,6 +131,10 @@ const nextConfig: NextConfig = {
     ];
   },
   experimental: {
+    // Vercel’s 8 GB build container SIGKILLs webpack on this app without these.
+    webpackMemoryOptimizations: true,
+    webpackBuildWorker: true,
+    serverSourceMaps: false,
     // Middleware/proxy clones request bodies (default 10mb). Large WorkDrive
     // uploads also bypass middleware via matcher exclude; keep this high for
     // any other multipart routes that still go through the proxy.

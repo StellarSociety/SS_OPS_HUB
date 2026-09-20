@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
-  "buildCommand": "cd ../.. && pnpm --filter @ss-ops-hub/web build",
+  "buildCommand": "cd ../.. && NODE_OPTIONS='--max-old-space-size=6144' pnpm --filter @ss-ops-hub/web build",
   "crons": [
     {
       "path": "/api/cron/notifications",
