@@ -130,15 +130,27 @@ export function MobileAccessInviteDialog({
       }
       if ("credentials" in result && result.credentials) {
         setCredentials(result.credentials);
-        toast.saved(result.success ?? "Account created.");
+        toast.saved(
+          "success" in result && result.success
+            ? result.success
+            : "Account created.",
+        );
         return;
       }
       if ("inviteLink" in result && result.inviteLink) {
         setInviteLink(result.inviteLink);
-        toast.alert(result.success ?? "Account created — email not sent.");
+        toast.alert(
+          "success" in result && result.success
+            ? result.success
+            : "Account created — email not sent.",
+        );
         return;
       }
-      toast.saved(result.success ?? "Invitation sent.");
+      toast.saved(
+        "success" in result && result.success
+          ? result.success
+          : "Invitation sent.",
+      );
       onClose();
     });
   }
