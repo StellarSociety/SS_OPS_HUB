@@ -31,8 +31,8 @@ export function ReviewsPeriodInsights({
     >
       <div
         className={cn(
-          "inline-flex min-w-0 flex-1 items-center justify-center px-3 py-2",
-          compact ? "flex-col gap-1" : "flex-row gap-2",
+          "inline-flex min-w-0 flex-1 items-center justify-center py-2",
+          compact ? "flex-col gap-1 px-1.5" : "flex-row gap-2 px-3",
         )}
       >
         <div
@@ -52,8 +52,8 @@ export function ReviewsPeriodInsights({
       <InsightDivider />
       <div
         className={cn(
-          "inline-flex min-w-0 flex-1 items-center justify-center px-3 py-2 text-[#3D421F]",
-          compact ? "flex-col gap-1" : "flex-row gap-1.5 text-sm",
+          "inline-flex min-w-0 flex-1 items-center justify-center py-2 text-[#3D421F]",
+          compact ? "flex-col gap-1 px-1.5" : "flex-row gap-1.5 px-3 text-sm",
         )}
       >
         <div
@@ -73,8 +73,8 @@ export function ReviewsPeriodInsights({
       <InsightDivider />
       <div
         className={cn(
-          "inline-flex min-w-0 flex-1 items-center justify-center px-3 py-2",
-          compact ? "flex-col gap-1" : "flex-row gap-2",
+          "inline-flex min-w-0 flex-1 items-center justify-center py-2",
+          compact ? "flex-col gap-1 px-1.5" : "flex-row gap-2 px-3",
         )}
       >
         {insights.overallLabel ? (

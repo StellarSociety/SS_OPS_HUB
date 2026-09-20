@@ -1118,6 +1118,8 @@ export type Staff = {
   medical_insurance_expiry_date: string | null;
   /** Public HTTPS URL of cropped WebP in staff-photos (nullable). */
   photo_url: string | null;
+  /** Hierarchy-only row — not an HR employee. */
+  org_chart_only: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

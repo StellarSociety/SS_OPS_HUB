@@ -10,6 +10,7 @@ const OPTIONS: Array<{ id: InstallPreviewKind | ""; label: string }> = [
   { id: "android", label: "Android" },
   { id: "desktop", label: "Desktop" },
   { id: "installed", label: "Installed" },
+  { id: "reinstall", label: "Reinstall" },
 ];
 
 export function InstallPreviewToolbar({

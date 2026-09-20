@@ -30,6 +30,7 @@ export async function listStaffForVenue(
     .from("staff")
     .select(STAFF_SELECT)
     .eq("home_venue_id", homeVenueId)
+    .eq("org_chart_only", false)
     .order("emp_no");
 
   if (filters?.departmentId) {

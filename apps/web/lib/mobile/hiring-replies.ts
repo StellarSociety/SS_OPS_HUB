@@ -1,9 +1,16 @@
 import {
   listHiringAppointments,
   listHiringApplicationsForForm,
+  listHiringFormBlocks,
   listHiringForms,
 } from "@/lib/hr/hiring/store";
-import { HIRING_STATUS_LABELS } from "@/lib/hr/hiring/types";
+import {
+  HIRING_CATEGORY_LABELS,
+  HIRING_STATUS_LABELS,
+  type HiringAnswers,
+  type HiringApplicationFile,
+  type HiringFieldType,
+} from "@/lib/hr/hiring/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export type MobileHiringFormOption = {
@@ -12,24 +19,36 @@ export type MobileHiringFormOption = {
   applicationCount: number;
 };
 
+export type MobileHiringField = {
+  id: string;
+  label: string;
+  type: HiringFieldType;
+  computeAge: boolean;
+};
+
 export type MobileHiringCandidate = {
   id: string;
   name: string;
   email: string | null;
   submittedAt: string;
   statusLabel: string;
+  categoryLabel: string | null;
   photoUrl: string | null;
+  answers: HiringAnswers;
+  files: HiringApplicationFile[];
 };
 
 export type MobileHiringPage = {
   forms: MobileHiringFormOption[];
   selectedFormId: string | null;
+  fields: MobileHiringField[];
   candidates: MobileHiringCandidate[];
 };
 
 export const EMPTY_MOBILE_HIRING_PAGE: MobileHiringPage = {
   forms: [],
   selectedFormId: null,
+  fields: [],
   candidates: [],
 };
 
@@ -67,27 +86,43 @@ export async function loadMobileHiringPage(
   }));
 
   if (options.length === 0) {
-    return { forms: [], selectedFormId: null, candidates: [] };
+    return { forms: [], selectedFormId: null, fields: [], candidates: [] };
   }
 
   const selectedFormId =
     options.find((form) => form.id === formId)?.id ?? options[0]!.id;
-  const applications = await listHiringApplicationsForForm(
-    service,
-    venueId,
-    selectedFormId,
-  );
+  const [applications, blocks] = await Promise.all([
+    listHiringApplicationsForForm(service, venueId, selectedFormId),
+    listHiringFormBlocks(service, selectedFormId),
+  ]);
+  const fields: MobileHiringField[] = blocks.flatMap((block) => {
+    if (block.kind !== "field" || !block.field_type) return [];
+    return [
+      {
+        id: block.id,
+        label: block.field_label?.trim() || "Field",
+        type: block.field_type,
+        computeAge: block.config.computeAge,
+      },
+    ];
+  });
 
   return {
     forms: options,
     selectedFormId,
+    fields,
     candidates: applications.map((application) => ({
       id: application.id,
       name: application.applicant_name?.trim() || "Unnamed",
       email: application.applicant_email?.trim() || null,
       submittedAt: application.submitted_at,
       statusLabel: HIRING_STATUS_LABELS[application.status],
+      categoryLabel: application.category
+        ? HIRING_CATEGORY_LABELS[application.category]
+        : null,
       photoUrl: candidatePhotoUrl(application.files),
+      answers: application.answers,
+      files: application.files,
     })),
   };
 }

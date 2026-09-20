@@ -38,6 +38,7 @@ const DIRECTORY_STAFF_SELECT = `
   whatsapp,
   personal_email,
   work_email,
+  org_chart_only,
   position_id,
   department:departments(name, sort_order),
   position:positions(id, name),
@@ -63,6 +64,7 @@ type DirectoryStaffRow = {
   whatsapp?: string | null;
   personal_email?: string | null;
   work_email?: string | null;
+  org_chart_only?: boolean | null;
   department?: DepartmentRel;
   position?: Named;
   position_id?: string | null;
@@ -121,7 +123,15 @@ export function mapDirectoryStaffRow(row: DirectoryStaffRow): DirectoryStaffMemb
     whatsapp: text(row.whatsapp),
     personalEmail: text(row.personal_email),
     workEmail: text(row.work_email),
+    orgChartOnly: Boolean(row.org_chart_only),
   };
+}
+
+/** Staff / celebrations lists hide chart-only partners. Hierarchy still uses them. */
+export function isDirectoryPeopleMember(
+  member: Pick<DirectoryStaffMember, "orgChartOnly">,
+): boolean {
+  return !member.orgChartOnly;
 }
 
 export function isVisibleDirectoryStaff(

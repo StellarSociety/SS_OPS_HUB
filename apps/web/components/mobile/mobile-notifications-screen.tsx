@@ -12,6 +12,7 @@ import {
 import { formatDateOnly } from "@/lib/hr/derived";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
 import { mobileHiringHref } from "@/lib/mobile/app-path";
+import { notificationCanonicalHref } from "@/lib/notifications/href";
 import type { NotificationFolder } from "@/lib/notifications/folder";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
@@ -96,10 +97,10 @@ export function MobileNotificationsScreen({
           <ul className="mt-4 space-y-2">
             {items.map((n) => {
               const unread = !n.read_at;
-              const hiringHref =
+              const tapHref =
                 n.module_key === "hr" && n.entity === "hiring_form"
                   ? mobileHiringHref(venue.slug)
-                  : null;
+                  : notificationCanonicalHref(n);
               return (
                 <li
                   key={n.id}
@@ -114,9 +115,9 @@ export function MobileNotificationsScreen({
                     aria-hidden
                   />
                   <div className="min-w-0 flex-1">
-                    {hiringHref ? (
+                    {tapHref ? (
                       <Link
-                        href={hiringHref}
+                        href={tapHref}
                         className="block"
                         onClick={() => {
                           if (!unread) return;

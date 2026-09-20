@@ -35,6 +35,7 @@ export default async function MobileWelcomePage({ params }: PageProps) {
   const modules = hub.sections
     .flatMap((section) => section.modules)
     .filter((mod) => mod.key !== MOBILE_APP_MODULE_KEY)
+    .filter((mod) => !hub.hiddenModuleKeys.includes(mod.key))
     .sort((a, b) => hubModuleSortIndex(a.key) - hubModuleSortIndex(b.key));
 
   return (
@@ -45,6 +46,7 @@ export default async function MobileWelcomePage({ params }: PageProps) {
         modules={modules}
         profile={profile}
         profileHref={mobileProfileHref(venue.slug)}
+        employeeHubLevel={hub.employeeHubLevel}
         notificationCount={notices.totalCount}
         unreadCount={notices.unreadCount}
         notificationsHref={mobileNotificationsHref(venue.slug)}

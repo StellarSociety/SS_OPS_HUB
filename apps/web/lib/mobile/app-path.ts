@@ -173,6 +173,18 @@ export function isMobileAppPath(pathname: string): boolean {
   );
 }
 
+const MOBILE_PATH_WITHOUT_VENUE = new Set(["login", "select-venue"]);
+
+/** Venue slug from `/m/<slug>/...`. Null on login, venue picker, and `/m`. */
+export function venueSlugFromMobilePathname(
+  pathname: string,
+): string | null {
+  if (!isMobileAppPath(pathname)) return null;
+  const segment = pathname.split("/").filter(Boolean)[1];
+  if (!segment || MOBILE_PATH_WITHOUT_VENUE.has(segment)) return null;
+  return segment;
+}
+
 /** Public phone URL for the screen currently shown in the device preview. */
 export function appPathPublicHref(
   page: AppPathPage,

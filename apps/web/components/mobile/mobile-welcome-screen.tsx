@@ -3,7 +3,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Bell, ChevronDown, LogOut } from "lucide-react";
+import { Bell, ChevronDown, Lock, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { ModuleTile } from "@/components/modules/module-tile";
@@ -21,6 +21,7 @@ import {
   moduleCategories,
   type ModuleCategoryKey,
 } from "@/lib/module-categories";
+import type { AccessMatrixLevel } from "@/lib/access/matrix";
 import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { getUserInitials } from "@/lib/user/display";
 import type { Venue } from "@/lib/types/database";
@@ -65,6 +66,7 @@ type MobileWelcomeScreenProps = {
   onOpenTerms?: () => void;
   termsHref?: string;
   onLogout?: () => void;
+  employeeHubLevel?: AccessMatrixLevel;
 };
 
 export function MobileWelcomeScreen({
@@ -88,6 +90,7 @@ export function MobileWelcomeScreen({
   onOpenTerms,
   termsHref,
   onLogout,
+  employeeHubLevel = "viewer",
 }: MobileWelcomeScreenProps) {
   const { beginNav } = useMobileNavBusy();
   const firstName = userName?.trim().split(/\s+/)[0] ?? null;
@@ -181,11 +184,20 @@ export function MobileWelcomeScreen({
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-[max(1.25rem,var(--mobile-safe-bottom,0px))]">
         <div className="flex min-h-full flex-col gap-3">
         <div className="flex items-stretch gap-2">
-          <WelcomeProfileCard
-            profile={profile}
-            href={onOpenProfile ? undefined : profileHref}
-            onOpen={onOpenProfile}
-          />
+          {employeeHubLevel !== "hidden" ? (
+            <WelcomeProfileCard
+              profile={profile}
+              href={
+                employeeHubLevel === "none"
+                  ? undefined
+                  : onOpenProfile
+                    ? undefined
+                    : profileHref
+              }
+              onOpen={employeeHubLevel === "none" ? undefined : onOpenProfile}
+              locked={employeeHubLevel === "none"}
+            />
+          ) : null}
           <WelcomeNotificationsCard
             totalCount={notificationCount}
             href={onOpenNotifications ? undefined : notificationsHref}
@@ -326,7 +338,7 @@ export function MobileWelcomeScreen({
         </div>
         ) : null}
 
-        <div className="mt-auto space-y-2 px-1 pb-1">
+        <div className="mt-auto space-y-2 pb-1">
           {onLogout ? (
             <MobilePressTarget
               type="button"
@@ -345,7 +357,7 @@ export function MobileWelcomeScreen({
               </MobilePressTarget>
             </form>
           )}
-          <p className="text-center text-[11px] leading-relaxed text-black/50 dark:text-white/50">
+          <p className="text-center text-[11px] leading-tight text-black/50 dark:text-white/50">
             By using this hub you agree to follow Stellar Society policies for
             data, records, and workplace conduct. Misuse may result in access
             being revoked and disciplinary action, including dismissal.{" "}
@@ -463,10 +475,12 @@ function WelcomeProfileCard({
   profile,
   href,
   onOpen,
+  locked = false,
 }: {
   profile: MobileWelcomeProfile;
   href?: string;
   onOpen?: () => void;
+  locked?: boolean;
 }) {
   const displayName = profile.fullName?.trim() || profile.email || "Profile";
   const initials = getUserInitials(profile.fullName, profile.email);
@@ -495,7 +509,7 @@ function WelcomeProfileCard({
           {displayName}
         </p>
         <p className="mt-0.5 truncate text-[11px] leading-snug text-black/50 dark:text-white/50">
-          Personal Employee Hub
+          {locked ? "No access" : "Personal Employee Hub"}
         </p>
       </div>
     </>
@@ -512,7 +526,7 @@ function WelcomeProfileCard({
   );
 
   return (
-    <section className="min-w-0 flex-1 rounded-xl border border-black/10 bg-black/[0.03] px-2.5 py-3 dark:border-white/12 dark:bg-white/[0.08]">
+    <section className="relative min-w-0 flex-1 rounded-xl border border-black/10 bg-black/[0.03] px-2.5 py-3 dark:border-white/12 dark:bg-white/[0.08]">
       {onOpen ? (
         <button
           type="button"
@@ -537,6 +551,11 @@ function WelcomeProfileCard({
       ) : (
         <div className="flex items-center gap-2 py-1.5">{row}</div>
       )}
+      {locked ? (
+        <span className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/70 p-1 text-white">
+          <Lock className="h-3 w-3" />
+        </span>
+      ) : null}
     </section>
   );
 }

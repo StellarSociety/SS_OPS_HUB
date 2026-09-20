@@ -25,6 +25,8 @@ export type DirectoryStaffMember = {
   whatsapp: string | null;
   personalEmail: string | null;
   workEmail: string | null;
+  /** Hierarchy-only row — not an HR employee and not listed in Staff. */
+  orgChartOnly: boolean;
 };
 
 /** Payable salary shown on Hierarchy Management only — never the wage package. */

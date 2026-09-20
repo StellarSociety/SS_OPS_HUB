@@ -82,18 +82,16 @@ export function YearToDateMonthlyTrendChart({
 
   return (
     <Card className="flex h-full flex-col p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-serif text-base text-[#3D421F]">
-            Monthly Sales Trend
-          </h3>
-          <p className="mt-1 text-xs text-black/50">
-            Year-to-date {year} · Jan through{" "}
-            {points.at(-1)?.label ?? "—"} ({monthsWithSales}{" "}
-            {monthsWithSales === 1 ? "month" : "months"} with sales)
-          </p>
-        </div>
-        <span className="inline-flex items-center gap-1.5 text-[10px] text-black/55">
+      <div className="mb-3">
+        <h3 className="font-serif text-base text-[#3D421F]">
+          Monthly Sales Trend
+        </h3>
+        <p className="mt-1 text-xs text-black/50">
+          Year-to-date {year} · Jan through{" "}
+          {points.at(-1)?.label ?? "—"} ({monthsWithSales}{" "}
+          {monthsWithSales === 1 ? "month" : "months"} with sales)
+        </p>
+        <span className="mt-1.5 flex items-center gap-1.5 text-[10px] text-black/55">
           <span className="h-0.5 w-4 rounded bg-[#C45C3E]" />
           YTD average
         </span>
@@ -167,16 +165,14 @@ export function YearToDateMonthlyTrendChart({
 export function WeeklySalesTrendChart({ points }: { points: TrendPoint[] }) {
   return (
     <Card className="flex h-full flex-col p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-serif text-base text-[#3D421F]">
-            Weekly Sales Trend
-          </h3>
-          <p className="mt-1 text-xs text-black/50">
-            Last {points.length} weeks with sales data
-          </p>
-        </div>
-        <span className="inline-flex items-center gap-1.5 text-[10px] text-black/55">
+      <div className="mb-3">
+        <h3 className="font-serif text-base text-[#3D421F]">
+          Weekly Sales Trend
+        </h3>
+        <p className="mt-1 text-xs text-black/50">
+          Last {points.length} weeks with sales data
+        </p>
+        <span className="mt-1.5 flex items-center gap-1.5 text-[10px] text-black/55">
           <span className="h-0.5 w-4 rounded bg-[#C45C3E]" />
           Period average
         </span>

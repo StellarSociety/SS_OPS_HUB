@@ -57,11 +57,20 @@ function GuestCell({ review }: { review: SentimentReview }) {
   );
 }
 
-function FieldFillState({ filled }: { filled: boolean }) {
+export function FieldFillState({
+  filled,
+  compact = false,
+}: {
+  filled: boolean;
+  compact?: boolean;
+}) {
   return (
     <span
       className={cn(
-        "rounded-full px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide",
+        "inline-flex shrink-0 whitespace-nowrap rounded-full font-medium uppercase tracking-wide",
+        compact
+          ? "h-7 items-center px-1.5 text-[10px] leading-none"
+          : "px-2 py-0.5 text-[11px]",
         filled
           ? "bg-[var(--venue-primary)]/15 text-[#3D421F]"
           : "bg-black/[0.04] text-black/40",

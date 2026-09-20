@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { isAccessBlockDue } from "@/lib/access/access-block";
 import {
   ACTIVE_SCOPE_COOKIE,
   ACTIVE_VENUE_COOKIE,
@@ -145,11 +146,18 @@ export async function middleware(request: NextRequest) {
     try {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("status")
+        .select("status, access_blocked_until")
         .eq("id", userId)
         .maybeSingle();
 
-      if (profile?.status === "disabled") {
+      const blocked =
+        profile?.status === "disabled" ||
+        isAccessBlockDue(
+          (profile as { access_blocked_until?: string | null } | null)
+            ?.access_blocked_until,
+        );
+
+      if (blocked) {
         await supabase.auth.signOut();
         const url = request.nextUrl.clone();
         url.pathname = isMobileAppPath(pathname)

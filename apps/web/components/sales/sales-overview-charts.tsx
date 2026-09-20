@@ -72,16 +72,14 @@ function MonthWeekComparisonChart({
 }) {
   return (
     <Card className="flex h-full flex-col p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-serif text-base text-[#3D421F]">
-            Monthly Sales by Week
-          </h3>
-          <p className="mt-1 text-xs text-black/50">
-            {currentMonthLabel} vs {previousMonthLabel}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[10px] text-black/55">
+      <div className="mb-3">
+        <h3 className="font-serif text-base text-[#3D421F]">
+          Monthly Sales by Week
+        </h3>
+        <p className="mt-1 text-xs text-black/50">
+          {currentMonthLabel} vs {previousMonthLabel}
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-black/55">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-4 rounded-sm bg-[#3D421F]/80" />
             {currentMonthLabel}
@@ -419,18 +417,16 @@ function AverageSpendInsightsPanel({
 
   return (
     <Card className="flex h-full flex-col p-4">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h3 className="font-serif text-base text-[#3D421F]">
-            {compact ? "Average Spend" : "Average Spend by Revenue Center"}
-          </h3>
-          <p className="mt-1 text-xs text-black/50">
-            {compact
-              ? `ASPH · MTD (${currentMtdRange}) vs prev`
-              : `ASPH · MTD (${currentMtdRange}) vs prev MTD (${previousMtdRange})`}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-black/55">
+      <div className="mb-4">
+        <h3 className="font-serif text-base text-[#3D421F]">
+          {compact ? "Average Spend" : "Average Spend by Revenue Center"}
+        </h3>
+        <p className="mt-1 text-xs text-black/50">
+          {compact
+            ? `ASPH · MTD (${currentMtdRange}) vs prev`
+            : `ASPH · MTD (${currentMtdRange}) vs prev MTD (${previousMtdRange})`}
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-black/55">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2 w-4 rounded-sm bg-[#3D421F]/80" />
             {compact ? "Now" : "Current MTD"}
@@ -641,6 +637,7 @@ function HeadlineStat({
   compareCurrent,
   comparePrevious,
   varianceNote,
+  compact = false,
 }: {
   label: string;
   value: string;
@@ -648,16 +645,37 @@ function HeadlineStat({
   compareCurrent?: number | null;
   comparePrevious?: number | null;
   varianceNote?: VarianceNote;
+  compact?: boolean;
 }) {
   const trend = compareToPreviousMonth(compareCurrent, comparePrevious);
 
   return (
-    <Card className="flex h-full flex-col justify-center p-4 text-center">
-      <p className="text-xs font-medium uppercase tracking-wide text-black/45">
+    <Card
+      className={cn(
+        "flex h-full flex-col justify-center text-center",
+        compact ? "px-3 py-2.5" : "p-4",
+      )}
+    >
+      <p
+        className={cn(
+          "text-xs font-medium uppercase tracking-wide text-black/45",
+          compact && "leading-tight",
+        )}
+      >
         {label}
       </p>
-      <div className="mt-1 flex items-center justify-center gap-1.5">
-        <p className="text-2xl font-semibold tabular-nums text-[#3D421F]">
+      <div
+        className={cn(
+          "flex items-center justify-center gap-1.5",
+          compact ? "mt-0.5" : "mt-1",
+        )}
+      >
+        <p
+          className={cn(
+            "font-semibold tabular-nums text-[#3D421F]",
+            compact ? "text-xl" : "text-2xl",
+          )}
+        >
           {value}
         </p>
         <TrendIndicator direction={trend} />
@@ -669,8 +687,8 @@ function HeadlineStat({
         <p
           className={
             varianceNote.tone === "ahead"
-              ? "mt-1 text-xs font-medium text-emerald-600"
-              : "mt-1 text-xs font-medium text-red-600"
+              ? "mt-0.5 text-xs font-medium text-emerald-600"
+              : "mt-0.5 text-xs font-medium text-red-600"
           }
         >
           {varianceNote.text}
@@ -760,6 +778,7 @@ export function SalesOverviewCharts({
         }
       >
         <HeadlineStat
+          compact={compact}
           label={`${currentMonthLabel} gross sales · MTD`}
           value={formatMoney(headlineStats.currentGross)}
           sublabel={`Prev MTD (${previousMtdRange}) ${formatMoney(headlineStats.previousGross)}`}
@@ -772,6 +791,7 @@ export function SalesOverviewCharts({
           )}
         />
         <HeadlineStat
+          compact={compact}
           label={`Venue ASPH · MTD (${currentMtdRange})`}
           value={formatAsphLabel(headlineStats.currentVenueAsph)}
           sublabel={`Prev MTD (${previousMtdRange}) ${formatAsphLabel(headlineStats.previousVenueAsph)}`}
@@ -784,6 +804,7 @@ export function SalesOverviewCharts({
           )}
         />
         <HeadlineStat
+          compact={compact}
           label={`Covers · MTD (${currentMtdRange})`}
           value={headlineStats.currentCovers.toLocaleString()}
           sublabel={`Prev MTD (${previousMtdRange}) ${headlineStats.previousCovers.toLocaleString()}`}
@@ -796,6 +817,7 @@ export function SalesOverviewCharts({
           )}
         />
         <HeadlineStat
+          compact={compact}
           label={`APS · MTD (${currentMtdRange})`}
           value={
             headlineStats.currentAps == null

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isDirectoryPeopleMember,
   isVisibleDirectoryStaff,
   mapDirectoryStaffRow,
 } from "@/lib/directory/store";
@@ -40,6 +41,14 @@ describe("mapDirectoryStaffRow", () => {
     ).toMatchObject({
       employmentStatusName: "ON Board",
       workingStatusName: "Full Time",
+      orgChartOnly: false,
     });
+  });
+});
+
+describe("isDirectoryPeopleMember", () => {
+  it("hides chart-only partners from Staff and Celebrations", () => {
+    expect(isDirectoryPeopleMember({ orgChartOnly: false })).toBe(true);
+    expect(isDirectoryPeopleMember({ orgChartOnly: true })).toBe(false);
   });
 });

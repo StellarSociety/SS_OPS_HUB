@@ -101,6 +101,7 @@ export default async function MobilePage() {
         templates: sentimentWorkspace.templates,
         staffRows,
         googleCanPost: sentimentWorkspace.googleCanPost,
+        currentUserId: user.id,
         ...sentimentFlags,
       }}
       directoryStaff={directory.staff}

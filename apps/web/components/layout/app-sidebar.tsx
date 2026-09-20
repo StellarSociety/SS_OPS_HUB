@@ -18,6 +18,7 @@ import {
   ClipboardList,
   Code2,
   Download,
+  FileCheck,
   LayoutDashboard,
   Scale,
   Settings,
@@ -88,6 +89,7 @@ const appCategoryNavItems = [
 const footerNavItems = [
   { label: "User Guide", href: "/user-guide", icon: BookOpen },
   { label: "Developers", href: "/developers", icon: Code2 },
+  { label: "HUB T&C's", href: "/hub-terms", icon: FileCheck },
   { label: "Legal", href: "/legal", icon: Scale },
 ] as const;
 
@@ -202,8 +204,8 @@ function SidebarLink({
       aria-haspopup={hasPopup ? "menu" : undefined}
       {...triggerProps}
       className={cn(
-        "relative flex items-center rounded-lg text-sm transition-colors",
-        compact ? "py-1" : "py-2",
+        "relative flex rounded-lg text-sm transition-colors",
+        compact ? "items-start py-1" : "items-center py-2",
         collapsed ? "justify-center px-2" : "gap-2.5 px-3",
         active
           ? "bg-[var(--venue-primary)]/15 font-medium text-[#3D421F]"
@@ -223,7 +225,9 @@ function SidebarLink({
             <span className="block truncate">{label}</span>
           </span>
         ) : (
-          <span className="truncate">{label}</span>
+          <span className={compact ? "min-w-0 flex-1 leading-tight" : "truncate"}>
+            {label}
+          </span>
         )
       ) : null}
         <NavigationPendingIndicator className={collapsed ? "absolute right-1 top-1" : "ml-auto"} />

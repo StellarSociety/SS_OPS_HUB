@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   Cake,
   ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Mail,
   PartyPopper,
   Search,
@@ -26,6 +28,7 @@ import {
   phoneTelUrl,
 } from "@/lib/directory/links";
 import type { DirectoryStaffMember } from "@/lib/directory/types";
+import { isDirectoryPeopleMember } from "@/lib/directory/store";
 import {
   stripHireNodes,
   type HierarchyNode,
@@ -85,6 +88,10 @@ export function MobileDirectoryScreen({
     string[] | null
   >(null);
   const selected = staff.find((member) => member.id === selectedId) ?? null;
+  const directoryPeople = useMemo(
+    () => staff.filter(isDirectoryPeopleMember),
+    [staff],
+  );
 
   useEffect(() => {
     setSelectedId(null);
@@ -134,7 +141,7 @@ export function MobileDirectoryScreen({
           onBack={() => setSelectedId(null)}
         />
       ) : tab === "celebrations" ? (
-        <CelebrationsPane staff={staff} onOpen={setSelectedId} />
+        <CelebrationsPane staff={directoryPeople} onOpen={setSelectedId} />
       ) : tab === "hierarchy" ? (
         <HierarchyPane
           venueName={venue.name}
@@ -148,7 +155,7 @@ export function MobileDirectoryScreen({
       ) : (
         <StaffPane
           venueName={venue.name}
-          staff={staff}
+          staff={directoryPeople}
           query={query}
           onQueryChange={setQuery}
           onOpen={setSelectedId}
@@ -566,9 +573,16 @@ function HierarchyPane({
     () => flattenHierarchyNodes(reportingRoots),
     [reportingRoots],
   );
+  const labeledBranchIds = useMemo(
+    () => labeledBranchStaffIds(reportingRoots),
+    [reportingRoots],
+  );
   const collapsed = useMemo(() => {
-    return new Set(collapsedIds ?? labeledBranchStaffIds(reportingRoots));
-  }, [collapsedIds, reportingRoots]);
+    return new Set(collapsedIds ?? labeledBranchIds);
+  }, [collapsedIds, labeledBranchIds]);
+  const labeledBranchesCollapsed =
+    labeledBranchIds.length > 0 &&
+    labeledBranchIds.every((id) => collapsed.has(id));
 
   const searching = search.trim().length > 0;
   const { boxStyle, contentStyle } = useHierarchyCanvasZoom({
@@ -725,6 +739,20 @@ function HierarchyPane({
     setSearch("");
   }
 
+  function toggleLabeledBranches() {
+    if (labeledBranchIds.length === 0) return;
+    const expanding = labeledBranchIds.every((id) => collapsed.has(id));
+    viewAnchorRef.current = null;
+    didCenterRef.current = false;
+    const next = new Set(collapsed);
+    if (expanding) {
+      for (const id of labeledBranchIds) next.delete(id);
+    } else {
+      for (const id of labeledBranchIds) next.add(id);
+    }
+    setCollapsed(next);
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 px-3 pt-4">
@@ -734,15 +762,45 @@ function HierarchyPane({
         </p>
         <hr className="mt-3 border-black/10 dark:border-white/12" />
         {reportingRoots.length > 0 ? (
-          <label className="relative mt-3 block">
+          <div className="relative mt-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35 dark:text-white/40" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Find someone on the chart…"
-              className="h-10 w-full rounded-xl border border-black/10 bg-white/70 pl-9 pr-3 text-sm text-[#3D421F] outline-none placeholder:text-black/35 focus:border-[var(--venue-primary,#6B7B3A)] dark:border-white/12 dark:bg-white/10 dark:text-[CanvasText] dark:placeholder:text-white/40"
+              aria-label="Find someone on the chart"
+              className="h-10 w-full rounded-xl border border-black/10 bg-white/70 pl-9 pr-10 text-sm text-[#3D421F] outline-none placeholder:text-black/35 focus:border-[var(--venue-primary,#6B7B3A)] dark:border-white/12 dark:bg-white/10 dark:text-[CanvasText] dark:placeholder:text-white/40"
             />
-          </label>
+            <button
+              type="button"
+              onClick={toggleLabeledBranches}
+              disabled={labeledBranchIds.length === 0}
+              aria-pressed={labeledBranchesCollapsed}
+              aria-label={
+                labeledBranchesCollapsed
+                  ? "Expand labeled departments"
+                  : "Collapse labeled departments"
+              }
+              title={
+                labeledBranchesCollapsed
+                  ? "Expand labeled departments"
+                  : "Collapse labeled departments"
+              }
+              className={cn(
+                "absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-black/45 transition-colors dark:text-white/50",
+                labeledBranchesCollapsed
+                  ? "text-[var(--venue-primary,#6B7B3A)]"
+                  : "hover:bg-black/5 hover:text-[#3D421F] dark:hover:bg-white/10 dark:hover:text-[CanvasText]",
+                "disabled:cursor-not-allowed disabled:opacity-40",
+              )}
+            >
+              {labeledBranchesCollapsed ? (
+                <ChevronsUpDown className="h-4 w-4" aria-hidden />
+              ) : (
+                <ChevronsDownUp className="h-4 w-4" aria-hidden />
+              )}
+            </button>
+          </div>
         ) : null}
       </div>
 

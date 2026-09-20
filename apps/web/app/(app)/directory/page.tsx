@@ -6,6 +6,7 @@ import {
   firstAccessibleDirectoryPath,
 } from "@/lib/directory/permissions";
 import { getDirectoryPage } from "@/lib/directory/page-context";
+import { isDirectoryPeopleMember } from "@/lib/directory/store";
 import { scopedPath } from "@/lib/venue/active-venue";
 import { redirect } from "next/navigation";
 
@@ -30,7 +31,7 @@ export default async function DirectoryStaffPage() {
         </p>
         <hr className="mt-4 border-black/10" />
       </div>
-      <DirectoryStaffBrowser staff={staff} />
+      <DirectoryStaffBrowser staff={staff.filter(isDirectoryPeopleMember)} />
     </div>
   );
 }

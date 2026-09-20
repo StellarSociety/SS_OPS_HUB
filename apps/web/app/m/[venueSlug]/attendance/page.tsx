@@ -2,6 +2,10 @@ import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileEmployeeAttendanceScreen } from "@/components/mobile/mobile-employee-attendance-screen";
 import { currentMonthKey, isValidMonthKey } from "@/lib/hr/attendance-months";
 import { loadCurrentUserAttendanceMonth } from "@/lib/mobile/employee-attendance";
+import {
+  employeeHubIsOpen,
+  loadEmployeeHubLevel,
+} from "@/lib/mobile/employee-hub-access";
 import { getMobileAppContext } from "@/lib/mobile/page-context";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
 import { loadMobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
@@ -17,9 +21,14 @@ export default async function MobileEmployeeAttendancePage({
 }: PageProps) {
   const { venueSlug } = await params;
   const query = await searchParams;
-  const { venue, permissions } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, user, supabase } = await getMobileAppContext(venueSlug);
 
   if (!canAccessMobileApp(permissions, venue.id)) {
+    return <MobileAccessDenied />;
+  }
+
+  const hubLevel = await loadEmployeeHubLevel(supabase, user.id, venue.id);
+  if (!employeeHubIsOpen(hubLevel)) {
     return <MobileAccessDenied />;
   }
 

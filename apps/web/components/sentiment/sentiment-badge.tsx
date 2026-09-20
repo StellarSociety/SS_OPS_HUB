@@ -26,7 +26,7 @@ export function SentimentBadge({
           : "Neutral";
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${styles}`}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-none ${styles}`}
     >
       {text}
       {typeof score === "number" ? ` · ${score}` : ""}

@@ -16,7 +16,9 @@ export type MobileTermsDocument = {
 
 const COMPANY = "Stellar Society Group";
 const PRODUCT = "Stellar Society Operational Hub";
-const EFFECTIVE_DATE = "21 August 2026";
+export const HUB_TERMS_EFFECTIVE_DATE = "21 August 2026";
+/** Stable key stored when a user accepts the current terms. Bump with the effective date. */
+export const HUB_TERMS_VERSION = "2026-08-21";
 
 export function buildMobileTerms(venueName: string): MobileTermsDocument {
   const venue = venueName.trim() || "this venue";
@@ -26,7 +28,7 @@ export function buildMobileTerms(venueName: string): MobileTermsDocument {
     productName: PRODUCT,
     companyName: COMPANY,
     venueName: venue,
-    effectiveDate: EFFECTIVE_DATE,
+    effectiveDate: HUB_TERMS_EFFECTIVE_DATE,
     intro: `These Terms & Conditions govern your use of the ${PRODUCT} (the “Hub”) at ${venue}. They sit alongside your employment contract, ${COMPANY} policies, venue house rules, and applicable UAE law. By signing in or continuing to use the Hub you confirm that you have read, understood, and agree to be bound by them.`,
     sections: [
       {
@@ -163,7 +165,7 @@ export function buildMobileTerms(venueName: string): MobileTermsDocument {
         paragraphs: [
           "Breaches will be investigated. Depending on severity, consequences may include a recorded warning, mandatory retraining, restriction or removal of Hub access, suspension, termination of employment or engagement for cause, recovery of losses (including salary deduction where lawful and previously agreed for uniforms, assets, or similar), and referral to the police or other authorities.",
           "Serious or dishonest breaches — including data leaks, falsified HACCP or sales records, unauthorised sharing of employee or guest information, and attempts to bypass security — will ordinarily be treated as gross misconduct.",
-          "The company may also pursue civil claims for damage, regulatory penalties, and injunctive relief. These terms do not limit any right ${COMPANY} has under your contract or UAE law.",
+          `The company may also pursue civil claims for damage, regulatory penalties, and injunctive relief. These terms do not limit any right ${COMPANY} has under your contract or UAE law.`,
         ],
       },
       {

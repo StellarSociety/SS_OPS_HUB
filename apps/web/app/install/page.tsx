@@ -1,11 +1,11 @@
 import { InstallAppPage } from "@/components/pwa/install-app-page";
 import { fetchGroupBrandingState } from "@/lib/group/branding";
-import { parseInstallPreview } from "@/lib/pwa/install-preview";
+import { parseInstallPreview, parseInstallReinstall } from "@/lib/pwa/install-preview";
 import { safePwaReturnPath } from "@/lib/pwa/return-path";
 import type { Metadata } from "next";
 
 type PageProps = {
-  searchParams: Promise<{ next?: string; preview?: string }>;
+  searchParams: Promise<{ next?: string; preview?: string; reinstall?: string }>;
 };
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -24,7 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function InstallPage({ searchParams }: PageProps) {
-  const { next, preview } = await searchParams;
+  const { next, preview, reinstall } = await searchParams;
   const { logoUrl, appName } = await fetchGroupBrandingState();
   return (
     <InstallAppPage
@@ -32,6 +32,7 @@ export default async function InstallPage({ searchParams }: PageProps) {
       appName={appName}
       nextPath={safePwaReturnPath(next)}
       preview={parseInstallPreview(preview)}
+      reinstall={parseInstallReinstall(reinstall)}
     />
   );
 }

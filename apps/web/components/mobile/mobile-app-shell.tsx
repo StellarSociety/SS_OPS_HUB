@@ -4,6 +4,8 @@ import { useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import { DeviceNotificationsManager } from "@/components/pwa/device-notifications";
+import { MobileAppInstallReporter } from "@/components/pwa/mobile-app-install-reporter";
+import { MobileAppUsageReporter } from "@/components/pwa/mobile-app-usage-reporter";
 import { MobileChromeHostProvider } from "@/components/mobile/mobile-chrome-host";
 import {
   MobileNavBusyProvider,
@@ -48,6 +50,8 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
           </div>
           <MobilePageLoadingOverlay />
           {selectVenue || login ? null : <DeviceNotificationsManager />}
+          {login ? null : <MobileAppInstallReporter />}
+          {login ? null : <MobileAppUsageReporter />}
         </MobileNavBusyProvider>
       </MobileChromeHostProvider>
     </div>

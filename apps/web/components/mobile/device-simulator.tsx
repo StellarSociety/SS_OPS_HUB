@@ -481,7 +481,9 @@ function PhoneStage({
             ) : page.id === "terms" ? (
               <MobileTermsScreen
                 venue={previewVenue}
+                persistAcceptance={false}
                 onBack={() => setPageId("welcome")}
+                onAccepted={() => setPageId("welcome")}
               />
             ) : null}
           </div>

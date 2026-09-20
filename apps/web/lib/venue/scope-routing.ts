@@ -43,6 +43,7 @@ export const VENUE_APP_ROOTS = [
   "/profile",
   "/user-guide",
   "/developers",
+  "/hub-terms",
   "/legal",
 ] as const;
 

@@ -76,6 +76,21 @@ function addMonths(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, 1);
 }
 
+const POPOVER_WIDTH = 300;
+const POPOVER_HEIGHT = 360;
+const POPOVER_GAP = 6;
+const VIEWPORT_PADDING = 8;
+
+function calendarPortalHost(from: Element | null): HTMLElement {
+  if (!from) return document.body;
+  return (
+    from.closest<HTMLElement>("[data-mobile-shell]") ??
+    from.closest<HTMLElement>(".mobile-app-canvas") ??
+    from.closest<HTMLElement>(".device-preview-screen") ??
+    document.body
+  );
+}
+
 function buildCalendarDays(viewMonth: Date): Array<Date | null> {
   const year = viewMonth.getFullYear();
   const month = viewMonth.getMonth();
@@ -131,7 +146,7 @@ function DateCalendar({
 
   return (
     <div
-      className="w-[18.5rem] overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_12px_40px_-12px_rgba(61,66,31,0.35)]"
+      className="w-[18.5rem] shrink-0 overflow-hidden rounded-xl border border-black/10 bg-white shadow-[0_12px_40px_-12px_rgba(61,66,31,0.35)]"
       onMouseDown={(event) => {
         const target = event.target as HTMLElement | null;
         if (target?.closest("select")) return;
@@ -300,10 +315,12 @@ export function DateInput({
   const [viewMonth, setViewMonth] = useState(() =>
     monthStart(isoToDate(value) ?? new Date()),
   );
+  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
   const [popoverPosition, setPopoverPosition] = useState<{
     top: number;
     left: number;
   } | null>(null);
+  const nestedPortal = Boolean(portalHost && portalHost !== document.body);
 
   useEffect(() => {
     setText(value ? formatDisplayDate(value) : "");
@@ -313,33 +330,28 @@ export function DateInput({
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    const popoverWidth = 300;
-    const popoverHeight = 360;
-    const gap = 6;
-    const viewportPadding = 8;
-
     let left = rect.left;
-    if (left + popoverWidth > window.innerWidth - viewportPadding) {
+    if (left + POPOVER_WIDTH > window.innerWidth - VIEWPORT_PADDING) {
       left = Math.max(
-        viewportPadding,
-        window.innerWidth - popoverWidth - viewportPadding,
+        VIEWPORT_PADDING,
+        window.innerWidth - POPOVER_WIDTH - VIEWPORT_PADDING,
       );
     }
 
-    const spaceBelow = window.innerHeight - rect.bottom - gap;
+    const spaceBelow = window.innerHeight - rect.bottom - POPOVER_GAP;
     const openAbove =
-      spaceBelow < popoverHeight && rect.top > spaceBelow + popoverHeight;
+      spaceBelow < POPOVER_HEIGHT && rect.top > spaceBelow + POPOVER_HEIGHT;
     const top = openAbove
-      ? Math.max(viewportPadding, rect.top - popoverHeight - gap)
-      : rect.bottom + gap;
+      ? Math.max(VIEWPORT_PADDING, rect.top - POPOVER_HEIGHT - POPOVER_GAP)
+      : rect.bottom + POPOVER_GAP;
 
     setPopoverPosition({ top, left });
   };
 
   useLayoutEffect(() => {
-    if (!calendarOpen) return;
+    if (!calendarOpen || nestedPortal) return;
     updatePopoverPosition();
-  }, [calendarOpen]);
+  }, [calendarOpen, nestedPortal]);
 
   useEffect(() => {
     if (!calendarOpen) return;
@@ -362,6 +374,7 @@ export function DateInput({
     }
 
     function handleReposition() {
+      if (nestedPortal) return;
       updatePopoverPosition();
     }
 
@@ -375,7 +388,7 @@ export function DateInput({
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
     };
-  }, [calendarOpen]);
+  }, [calendarOpen, nestedPortal]);
 
   function applyIsoDate(iso: string) {
     if (maxDate && iso > maxDate) return;
@@ -409,7 +422,10 @@ export function DateInput({
   function openCalendar() {
     if (disabled) return;
     setViewMonth(monthStart(isoToDate(value) ?? new Date()));
-    updatePopoverPosition();
+    const host = calendarPortalHost(containerRef.current);
+    setPortalHost(host);
+    if (host === document.body) updatePopoverPosition();
+    else setPopoverPosition(null);
     setCalendarOpen(true);
   }
 
@@ -466,27 +482,49 @@ export function DateInput({
         </button>
       </div>
 
-      {calendarOpen && popoverPosition
+      {calendarOpen && portalHost && (nestedPortal || popoverPosition)
         ? createPortal(
-            <div
-              ref={popoverRef}
-              id={calendarId}
-              className="fixed z-[250]"
-              style={{
-                top: popoverPosition.top,
-                left: popoverPosition.left,
-              }}
-            >
-              <DateCalendar
-                viewMonth={viewMonth}
-                selectedIso={value}
-                maxDate={maxDate}
-                datesWithEntries={datesWithEntries}
-                onSelect={applyIsoDate}
-                onViewMonthChange={setViewMonth}
-              />
-            </div>,
-            document.body,
+            nestedPortal ? (
+              <div
+                ref={popoverRef}
+                id={calendarId}
+                className="absolute inset-0 z-[250] flex items-center justify-center bg-black/25 p-4"
+                onMouseDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+                  event.preventDefault();
+                  setCalendarOpen(false);
+                }}
+              >
+                <DateCalendar
+                  viewMonth={viewMonth}
+                  selectedIso={value}
+                  maxDate={maxDate}
+                  datesWithEntries={datesWithEntries}
+                  onSelect={applyIsoDate}
+                  onViewMonthChange={setViewMonth}
+                />
+              </div>
+            ) : (
+              <div
+                ref={popoverRef}
+                id={calendarId}
+                className="fixed z-[250]"
+                style={{
+                  top: popoverPosition!.top,
+                  left: popoverPosition!.left,
+                }}
+              >
+                <DateCalendar
+                  viewMonth={viewMonth}
+                  selectedIso={value}
+                  maxDate={maxDate}
+                  datesWithEntries={datesWithEntries}
+                  onSelect={applyIsoDate}
+                  onViewMonthChange={setViewMonth}
+                />
+              </div>
+            ),
+            portalHost,
           )
         : null}
     </>

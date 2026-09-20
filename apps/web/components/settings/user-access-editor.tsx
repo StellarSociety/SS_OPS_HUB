@@ -21,6 +21,7 @@ import {
   CookingPot,
   DoorClosed,
   DoorOpen,
+  EyeOff,
   FileBarChart,
   FileChartColumn,
   FileText,
@@ -448,7 +449,7 @@ export function UserAccessEditor({
   }
 
   function toggleModule(moduleKey: string, enabled: boolean) {
-    patchModule(moduleKey, { enabled });
+    patchModule(moduleKey, enabled ? { enabled, hidden: false } : { enabled });
     if (enabled) {
       setExpanded((prev) => new Set(prev).add(moduleKey));
     }
@@ -457,7 +458,11 @@ export function UserAccessEditor({
   function setAllModules(enabled: boolean) {
     setState((prev) => ({
       ...prev,
-      modules: prev.modules.map((m) => ({ ...m, enabled })),
+      modules: prev.modules.map((m) => ({
+        ...m,
+        enabled,
+        hidden: enabled ? false : m.hidden,
+      })),
     }));
     setExpanded(new Set());
   }
@@ -739,6 +744,11 @@ export function UserAccessEditor({
                         Coming soon
                       </span>
                     ) : null}
+                    {config.hidden ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/60">
+                        <EyeOff className="h-3 w-3" /> Hidden on mobile
+                      </span>
+                    ) : null}
                     {config.enabled && config.suspended ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-red-700">
                         <Lock className="h-3 w-3" /> Suspended
@@ -753,6 +763,22 @@ export function UserAccessEditor({
                     ) : null}
                   </button>
                 </div>
+
+                {!config.enabled ? (
+                  <div className="border-t border-black/5 px-3 py-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-black/60">
+                      <input
+                        type="checkbox"
+                        checked={config.hidden}
+                        onChange={(e) =>
+                          patchModule(mod.key, { hidden: e.target.checked })
+                        }
+                        className="h-4 w-4 rounded border-black/20 accent-[#3D421F]"
+                      />
+                      Hide on mobile — tile is removed from the phone home
+                    </label>
+                  </div>
+                ) : null}
 
                 {config.enabled && isOpen ? (
                   <div className="space-y-4 border-t border-black/10 p-4">

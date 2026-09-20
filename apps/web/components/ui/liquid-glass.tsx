@@ -2,13 +2,22 @@
 
 import { cn } from "@/lib/utils";
 
+export function LiquidGlassScrimBackdrop({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.42)_0%,rgba(240,243,221,0.38)_50%,rgba(61,66,31,0.18)_100%)] backdrop-blur-[40px] backdrop-saturate-150",
+        className,
+      )}
+    />
+  );
+}
+
 export function LiquidGlassScrim({ onClose }: { onClose: () => void }) {
   return (
     <>
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.42)_0%,rgba(240,243,221,0.38)_50%,rgba(61,66,31,0.18)_100%)] backdrop-blur-[40px] backdrop-saturate-150"
-      />
+      <LiquidGlassScrimBackdrop />
       <button
         type="button"
         className="absolute inset-0"

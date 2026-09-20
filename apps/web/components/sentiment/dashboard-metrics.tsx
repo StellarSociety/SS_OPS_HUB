@@ -137,18 +137,21 @@ type VenueBrand = {
 function ChannelIcon({
   channel,
   venue,
+  compact = false,
 }: {
   channel?: SentimentChannel;
   venue: VenueBrand;
+  compact?: boolean;
 }) {
+  const markClass = compact ? "h-5 w-5" : "h-6 w-6";
   if (channel === "google") {
-    return <GoogleMark className="h-6 w-6" />;
+    return <GoogleMark className={markClass} />;
   }
   if (channel === "tripadvisor") {
-    return <TripAdvisorMark className="h-6 w-6" />;
+    return <TripAdvisorMark className={markClass} />;
   }
   if (channel === "guest") {
-    return <GuestMark className="h-6 w-6" />;
+    return <GuestMark className={markClass} />;
   }
   return (
     <VenueBrandIcon
@@ -160,7 +163,10 @@ function ChannelIcon({
       iconUrl={venue.iconUrl}
       faviconUrl={venue.faviconUrl}
       variant="mark"
-      className="h-5 w-5 shrink-0 object-contain"
+      className={cn(
+        "shrink-0 object-contain",
+        compact ? "h-4 w-4" : "h-5 w-5",
+      )}
       title={venue.name}
     />
   );
@@ -181,7 +187,7 @@ function RatingCard({
       href={metric.href}
       className={cn(
         "group/rating flex h-full min-w-0 flex-col items-center justify-center text-center",
-        compact ? "p-4" : "p-5",
+        compact ? "px-3 py-2.5" : "p-5",
         "rounded-xl border border-black/5 shadow-sm backdrop-blur-xl",
         "transition-[transform,box-shadow,border-color,background-color] duration-500 ease-out",
         "hover:-translate-y-px hover:border-black/10",
@@ -191,22 +197,37 @@ function RatingCard({
           : "bg-white/60 hover:bg-white/80",
       )}
     >
-      <p className="flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-black/45">
-        <ChannelIcon channel={metric.channel} venue={venue} />
+      <p
+        className={cn(
+          "flex items-center justify-center gap-1.5 font-semibold uppercase tracking-wide text-black/45",
+          compact ? "text-[11px] leading-tight" : "text-xs",
+        )}
+      >
+        <ChannelIcon channel={metric.channel} venue={venue} compact={compact} />
         {metric.label}
       </p>
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-center gap-2",
+          compact ? "mt-1" : "mt-2",
+        )}
+      >
         <AnimatedRatingStars
           rating={metric.rating}
           size={compact ? "md" : "lg"}
         />
         {metric.rating != null ? (
-          <span className="font-google-sans text-2xl font-semibold tabular-nums leading-none text-[#3D421F]">
+          <span
+            className={cn(
+              "font-google-sans font-semibold tabular-nums leading-none text-[#3D421F]",
+              compact ? "text-xl" : "text-2xl",
+            )}
+          >
             {metric.rating.toFixed(1)}
           </span>
         ) : null}
       </div>
-      <p className="mt-1 text-sm text-black/50">
+      <p className={cn("text-black/50", compact ? "mt-0.5 text-xs" : "mt-1 text-sm")}>
         {metric.count > 0 ? (
           <>
             across{" "}

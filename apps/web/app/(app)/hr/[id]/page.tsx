@@ -60,6 +60,9 @@ export default async function StaffDetailPage({
   }
 
   const staffRaw = await getStaffById(supabase, id, venue.id);
+  if (staffRaw.org_chart_only) {
+    redirect("/hr/staff");
+  }
   if (!canViewStaff(perms, venue.id) && staffRaw.created_by !== user.id) {
     redirect("/hr/staff");
   }

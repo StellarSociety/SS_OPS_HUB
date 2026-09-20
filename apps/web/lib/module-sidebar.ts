@@ -27,6 +27,7 @@ import {
   ReceiptText,
   FileText,
   Settings,
+  ShieldCheck,
   Smartphone,
   Tablet,
   Tag,
@@ -424,7 +425,17 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: Smartphone,
       },
       {
+        label: "App Insights",
+        href: "/mobile/app-insights",
+        icon: FileBarChart,
+      },
+      {
         label: "Users Access",
+        href: "/mobile/access",
+        icon: ShieldCheck,
+      },
+      {
+        label: "Users Device",
         href: "/mobile/users-access",
         icon: Users,
       },

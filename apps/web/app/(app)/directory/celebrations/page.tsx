@@ -3,6 +3,7 @@ import { DirectoryCelebrationsList } from "@/components/directory/directory-cele
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { canAccessDirectoryCelebrations } from "@/lib/directory/permissions";
 import { getDirectoryPage } from "@/lib/directory/page-context";
+import { isDirectoryPeopleMember } from "@/lib/directory/store";
 
 export default async function DirectoryCelebrationsPage() {
   const { venue, permissions, staff } = await getDirectoryPage();
@@ -21,7 +22,7 @@ export default async function DirectoryCelebrationsPage() {
         </p>
         <hr className="mt-4 border-black/10" />
       </div>
-      <DirectoryCelebrationsList staff={staff} />
+      <DirectoryCelebrationsList staff={staff.filter(isDirectoryPeopleMember)} />
     </div>
   );
 }

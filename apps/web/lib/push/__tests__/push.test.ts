@@ -158,6 +158,23 @@ describe("notification click paths", () => {
         platform: "desktop",
       }),
     ).toBe("/venue/orilla/hr/hiring/replies/form-1");
+    expect(
+      notificationCanonicalHref({
+        module_key: "mobile_app",
+        entity: "mobile_app",
+        entity_id: "venue-1",
+      }),
+    ).toBe("/install?reinstall=1");
+    expect(
+      notificationClickPath({
+        module_key: "mobile_app",
+        entity: "mobile_app",
+        entity_id: "venue-1",
+        venueSlug: "orilla",
+        isGlobalVenue: false,
+        platform: "ios",
+      }),
+    ).toBe("/install?reinstall=1");
   });
 });
 

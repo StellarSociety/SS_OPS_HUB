@@ -22,5 +22,15 @@ export async function writeAuditLog(entry: AuditEntry): Promise<string | null> {
     console.error("[audit_log] insert failed:", error.message);
     return null;
   }
+  void import("@/lib/mobile/usage-from-audit")
+    .then(({ recordMobileUsageEditFromAudit }) =>
+      recordMobileUsageEditFromAudit(entry),
+    )
+    .catch((err) => {
+      console.warn(
+        "[mobile_app_usage] edit log failed:",
+        err instanceof Error ? err.message : err,
+      );
+    });
   return data?.id ? String(data.id) : null;
 }

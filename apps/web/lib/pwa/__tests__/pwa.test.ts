@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { pwaAppVersionLabel, pwaPreviousAppReleases } from "@/lib/pwa/constants";
 import { detectPWADevice, isIOSSafariUserAgent } from "@/lib/pwa/device";
 import {
   deviceForInstallPreview,
   parseInstallPreview,
+  parseInstallReinstall,
 } from "@/lib/pwa/install-preview";
 import {
   manifestPathForSurface,
@@ -157,12 +159,44 @@ describe("PWA install surface", () => {
   });
 });
 
+describe("mobile app version label", () => {
+  it("prefixes V without doubling it", () => {
+    expect(pwaAppVersionLabel("11")).toBe("V11");
+    expect(pwaAppVersionLabel("V11")).toBe("V11");
+    expect(pwaAppVersionLabel("v8")).toBe("V8");
+  });
+
+  it("lists older releases after the current build", () => {
+    const previous = pwaPreviousAppReleases();
+    expect(previous.map((release) => release.version)).toEqual([
+      "10",
+      "9",
+      "8",
+      "7",
+      "6",
+      "5",
+    ]);
+    expect(previous.every((release) => release.releasedAt && release.notes)).toBe(
+      true,
+    );
+  });
+});
+
 describe("install preview override", () => {
   it("parses known preview kinds", () => {
     expect(parseInstallPreview("ios")).toBe("ios");
     expect(parseInstallPreview("ios-chrome")).toBe("ios-chrome");
+    expect(parseInstallPreview("reinstall")).toBe("reinstall");
     expect(parseInstallPreview("unknown")).toBeNull();
     expect(parseInstallPreview(undefined)).toBeNull();
+  });
+
+  it("treats reinstall=1 as the delete-and-install-again flow", () => {
+    expect(parseInstallReinstall("1")).toBe(true);
+    expect(parseInstallReinstall("true")).toBe(true);
+    expect(parseInstallReinstall("yes")).toBe(true);
+    expect(parseInstallReinstall("0")).toBe(false);
+    expect(parseInstallReinstall(undefined)).toBe(false);
   });
 
   it("maps iPhone Safari preview to Add to Home Screen steps", () => {

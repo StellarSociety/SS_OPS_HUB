@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { HubTermsGate } from "@/components/hub-terms/hub-terms-gate";
 import { AppShell } from "@/components/layout/app-shell";
 import {
   countUnreadNotifications,
@@ -6,6 +7,7 @@ import {
 } from "@/lib/notifications/store";
 import { canManageHubSettings } from "@/lib/role-permissions";
 import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
+import { userHasAcceptedHubTerms } from "@/lib/hub-terms";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { getUserRoleLabel } from "@/lib/user/display";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
@@ -116,10 +118,15 @@ export default async function AppLayout({
     isGlobalVenue: venue.is_global,
   };
 
-  const [notifications, unreadCount, branding] = await Promise.all([
+  const [notifications, unreadCount, branding, hubTermsAccepted] = await Promise.all([
     listNotificationsForUser(supabase, user.id, { ...venueContext, limit: 40 }),
     countUnreadNotifications(supabase, user.id, venueContext),
     fetchGroupBrandingState(),
+    userHasAcceptedHubTerms({
+      supabase,
+      userId: user.id,
+      venueId: venue.id,
+    }),
   ]);
 
   return (
@@ -139,6 +146,11 @@ export default async function AppLayout({
       groupFaviconUrl={branding.faviconUrl}
     >
       {children}
+      <HubTermsGate
+        accepted={hubTermsAccepted}
+        venue={venue}
+        client="web"
+      />
     </AppShell>
   );
 }

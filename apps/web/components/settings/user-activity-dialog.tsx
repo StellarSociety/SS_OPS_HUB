@@ -27,13 +27,14 @@ import {
   segmentedSubNavShellClass,
 } from "@/lib/sub-nav-ui";
 
+type ActivityTab = "activity" | "online";
+
 type UserActivityDialogProps = {
   userId: string;
   userName: string;
   onClose: () => void;
+  initialTab?: ActivityTab;
 };
-
-type ActivityTab = "activity" | "online";
 
 const TABS: { id: ActivityTab; label: string }[] = [
   { id: "activity", label: "Activity" },
@@ -132,8 +133,9 @@ export function UserActivityDialog({
   userId,
   userName,
   onClose,
+  initialTab = "activity",
 }: UserActivityDialogProps) {
-  const [tab, setTab] = useState<ActivityTab>("activity");
+  const [tab, setTab] = useState<ActivityTab>(initialTab);
   const [items, setItems] = useState<ActivityItem[] | null>(null);
   const [sessions, setSessions] = useState<OnlineSessionItem[] | null>(null);
   const [loadingActivity, setLoadingActivity] = useState(true);

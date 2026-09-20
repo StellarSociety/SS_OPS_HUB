@@ -20,6 +20,7 @@ import {
   type SentimentReviewAction,
 } from "@/lib/sentiment/types";
 import { sentimentGuestFallbackName } from "@/lib/sentiment/channels";
+import { cn } from "@/lib/utils";
 
 function formatReviewDate(iso: string | null): string {
   if (!iso) return "Date unknown";
@@ -83,11 +84,12 @@ function PostedDateBadge({ iso }: { iso: string | null }) {
 
   return (
     <span
-      className={
+      className={cn(
+        "inline-flex w-fit max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium tabular-nums text-[#3D421F]",
         recent
-          ? "inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full bg-[var(--venue-primary)]/18 px-2.5 py-1 text-[11px] font-medium tabular-nums text-[#3D421F]"
-          : "inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full bg-[var(--venue-secondary,#F0F3DD)] px-2.5 py-1 text-[11px] font-medium tabular-nums text-[#3D421F]"
-      }
+          ? "bg-[var(--venue-primary)]/18"
+          : "bg-[var(--venue-secondary,#F0F3DD)]",
+      )}
       title={relative ? `Posted ${relative} · ${when}` : `Posted ${when}`}
     >
       <Calendar className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
@@ -354,11 +356,6 @@ export function ReviewCard({
             {localGuideLine ? (
               <p className="text-xs text-black/45">{localGuideLine}</p>
             ) : null}
-            {compact ? (
-              <div className="mt-1.5">
-                <PostedDateBadge iso={review.reviewed_at} />
-              </div>
-            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -366,6 +363,11 @@ export function ReviewCard({
           {compact ? null : <PostedDateBadge iso={review.reviewed_at} />}
         </div>
       </div>
+      {compact ? (
+        <div className="mt-1.5">
+          <PostedDateBadge iso={review.reviewed_at} />
+        </div>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <GoogleStars rating={review.rating} />

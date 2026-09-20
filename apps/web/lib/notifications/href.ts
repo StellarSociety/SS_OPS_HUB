@@ -21,6 +21,9 @@ export function notificationCanonicalHref(n: {
   if (n.module_key === "hr" && n.entity === "hiring_form") {
     return `/hr/hiring/replies/${n.entity_id}`;
   }
+  if (n.module_key === "mobile_app" && n.entity === "mobile_app") {
+    return "/install?reinstall=1";
+  }
   return null;
 }
 
@@ -36,6 +39,9 @@ export function notificationClickPath(input: {
   isGlobalVenue: boolean;
   platform: PushPlatform;
 }): string {
+  if (input.module_key === "mobile_app" && input.entity === "mobile_app") {
+    return "/install?reinstall=1";
+  }
   if (input.platform !== "desktop") {
     return input.venueSlug ? `/m/${input.venueSlug}/notifications` : "/m/";
   }

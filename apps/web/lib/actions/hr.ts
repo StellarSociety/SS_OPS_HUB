@@ -533,6 +533,24 @@ async function updateStaffInner(
     after: updates,
   });
 
+  if (
+    "termination_date" in updates &&
+    (updates.termination_date ?? null) !== (before.termination_date ?? null)
+  ) {
+    try {
+      const { syncAccessBlockFromTermination } = await import(
+        "@/lib/access/access-block-store"
+      );
+      await syncAccessBlockFromTermination(service, staffId);
+    } catch (err) {
+      console.error(
+        "[hr] sync access block from termination:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+    revalidatePath("/mobile/access");
+  }
+
   revalidatePath(`/hr/${staffId}`);
   return { success: true };
 }

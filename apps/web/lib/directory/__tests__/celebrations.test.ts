@@ -29,6 +29,7 @@ function member(
     whatsapp: null,
     personalEmail: null,
     workEmail: null,
+    orgChartOnly: false,
     ...overrides,
   };
 }

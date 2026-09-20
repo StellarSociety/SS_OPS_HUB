@@ -414,16 +414,14 @@ function EvolutionChart({
 
   return (
     <Card className="flex h-full flex-col p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-serif text-base text-[#3D421F]">{title}</h3>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#3D421F]">
-            {formatMoney(headlineValue)}
-          </p>
-          <p className="text-xs text-black/50">{headlineLabel}</p>
-        </div>
+      <div className="mb-3">
+        <h3 className="font-serif text-base text-[#3D421F]">{title}</h3>
+        <p className="mt-1 text-2xl font-semibold tabular-nums text-[#3D421F]">
+          {formatMoney(headlineValue)}
+        </p>
+        <p className="text-xs text-black/50">{headlineLabel}</p>
         {showAllTimeLine ? (
-          <span className="inline-flex items-center gap-1.5 text-[10px] text-black/55">
+          <span className="mt-1.5 flex items-center gap-1.5 text-[10px] text-black/55">
             <span className="h-0.5 w-4 rounded bg-[#C45C3E]" />
             {allTimeLabel}
           </span>

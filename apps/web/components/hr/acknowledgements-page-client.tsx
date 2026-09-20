@@ -243,8 +243,8 @@ export function AcknowledgementsPageClient({
   }
 
   return (
-    <div className="min-w-0 space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="relative min-w-[16rem] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-black/35" />
           <Input
@@ -272,13 +272,13 @@ export function AcknowledgementsPageClient({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-black/15 bg-white/60 px-4 py-10 text-center text-sm text-black/50">
+        <p className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed border-black/15 bg-white/60 px-4 py-10 text-center text-sm text-black/50">
           {records.length === 0
             ? "No acknowledgements yet. Tick “Requires acknowledgement” on an email template, then send it."
             : "No acknowledgements match this search."}
         </p>
       ) : view === "employees" ? (
-        <div className="space-y-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-auto">
           {employeeGroups.map((group) => (
             <EmployeeAcknowledgementCard
               key={group.key}
@@ -519,7 +519,7 @@ function AllRecordsTable({
   onOpenHistory: (id: string) => void;
 }) {
   return (
-    <div className="min-w-0 max-h-[min(36rem,calc(100dvh-16rem))] overflow-auto rounded-xl border border-black/10 bg-white">
+    <div className="min-h-0 min-w-0 flex-1 overflow-auto rounded-xl border border-black/10 bg-white">
       <table className="w-max min-w-full text-left text-sm">
         <thead className="sticky top-0 z-10 border-b border-black/10 bg-[var(--venue-secondary,#F0F3DD)] text-xs uppercase tracking-wide text-black/50">
           <tr>

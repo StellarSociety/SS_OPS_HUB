@@ -575,28 +575,26 @@ function MetricChart({
 
   return (
     <Card className={cn("flex h-full flex-col p-4", compact && "p-3")}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3
-            className={cn(
-              "font-serif text-[#3D421F]",
-              compact ? "text-sm" : "text-base",
-            )}
-          >
-            {title}
-          </h3>
-          <p
-            className={cn(
-              "mt-1 font-semibold tabular-nums text-[#3D421F]",
-              compact ? "text-lg" : "text-2xl",
-            )}
-          >
-            {formatMoney(headlineValue)}
-          </p>
-          <p className="text-xs text-black/50">{headlineLabel}</p>
-        </div>
+      <div className="mb-3">
+        <h3
+          className={cn(
+            "font-serif text-[#3D421F]",
+            compact ? "text-sm" : "text-base",
+          )}
+        >
+          {title}
+        </h3>
+        <p
+          className={cn(
+            "mt-1 font-semibold tabular-nums text-[#3D421F]",
+            compact ? "text-lg" : "text-2xl",
+          )}
+        >
+          {formatMoney(headlineValue)}
+        </p>
+        <p className="text-xs text-black/50">{headlineLabel}</p>
         {showAllTimeLine && compact ? (
-          <span className="inline-flex items-center gap-1.5 text-[10px] text-black/55">
+          <span className="mt-1.5 flex items-center gap-1.5 text-[10px] text-black/55">
             <span className="h-0.5 w-4 rounded bg-[#C45C3E]" />
             {allTimeLabel}
           </span>
@@ -812,17 +810,15 @@ function WeekdayDistributionChart({
 }) {
   return (
     <Card className="flex h-full flex-col p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-serif text-base text-[#3D421F]">
-            Sales Distribution by Weekday
-          </h3>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#3D421F]">
-            {formatMoney(headlineValue)}
-          </p>
-          <p className="text-xs text-black/50">{headlineLabel}</p>
-        </div>
-        <div className="flex flex-col gap-1 text-xs text-black/55">
+      <div className="mb-3">
+        <h3 className="font-serif text-base text-[#3D421F]">
+          Sales Distribution by Weekday
+        </h3>
+        <p className="mt-1 text-2xl font-semibold tabular-nums text-[#3D421F]">
+          {formatMoney(headlineValue)}
+        </p>
+        <p className="text-xs text-black/50">{headlineLabel}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-black/55">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-sm bg-[#6B7340]" />
             Selected period

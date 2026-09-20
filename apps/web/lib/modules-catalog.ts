@@ -660,11 +660,29 @@ export const moduleCatalog: ModuleDef[] = [
       },
     ],
   },
+  {
+    key: "mobile_employee_hub",
+    label: "Personal Employee Hub",
+    description: "Mobile profile, attendance, leave, and documents.",
+    features: [
+      { key: "profile", label: "Employee Profile" },
+      { key: "attendance", label: "Attendance" },
+      { key: "leave", label: "Leave" },
+      { key: "docs", label: "Docs" },
+    ],
+  },
 ];
+
+export const MOBILE_EMPLOYEE_HUB_MODULE_KEY = "mobile_employee_hub" as const;
+
+/** Hub-internal modules that are assigned per user but are not venue app toggles. */
+export const INTERNAL_ASSIGNABLE_MODULE_KEYS = new Set<string>([
+  MOBILE_EMPLOYEE_HUB_MODULE_KEY,
+]);
 
 /** Modules that can be toggled per venue (excludes app-wide admin). */
 export const VENUE_TOGGLEABLE_MODULES = moduleCatalog.filter(
-  (m) => m.key !== APP_MODULE_KEY,
+  (m) => m.key !== APP_MODULE_KEY && !INTERNAL_ASSIGNABLE_MODULE_KEYS.has(m.key),
 );
 
 export function getModuleCatalog(): ModuleDef[] {
@@ -673,7 +691,7 @@ export function getModuleCatalog(): ModuleDef[] {
 
 /** Live-facing modules for the access editor (excludes the internal app module). */
 export function getAssignableModules(): ModuleDef[] {
-  return VENUE_TOGGLEABLE_MODULES;
+  return moduleCatalog.filter((m) => m.key !== APP_MODULE_KEY);
 }
 
 export function getModuleDef(moduleKey: string): ModuleDef | undefined {

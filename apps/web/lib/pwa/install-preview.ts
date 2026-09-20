@@ -6,6 +6,7 @@ export const INSTALL_PREVIEW_KINDS = [
   "android",
   "desktop",
   "installed",
+  "reinstall",
 ] as const;
 
 export type InstallPreviewKind = (typeof INSTALL_PREVIEW_KINDS)[number];
@@ -60,12 +61,20 @@ export function parseInstallPreview(
     : null;
 }
 
+export function parseInstallReinstall(
+  value: string | string[] | undefined,
+): boolean {
+  const raw = (Array.isArray(value) ? value[0] : value)?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 export function deviceForInstallPreview(
   preview: InstallPreviewKind,
 ): PWADeviceState {
   switch (preview) {
     case "ios":
     case "installed":
+    case "reinstall":
       return IOS_SAFARI_DEVICE;
     case "ios-chrome":
       return IOS_CHROME_DEVICE;

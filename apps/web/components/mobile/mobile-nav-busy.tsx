@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { RefreshSpinner } from "@/components/mobile/refresh-spinner";
+import { LiquidGlassScrimBackdrop } from "@/components/ui/liquid-glass";
 
 const MIN_VISIBLE_MS = 420;
 
@@ -98,9 +99,10 @@ export function MobilePageLoadingOverlay() {
       role="status"
       aria-live="polite"
       aria-label="Loading page"
-      className="absolute inset-0 z-[60] flex items-center justify-center bg-[#E9E3D6]/78 backdrop-blur-[2px]"
+      className="absolute inset-0 z-[60] flex items-center justify-center"
     >
-      <RefreshSpinner spinning size={38} className="text-[#3D421F]" />
+      <LiquidGlassScrimBackdrop />
+      <RefreshSpinner spinning size={38} className="relative z-10 text-[#3D421F]" />
     </div>
   );
 }

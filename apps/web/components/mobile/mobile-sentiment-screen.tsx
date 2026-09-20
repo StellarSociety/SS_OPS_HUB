@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type CSSProperties } from "react";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
-import { ReviewCard } from "@/components/sentiment/review-card";
+import { ReviewActionMobileCard } from "@/components/sentiment/review-action-mobile-card";
 import { ReviewsCalendar } from "@/components/sentiment/reviews-calendar";
 import { ReviewsList } from "@/components/sentiment/reviews-list";
 import { ReviewsPeriodFilter } from "@/components/sentiment/reviews-period-filter";
@@ -44,6 +44,7 @@ export type MobileSentimentBundle = {
   googleCanPost: boolean;
   canEdit: boolean;
   canEditActions: boolean;
+  currentUserId?: string;
 };
 
 const TAB_TITLES: Record<MobileSentimentTab, string> = {
@@ -170,11 +171,8 @@ export function MobileSentimentScreen({
             {tab === "actions" ? (
               <MobileActionsList
                 rows={actionRows}
-                canEdit={bundle.canEdit}
                 canEditActions={bundle.canEditActions}
-                googleCanPost={bundle.googleCanPost}
-                venueName={venue.name}
-                templates={bundle.templates}
+                currentUserId={bundle.currentUserId}
               />
             ) : null}
           </div>
@@ -193,18 +191,12 @@ export function MobileSentimentScreen({
 
 function MobileActionsList({
   rows,
-  canEdit,
   canEditActions,
-  googleCanPost,
-  venueName,
-  templates,
+  currentUserId,
 }: {
   rows: ReturnType<typeof followUpActionRows>;
-  canEdit: boolean;
   canEditActions: boolean;
-  googleCanPost: boolean;
-  venueName: string;
-  templates: SentimentReplyTemplate[];
+  currentUserId?: string;
 }) {
   const awaiting = rows.filter((row) => !row.review.reply_text?.trim());
   const replied = rows.filter((row) => Boolean(row.review.reply_text?.trim()));
@@ -232,7 +224,7 @@ function MobileActionsList({
   return (
     <div className="space-y-5">
       {awaiting.length > 0 ? (
-        <section className="space-y-3">
+        <section className="space-y-2">
           <h2 className="text-[11px] font-semibold uppercase tracking-wide text-black/45">
             Awaiting reply
             <span className="ml-2 tabular-nums text-black/35">
@@ -240,22 +232,18 @@ function MobileActionsList({
             </span>
           </h2>
           {awaiting.map(({ review, action }) => (
-            <ReviewCard
+            <ReviewActionMobileCard
               key={review.id}
               review={review}
-              canEdit={canEdit}
-              googleCanPost={googleCanPost}
-              venueName={venueName}
-              templates={templates}
               action={action}
-              canEditActions={canEditActions}
-              compactAction
+              canEdit={canEditActions}
+              currentUserId={currentUserId}
             />
           ))}
         </section>
       ) : null}
       {replied.length > 0 ? (
-        <section className="space-y-3">
+        <section className="space-y-2">
           <h2 className="text-[11px] font-semibold uppercase tracking-wide text-black/45">
             Reply sent
             <span className="ml-2 tabular-nums text-black/35">
@@ -263,16 +251,12 @@ function MobileActionsList({
             </span>
           </h2>
           {replied.map(({ review, action }) => (
-            <ReviewCard
+            <ReviewActionMobileCard
               key={review.id}
               review={review}
-              canEdit={canEdit}
-              googleCanPost={googleCanPost}
-              venueName={venueName}
-              templates={templates}
               action={action}
-              canEditActions={canEditActions}
-              compactAction
+              canEdit={canEditActions}
+              currentUserId={currentUserId}
             />
           ))}
         </section>

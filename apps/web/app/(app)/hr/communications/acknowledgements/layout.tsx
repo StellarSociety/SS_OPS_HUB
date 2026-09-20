@@ -1,5 +1,5 @@
 import { AcknowledgementsReminderInfo } from "@/components/hr/acknowledgements-reminder-info";
-import { AcknowledgementsSubNav } from "@/components/hr/acknowledgements-sub-nav";
+import { AcknowledgementsSection } from "@/components/hr/acknowledgements-sub-nav";
 import { getAcknowledgementReminderSettings } from "@/lib/actions/hr-acknowledgements";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { canAdminLookups, canEditStaff } from "@/lib/hr/permissions";
@@ -16,10 +16,12 @@ export default async function HrAcknowledgementsLayout({
     canAdminLookups(permissions, venue.id);
 
   return (
-    <div className="min-w-0 space-y-4">
-      <AcknowledgementsSubNav />
-      <AcknowledgementsReminderInfo settings={settings} canEdit={canEdit} />
+    <AcknowledgementsSection
+      reminder={
+        <AcknowledgementsReminderInfo settings={settings} canEdit={canEdit} />
+      }
+    >
       {children}
-    </div>
+    </AcknowledgementsSection>
   );
 }

@@ -159,7 +159,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "notebook-pen",
     category: "operational",
     href: "/save-log",
-    status: "live",
+    status: "coming_soon",
     description:
       "Upload and manage HACCP daily records — temperature logs, receiving, cleaning, and other food-safety checks.",
   },
@@ -215,7 +215,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     iconKey: "landmark",
     category: "revenue",
     href: "/accounting",
-    status: "live",
+    status: "coming_soon",
     description:
       "Double-entry ledger, AP/AR, banking, VAT, and financial reports for each legal entity.",
   },

@@ -10,6 +10,7 @@ export type ModuleAccessRecord = {
   role: AnyRole;
   enabled: boolean;
   suspended: boolean;
+  hidden: boolean;
 };
 
 export type UserListRow = {
@@ -24,6 +25,8 @@ export type UserListRow = {
   invited_at: string | null;
   invite_accepted_at: string | null;
   last_login_at: string | null;
+  access_blocked_until: string | null;
+  access_block_from_termination: boolean;
   created_at: string;
   staff: {
     id: string;

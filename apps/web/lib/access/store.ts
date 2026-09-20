@@ -38,8 +38,27 @@ async function loadModuleAccess(
   try {
     const { data, error } = await supabase
       .from("user_module_access")
-      .select("id, user_id, venue_id, module_key, role, enabled, suspended");
-    if (error) return byUser;
+      .select("id, user_id, venue_id, module_key, role, enabled, suspended, hidden");
+    if (error) {
+      const fallback = await supabase
+        .from("user_module_access")
+        .select("id, user_id, venue_id, module_key, role, enabled, suspended");
+      if (fallback.error) return byUser;
+      for (const row of fallback.data ?? []) {
+        const list = byUser.get(row.user_id) ?? [];
+        list.push({
+          id: row.id,
+          venue_id: row.venue_id,
+          module_key: row.module_key,
+          role: row.role,
+          enabled: row.enabled,
+          suspended: row.suspended,
+          hidden: false,
+        });
+        byUser.set(row.user_id, list);
+      }
+      return byUser;
+    }
     for (const row of data ?? []) {
       const list = byUser.get(row.user_id) ?? [];
       list.push({
@@ -49,6 +68,7 @@ async function loadModuleAccess(
         role: row.role,
         enabled: row.enabled,
         suspended: row.suspended,
+        hidden: Boolean(row.hidden),
       });
       byUser.set(row.user_id, list);
     }
@@ -73,6 +93,12 @@ const STAFF_JOIN = `
         employment_status:employment_status_id ( name ),
         home_venue:home_venue_id ( id, name, slug, is_global )
       )`;
+
+const PROFILE_SELECT_BLOCK = `
+      id, email, full_name, status, staff_id, avatar_url,
+      is_external, login_email_source, invited_at, invite_accepted_at, last_login_at,
+      access_blocked_until, access_block_from_termination,
+      created_at,${STAFF_JOIN}`;
 
 /** Access v2 + avatar columns. Prefer this when migrations are applied. */
 const PROFILE_SELECT_FULL = `
@@ -125,6 +151,8 @@ type RawProfile = {
   invited_at?: string | null;
   invite_accepted_at?: string | null;
   last_login_at?: string | null;
+  access_blocked_until?: string | null;
+  access_block_from_termination?: boolean | null;
   staff?: RawStaff | RawStaff[] | null;
 };
 
@@ -135,6 +163,7 @@ async function loadProfiles(
   // later migration (e.g. avatar_url) cannot wipe access/invite fields.
   let lastError: { message: string } | null = null;
   for (const select of [
+    PROFILE_SELECT_BLOCK,
     PROFILE_SELECT_FULL,
     PROFILE_SELECT_ACCESS,
     PROFILE_SELECT_BASE,
@@ -196,6 +225,10 @@ export async function listUsers(
       invited_at: p.invited_at ?? null,
       invite_accepted_at: p.invite_accepted_at ?? null,
       last_login_at: p.last_login_at ?? null,
+      access_blocked_until: p.access_blocked_until
+        ? String(p.access_blocked_until).slice(0, 10)
+        : null,
+      access_block_from_termination: p.access_block_from_termination ?? true,
       created_at: p.created_at,
       staff,
       permissions: permsByUser.get(p.id) ?? [],
@@ -244,6 +277,7 @@ export async function listInviteableStaff(
       position:position_id ( name )
     `,
     )
+    .eq("org_chart_only", false)
     .order("full_name", { ascending: true });
 
   if (error) throw error;

@@ -17,7 +17,7 @@ export default async function MobileSentimentActionsPage({
   params,
 }: PageProps) {
   const { venueSlug } = await params;
-  const { venue, permissions, supabase } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, supabase, user } = await getMobileAppContext(venueSlug);
 
   if (
     !canAccessMobileApp(permissions, venue.id) ||
@@ -43,6 +43,7 @@ export default async function MobileSentimentActionsPage({
           templates: workspace.templates,
           staffRows,
           googleCanPost: workspace.googleCanPost,
+          currentUserId: user.id,
           ...flags,
         }}
       />

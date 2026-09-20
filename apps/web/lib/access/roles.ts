@@ -10,6 +10,7 @@ import {
   getSensitiveFeaturesForModule,
   getSettingsFeatureForModule,
   getSubPagesForModule,
+  MOBILE_EMPLOYEE_HUB_MODULE_KEY,
 } from "@/lib/modules-catalog";
 import type { AccessLevel } from "@/lib/role-permissions";
 
@@ -101,6 +102,8 @@ export type ModuleAccessConfig = {
   enabled: boolean;
   role: AppRole;
   suspended: boolean;
+  /** Hide this app on the phone. Mutually exclusive with `enabled`. */
+  hidden: boolean;
   /** Venue scope: null = all venues (group-wide). */
   venueId: string | null;
   /** Layer 3 — selected sub-pages (feature keys). */
@@ -124,6 +127,7 @@ export type ModuleAccessRow = {
   role: AnyRole;
   enabled: boolean;
   suspended: boolean;
+  hidden: boolean;
 };
 
 export type ExpandedAccess = {
@@ -154,6 +158,7 @@ export function expandAccess(state: AccessEditorState): ExpandedAccess {
       role: "global_admin",
       enabled: true,
       suspended: false,
+      hidden: false,
     });
   } else if (state.accountRole === "venue_admin") {
     grants.push({
@@ -168,11 +173,35 @@ export function expandAccess(state: AccessEditorState): ExpandedAccess {
       role: "venue_admin",
       enabled: true,
       suspended: false,
+      hidden: false,
     });
   }
 
   for (const mod of state.modules) {
-    if (!mod.enabled) continue;
+    if (mod.hidden) {
+      moduleAccess.push({
+        module_key: mod.moduleKey,
+        venue_id: mod.venueId,
+        role: mod.role,
+        enabled: false,
+        suspended: mod.suspended,
+        hidden: true,
+      });
+      continue;
+    }
+    if (!mod.enabled) {
+      if (mod.moduleKey === MOBILE_EMPLOYEE_HUB_MODULE_KEY && mod.venueId != null) {
+        moduleAccess.push({
+          module_key: mod.moduleKey,
+          venue_id: mod.venueId,
+          role: mod.role,
+          enabled: false,
+          suspended: mod.suspended,
+          hidden: false,
+        });
+      }
+      continue;
+    }
     const level = appRoleToLevel(mod.role);
 
     moduleAccess.push({
@@ -181,6 +210,7 @@ export function expandAccess(state: AccessEditorState): ExpandedAccess {
       role: mod.role,
       enabled: true,
       suspended: mod.suspended,
+      hidden: false,
     });
 
     const validSubPages = new Set(
@@ -242,6 +272,7 @@ export function defaultModuleConfig(
     enabled: false,
     role: "viewer",
     suspended: false,
+    hidden: false,
     venueId,
     subPages: getSubPagesForModule(moduleKey).map((f) => f.key),
     editPages: [],
@@ -389,6 +420,7 @@ export function buildEditorState(user: UserListRow): AccessEditorState {
         enabled: access.enabled,
         role: access.role,
         suspended: access.suspended,
+        hidden: access.hidden,
         venueId: access.venue_id,
         subPages: selectedSubPages,
         editPages: selectedEditPages,
@@ -405,6 +437,7 @@ export function buildEditorState(user: UserListRow): AccessEditorState {
         enabled: true,
         role: levelToRole(topLevel),
         suspended: false,
+        hidden: false,
         venueId: modGrants[0]!.venue_id,
         subPages: selectedSubPages,
         editPages: selectedEditPages,

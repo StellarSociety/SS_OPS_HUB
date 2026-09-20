@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAppAdmin } from "@/lib/access/permissions";
+import { syncAccessBlockFromTermination } from "@/lib/access/access-block-store";
 import { canManageHubSettings, type UserPermission } from "@/lib/role-permissions";
 import { expandAccess, type AccessEditorState } from "@/lib/access/roles";
 import {
@@ -48,6 +49,7 @@ const SETTINGS_PATHS = [
   "/settings/venue-modules",
   "/settings/email-config",
   "/settings/drive-config",
+  "/mobile/access",
 ];
 
 function revalidateSettings() {
@@ -203,6 +205,14 @@ async function createDirectAccount(params: {
     return { error: profileError.message };
   }
 
+  if (staffId) {
+    try {
+      await syncAccessBlockFromTermination(service, staffId);
+    } catch {
+      // best-effort — invite still succeeds
+    }
+  }
+
   try {
     await storeUserLoginPassword(userId, password);
   } catch {
@@ -349,6 +359,12 @@ export async function inviteUser(staffId: string, options: InviteOptions = {}) {
 
   if (profileError) {
     return { error: profileError.message };
+  }
+
+  try {
+    await syncAccessBlockFromTermination(service, staff.id);
+  } catch {
+    // best-effort — invite still succeeds
   }
 
   const auditId = await writeAuditLog({
@@ -1218,6 +1234,7 @@ export async function saveUserAccess(userId: string, state: AccessEditorState) {
     role: m.role,
     enabled: m.enabled,
     suspended: m.suspended,
+    hidden: m.hidden,
   }));
 
   const { data: beforeGrants } = await service

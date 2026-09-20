@@ -1,6 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { persistDueAccessBlock } from "@/lib/access/access-block-store";
+import { isAccessBlockDue } from "@/lib/access/access-block";
 import { storeUserLoginPassword } from "@/lib/access/password-vault";
 import { writeAuditLog } from "@/lib/audit";
 import { MOBILE_APP_BASE, safeMobileAppPath } from "@/lib/mobile/app-path";
@@ -37,13 +39,38 @@ export async function signIn(
     };
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("status")
-    .eq("id", data.user.id)
-    .single();
+  let profile: { status?: string | null; access_blocked_until?: string | null } | null =
+    null;
+  {
+    const withBlock = await supabase
+      .from("profiles")
+      .select("status, access_blocked_until")
+      .eq("id", data.user.id)
+      .single();
+    if (withBlock.error) {
+      const basic = await supabase
+        .from("profiles")
+        .select("status")
+        .eq("id", data.user.id)
+        .single();
+      profile = basic.data;
+    } else {
+      profile = withBlock.data;
+    }
+  }
 
-  if (profile?.status === "disabled") {
+  if (
+    profile?.status === "disabled" ||
+    isAccessBlockDue(profile?.access_blocked_until)
+  ) {
+    if (profile?.status !== "disabled") {
+      try {
+        const service = createServiceClient();
+        await persistDueAccessBlock(service, data.user.id, profile ?? {});
+      } catch {
+        // best-effort — login is still blocked
+      }
+    }
     await supabase.auth.signOut();
     return { error: "Your account has been deactivated." };
   }

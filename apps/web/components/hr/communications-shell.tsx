@@ -22,15 +22,15 @@ export function CommunicationsShell({
   const pathname = useRelativePathname();
 
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+      <div className="shrink-0">
         <ModulePageTitle>Communications</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
           Track employee acknowledgements for emails that require confirmation.
         </p>
         <hr className="mt-4 border-black/10" />
       </div>
-      <nav aria-label="Communications sections" className={pillSubNavShellClass}>
+      <nav aria-label="Communications sections" className={`${pillSubNavShellClass} shrink-0`}>
         {TABS.map((tab) => {
           const active =
             pathname === tab.href || pathname.startsWith(`${tab.href}/`);
@@ -46,7 +46,9 @@ export function CommunicationsShell({
           );
         })}
       </nav>
-      {children}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {children}
+      </div>
     </div>
   );
 }

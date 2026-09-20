@@ -10,6 +10,8 @@ type StaffDirectoryLinkProps = {
   className?: string;
   onClick?: React.MouseEventHandler<HTMLAnchorElement>;
   title?: string;
+  /** Chart-only people have an emp number on the tree but no HR employee record. */
+  link?: boolean;
 };
 
 /**
@@ -24,6 +26,7 @@ export function StaffDirectoryLink({
   className,
   onClick,
   title = "Open staff directory entry",
+  link = true,
 }: StaffDirectoryLinkProps) {
   const { canOpenHref } = usePageAccess();
   const href = `/hr/${staffId}`;
@@ -32,7 +35,7 @@ export function StaffDirectoryLink({
     className,
   );
 
-  if (!canOpenHref(href)) {
+  if (!link || !canOpenHref(href)) {
     return <span className={cn(numberClass, "text-black/55")}>{empNo}</span>;
   }
 

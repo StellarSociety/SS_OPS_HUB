@@ -2597,6 +2597,7 @@ function StaffCardPay({
         <StaffDirectoryLink
           staffId={member.id}
           empNo={member.empNo}
+          link={!member.orgChartOnly}
           className="shrink-0 text-[10px] leading-none"
         />
       ) : (

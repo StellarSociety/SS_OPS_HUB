@@ -165,12 +165,10 @@ function WaiterComparisonChart({
 
   return (
     <Card className="flex h-full flex-col p-4">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="font-serif text-base text-[#3D421F]">{title}</h3>
-          <p className="mt-1 text-xs text-black/50">{subtitle}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-[10px] text-black/55">
+      <div className="mb-3">
+        <h3 className="font-serif text-base text-[#3D421F]">{title}</h3>
+        <p className="mt-1 text-xs text-black/50">{subtitle}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-black/55">
           <span className="inline-flex items-center gap-1.5">
             <span
               className="h-2 w-4 rounded-sm"

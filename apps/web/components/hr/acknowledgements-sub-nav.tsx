@@ -1,6 +1,7 @@
 "use client";
 
-import { List, Users } from "lucide-react";
+import type { ReactNode } from "react";
+import { FileCheck, List, Users } from "lucide-react";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
@@ -9,6 +10,8 @@ export const ACKNOWLEDGEMENTS_ALL_HREF =
   "/hr/communications/acknowledgements";
 export const ACKNOWLEDGEMENTS_EMPLOYEES_HREF =
   "/hr/communications/acknowledgements/employees";
+export const ACKNOWLEDGEMENTS_HUB_TERMS_HREF =
+  "/hr/communications/acknowledgements/hub-terms";
 
 const TABS = [
   {
@@ -23,7 +26,38 @@ const TABS = [
     icon: Users,
     exact: false,
   },
+  {
+    href: ACKNOWLEDGEMENTS_HUB_TERMS_HREF,
+    label: "SS OPS HUB T&C's",
+    icon: FileCheck,
+    exact: false,
+  },
 ] as const;
+
+export function AcknowledgementsSection({
+  reminder,
+  children,
+}: {
+  reminder: ReactNode;
+  children: ReactNode;
+}) {
+  const pathname = useRelativePathname();
+  const isHubTerms =
+    pathname === ACKNOWLEDGEMENTS_HUB_TERMS_HREF ||
+    pathname.startsWith(`${ACKNOWLEDGEMENTS_HUB_TERMS_HREF}/`);
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="shrink-0">
+        <AcknowledgementsSubNav />
+      </div>
+      {isHubTerms ? null : <div className="shrink-0">{reminder}</div>}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function AcknowledgementsSubNav() {
   const pathname = useRelativePathname();

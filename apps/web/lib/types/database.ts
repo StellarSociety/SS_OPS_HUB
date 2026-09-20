@@ -28,6 +28,8 @@ export type Profile = {
   avatar_url: string | null;
   status: "active" | "disabled";
   staff_id: string | null;
+  access_blocked_until?: string | null;
+  access_block_from_termination?: boolean;
   created_at: string;
 };
 
