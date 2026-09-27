@@ -7,6 +7,7 @@ import {
 import { computeDailyDiscounts } from "@/lib/sales/discounts-calculations";
 import type { VenueDailyDiscountsRecord } from "@/lib/sales/discounts-types";
 import type {
+  TaxSettingsInput,
   VenueDailySalesRecord,
   VenueSalesTaxSettings,
 } from "@/lib/sales/daily-sales-types";
@@ -108,7 +109,7 @@ function entryHref(path: string, saleDate: string): string {
 
 export function computeTaxCollectionExpected(
   venueRevenueGross: number,
-  taxSettings: VenueSalesTaxSettings,
+  taxSettings: TaxSettingsInput,
   totalTaxPct: number,
 ) {
   const netSales = roundMoney(grossToNet(venueRevenueGross, totalTaxPct));

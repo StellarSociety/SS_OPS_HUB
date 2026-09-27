@@ -250,7 +250,15 @@ export function ApInvoiceDetail({ invoice, canEdit, canAdmin }: Props) {
         <div className="rounded-lg border border-black/10 bg-white p-4">
           <h3 className="font-serif text-lg text-[#3D421F]">Journal entry</h3>
           <p className="mt-1 text-sm text-black/65">
-            {invoice.journal_entries.entry_no} · {invoice.journal_entries.status} ·{" "}
+            <ScopedLink
+              href={`/accounting/journals/${invoice.journal_entries.id}`}
+              className="font-medium text-[#3D421F] underline-offset-2 hover:underline"
+            >
+              {invoice.journal_entries.entry_no}
+            </ScopedLink>
+            {" · "}
+            {invoice.journal_entries.status}
+            {" · "}
             {invoice.journal_entries.entry_date}
           </p>
         </div>

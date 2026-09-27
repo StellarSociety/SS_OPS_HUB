@@ -25,12 +25,15 @@ export function VenueGrid({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="relative z-10 w-full min-w-0 max-w-3xl text-center"
+      className={cn(
+        "relative z-10 w-full min-w-0 text-center",
+        compact ? "max-w-3xl" : "max-w-2xl",
+      )}
     >
       <h1
         className={cn(
           "font-serif text-[#3D421F]",
-          compact ? "text-2xl" : "text-4xl",
+          compact ? "text-2xl" : "text-3xl",
         )}
       >
         Select a venue
@@ -74,7 +77,7 @@ export function VenueGrid({
           </div>
         </div>
       ) : (
-        <div className="mt-12 flex flex-wrap items-start justify-center gap-14">
+        <div className="mt-8 flex flex-wrap items-start justify-center gap-10">
           {venues.map((venue) => (
             <VenueTile
               key={venue.id}

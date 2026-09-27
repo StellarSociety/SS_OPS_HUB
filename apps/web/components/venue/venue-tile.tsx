@@ -54,7 +54,7 @@ export function VenueTile({
       onClick={handleSelect}
       className={cn(
         "group flex flex-col items-center disabled:cursor-not-allowed disabled:opacity-40",
-        compact ? "w-20 shrink-0 gap-2" : "gap-3",
+        compact ? "w-20 shrink-0 gap-2" : "gap-2.5",
       )}
       whileHover={disabled || intense ? undefined : { scale: 1.06, y: -6 }}
       whileTap={disabled || intense ? undefined : { scale: 0.98 }}
@@ -69,7 +69,7 @@ export function VenueTile({
       <motion.div
         className={cn(
           "relative overflow-hidden rounded-full border border-white/70 bg-white/30 shadow-[0_12px_40px_rgba(61,66,31,0.12)] backdrop-blur-xl",
-          compact ? "h-20 w-20" : "h-28 w-28",
+          compact ? "h-20 w-20" : "h-24 w-24",
         )}
         whileHover={disabled ? undefined : { boxShadow: "0 20px 50px rgba(61,66,31,0.18)" }}
       >
@@ -89,7 +89,7 @@ export function VenueTile({
       <span
         className={cn(
           "font-serif text-[#3D421F]",
-          compact ? "w-full text-center text-sm leading-tight" : "text-lg",
+          compact ? "w-full text-center text-sm leading-tight" : "text-base",
         )}
       >
         {venue.name}

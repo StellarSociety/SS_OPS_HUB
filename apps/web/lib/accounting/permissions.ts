@@ -112,6 +112,25 @@ export function canAdminAp(
   );
 }
 
+/** Mirrors DB `has_accounting_gl_access` — gl, ap, ar, reports, or tax. */
+const GL_READ_FEATURES = [
+  ACCOUNTING_FEATURES.gl,
+  ACCOUNTING_FEATURES.ap,
+  ACCOUNTING_FEATURES.ar,
+  ACCOUNTING_FEATURES.reports,
+  ACCOUNTING_FEATURES.tax,
+] as const;
+
+export function canAccessGl(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  if (isAppAdmin(permissions)) return true;
+  return GL_READ_FEATURES.some((feature) =>
+    hasAccountingFeatureAccess(permissions, feature, venueId),
+  );
+}
+
 export function getApAccessLevel(
   permissions: UserPermission[],
   venueId: string,

@@ -1,6 +1,6 @@
 import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileHiringScreen } from "@/components/mobile/mobile-hiring-screen";
-import { canAccessHiring } from "@/lib/hr/permissions";
+import { canAccessHiring, canEditHiring } from "@/lib/hr/permissions";
 import { getMobileAppContext } from "@/lib/mobile/page-context";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
 import { loadMobileHiringPage } from "@/lib/mobile/hiring-replies";
@@ -24,7 +24,12 @@ export default async function MobileHiringPage({ params }: PageProps) {
 
   return (
     <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">
-      <MobileHiringScreen tab="replies" venue={venue} initial={initial} />
+      <MobileHiringScreen
+        tab="replies"
+        venue={venue}
+        initial={initial}
+        canEdit={canEditHiring(permissions, venue.id)}
+      />
     </div>
   );
 }

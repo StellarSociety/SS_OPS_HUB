@@ -24,17 +24,17 @@ export function SelectVenueWelcome({
   const initials = getUserInitials(fullName, email);
 
   return (
-    <div className={cn("mx-auto w-full px-4", compact ? "max-w-sm" : "max-w-lg")}>
+    <div className={cn("mx-auto w-full px-4", compact ? "max-w-sm" : "max-w-md")}>
       <div
         className={cn(
           "flex flex-col items-center text-center",
-          compact ? "gap-2.5" : "gap-4",
+          compact ? "gap-2.5" : "gap-3",
         )}
       >
         <div
           className={cn(
             "relative shrink-0 overflow-hidden rounded-full border-2 border-white shadow-md ring-1 ring-black/10",
-            compact ? "h-24 w-24" : "h-40 w-40",
+            compact ? "h-24 w-24" : "h-32 w-32",
           )}
         >
           {avatarUrl ? (
@@ -50,7 +50,7 @@ export function SelectVenueWelcome({
             <div
               className={cn(
                 "flex h-full w-full items-center justify-center bg-[#3D421F] font-medium text-white",
-                compact ? "text-2xl" : "text-5xl",
+                compact ? "text-2xl" : "text-4xl",
               )}
             >
               {initials}
@@ -67,10 +67,7 @@ export function SelectVenueWelcome({
             Welcome back
           </p>
           <h2
-            className={cn(
-              "font-serif font-semibold leading-tight tracking-tight text-[#3D421F]",
-              compact ? "text-2xl" : "text-3xl",
-            )}
+            className="font-serif text-2xl font-semibold leading-tight tracking-tight text-[#3D421F]"
           >
             {firstName ?? displayName}
           </h2>

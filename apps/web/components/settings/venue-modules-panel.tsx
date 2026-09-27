@@ -1,8 +1,11 @@
 "use client";
 
 import { useMemo, useTransition } from "react";
+import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { setVenueModuleEnabled } from "@/lib/actions/users";
 import { VENUE_TOGGLEABLE_MODULES } from "@/lib/modules-catalog";
+import { getOverviewModuleByKey } from "@/lib/modules-registry";
+import { toScopedHref } from "@/lib/venue/scope-routing";
 import type { Venue } from "@/lib/types/database";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
@@ -22,6 +25,7 @@ export function VenueModulesPanel({
   venueModules,
 }: VenueModulesPanelProps) {
   const [isPending, startTransition] = useTransition();
+  const { scope, slug } = useVenueScope();
 
   const enabledMap = useMemo(() => {
     const map = new Map<string, boolean>();
@@ -51,13 +55,28 @@ export function VenueModulesPanel({
       <div className="grid gap-3 sm:grid-cols-2">
         {VENUE_TOGGLEABLE_MODULES.map((mod) => {
           const enabled = isEnabled(mod.key);
+          const appHref = getOverviewModuleByKey(mod.key)?.href;
+          const scopedHref = appHref
+            ? toScopedHref(appHref, scope, slug)
+            : null;
           return (
             <Card
               key={mod.key}
               className="flex items-center justify-between gap-4 p-4"
             >
               <div>
-                <p className="font-medium text-[#3D421F]">{mod.label}</p>
+                {scopedHref ? (
+                  <a
+                    href={scopedHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-[#3D421F] no-underline"
+                  >
+                    {mod.label}
+                  </a>
+                ) : (
+                  <p className="font-medium text-[#3D421F]">{mod.label}</p>
+                )}
                 {mod.description ? (
                   <p className="text-xs text-black/50">{mod.description}</p>
                 ) : null}

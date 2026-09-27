@@ -330,6 +330,13 @@ export const moduleCatalog: ModuleDef[] = [
         group: "daily-figures",
       },
       {
+        key: "tax_collections",
+        label: "TAX Collections",
+        href: "/sales/tax-collections",
+        group: "daily-figures",
+        viewOnly: true,
+      },
+      {
         key: "forecast",
         label: "Forecasts",
         href: "/sales/forecast",
@@ -376,8 +383,20 @@ export const moduleCatalog: ModuleDef[] = [
     description: "General ledger, AP/AR, VAT, and financial reports.",
     features: [
       { key: "overview", label: "Overview", href: "/accounting" },
-      { key: "gl", label: "General ledger", href: "/accounting" },
-      { key: "ap", label: "Invoices (AP)", href: "/accounting/invoices" },
+      {
+        key: "cash-flow",
+        label: "Cash Flow",
+        href: "/accounting/cash-flow",
+        viewOnly: true,
+      },
+      {
+        key: "revenue",
+        label: "Revenue",
+        href: "/accounting/revenue",
+        viewOnly: true,
+      },
+      { key: "gl", label: "General ledger", href: "/accounting/journals" },
+      { key: "ap", label: "Expenses", href: "/accounting/invoices" },
       { key: "ar", label: "Accounts receivable" },
       { key: "banking", label: "Banking" },
       { key: "sales", label: "Sales & settlements" },

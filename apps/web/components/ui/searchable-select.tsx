@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type ReactNode,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -14,6 +15,8 @@ import { cn } from "@/lib/utils";
 export type SelectOption = {
   value: string;
   label: string;
+  /** Optional rich content shown for this option in the open menu. */
+  dropdownLabel?: ReactNode;
   /** Extra text used only for filtering (e.g. full country name). */
   searchText?: string;
 };
@@ -221,9 +224,10 @@ export function SearchableSelect({
                           : "text-black/70",
                       )}
                     >
-                      {o.searchText
-                        ? `${o.label} · ${o.searchText.replace(/; /g, ", ")}`
-                        : o.label}
+                      {o.dropdownLabel ??
+                        (o.searchText
+                          ? `${o.label} · ${o.searchText.replace(/; /g, ", ")}`
+                          : o.label)}
                     </button>
                   </li>
                 ))}

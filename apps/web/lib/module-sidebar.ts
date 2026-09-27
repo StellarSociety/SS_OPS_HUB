@@ -25,8 +25,8 @@ import {
   Percent,
   Receipt,
   ReceiptText,
-  FileText,
   Settings,
+  Truck,
   ShieldCheck,
   Smartphone,
   Tablet,
@@ -39,8 +39,13 @@ import {
   UserRoundSearch,
   Users,
   Wallet,
+  BookOpen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import {
+  ExpenseMinus,
+  RevenuePlus,
+} from "@/components/accounting/accounting-nav-icons";
 import { GuestsIntel } from "@/components/modules/guests-intel-icon";
 import { SafeLogHaccp } from "@/components/modules/safelog-haccp-icon";
 
@@ -257,7 +262,6 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         label: "TAX Collections",
         href: "/sales/tax-collections",
         icon: Percent,
-        comingSoon: true,
       },
       { label: "Forecasts", href: "/sales/forecast", icon: LineChart },
       { label: "Vouchers", href: "/sales/vouchers", icon: Ticket, dividerAfter: true },
@@ -281,10 +285,33 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         icon: LayoutDashboard,
       },
       {
-        label: "Invoice Issue",
+        label: "Cash Flow",
+        href: "/accounting/cash-flow",
+        icon: LineChart,
+      },
+      {
+        label: "Revenue",
+        href: "/accounting/revenue",
+        icon: RevenuePlus,
+      },
+      {
+        label: "Expenses",
         href: "/accounting/invoices",
         activePathPrefix: "/accounting/invoices",
-        icon: FileText,
+        excludePathPrefixes: ["/accounting/invoices/suppliers"],
+        icon: ExpenseMinus,
+        dividerAfter: true,
+      },
+      {
+        label: "Journals",
+        href: "/accounting/journals",
+        activePathPrefix: "/accounting/journals",
+        icon: BookOpen,
+      },
+      {
+        label: "Suppliers",
+        href: "/accounting/invoices/suppliers",
+        icon: Truck,
       },
     ],
     bottomItems: [

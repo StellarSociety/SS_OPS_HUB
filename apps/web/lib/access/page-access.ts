@@ -17,6 +17,7 @@ import {
 import {
   canAccessAccountingSettings,
   canAccessAp,
+  canAccessGl,
 } from "@/lib/accounting/permissions";
 import { canAccessModule } from "@/lib/module-access";
 import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
@@ -29,6 +30,7 @@ import {
   canAccessOverview as canAccessSalesOverview,
   canAccessReports,
   canAccessSalesSettings,
+  canAccessTaxCollections,
   canAccessVenueDaily,
   canAccessVouchers,
   canAccessWaiterDaily,
@@ -196,12 +198,18 @@ export function canOpenAppPath(
     if (startsWithPath(pathname, "/sales/vouchers")) {
       return canAccessVouchers(permissions, venueId);
     }
+    if (startsWithPath(pathname, "/sales/tax-collections")) {
+      return canAccessTaxCollections(permissions, venueId);
+    }
     return canAccessModule(permissions, "sales", venueId);
   }
 
   if (startsWithPath(pathname, "/accounting")) {
     if (startsWithPath(pathname, "/accounting/settings")) {
       return canAccessAccountingSettings(permissions, venueId);
+    }
+    if (startsWithPath(pathname, "/accounting/journals")) {
+      return canAccessGl(permissions, venueId);
     }
     if (startsWithPath(pathname, "/accounting/invoices")) {
       return canAccessAp(permissions, venueId);

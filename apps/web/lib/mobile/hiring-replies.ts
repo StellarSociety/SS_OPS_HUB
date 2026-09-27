@@ -8,7 +8,9 @@ import {
   HIRING_CATEGORY_LABELS,
   HIRING_STATUS_LABELS,
   type HiringAnswers,
+  type HiringApplicationStatus,
   type HiringApplicationFile,
+  type HiringCategory,
   type HiringFieldType,
 } from "@/lib/hr/hiring/types";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -17,6 +19,12 @@ export type MobileHiringFormOption = {
   id: string;
   name: string;
   applicationCount: number;
+  interviewRequestSubject: string;
+  interviewRequestBody: string;
+  interviewConfirmSubject: string;
+  interviewConfirmBody: string;
+  interviewConfirmVideoSubject: string;
+  interviewConfirmVideoBody: string;
 };
 
 export type MobileHiringField = {
@@ -31,7 +39,9 @@ export type MobileHiringCandidate = {
   name: string;
   email: string | null;
   submittedAt: string;
+  status: HiringApplicationStatus;
   statusLabel: string;
+  category: HiringCategory | null;
   categoryLabel: string | null;
   photoUrl: string | null;
   answers: HiringAnswers;
@@ -83,6 +93,12 @@ export async function loadMobileHiringPage(
     id: form.id,
     name: form.name.trim() || "Untitled form",
     applicationCount: form.application_count ?? 0,
+    interviewRequestSubject: form.interview_request_subject,
+    interviewRequestBody: form.interview_request_body,
+    interviewConfirmSubject: form.interview_confirm_subject,
+    interviewConfirmBody: form.interview_confirm_body,
+    interviewConfirmVideoSubject: form.interview_confirm_video_subject,
+    interviewConfirmVideoBody: form.interview_confirm_video_body,
   }));
 
   if (options.length === 0) {
@@ -116,7 +132,9 @@ export async function loadMobileHiringPage(
       name: application.applicant_name?.trim() || "Unnamed",
       email: application.applicant_email?.trim() || null,
       submittedAt: application.submitted_at,
+      status: application.status,
       statusLabel: HIRING_STATUS_LABELS[application.status],
+      category: application.category,
       categoryLabel: application.category
         ? HIRING_CATEGORY_LABELS[application.category]
         : null,

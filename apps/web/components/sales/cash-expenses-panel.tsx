@@ -634,44 +634,49 @@ export function CashExpensesPanel({
       </div>
 
       <div className={cn(sectionBandClass, "flex flex-col space-y-4")}>
-        <div className="flex w-full flex-wrap items-end gap-2">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium uppercase tracking-wide text-black/50">
-              Month
-            </span>
-            <select
-              className={selectClass}
-              value={monthFilter}
-              onChange={(event) => setMonthFilter(event.target.value)}
-              aria-label="Month"
+        <div className="flex flex-col gap-1">
+          <h3 className="border-b-2 border-black/15 pb-1 font-serif text-lg font-bold text-[#3D421F]">
+            Unjustified Cash Transactions
+          </h3>
+          <div className="flex w-full flex-wrap items-end gap-2">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-black/50">
+                Month
+              </span>
+              <select
+                className={selectClass}
+                value={monthFilter}
+                onChange={(event) => setMonthFilter(event.target.value)}
+                aria-label="Month"
+              >
+                {monthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={applyThisMonth}
+              className={salesTableFilterButtonClass()}
             >
-              {monthOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={applyThisMonth}
-            className={salesTableFilterButtonClass()}
-          >
-            This month
-          </button>
-          <label className="block min-w-[12rem] flex-1 space-y-1">
-            <span className="text-xs font-medium uppercase tracking-wide text-black/50">
-              Search
-            </span>
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Date or description…"
-              className={cn(searchClass, "max-w-none")}
-              aria-label="Search expenses"
-            />
-          </label>
+              This month
+            </button>
+            <label className="block min-w-[12rem] flex-1 space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wide text-black/50">
+                Search
+              </span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Date or description…"
+                className={cn(searchClass, "max-w-none")}
+                aria-label="Search expenses"
+              />
+            </label>
+          </div>
         </div>
 
         <p className="text-xs text-black/45">

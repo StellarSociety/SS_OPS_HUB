@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
@@ -12,16 +12,16 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "@/components/ui/toast";
 import {
   checkSupplierInvoiceDuplicate,
-  previewApJournal,
   saveApInvoiceForm,
   upsertSupplier,
 } from "@/lib/actions/accounting-ap";
-import type {
-  ApInvoice,
-  ApInvoiceLineInput,
-  Supplier,
-  TaxCode,
-  TaxRate,
+import {
+  supplierKindPickerLabel,
+  type ApInvoice,
+  type ApInvoiceLineInput,
+  type Supplier,
+  type TaxCode,
+  type TaxRate,
 } from "@/lib/accounting/ap-types";
 import type { Account } from "@/lib/accounting/types";
 import { addDaysIso, formatAedAccounting, roundMoney } from "@/lib/accounting/money";
@@ -38,14 +38,6 @@ type LineDraft = {
   quantity: string;
   unitPrice: string;
   taxCodeId: string;
-};
-
-type PreviewLine = {
-  accountId: string;
-  debit: number;
-  credit: number;
-  description: string;
-  account?: { id: string; code: string; name: string } | null;
 };
 
 type Props = {
@@ -102,7 +94,7 @@ export function ApInvoiceForm({
   const [fxRate, setFxRate] = useState(
     invoice?.fx_rate && invoice.fx_rate !== 1 ? String(invoice.fx_rate) : "",
   );
-  const [memo, setMemo] = useState(invoice?.memo ?? "");
+  const memo = invoice?.memo ?? "";
   const [attachment, setAttachment] = useState<File | null>(null);
   const [dupWarning, setDupWarning] = useState<string | null>(null);
   const [showNewSupplier, setShowNewSupplier] = useState(false);
@@ -119,21 +111,13 @@ export function ApInvoiceForm({
         key: l.id,
         description: l.description,
         accountId: l.account_id,
-        quantity: String(l.quantity),
-        unitPrice: String(l.unit_price),
+        quantity: "1",
+        unitPrice: String(l.net_amount),
         taxCodeId: l.tax_code_id,
       }));
     }
     return [emptyLine({ taxCodeId: defaultTax })];
   });
-
-  const [preview, setPreview] = useState<{
-    lines: PreviewLine[];
-    subtotalNet: number;
-    taxTotal: number;
-    totalGross: number;
-  } | null>(null);
-  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedSupplier = suppliers.find((s) => s.id === supplierId);
 
@@ -216,35 +200,6 @@ export function ApInvoiceForm({
       })),
     [lines, lineAmounts],
   );
-
-  useEffect(() => {
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    previewTimer.current = setTimeout(async () => {
-      const valid = lineInputs.filter((l) => l.accountId && l.taxCodeId);
-      if (!valid.length || !invoiceDate) {
-        setPreview(null);
-        return;
-      }
-      const result = await previewApJournal({
-        invoiceDate,
-        memo: memo || undefined,
-        supplierId: supplierId || undefined,
-        lines: valid,
-      });
-      if (result.ok) {
-        setPreview({
-          lines: result.lines as PreviewLine[],
-          subtotalNet: result.subtotalNet,
-          taxTotal: result.taxTotal,
-          totalGross: result.totalGross,
-        });
-      }
-    }, 400);
-    return () => {
-      if (previewTimer.current) clearTimeout(previewTimer.current);
-    };
-  }, [lineInputs, invoiceDate, memo, supplierId]);
-
   async function onSupplierInvoiceBlur() {
     if (!supplierId || !supplierInvoiceNo.trim()) {
       setDupWarning(null);
@@ -360,29 +315,51 @@ export function ApInvoiceForm({
     });
   }
 
-  const supplierOptions = suppliers.map((s) => ({
-    value: s.id,
-    label: s.name,
-    searchText: s.trn ?? "",
-  }));
+  const supplierOptions = suppliers.map((s) => {
+    const nickname = s.nickname || "—";
+    const category = supplierKindPickerLabel(s.kind);
+    return {
+      value: s.id,
+      label: `${nickname} | ${s.name} | ${category}`,
+      dropdownLabel: (
+        <span className="min-w-0">
+          <span className="underline underline-offset-2">{nickname}</span>
+          <span className="mx-1.5 text-black/30">|</span>
+          <span>{s.name}</span>
+          <span className="mx-1.5 text-black/30">|</span>
+          <span className="font-bold text-[#3D421F]">{category}</span>
+        </span>
+      ),
+      searchText: `${s.nickname ?? ""} ${s.name} ${s.trn ?? ""} ${category}`,
+    };
+  });
   const accountOptions = accounts.map((a) => ({
     value: a.id,
     label: `${a.code} — ${a.name}`,
   }));
-  const taxOptions = taxCodes.map((t) => ({
-    value: t.id,
-    label: `${t.code} — ${t.label}`,
-  }));
+  const taxOptions = taxCodes.map((t) => {
+    let percentage = "—";
+    try {
+      percentage = `${resolveTaxRate(taxRates, t.id, invoiceDate) * 100}%`;
+    } catch {
+      // Keep the code selectable even when no rate is configured for this date.
+    }
+    return {
+      value: t.id,
+      label: `${t.code} ${percentage}`,
+      searchText: t.label,
+    };
+  });
 
   const fieldClass = "space-y-1.5";
   const selectClass =
     "flex h-10 w-full rounded-md border border-black/10 bg-white px-3 text-sm text-[#3D421F]";
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div>
       <div className="space-y-5">
         <div className="rounded-lg border border-black/10 bg-white p-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(240px,1.5fr)_minmax(180px,1fr)_150px_150px_minmax(230px,1.2fr)]">
             <div className={fieldClass}>
               <Label>Venue</Label>
               <Input value={venue.name} disabled className="h-10" />
@@ -403,25 +380,30 @@ export function ApInvoiceForm({
         </div>
 
         <div className="space-y-4 rounded-lg border border-black/10 bg-white p-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className={fieldClass}>
               <Label>Supplier</Label>
-              <SearchableSelect
-                value={supplierId}
-                onChange={setSupplierId}
-                options={supplierOptions}
-                placeholder="Select supplier…"
-                disabled={!canEdit}
-              />
-              {canEdit && (
-                <button
-                  type="button"
-                  className="mt-1 text-xs text-[var(--venue-primary)] underline"
-                  onClick={() => setShowNewSupplier((v) => !v)}
-                >
-                  {showNewSupplier ? "Cancel new supplier" : "New supplier"}
-                </button>
-              )}
+              <div className="relative">
+                <SearchableSelect
+                  value={supplierId}
+                  onChange={setSupplierId}
+                  options={supplierOptions}
+                  placeholder="Select supplier…"
+                  disabled={!canEdit}
+                  triggerClassName="pr-16"
+                />
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="absolute right-8 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-black/35 transition hover:bg-black/5 hover:text-[var(--venue-primary)]"
+                    onClick={() => setShowNewSupplier((v) => !v)}
+                    aria-label={showNewSupplier ? "Cancel new supplier" : "New supplier"}
+                    title={showNewSupplier ? "Cancel new supplier" : "New supplier"}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className={fieldClass}>
               <Label htmlFor="supplier-inv-no">Supplier invoice no</Label>
@@ -435,6 +417,50 @@ export function ApInvoiceForm({
               />
               {dupWarning && (
                 <p className="text-xs text-red-700">{dupWarning}</p>
+              )}
+            </div>
+            <div className={fieldClass}>
+              <Label>Invoice date</Label>
+              <DateInput
+                value={invoiceDate}
+                onChange={setInvoiceDate}
+                disabled={!canEdit}
+                className="w-full"
+              />
+            </div>
+            <div className={fieldClass}>
+              <Label>Due date</Label>
+              <DateInput
+                value={dueDate}
+                onChange={(v) => {
+                  setDueManual(true);
+                  setDueDate(v);
+                }}
+                disabled={!canEdit}
+                className="w-full"
+              />
+            </div>
+            <div className={`${fieldClass} sm:col-span-2 lg:col-span-4`}>
+              <Label htmlFor="attachment">
+                Attachment {invoice?.attachment_url ? "(replace)" : "(required to submit)"}
+              </Label>
+              <Input
+                id="attachment"
+                type="file"
+                accept="application/pdf,image/*"
+                disabled={!canEdit}
+                className="h-10"
+                onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+              />
+              {invoice?.attachment_url && !attachment && (
+                <a
+                  href={invoice.attachment_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-[var(--venue-primary)] underline"
+                >
+                  View existing attachment
+                </a>
               )}
             </div>
           </div>
@@ -476,94 +502,6 @@ export function ApInvoiceForm({
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className={fieldClass}>
-              <Label>Invoice date</Label>
-              <DateInput
-                value={invoiceDate}
-                onChange={setInvoiceDate}
-                disabled={!canEdit}
-                className="w-full"
-              />
-            </div>
-            <div className={fieldClass}>
-              <Label>Due date</Label>
-              <DateInput
-                value={dueDate}
-                onChange={(v) => {
-                  setDueManual(true);
-                  setDueDate(v);
-                }}
-                disabled={!canEdit}
-                className="w-full"
-              />
-            </div>
-            <div className={fieldClass}>
-              <Label htmlFor="currency">Currency</Label>
-              <select
-                id="currency"
-                className={selectClass}
-                value={currency}
-                disabled={!canEdit}
-                onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-              >
-                <option value="AED">AED</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
-              </select>
-            </div>
-            {currency.toUpperCase() !== "AED" && (
-              <div className={fieldClass}>
-                <Label htmlFor="fx-rate">FX rate → AED</Label>
-                <Input
-                  id="fx-rate"
-                  value={fxRate}
-                  onChange={(e) => setFxRate(e.target.value)}
-                  disabled={!canEdit}
-                  className="h-10"
-                  type="number"
-                  step="0.00000001"
-                  min="0"
-                />
-              </div>
-            )}
-          </div>
-
-          <div className={fieldClass}>
-            <Label htmlFor="memo">Memo</Label>
-            <Input
-              id="memo"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              disabled={!canEdit}
-              className="h-10"
-            />
-          </div>
-
-          <div className={fieldClass}>
-            <Label htmlFor="attachment">
-              Attachment {invoice?.attachment_url ? "(replace)" : "(required to submit)"}
-            </Label>
-            <Input
-              id="attachment"
-              type="file"
-              accept="application/pdf,image/*"
-              disabled={!canEdit}
-              className="h-10"
-              onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
-            />
-            {invoice?.attachment_url && !attachment && (
-              <a
-                href={invoice.attachment_url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-[var(--venue-primary)] underline"
-              >
-                View existing attachment
-              </a>
-            )}
-          </div>
         </div>
 
         <div className="space-y-3 rounded-lg border border-black/10 bg-white p-4">
@@ -581,10 +519,9 @@ export function ApInvoiceForm({
             <table className="min-w-full text-sm">
               <thead className="text-xs uppercase tracking-wide text-black/45">
                 <tr>
-                  <th className="px-2 py-2 text-left">Description</th>
+                  <th className="px-2 py-2 text-left">Memo</th>
                   <th className="px-2 py-2 text-left">Account</th>
-                  <th className="px-2 py-2 text-right">Qty</th>
-                  <th className="px-2 py-2 text-right">Unit</th>
+                  <th className="px-2 py-2 text-left">Currency</th>
                   <th className="px-2 py-2 text-right">Net</th>
                   <th className="px-2 py-2 text-left">Tax</th>
                   <th className="px-2 py-2 text-right">VAT</th>
@@ -616,34 +553,57 @@ export function ApInvoiceForm({
                           disabled={!canEdit}
                         />
                       </td>
-                      <td className="px-2 py-2 w-20">
-                        <Input
-                          value={line.quantity}
-                          onChange={(e) =>
-                            updateLine(line.key, { quantity: e.target.value })
-                          }
+                      <td className="w-28 px-2 py-2">
+                        <select
+                          aria-label="Currency"
+                          className={`${selectClass} h-9`}
+                          value={currency}
                           disabled={!canEdit}
-                          className="h-9 text-right"
-                          type="number"
-                          step="0.001"
-                        />
+                          onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+                        >
+                          <option value="AED">AED</option>
+                          <option value="USD">USD</option>
+                          <option value="EUR">EUR</option>
+                          <option value="GBP">GBP</option>
+                        </select>
+                        {currency.toUpperCase() !== "AED" && (
+                          <Input
+                            aria-label="FX rate to AED"
+                            value={fxRate}
+                            onChange={(e) => setFxRate(e.target.value)}
+                            disabled={!canEdit}
+                            className="mt-2 h-9"
+                            type="number"
+                            step="0.00000001"
+                            min="0"
+                            placeholder="FX → AED"
+                          />
+                        )}
                       </td>
-                      <td className="px-2 py-2 w-28">
-                        <Input
-                          value={line.unitPrice}
-                          onChange={(e) =>
-                            updateLine(line.key, { unitPrice: e.target.value })
-                          }
-                          disabled={!canEdit}
-                          className="h-9 text-right"
-                          type="number"
-                          step="0.001"
-                        />
+                      <td className="w-36 px-2 py-2">
+                        <div className="relative">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-black/45">
+                            {currency}
+                          </span>
+                          <Input
+                            value={line.unitPrice}
+                            onChange={(e) =>
+                              updateLine(line.key, {
+                                quantity: "1",
+                                unitPrice: e.target.value,
+                              })
+                            }
+                            disabled={!canEdit}
+                            className="h-9 pl-11 text-right"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            aria-label="Net amount"
+                          />
+                        </div>
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-black/70">
-                        {formatAedAccounting(amt?.net ?? 0)}
-                      </td>
-                      <td className="px-2 py-2 min-w-[140px]">
+                      <td className="w-32 px-2 py-2">
                         <SearchableSelect
                           value={line.taxCodeId}
                           onChange={(v) => updateLine(line.key, { taxCodeId: v })}
@@ -651,6 +611,7 @@ export function ApInvoiceForm({
                           placeholder="Tax…"
                           disabled={!canEdit}
                           clearable={false}
+                          triggerClassName="h-9"
                         />
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums text-black/70">
@@ -712,48 +673,6 @@ export function ApInvoiceForm({
         )}
       </div>
 
-      <aside className="h-fit space-y-3 rounded-lg border border-black/10 bg-white p-4 lg:sticky lg:top-4">
-        <h2 className="font-serif text-lg text-[#3D421F]">Journal preview</h2>
-        {!preview?.lines?.length ? (
-          <p className="text-sm text-black/45">
-            Add lines with account and tax code to preview the posting.
-          </p>
-        ) : (
-          <>
-            <table className="w-full text-xs">
-              <thead className="text-black/45">
-                <tr>
-                  <th className="py-1 text-left">Account</th>
-                  <th className="py-1 text-right">Dr</th>
-                  <th className="py-1 text-right">Cr</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.lines.map((l, i) => (
-                  <tr key={`${l.accountId}-${i}`} className="border-t border-black/5">
-                    <td className="py-1.5 pr-2">
-                      {l.account
-                        ? `${l.account.code} ${l.account.name}`
-                        : l.description || l.accountId.slice(0, 8)}
-                    </td>
-                    <td className="py-1.5 text-right tabular-nums">
-                      {l.debit ? formatAedAccounting(l.debit) : ""}
-                    </td>
-                    <td className="py-1.5 text-right tabular-nums">
-                      {l.credit ? formatAedAccounting(l.credit) : ""}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="text-xs text-black/45">
-              Totals: {formatAedAccounting(preview.subtotalNet)} net ·{" "}
-              {formatAedAccounting(preview.taxTotal)} VAT ·{" "}
-              {formatAedAccounting(preview.totalGross)} gross
-            </p>
-          </>
-        )}
-      </aside>
     </div>
   );
 }

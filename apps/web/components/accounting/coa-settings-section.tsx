@@ -1,7 +1,19 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
+import { updateAccount } from "@/lib/actions/accounting-settings";
+import {
+  COA_EXPORT_COLUMN_WIDTHS,
+  COA_EXPORT_HEADERS,
+  coaExportFilename,
+  coaExportRows,
+} from "@/lib/accounting/coa-export";
+import type { Account } from "@/lib/accounting/types";
+import { buildExcelWorkbook, downloadExcelWorkbook } from "@/lib/sales/excel-utils";
 
 async function runAction<T extends { ok: boolean; error?: string }>(
   action: () => Promise<T>,
@@ -21,11 +33,6 @@ async function runAction<T extends { ok: boolean; error?: string }>(
   }
 }
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { updateAccount } from "@/lib/actions/accounting-settings";
-import type { Account } from "@/lib/accounting/types";
-
 type Props = {
   accounts: Account[];
   canEdit: boolean;
@@ -37,6 +44,7 @@ export function CoaSettingsSection({ accounts, canEdit }: Props) {
   const [name, setName] = useState("");
   const [active, setActive] = useState(true);
   const [pending, startTransition] = useTransition();
+  const [exporting, setExporting] = useState(false);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -54,6 +62,27 @@ export function CoaSettingsSection({ accounts, canEdit }: Props) {
     setEditingId(account.id);
     setName(account.name);
     setActive(account.active);
+  }
+
+  async function exportExcel() {
+    setExporting(true);
+    try {
+      const workbook = await buildExcelWorkbook(
+        "Chart of Accounts",
+        [...COA_EXPORT_HEADERS],
+        coaExportRows(accounts),
+      );
+      const sheet = workbook.Sheets["Chart of Accounts"];
+      if (sheet) {
+        sheet["!cols"] = COA_EXPORT_COLUMN_WIDTHS.map((wch) => ({ wch }));
+      }
+      await downloadExcelWorkbook(workbook, coaExportFilename());
+      toast.saved(`Exported ${accounts.length} accounts.`);
+    } catch {
+      toast.error("Could not export the chart of accounts.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   function save() {
@@ -81,12 +110,24 @@ export function CoaSettingsSection({ accounts, canEdit }: Props) {
             only.
           </p>
         </div>
-        <Input
-          className="max-w-xs"
-          placeholder="Filter by code or name…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
+        <div className="flex flex-wrap items-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="border border-black/10"
+            disabled={exporting || accounts.length === 0}
+            onClick={() => void exportExcel()}
+          >
+            <Download className="h-4 w-4" />
+            {exporting ? "Exporting…" : "Export Excel"}
+          </Button>
+          <Input
+            className="max-w-xs"
+            placeholder="Filter by code or name…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-black/10">

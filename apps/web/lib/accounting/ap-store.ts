@@ -1,5 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ApInvoice, ApInvoiceStatus, Supplier, TaxCode, TaxRate } from "./ap-types";
+import type {
+  ApInvoice,
+  ApInvoiceStatus,
+  Supplier,
+  SupplierKind,
+  TaxCode,
+  TaxRate,
+} from "./ap-types";
 import type { Account } from "./types";
 
 export async function listTaxCodes(client: SupabaseClient): Promise<TaxCode[]> {
@@ -23,11 +30,17 @@ export async function listTaxRates(client: SupabaseClient): Promise<TaxRate[]> {
 
 export async function listSuppliers(
   client: SupabaseClient,
-  opts?: { venueId?: string; entityId?: string; activeOnly?: boolean },
+  opts?: {
+    venueId?: string;
+    entityId?: string;
+    activeOnly?: boolean;
+    kind?: SupplierKind;
+  },
 ): Promise<Supplier[]> {
   let query = client.from("suppliers").select("*").order("name");
   if (opts?.venueId) query = query.eq("venue_id", opts.venueId);
   if (opts?.entityId) query = query.eq("entity_id", opts.entityId);
+  if (opts?.kind) query = query.eq("kind", opts.kind);
   if (opts?.activeOnly !== false) query = query.eq("active", true);
   const { data, error } = await query;
   if (error) throw new Error(error.message);

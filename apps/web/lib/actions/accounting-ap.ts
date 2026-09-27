@@ -16,7 +16,10 @@ import {
   listTaxCodes,
   listTaxRates,
 } from "@/lib/accounting/ap-store";
-import type { ApInvoiceLineInput } from "@/lib/accounting/ap-types";
+import {
+  isSupplierKind,
+  type ApInvoiceLineInput,
+} from "@/lib/accounting/ap-types";
 import {
   canAccessAp,
   canAdminAp,
@@ -43,6 +46,8 @@ function revalidateAp(invoiceId?: string) {
   revalidatePath("/accounting/invoices/approvals", "page");
   revalidatePath("/accounting/invoices/insights", "page");
   revalidatePath("/accounting/invoices/suppliers", "page");
+  revalidatePath("/accounting/invoices/suppliers/general", "page");
+  revalidatePath("/accounting/invoices/suppliers/opex", "page");
   revalidatePath("/accounting/invoices/new", "page");
   if (invoiceId) {
     revalidatePath(`/accounting/invoices/${invoiceId}`, "page");
@@ -154,6 +159,8 @@ function computeLineAmounts(
 export async function upsertSupplier(input: {
   id?: string;
   name: string;
+  nickname?: string | null;
+  kind?: "cos" | "opex_general" | "opex" | "uncategorized";
   trn?: string | null;
   defaultExpenseAccountId?: string | null;
   paymentTermsDays?: number;
@@ -166,6 +173,7 @@ export async function upsertSupplier(input: {
 
   const name = input.name.trim();
   if (!name) return fail("Supplier name is required.");
+  const kind = input.kind && isSupplierKind(input.kind) ? input.kind : "cos";
 
   const trn = input.trn?.trim() || null;
   if (trn && !/^\d{15}$/.test(trn)) {
@@ -177,14 +185,26 @@ export async function upsertSupplier(input: {
     return fail("This venue is not mapped to a legal entity. Configure Accounting Settings.");
   }
 
+  let defaultTaxCodeId = input.defaultTaxCodeId || null;
+  if (!defaultTaxCodeId) {
+    const { data: standardPurchase } = await ctx.service
+      .from("tax_codes")
+      .select("id")
+      .eq("code", "SP")
+      .maybeSingle();
+    defaultTaxCodeId = standardPurchase?.id ?? null;
+  }
+
   const payload = {
     entity_id: mapping.entity_id,
     venue_id: ctx.venueId,
     name,
+    nickname: input.nickname?.trim() || null,
+    kind,
     trn,
     default_expense_account_id: input.defaultExpenseAccountId || null,
     payment_terms_days: input.paymentTermsDays ?? 30,
-    default_tax_code_id: input.defaultTaxCodeId || null,
+    default_tax_code_id: defaultTaxCodeId,
     active: input.active ?? true,
     notes: input.notes?.trim() || null,
     updated_at: new Date().toISOString(),

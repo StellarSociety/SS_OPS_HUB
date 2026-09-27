@@ -26,12 +26,86 @@ export type TaxRate = {
   valid_to: string | null;
 };
 
+export type SupplierKind = "cos" | "opex_general" | "opex" | "uncategorized";
+
+export const SUPPLIER_KIND_OPTIONS: {
+  kind: SupplierKind;
+  href: string;
+  label: string;
+  shortLabel: string;
+  picker: string;
+  empty: string;
+  createLabel: string;
+  editLabel: string;
+}[] = [
+  {
+    kind: "cos",
+    href: "/accounting/invoices/suppliers",
+    label: "(COS) F&B Suppliers",
+    shortLabel: "COS",
+    picker: "COS",
+    empty: "No F&B suppliers yet.",
+    createLabel: "New supplier",
+    editLabel: "Edit supplier",
+  },
+  {
+    kind: "opex_general",
+    href: "/accounting/invoices/suppliers/general",
+    label: "(OPEX) General Suppliers",
+    shortLabel: "General",
+    picker: "OPEX General",
+    empty: "No general suppliers yet.",
+    createLabel: "New supplier",
+    editLabel: "Edit supplier",
+  },
+  {
+    kind: "opex",
+    href: "/accounting/invoices/suppliers/opex",
+    label: "(OPEX) Contractors",
+    shortLabel: "Contractors",
+    picker: "OPEX Contractor",
+    empty: "No contractors yet.",
+    createLabel: "New contractor",
+    editLabel: "Edit contractor",
+  },
+  {
+    kind: "uncategorized",
+    href: "/accounting/invoices/suppliers/uncategorized",
+    label: "Uncategorized",
+    shortLabel: "Uncategorized",
+    picker: "Uncategorized",
+    empty: "No uncategorized suppliers.",
+    createLabel: "New uncategorized supplier",
+    editLabel: "Categorize supplier",
+  },
+];
+
+export function supplierKindHref(kind: SupplierKind) {
+  return (
+    SUPPLIER_KIND_OPTIONS.find((option) => option.kind === kind)?.href ??
+    "/accounting/invoices/suppliers"
+  );
+}
+
+export function isSupplierKind(value: string): value is SupplierKind {
+  return SUPPLIER_KIND_OPTIONS.some((option) => option.kind === value);
+}
+
+export function supplierKindPickerLabel(kind: string | null | undefined) {
+  return (
+    SUPPLIER_KIND_OPTIONS.find((option) => option.kind === kind)?.picker ??
+    "COS"
+  );
+}
+
 export type Supplier = {
   id: string;
   entity_id: string;
   venue_id: string;
   name: string;
+  nickname: string | null;
   trn: string | null;
+  kind: SupplierKind;
   default_expense_account_id: string | null;
   payment_terms_days: number;
   default_tax_code_id: string | null;

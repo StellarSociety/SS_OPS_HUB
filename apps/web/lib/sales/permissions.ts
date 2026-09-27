@@ -77,6 +77,16 @@ export function canEditVenueDaily(
   );
 }
 
+export function canAccessTaxCollections(
+  permissions: UserPermission[],
+  venueId: string,
+): boolean {
+  return (
+    hasSalesFeatureAccess(permissions, SALES_FEATURES.taxCollections, venueId) ||
+    canAccessVenueDaily(permissions, venueId)
+  );
+}
+
 export function canAccessWaiterDaily(
   permissions: UserPermission[],
   venueId: string,
