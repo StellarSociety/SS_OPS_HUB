@@ -536,6 +536,99 @@ export async function addPayrollAdjustment(input: {
   });
 }
 
+export async function addManualPayrollEmployee(input: {
+  runId: string;
+  staffId: string;
+  reason: string;
+}): Promise<PayrollActionResult> {
+  const auth = await getPayrollAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions, supabase } = auth;
+  if (!canEditPayroll(permissions, venue.id)) {
+    return { ok: false, error: "No permission." };
+  }
+  if (!input.reason.trim()) {
+    return { ok: false, error: "Reason is required." };
+  }
+
+  const { data: run } = await supabase
+    .from("hr_payroll_runs")
+    .select("id, status")
+    .eq("id", input.runId)
+    .eq("venue_id", venue.id)
+    .maybeSingle();
+  if (!run) return { ok: false, error: "Run not found." };
+  if (isPayrollLocked(run.status)) return { ok: false, error: "Payroll is locked." };
+
+  const service = createServiceClient();
+  const { data: staff, error: staffError } = await service
+    .from("staff")
+    .select("id, emp_no, full_name, department_id, position_id, termination_date, joining_date, iban, bank_name, swift_code, wps_employee_id, department:departments(name), position:positions(name), employment_status:employment_statuses(name), working_status:working_statuses(name)")
+    .eq("id", input.staffId)
+    .eq("home_venue_id", venue.id)
+    .maybeSingle();
+  if (staffError || !staff) {
+    return { ok: false, error: staffError?.message ?? "Staff member not found." };
+  }
+
+  const relationName = (value: unknown) => {
+    const row = Array.isArray(value) ? value[0] : value;
+    return row && typeof row === "object" && "name" in row
+      ? String((row as { name?: unknown }).name ?? "") || null
+      : null;
+  };
+  const { error: insertError } = await service
+    .from("hr_payroll_run_employees")
+    .insert({
+      venue_id: venue.id,
+      run_id: input.runId,
+      staff_id: staff.id,
+      emp_no: staff.emp_no,
+      full_name: staff.full_name,
+      department_id: staff.department_id,
+      department_name: relationName(staff.department),
+      position_id: staff.position_id,
+      position_name: relationName(staff.position),
+      included: true,
+      is_new_joiner: false,
+      is_leaver: Boolean(staff.termination_date),
+      employment_status: relationName(staff.employment_status),
+      wps_employee_id: staff.wps_employee_id,
+      iban: staff.iban,
+      bank_name: staff.bank_name,
+      swift_code: staff.swift_code,
+      snapshot: {
+        manualPayrollEntry: true,
+        manualReason: input.reason.trim(),
+        dayFractions: [],
+        effectivePaidDays: 0,
+        joiningDate: staff.joining_date,
+        terminationDate: staff.termination_date,
+        workingStatus: relationName(staff.working_status),
+      },
+    });
+  if (insertError) {
+    return {
+      ok: false,
+      error: /duplicate|unique/i.test(insertError.message)
+        ? "This staff member is already on the payroll run."
+        : insertError.message,
+    };
+  }
+
+  await syncPayrollRunTotals({ service, venueId: venue.id, runId: input.runId, userId: user.id });
+  await service.from("hr_payroll_run_events").insert({
+    venue_id: venue.id,
+    run_id: input.runId,
+    actor_id: user.id,
+    from_status: run.status,
+    to_status: run.status,
+    comment: `Manually added ${staff.full_name} to payroll: ${input.reason.trim()}`,
+  });
+  revalidatePayroll(input.runId);
+  return { ok: true };
+}
+
 export async function updatePayrollAdjustment(input: {
   adjustmentId: string;
   runId: string;
@@ -3588,4 +3681,3 @@ export async function clearImportedDeductionsFromPayrollRun(input: {
   revalidatePath("/hr/assets/visa", "layout");
   return { ok: true };
 }
-

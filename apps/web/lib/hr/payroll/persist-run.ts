@@ -259,8 +259,12 @@ export async function persistCalculatedPayrollRun(opts: {
   // New staff who appear for the first time still use calculated defaults.
   const { data: priorEmpRows } = await service
     .from("hr_payroll_run_employees")
-    .select("staff_id, included, exclude_reason")
+    .select("*")
     .eq("run_id", runId);
+  const manualEmployeeRows = (priorEmpRows ?? []).filter((row) => {
+    const snapshot = row.snapshot as Record<string, unknown> | null;
+    return snapshot?.manualPayrollEntry === true;
+  });
   const inclusionOverrides = new Map<string, PayrollInclusionOverride>();
   for (const row of priorEmpRows ?? []) {
     const staffId = row.staff_id as string;
@@ -473,6 +477,27 @@ export async function persistCalculatedPayrollRun(opts: {
     }
   }
 
+  // Manual exception rows represent former staff who are intentionally not in
+  // the automatic period roster. Preserve them across a full recalculation.
+  const automaticStaffIds = new Set(employees.map((employee) => employee.staffId));
+  const manualStaffIds: string[] = [];
+  for (const row of manualEmployeeRows) {
+    const staffId = row.staff_id as string;
+    if (!staffId || automaticStaffIds.has(staffId)) continue;
+    const payload = { ...(row as Record<string, unknown>) };
+    delete payload.id;
+    delete payload.created_at;
+    delete payload.updated_at;
+    const { error: manualInsertError } = await service
+      .from("hr_payroll_run_employees")
+      .insert({ ...payload, updated_at: new Date().toISOString() });
+    if (manualInsertError) throw new Error(manualInsertError.message);
+    manualStaffIds.push(staffId);
+  }
+  for (const staffId of manualStaffIds) {
+    await persistManualPayrollEmployee({ service, venueId, runId, staffId, userId });
+  }
+
   if (exceptions.length > 0) {
     const { error: exErr } = await service.from("hr_payroll_exceptions").insert(
       exceptions.map((ex) => ({
@@ -494,7 +519,10 @@ export async function persistCalculatedPayrollRun(opts: {
     period_start: period.periodStart,
     period_end: period.periodEnd,
     payment_date: period.paymentDate,
-    totals,
+    totals:
+      manualStaffIds.length > 0
+        ? await recomputeRunTotalsFromDb(service, runId)
+        : totals,
     updated_by: userId,
     updated_at: new Date().toISOString(),
   };
@@ -685,6 +713,111 @@ export async function syncPayrollRunTotals(opts: {
   return totals;
 }
 
+async function persistManualPayrollEmployee(opts: {
+  service: ReturnType<typeof createServiceClient>;
+  venueId: string;
+  runId: string;
+  staffId: string;
+  userId: string;
+}): Promise<{ totals: PayrollRunTotals }> {
+  const { service, venueId, runId, staffId, userId } = opts;
+  const { data: runEmp, error: runEmpError } = await service
+    .from("hr_payroll_run_employees")
+    .select("id, included, iban, wps_employee_id, bank_name")
+    .eq("run_id", runId)
+    .eq("staff_id", staffId)
+    .single();
+  if (runEmpError || !runEmp) {
+    throw new Error(runEmpError?.message ?? "Manual payroll employee not found.");
+  }
+
+  const { data: adjustmentRows, error: adjustmentError } = await service
+    .from("hr_payroll_adjustments")
+    .select("category, code, label, amount, percent_of_daily_rate, days_applied, reason")
+    .eq("run_id", runId)
+    .eq("staff_id", staffId);
+  if (adjustmentError) throw new Error(adjustmentError.message);
+
+  const adjustments = adjustmentRows ?? [];
+  const fixedEarnings = adjustments
+    .filter((row) => row.category === "fixed")
+    .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const variableEarnings = adjustments
+    .filter((row) => row.category === "variable" || row.category === "addon")
+    .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const totalDeductions = adjustments
+    .filter((row) => row.category === "deduction")
+    .reduce((sum, row) => sum + Math.abs(Number(row.amount ?? 0)), 0);
+  const grossEarnings = fixedEarnings + variableEarnings;
+  const netSalary = Math.max(0, grossEarnings - totalDeductions);
+
+  const { error: updateError } = await service
+    .from("hr_payroll_run_employees")
+    .update({
+      fixed_earnings: fixedEarnings,
+      variable_earnings: variableEarnings,
+      total_deductions: totalDeductions,
+      gross_earnings: grossEarnings,
+      net_salary: netSalary,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runEmp.id);
+  if (updateError) throw new Error(updateError.message);
+
+  await Promise.all([
+    service.from("hr_payroll_lines").delete().eq("run_employee_id", runEmp.id),
+    service.from("hr_payroll_payments").delete().eq("run_employee_id", runEmp.id),
+  ]);
+  if (adjustments.length > 0) {
+    const { error: lineError } = await service.from("hr_payroll_lines").insert(
+      adjustments.map((row, index) => ({
+        venue_id: venueId,
+        run_id: runId,
+        run_employee_id: runEmp.id,
+        category: row.category,
+        code: row.code,
+        label: row.label,
+        amount: Math.abs(Number(row.amount ?? 0)),
+        quantity: row.days_applied ?? null,
+        rate: row.percent_of_daily_rate ?? null,
+        meta: { reason: row.reason, manualPayrollEntry: true },
+        source: "adjustment",
+        sort_order: index + 1,
+      })),
+    );
+    if (lineError) throw new Error(lineError.message);
+  }
+  await service
+    .from("hr_payroll_adjustments")
+    .update({ run_employee_id: runEmp.id })
+    .eq("run_id", runId)
+    .eq("staff_id", staffId);
+
+  if (runEmp.included) {
+    const { error: paymentError } = await service.from("hr_payroll_payments").insert({
+      venue_id: venueId,
+      run_id: runId,
+      run_employee_id: runEmp.id,
+      staff_id: staffId,
+      wps_employee_id: runEmp.wps_employee_id,
+      iban: runEmp.iban,
+      bank_name: runEmp.bank_name,
+      fixed_salary: fixedEarnings,
+      variable_salary: variableEarnings,
+      days_paid: 0,
+      leave_days: 0,
+      net_salary: netSalary,
+      payment_method: runEmp.iban ? "wps" : "cash",
+      status: "pending",
+      updated_at: new Date().toISOString(),
+    });
+    if (paymentError) throw new Error(paymentError.message);
+  }
+
+  const totals = await syncPayrollRunTotals({ service, venueId, runId, userId });
+  return { totals };
+}
+
 /**
  * Fast path after add/edit/delete adjustment: recalculate one employee in place.
  * Avoids wiping the whole run (attendance + all staff + lines rebuild).
@@ -702,7 +835,7 @@ export async function persistSingleEmployeePayroll(opts: {
 
   const { data: runEmp, error: runEmpErr } = await service
     .from("hr_payroll_run_employees")
-    .select("id, included, exclude_reason")
+    .select("id, included, exclude_reason, snapshot")
     .eq("run_id", runId)
     .eq("staff_id", staffId)
     .maybeSingle();
@@ -717,6 +850,11 @@ export async function persistSingleEmployeePayroll(opts: {
       period,
       userId,
     });
+  }
+
+  const runSnapshot = runEmp.snapshot as Record<string, unknown> | null;
+  if (runSnapshot?.manualPayrollEntry === true) {
+    return persistManualPayrollEmployee({ service, venueId, runId, staffId, userId });
   }
 
   const runEmployeeId = runEmp.id as string;

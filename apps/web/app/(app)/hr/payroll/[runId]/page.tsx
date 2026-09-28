@@ -319,11 +319,40 @@ export default async function HrPayrollRunPage({
     }),
   );
 
-  const staffOptions: PayrollStaffOption[] = employees.map((e) => ({
-    id: e.staff_id,
-    emp_no: e.emp_no,
-    full_name: e.full_name,
-  }));
+  let staffOptions: PayrollStaffOption[] = [];
+  if (canEdit) {
+    const existingStaffIds = new Set(employees.map((employee) => employee.staff_id));
+    const { data: availableStaff, error: availableStaffError } = await payrollDataClient
+      .from("staff")
+      .select("id, emp_no, full_name, termination_date, working_status:working_statuses(name)")
+      .eq("home_venue_id", venue.id)
+      .eq("org_chart_only", false)
+      .order("full_name");
+    if (availableStaffError) {
+      console.error("[hr/payroll/run] manual staff options:", availableStaffError.message);
+    } else {
+      staffOptions = (availableStaff ?? [])
+        .filter((staff) => !existingStaffIds.has(staff.id as string))
+        .map((staff) => {
+          const rawStatus = staff.working_status as
+            | { name?: string }
+            | { name?: string }[]
+            | null;
+          const status = Array.isArray(rawStatus)
+            ? rawStatus[0]?.name
+            : rawStatus?.name;
+          return {
+            id: staff.id as string,
+            emp_no: String(staff.emp_no ?? ""),
+            full_name: String(staff.full_name ?? ""),
+            termination_date: staff.termination_date
+              ? String(staff.termination_date).slice(0, 10)
+              : null,
+            working_status: status ? String(status) : null,
+          };
+        });
+    }
+  }
 
   const eventsRaw = (eventsRes.data ?? []) as Array<
     PayrollEventRow & { actor_id?: string | null }

@@ -247,20 +247,53 @@ async function rasterizeExportImages(
   };
 }
 
-/**
- * Daily Snap PDF is a snapshot of the on-screen report. The export clone keeps
- * layout and colors as rendered; only the canvas/page backdrop is forced white.
- */
+function grayscaleBackground(value: string): string | null {
+  const match = value.match(
+    /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*(\d+(?:\.\d+)?))?\s*\)$/,
+  );
+  if (!match) return null;
+  const alpha = match[4] === undefined ? 1 : Number(match[4]);
+  if (alpha === 0) return null;
+
+  const red = Number(match[1]);
+  const green = Number(match[2]);
+  const blue = Number(match[3]);
+  if (red >= 250 && green >= 250 && blue >= 250) return "#ffffff";
+
+  // Keep highlights visibly distinct while light enough for black report text.
+  const luminance = Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
+  const gray = Math.max(218, Math.min(244, luminance));
+  return `rgb(${gray}, ${gray}, ${gray})`;
+}
+
+/** Apply a print-friendly monochrome palette to the export clone only. */
 function applyWhiteExportBackground(cloneRoot: HTMLElement): void {
   cloneRoot.style.backgroundColor = EXPORT_BACKGROUND;
+  cloneRoot.style.color = "#000000";
 
   const view = cloneRoot.ownerDocument.defaultView;
   if (!view) return;
 
   cloneRoot.querySelectorAll<HTMLElement>("*").forEach((element) => {
-    const { backdropFilter } = view.getComputedStyle(element);
+    const computed = view.getComputedStyle(element);
+    const { backdropFilter } = computed;
     if (backdropFilter && backdropFilter !== "none") {
       element.style.backdropFilter = "none";
+    }
+
+    if (!element.closest("svg")) {
+      element.style.color = "#000000";
+      element.style.textShadow = "none";
+    }
+
+    const background = grayscaleBackground(computed.backgroundColor);
+    if (background) {
+      element.style.backgroundColor = background;
+      element.style.backgroundImage = "none";
+    }
+
+    if (computed.borderColor && computed.borderStyle !== "none") {
+      element.style.borderColor = "#c9c9c9";
     }
   });
 }
@@ -351,7 +384,7 @@ function prepareCloneForExport(
     replacement.style.wordBreak = "break-word";
     replacement.style.fontSize = "14px";
     replacement.style.lineHeight = "1.45";
-    replacement.style.color = "#3D421F";
+    replacement.style.color = "#000000";
     cloneTextarea.replaceWith(replacement);
   });
 }

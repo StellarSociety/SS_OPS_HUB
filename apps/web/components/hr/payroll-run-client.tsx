@@ -41,6 +41,7 @@ import type {
 } from "@/lib/actions/hr-payroll-approvals";
 import {
   addPayrollAdjustment,
+  addManualPayrollEmployee,
   addBulkPayrollAdjustment,
   updatePayrollAdjustment,
   updateBulkPayrollAdjustment,
@@ -674,6 +675,8 @@ export type PayrollStaffOption = {
   id: string;
   emp_no: string;
   full_name: string;
+  termination_date?: string | null;
+  working_status?: string | null;
 };
 
 type PayrollRunClientProps = {
@@ -728,7 +731,7 @@ export function PayrollRunClient({
   settlements,
   payments,
   events,
-  staffOptions: _staffOptions,
+  staffOptions,
   canViewSalary,
   canEdit,
   periodNetRevenue,
@@ -1402,6 +1405,7 @@ export function PayrollRunClient({
       {tab === "run" ? (
         <RunEmployeesTab
           employees={displayEmployees}
+          staffOptions={staffOptions}
           linesByEmployee={linesByEmployee}
           adjustments={adjustments}
           adjustmentCodes={adjustmentCodes}
@@ -1413,6 +1417,11 @@ export function PayrollRunClient({
           canViewSalary={canViewSalary}
           editable={editable}
           pending={pending}
+          onAddManualEmployee={(staffId, reason) =>
+            runAction("Add staff manually", () =>
+              addManualPayrollEmployee({ runId: run.id, staffId, reason }),
+            )
+          }
           onToggleIncluded={handleToggleIncluded}
           onAddAdjustment={(input) =>
             runAction("Add adjustment", () =>
@@ -1969,6 +1978,7 @@ function AdjustmentActions({
 
 function RunEmployeesTab({
   employees,
+  staffOptions,
   linesByEmployee,
   adjustments,
   adjustmentCodes,
@@ -1988,8 +1998,10 @@ function RunEmployeesTab({
   onUpdateBulkAdjustment,
   onDeleteBulkAdjustment,
   onRecalculateRun,
+  onAddManualEmployee,
 }: {
   employees: PayrollEmployeeRow[];
+  staffOptions: PayrollStaffOption[];
   linesByEmployee: Map<string, PayrollLineRow[]>;
   adjustments: PayrollAdjustmentRow[];
   adjustmentCodes: PayrollAdjustmentCodeConfig[];
@@ -2012,6 +2024,7 @@ function RunEmployeesTab({
   ) => void;
   onDeleteBulkAdjustment: (bulkGroupId: string) => void;
   onRecalculateRun: () => void;
+  onAddManualEmployee: (staffId: string, reason: string) => void;
 }) {
   const adjustmentsByStaff = useMemo(() => {
     const map = new Map<string, PayrollAdjustmentRow[]>();
@@ -2073,6 +2086,7 @@ function RunEmployeesTab({
     () => new Set(),
   );
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [manualEmployeeDialogOpen, setManualEmployeeDialogOpen] = useState(false);
   const [editingBulkGroup, setEditingBulkGroup] =
     useState<BulkPayrollAdjustmentGroup | null>(null);
   const [deletingBulkGroup, setDeletingBulkGroup] =
@@ -2394,6 +2408,15 @@ function RunEmployeesTab({
               </>
             ) : (
               <>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={pending || staffOptions.length === 0}
+                  onClick={() => setManualEmployeeDialogOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add staff manually
+                </Button>
                 <Button
                   type="button"
                   size="sm"
@@ -3021,6 +3044,17 @@ function RunEmployeesTab({
         }}
       />
 
+      <ManualPayrollEmployeeDialog
+        open={manualEmployeeDialogOpen}
+        staffOptions={staffOptions}
+        pending={pending}
+        onClose={() => setManualEmployeeDialogOpen(false)}
+        onSubmit={(staffId, reason) => {
+          onAddManualEmployee(staffId, reason);
+          setManualEmployeeDialogOpen(false);
+        }}
+      />
+
       <DeleteBulkAdjustmentDialog
         open={deletingBulkGroup != null}
         group={deletingBulkGroup}
@@ -3035,6 +3069,70 @@ function RunEmployeesTab({
         }}
       />
     </section>
+  );
+}
+
+function ManualPayrollEmployeeDialog({
+  open,
+  staffOptions,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  staffOptions: PayrollStaffOption[];
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (staffId: string, reason: string) => void;
+}) {
+  const [staffId, setStaffId] = useState("");
+  const [reason, setReason] = useState("");
+  const closeAndReset = () => {
+    setStaffId("");
+    setReason("");
+    onClose();
+  };
+  if (!open) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4" onMouseDown={closeAndReset}>
+      <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-serif text-xl text-[#3D421F]">Add staff manually</h3>
+            <p className="mt-1 text-sm text-black/55">
+              Adds a zero-base-pay exception. After adding, expand the row and enter the transfer or extra as an adjustment.
+            </p>
+          </div>
+          <button type="button" onClick={closeAndReset} aria-label="Close"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="mt-5 space-y-4">
+          <div className="space-y-1.5">
+            <Label>Staff member</Label>
+            <select className={cn(lightSelectClass, "h-10")} value={staffId} onChange={(event) => setStaffId(event.target.value)}>
+              <option value="">Select former or omitted staff…</option>
+              {staffOptions.map((staff) => (
+                <option key={staff.id} value={staff.id}>
+                  {staff.emp_no} · {staff.full_name}{staff.termination_date ? ` · left ${staff.termination_date}` : staff.working_status ? ` · ${staff.working_status}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Reason</Label>
+            <Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="e.g. Final transfer and outstanding extras" />
+            <p className="text-xs text-black/45">This is recorded in payroll activity for audit purposes.</p>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={closeAndReset} disabled={pending}>Cancel</Button>
+          <Button type="button" disabled={pending || !staffId || !reason.trim()} onClick={() => onSubmit(staffId, reason.trim())}>
+            Add to payroll
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
