@@ -44,6 +44,19 @@ import {
   type HrPayrollAdjustmentCodesSettings,
   type PayrollAdjustmentCodeConfig,
 } from "./adjustment-codes";
+
+function benefitAllocationAppliesToRun(
+  row: Record<string, unknown>,
+  runId: string,
+  period: { periodStart: string; periodEnd: string },
+): boolean {
+  const meta = (row.meta ?? {}) as { targetPayrollRunId?: string };
+  if (meta.targetPayrollRunId) return meta.targetPayrollRunId === runId;
+  const start = String(row.period_start ?? "").slice(0, 10);
+  const end = String(row.period_end ?? "").slice(0, 10);
+  return Boolean(start && end && start <= period.periodEnd && end >= period.periodStart);
+}
+
 export async function loadPayrollSettings(
   supabase: SupabaseClient,
   venueId: string,
@@ -223,8 +236,6 @@ export async function persistCalculatedPayrollRun(opts: {
           "staff_id, benefit_type, amount, status, period_start, meta, run:hr_benefit_runs(benefit_month, benefit_kind, totals)",
         )
         .eq("venue_id", venueId)
-        .lte("period_start", period.periodEnd)
-        .gte("period_end", period.periodStart)
         .in("status", ["applied_to_payroll"]),
     ]);
 
@@ -252,7 +263,9 @@ export async function persistCalculatedPayrollRun(opts: {
   const benefits = await mapAppliedBenefitsForPayroll(
     service,
     venueId,
-    (benefitsRes.data ?? []) as Array<Record<string, unknown>>,
+    ((benefitsRes.data ?? []) as Array<Record<string, unknown>>).filter((row) =>
+      benefitAllocationAppliesToRun(row, runId, period),
+    ),
   );
 
   // Keep every prior include/exclude choice across full rebuild (recalculate / save).
@@ -893,8 +906,6 @@ export async function persistSingleEmployeePayroll(opts: {
         )
         .eq("venue_id", venueId)
         .eq("staff_id", staffId)
-        .lte("period_start", period.periodEnd)
-        .gte("period_end", period.periodStart)
         .in("status", ["applied_to_payroll"]),
     ]);
 
@@ -922,7 +933,9 @@ export async function persistSingleEmployeePayroll(opts: {
   const benefits = await mapAppliedBenefitsForPayroll(
     service,
     venueId,
-    (benefitsRes.data ?? []) as Array<Record<string, unknown>>,
+    ((benefitsRes.data ?? []) as Array<Record<string, unknown>>).filter((row) =>
+      benefitAllocationAppliesToRun(row, runId, period),
+    ),
   );
 
   const { employees, exceptions } = calculateVenuePayroll({

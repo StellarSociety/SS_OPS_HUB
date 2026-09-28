@@ -2799,18 +2799,27 @@ export async function importBenefitsToPayrollRun(input: {
   const unselectedSplit = splitBenefitImportRows(unselectedPreviouslyApplied);
 
   if (selectedSplit.allocations.length > 0) {
-    const { error: applyError } = await service
+    const selectedIds = selectedSplit.allocations.map((r) => r.allocationId);
+    const { data: allocationMetaRows, error: metaLoadError } = await service
       .from("hr_benefit_allocations")
-      .update({
-        status: "applied_to_payroll",
-        updated_at: new Date().toISOString(),
-      })
+      .select("id, meta")
       .eq("venue_id", venue.id)
-      .in(
-        "id",
-        selectedSplit.allocations.map((r) => r.allocationId),
-      );
-    if (applyError) return { ok: false, error: applyError.message };
+      .in("id", selectedIds);
+    if (metaLoadError) return { ok: false, error: metaLoadError.message };
+    for (const allocation of allocationMetaRows ?? []) {
+      const meta = (allocation.meta ?? {}) as Record<string, unknown>;
+      const { error: applyError } = await service
+        .from("hr_benefit_allocations")
+        .update({
+          status: "applied_to_payroll",
+          payroll_line_id: null,
+          meta: { ...meta, targetPayrollRunId: input.runId },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", allocation.id)
+        .eq("venue_id", venue.id);
+      if (applyError) return { ok: false, error: applyError.message };
+    }
   }
 
   if (unselectedSplit.allocations.length > 0) {
@@ -2895,6 +2904,79 @@ export async function importBenefitsToPayrollRun(input: {
 
   const recalc = await recalculatePayrollRun(input.runId);
   if (!recalc.ok) return recalc;
+
+  // Never leave an allocation marked applied unless recalculation produced the
+  // matching benefit line on this exact payroll run.
+  if (selectedSplit.allocations.length > 0) {
+    const expectedByStaffAndType = new Map(
+      selectedSplit.allocations.map((row) => [
+        `${row.staffId}:${row.benefitType}`,
+        row,
+      ]),
+    );
+    const { data: producedLines } = await service
+      .from("hr_payroll_lines")
+      .select("id, code, run_employee:hr_payroll_run_employees!inner(staff_id)")
+      .eq("run_id", input.runId)
+      .eq("source", "benefits");
+    const produced = new Set<string>();
+    const producedLineId = new Map<string, string>();
+    for (const line of producedLines ?? []) {
+      const employeeRaw = line.run_employee as
+        | { staff_id?: string }
+        | { staff_id?: string }[]
+        | null;
+      const employee = Array.isArray(employeeRaw) ? employeeRaw[0] : employeeRaw;
+      const type =
+        line.code === "FLIGHT_TICKET"
+          ? "flight_ticket"
+          : line.code === "TIPS"
+            ? "tips"
+            : line.code === "SERVICE_CHARGE"
+              ? "service_charge"
+              : null;
+      if (employee?.staff_id && type) {
+        const key = `${employee.staff_id}:${type}`;
+        produced.add(key);
+        producedLineId.set(key, String(line.id));
+      }
+    }
+    const missing = [...expectedByStaffAndType.entries()]
+      .filter(([key]) => !produced.has(key))
+      .map(([, row]) => row);
+    if (missing.length > 0) {
+      for (const row of missing) {
+        const { data: allocation } = await service
+          .from("hr_benefit_allocations")
+          .select("meta")
+          .eq("id", row.allocationId)
+          .maybeSingle();
+        const meta = { ...((allocation?.meta ?? {}) as Record<string, unknown>) };
+        delete meta.targetPayrollRunId;
+        await service
+          .from("hr_benefit_allocations")
+          .update({
+            status: "finalized",
+            payroll_line_id: null,
+            meta,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", row.allocationId)
+          .eq("venue_id", venue.id);
+      }
+      return {
+        ok: false,
+        error: `Import was rolled back because ${missing.length} benefit line${missing.length === 1 ? " was" : "s were"} not created.`,
+      };
+    }
+    for (const [key, row] of expectedByStaffAndType) {
+      await service
+        .from("hr_benefit_allocations")
+        .update({ payroll_line_id: producedLineId.get(key) ?? null })
+        .eq("id", row.allocationId)
+        .eq("venue_id", venue.id);
+    }
+  }
 
   revalidatePath("/hr/benefits");
   revalidatePath("/hr/payroll");

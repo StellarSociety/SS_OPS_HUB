@@ -757,6 +757,10 @@ export function PayrollRunClient({
   const [activityOpen, setActivityOpen] = useState(false);
   const [importBenefitsOpen, setImportBenefitsOpen] = useState(false);
   const [importDeductionsOpen, setImportDeductionsOpen] = useState(false);
+  const [excludeEmployee, setExcludeEmployee] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [inclusionOverrides, setInclusionOverrides] = useState<
     Map<string, { included: boolean; exclude_reason: string | null }>
   >(() => new Map());
@@ -922,16 +926,11 @@ export function PayrollRunClient({
     });
   }, [editable, run.id]);
 
-  function handleToggleIncluded(id: string, included: boolean) {
-    let reason: string | undefined;
-    if (!included) {
-      const prompted = window.prompt(
-        "Reason for excluding from this payroll (optional):",
-      );
-      // Cancel keeps the employee included.
-      if (prompted === null) return;
-      reason = prompted.trim() || undefined;
-    }
+  function applyIncludedChange(
+    id: string,
+    included: boolean,
+    reason?: string,
+  ) {
     setInclusionOverrides((prev) => {
       const next = new Map(prev);
       next.set(id, {
@@ -943,6 +942,15 @@ export function PayrollRunClient({
     runAction(included ? "Include employee" : "Exclude employee", () =>
       setEmployeeIncluded(id, included, reason),
     );
+  }
+
+  function handleToggleIncluded(id: string, included: boolean) {
+    if (!included) {
+      const employee = displayEmployees.find((row) => row.id === id);
+      setExcludeEmployee({ id, name: employee?.full_name ?? "this employee" });
+      return;
+    }
+    applyIncludedChange(id, true);
   }
 
   const paymentHint = run.payment_date
@@ -1473,6 +1481,17 @@ export function PayrollRunClient({
         />
       ) : null}
 
+      <ExcludeEmployeeDialog
+        employee={excludeEmployee}
+        pending={pending}
+        onClose={() => setExcludeEmployee(null)}
+        onConfirm={(reason) => {
+          if (!excludeEmployee) return;
+          applyIncludedChange(excludeEmployee.id, false, reason);
+          setExcludeEmployee(null);
+        }}
+      />
+
       <ImportBenefitsDialog
         open={importBenefitsOpen}
         runId={run.id}
@@ -1651,6 +1670,82 @@ export function PayrollRunClient({
     </div>
   );
 
+}
+
+function ExcludeEmployeeDialog({
+  employee,
+  pending,
+  onClose,
+  onConfirm,
+}: {
+  employee: { id: string; name: string } | null;
+  pending: boolean;
+  onClose: () => void;
+  onConfirm: (reason?: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  if (!employee) return null;
+
+  const close = () => {
+    setReason("");
+    onClose();
+  };
+  const confirm = () => {
+    onConfirm(reason.trim() || undefined);
+    setReason("");
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[220] flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={close}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="exclude-employee-title"
+        className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 id="exclude-employee-title" className="font-serif text-xl text-[#3D421F]">
+              Exclude from payroll
+            </h3>
+            <p className="mt-1 text-sm text-black/55">
+              {employee.name} will remain on the run but will not be included in totals or payment.
+            </p>
+          </div>
+          <button type="button" onClick={close} aria-label="Close">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="mt-5 space-y-1.5">
+          <Label htmlFor="exclude-payroll-reason">Reason (optional)</Label>
+          <Input
+            id="exclude-payroll-reason"
+            autoFocus
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="e.g. Paid separately"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !pending) confirm();
+              if (event.key === "Escape") close();
+            }}
+          />
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={close} disabled={pending}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={confirm} disabled={pending}>
+            Exclude employee
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 type AdjustmentInput = {
