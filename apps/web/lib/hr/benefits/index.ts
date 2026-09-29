@@ -104,6 +104,7 @@ export {
   withStaffOverridesOnSnapshot,
   type BenefitStaffOverride,
   type BenefitStaffOverridesMap,
+  type GratuityPayoutSource,
 } from "./staff-overrides";
 export {
   BENEFIT_DEDUCTION_KIND_LABELS,

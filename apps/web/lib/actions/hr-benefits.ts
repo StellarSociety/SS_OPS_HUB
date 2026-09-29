@@ -739,11 +739,20 @@ export async function updateBenefitStaffOverride(
     if ("excluded" in patch) {
       next.excluded = patch.excluded === true;
     }
+    if ("gratuityPayoutSource" in patch) {
+      next.gratuityPayoutSource =
+        patch.gratuityPayoutSource === "retained" ||
+        patch.gratuityPayoutSource === "allocation"
+          ? patch.gratuityPayoutSource
+          : "both";
+    }
 
     if (
       next.tipPoints == null &&
       next.warningLevel == null &&
-      !next.excluded
+      !next.excluded &&
+      (next.gratuityPayoutSource == null ||
+        next.gratuityPayoutSource === "both")
     ) {
       delete overrides[staffId];
     } else {

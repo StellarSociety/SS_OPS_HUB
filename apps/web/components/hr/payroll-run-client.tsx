@@ -5,6 +5,7 @@ import {
   ChevronUp,
   ChevronsUpDown,
   ExternalLink,
+  FileDown,
   Pencil,
   Plus,
   Trash2,
@@ -47,6 +48,7 @@ import {
   updateBulkPayrollAdjustment,
   deletePayrollAdjustment,
   deleteBulkPayrollAdjustment,
+  exportPayrollRunFile,
   generatePayslips,
   generateWpsFile,
   listBenefitsForPayrollImport,
@@ -74,6 +76,7 @@ import {
   inferOrphanedInternalAdjustment,
   isOrphanPayrollAdjustment,
   formatPayrollMonthLabel,
+  previousPayrollMonth,
   DEFAULT_PAYROLL_ADJUSTMENT_CODES,
   resolveManualAdjustmentAmount,
   isDailyRateDiscountAdjustment,
@@ -755,6 +758,7 @@ export function PayrollRunClient({
   const [departmentSummaryOpen, setDepartmentSummaryOpen] = useState(false);
   const [budgetSectionOpen, setBudgetSectionOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [importBenefitsOpen, setImportBenefitsOpen] = useState(false);
   const [importDeductionsOpen, setImportDeductionsOpen] = useState(false);
   const [excludeEmployee, setExcludeEmployee] = useState<{
@@ -1085,6 +1089,53 @@ export function PayrollRunClient({
               </span>
               <span className="text-xs text-black/50">{countsHint}</span>
             </div>
+          </div>
+          <div className="relative shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending || !canEdit || !canViewSalary}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+              onClick={() => setExportMenuOpen((open) => !open)}
+            >
+              <FileDown className="size-4" />
+              Export payroll
+              <ChevronDown className="size-4" />
+            </Button>
+            {exportMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-30 mt-2 w-44 overflow-hidden rounded-lg border border-black/10 bg-white p-1 shadow-lg"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="w-full rounded-md px-3 py-2 text-left text-sm text-[#3D421F] hover:bg-black/[0.04]"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    downloadCsv("Payroll PDF", () =>
+                      exportPayrollRunFile(run.id, "pdf"),
+                    );
+                  }}
+                >
+                  Export as PDF
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="w-full rounded-md px-3 py-2 text-left text-sm text-[#3D421F] hover:bg-black/[0.04]"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    downloadCsv("Payroll Excel", () =>
+                      exportPayrollRunFile(run.id, "excel"),
+                    );
+                  }}
+                >
+                  Export as Excel
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -4127,7 +4178,7 @@ function ImportBenefitsDialog({
     benefitType: PayrollBenefitImportType | "all";
   }) => void;
 }) {
-  const defaultMonthValue = defaultMonth.slice(0, 7);
+  const defaultMonthValue = previousPayrollMonth(defaultMonth);
   const [benefitMonth, setBenefitMonth] = useState(defaultMonthValue);
   const [benefitType, setBenefitType] = useState<
     PayrollBenefitImportType | "all"
@@ -4321,7 +4372,7 @@ function ImportBenefitsDialog({
           <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
             <PayrollMonthPicker
               id="import-benefit-month"
-              label="Benefit month"
+              label="Benefit month (previous payroll month)"
               value={benefitMonth}
               onChange={setBenefitMonth}
               disabled={pending || loading}

@@ -726,7 +726,7 @@ export async function syncPayrollRunTotals(opts: {
   return totals;
 }
 
-async function persistManualPayrollEmployee(opts: {
+export async function persistManualPayrollEmployee(opts: {
   service: ReturnType<typeof createServiceClient>;
   venueId: string;
   runId: string;
@@ -744,20 +744,45 @@ async function persistManualPayrollEmployee(opts: {
     throw new Error(runEmpError?.message ?? "Manual payroll employee not found.");
   }
 
-  const { data: adjustmentRows, error: adjustmentError } = await service
-    .from("hr_payroll_adjustments")
-    .select("category, code, label, amount, percent_of_daily_rate, days_applied, reason")
-    .eq("run_id", runId)
-    .eq("staff_id", staffId);
+  const [adjustmentResult, benefitResult] = await Promise.all([
+    service
+      .from("hr_payroll_adjustments")
+      .select("category, code, label, amount, percent_of_daily_rate, days_applied, reason")
+      .eq("run_id", runId)
+      .eq("staff_id", staffId),
+    service
+      .from("hr_benefit_allocations")
+      .select("id, staff_id, benefit_type, amount, status, period_start, meta, run:hr_benefit_runs(benefit_month, benefit_kind, totals)")
+      .eq("venue_id", venueId)
+      .eq("staff_id", staffId)
+      .eq("status", "applied_to_payroll"),
+  ]);
+  const { data: adjustmentRows, error: adjustmentError } = adjustmentResult;
   if (adjustmentError) throw new Error(adjustmentError.message);
+  if (benefitResult.error) throw new Error(benefitResult.error.message);
 
   const adjustments = adjustmentRows ?? [];
+  const appliedBenefitRows = ((benefitResult.data ?? []) as Array<Record<string, unknown>>)
+    .filter((row) => {
+      const meta = (row.meta ?? {}) as { targetPayrollRunId?: string };
+      return meta.targetPayrollRunId === runId;
+    });
+  const benefits = await mapAppliedBenefitsForPayroll(
+    service,
+    venueId,
+    appliedBenefitRows,
+  );
   const fixedEarnings = adjustments
     .filter((row) => row.category === "fixed")
     .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
-  const variableEarnings = adjustments
+  const adjustmentVariableEarnings = adjustments
     .filter((row) => row.category === "variable" || row.category === "addon")
     .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const benefitVariableEarnings = benefits.reduce(
+    (sum, row) => sum + Number(row.amount ?? 0),
+    0,
+  );
+  const variableEarnings = adjustmentVariableEarnings + benefitVariableEarnings;
   const totalDeductions = adjustments
     .filter((row) => row.category === "deduction")
     .reduce((sum, row) => sum + Math.abs(Number(row.amount ?? 0)), 0);
@@ -799,6 +824,66 @@ async function persistManualPayrollEmployee(opts: {
       })),
     );
     if (lineError) throw new Error(lineError.message);
+  }
+  for (let index = 0; index < benefits.length; index += 1) {
+    const benefit = benefits[index]!;
+    const monthName = benefit.benefit_month
+      ? new Intl.DateTimeFormat("en-GB", { month: "long", timeZone: "UTC" }).format(
+          new Date(`${benefit.benefit_month.slice(0, 7)}-01T00:00:00Z`),
+        )
+      : null;
+    const code =
+      benefit.benefit_type === "tips"
+        ? "TIPS"
+        : benefit.benefit_type === "service_charge"
+          ? "SERVICE_CHARGE"
+          : benefit.benefit_type === "compensation"
+            ? "COMPENSATION"
+            : benefit.benefit_type === "flight_ticket"
+              ? "FLIGHT_TICKET"
+              : "BENEFIT_OTHER";
+    const baseLabel =
+      benefit.benefit_type === "tips"
+        ? "Tips"
+        : benefit.benefit_type === "service_charge"
+          ? "Service charge"
+          : benefit.benefit_type === "compensation"
+            ? "Compensations"
+            : benefit.benefit_type === "flight_ticket"
+              ? "Flight ticket"
+              : "Other benefit";
+    const label =
+      benefit.benefit_type === "tips" && monthName
+        ? `${baseLabel} (${monthName} Gratuity)`
+        : monthName
+          ? `${baseLabel} (${monthName})`
+          : baseLabel;
+    const { data: insertedLine, error: benefitLineError } = await service
+      .from("hr_payroll_lines")
+      .insert({
+        venue_id: venueId,
+        run_id: runId,
+        run_employee_id: runEmp.id,
+        category: "variable",
+        code,
+        label,
+        amount: Number(benefit.amount ?? 0),
+        meta: benefit.benefit_month
+          ? { benefitMonth: benefit.benefit_month, manualPayrollEntry: true }
+          : { manualPayrollEntry: true },
+        source: "benefits",
+        sort_order: adjustments.length + index + 1,
+      })
+      .select("id")
+      .single();
+    if (benefitLineError) throw new Error(benefitLineError.message);
+    const allocationId = String(appliedBenefitRows[index]?.id ?? "");
+    if (allocationId && insertedLine?.id) {
+      await service
+        .from("hr_benefit_allocations")
+        .update({ payroll_line_id: insertedLine.id })
+        .eq("id", allocationId);
+    }
   }
   await service
     .from("hr_payroll_adjustments")

@@ -1,11 +1,15 @@
 import type { DisciplinaryWarningLevel } from "./types";
 
+export type GratuityPayoutSource = "both" | "retained" | "allocation";
+
 /** Per-staff overrides applied when calculating a benefit run. */
 export type BenefitStaffOverride = {
   tipPoints?: number | null;
   warningLevel?: DisciplinaryWarningLevel | null;
   /** When true, staff stays on the run at AED 0 and their share is redistributed. */
   excluded?: boolean;
+  /** Which gratuity component is paid when a contributor also has a pool allocation. */
+  gratuityPayoutSource?: GratuityPayoutSource;
 };
 
 export type BenefitStaffOverridesMap = Record<string, BenefitStaffOverride>;
@@ -55,10 +59,21 @@ export function readStaffOverridesFromSnapshot(
           ? false
           : undefined;
 
+    const payoutSourceRaw = String(
+      row.gratuityPayoutSource ?? row.gratuity_payout_source ?? "",
+    );
+    const gratuityPayoutSource =
+      payoutSourceRaw === "both" ||
+      payoutSourceRaw === "retained" ||
+      payoutSourceRaw === "allocation"
+        ? (payoutSourceRaw as GratuityPayoutSource)
+        : undefined;
+
     out[staffId] = {
       ...(tipPoints !== undefined ? { tipPoints } : {}),
       ...(warningLevel !== undefined ? { warningLevel } : {}),
       ...(excluded !== undefined ? { excluded } : {}),
+      ...(gratuityPayoutSource !== undefined ? { gratuityPayoutSource } : {}),
     };
   }
   return out;
@@ -82,6 +97,7 @@ export function applyStaffOverrides<
     tip_points?: number | null;
     warning_level?: DisciplinaryWarningLevel | null;
     excluded_from_run?: boolean;
+    gratuity_payout_source?: GratuityPayoutSource;
   },
 >(staff: T[], overrides: BenefitStaffOverridesMap): T[] {
   if (!overrides || Object.keys(overrides).length === 0) return staff;
@@ -98,6 +114,10 @@ export function applyStaffOverrides<
           : (s.warning_level ?? null),
       excluded_from_run:
         o.excluded !== undefined ? o.excluded : (s.excluded_from_run ?? false),
+      gratuity_payout_source:
+        o.gratuityPayoutSource !== undefined
+          ? o.gratuityPayoutSource
+          : (s.gratuity_payout_source ?? "both"),
     };
   });
 }

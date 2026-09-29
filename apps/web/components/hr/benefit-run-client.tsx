@@ -57,6 +57,7 @@ import {
   type BenefitRunTotals,
   type DisciplinaryWarningLevel,
   type GratuityDisciplinaryDeduction,
+  type GratuityPayoutSource,
   type BenefitPointTier,
   type WaiterCcTipOutMode,
   normalizePersonName,
@@ -1621,7 +1622,12 @@ export function BenefitRunClient({
       poolAllocationRows.map((row) => [row.staff_id, row]),
     );
     const seen = new Set<string>();
-    const rows: Array<{ staffId: string; empNo: string; name: string }> = [];
+    const rows: Array<{
+      staffId: string;
+      empNo: string;
+      name: string;
+      payoutSource: GratuityPayoutSource;
+    }> = [];
     for (const row of contributors) {
       if (!row.staffId || seen.has(row.staffId)) continue;
       const alloc = allocated.get(row.staffId);
@@ -1631,6 +1637,9 @@ export function BenefitRunClient({
         staffId: row.staffId,
         empNo: (row.empNo ?? alloc.emp_no ?? "—").trim() || "—",
         name: (row.name || alloc.full_name || row.staffId).trim(),
+        payoutSource:
+          (alloc.meta?.gratuityPayoutSource as GratuityPayoutSource | undefined) ??
+          "both",
       });
     }
     return rows.sort((a, b) =>
@@ -2083,6 +2092,7 @@ export function BenefitRunClient({
       tipPoints?: number | null;
       warningLevel?: DisciplinaryWarningLevel | null;
       excluded?: boolean;
+      gratuityPayoutSource?: GratuityPayoutSource;
     },
   ) {
     setError(null);
@@ -2578,11 +2588,37 @@ export function BenefitRunClient({
             Tip collectors should not also receive a pool share — they would be
             paid twice.
           </p>
-          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-rose-900/85">
+          <ul className="mt-3 space-y-2 text-rose-900/85">
             {contributorAlsoAllocated.map((row) => (
-              <li key={row.staffId}>
-                {row.empNo !== "—" ? `${row.empNo} · ` : ""}
-                {row.name}
+              <li
+                key={row.staffId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-rose-200 bg-white/60 px-3 py-2"
+              >
+                <span>
+                  {row.empNo !== "—" ? `${row.empNo} · ` : ""}
+                  {row.name}
+                </span>
+                <label className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-rose-900/70">
+                    Pay from
+                  </span>
+                  <select
+                    className="h-8 rounded-md border border-rose-300 bg-white px-2 text-xs text-rose-950 outline-none focus:ring-2 focus:ring-rose-400/40"
+                    value={row.payoutSource}
+                    disabled={!canEditAllocations || pending}
+                    onChange={(event) =>
+                      saveOverride(row.staffId, {
+                        gratuityPayoutSource: event.target
+                          .value as GratuityPayoutSource,
+                      })
+                    }
+                    aria-label={`Payout source for ${row.name}`}
+                  >
+                    <option value="both">Both</option>
+                    <option value="retained">Retained contribution</option>
+                    <option value="allocation">Allocation share</option>
+                  </select>
+                </label>
               </li>
             ))}
           </ul>

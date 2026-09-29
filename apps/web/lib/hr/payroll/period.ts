@@ -34,6 +34,13 @@ export function payrollMonthKey(year: number, month: number): string {
   return isoDate(year, month, 1);
 }
 
+/** Previous calendar month as `YYYY-MM`, including January year rollover. */
+export function previousPayrollMonth(payrollMonth: string): string {
+  const { year, month } = parsePayrollMonth(payrollMonth);
+  const previous = new Date(Date.UTC(year, month - 2, 1));
+  return `${previous.getUTCFullYear()}-${pad2(previous.getUTCMonth() + 1)}`;
+}
+
 export function mergePayrollSettings(
   partial?: Partial<HrPayrollSettings> | null,
 ): HrPayrollSettings {

@@ -12,6 +12,7 @@ import { findMappedBenefitPointTierForStaff, resolveBenefitPointsForStaff } from
 import { resolvePoolDeductions } from "./pool-collections";
 import { sumAed5RoundingRemainder } from "./rounding";
 import { countBenefitsWorkedDays } from "./worked-days";
+import type { GratuityPayoutSource } from "./staff-overrides";
 
 export type GratuityStaffInput = {
   id: string;
@@ -31,6 +32,8 @@ export type GratuityStaffInput = {
   is_floor_waiter?: boolean;
   /** Manual exclude from this run — payout is 0 and share is redistributed. */
   excluded_from_run?: boolean;
+  /** Selects the paid component when the employee has retain and a pool share. */
+  gratuity_payout_source?: GratuityPayoutSource;
   employment_ended_as?: "resignation" | "termination" | null;
 };
 
@@ -903,7 +906,14 @@ export function calculateGratuityRun(input: {
     const isEntitled = entitled(s, settings);
     if (!isEntitled && !(waiveWithheldRetain && retain > 0)) continue;
     const poolPay = poolPayByStaff.get(staffId) ?? 0;
-    const amount = round2(retain + poolPay);
+    const payoutSource = s.gratuity_payout_source ?? "both";
+    const amount = round2(
+      payoutSource === "retained"
+        ? retain
+        : payoutSource === "allocation"
+          ? poolPay
+          : retain + poolPay,
+    );
 
     const labels = scheduleByStaff.get(staffId) ?? [];
     const workedDays = countBenefitsWorkedDays(labels, settings);
@@ -939,6 +949,7 @@ export function calculateGratuityRun(input: {
         disciplinaryRetainCut:
           Number(waiterMeta?.disciplinaryRetainCut) || 0,
         poolShare: round2(poolPay),
+        gratuityPayoutSource: payoutSource,
         departmentKey: deptKey,
         departmentLabel:
           settings.departmentShares.find((d) => d.key === deptKey)?.label ??

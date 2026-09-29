@@ -40,6 +40,7 @@ import { loadPayslipLetterheadForVenue } from "@/lib/hr/payslip-letterhead";
 import { HR_MODULE_KEY, HR_SETTINGS_KEYS } from "@/lib/hr/types";
 import {
   persistCalculatedPayrollRun,
+  persistManualPayrollEmployee,
   persistSingleEmployeePayroll,
   loadPayrollSettings,
   loadPayrollAdjustmentCodes,
@@ -1151,6 +1152,13 @@ export async function deleteBulkPayrollAdjustment(input: {
 export async function generateWpsFile(
   runId: string,
 ): Promise<PayrollCsvResult> {
+  return exportPayrollRunFile(runId, "excel");
+}
+
+export async function exportPayrollRunFile(
+  runId: string,
+  format: "pdf" | "excel",
+): Promise<PayrollCsvResult> {
   const auth = await getPayrollAuth();
   if ("error" in auth) return { ok: false, error: auth.error };
   const { venue, permissions, supabase, user } = auth;
@@ -1169,14 +1177,16 @@ export async function generateWpsFile(
 
   const { package: pack } = built;
   const service = createServiceClient();
-  await service
-    .from("hr_payroll_payments")
-    .update({
-      status: "file_generated",
-      file_generated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("run_id", runId);
+  if (format === "excel") {
+    await service
+      .from("hr_payroll_payments")
+      .update({
+        status: "file_generated",
+        file_generated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("run_id", runId);
+  }
 
   await service.from("hr_payroll_run_events").insert({
     venue_id: venue.id,
@@ -1184,7 +1194,7 @@ export async function generateWpsFile(
     actor_id: user.id,
     from_status: pack.runStatus,
     to_status: pack.runStatus,
-    comment: `Payroll export generated (${pack.rows.length} row(s)${
+    comment: `Payroll ${format.toUpperCase()} export generated (${pack.rows.length} row(s)${
       pack.errors.length > 0 ? `, ${pack.errors.length} warning(s)` : ""
     })`,
     changes_summary: { warnings: pack.errors, rowCount: pack.rows.length },
@@ -1193,9 +1203,9 @@ export async function generateWpsFile(
   revalidatePayroll(runId);
   return {
     ok: true,
-    base64: pack.xlsx.base64,
-    filename: pack.xlsx.filename,
-    mimeType: pack.xlsx.mimeType,
+    base64: format === "pdf" ? pack.pdf.base64 : pack.xlsx.base64,
+    filename: format === "pdf" ? pack.pdf.filename : pack.xlsx.filename,
+    mimeType: format === "pdf" ? pack.pdf.mimeType : pack.xlsx.mimeType,
     warnings: pack.errors.length > 0 ? pack.errors : undefined,
   };
 }
@@ -2904,6 +2914,31 @@ export async function importBenefitsToPayrollRun(input: {
 
   const recalc = await recalculatePayrollRun(input.runId);
   if (!recalc.ok) return recalc;
+
+  // Former staff can be added to a run manually even when their employment
+  // dates no longer overlap the payroll period. Rebuild those selected rows
+  // explicitly so their imported benefits are not skipped by roster payroll.
+  for (const row of selectedSplit.allocations) {
+    const { data: selectedRunEmployee } = await service
+      .from("hr_payroll_run_employees")
+      .select("snapshot")
+      .eq("run_id", input.runId)
+      .eq("staff_id", row.staffId)
+      .maybeSingle();
+    const snapshot = (selectedRunEmployee?.snapshot ?? {}) as Record<
+      string,
+      unknown
+    >;
+    if (snapshot.manualPayrollEntry === true) {
+      await persistManualPayrollEmployee({
+        service,
+        venueId: venue.id,
+        runId: input.runId,
+        staffId: row.staffId,
+        userId: user.id,
+      });
+    }
+  }
 
   // Never leave an allocation marked applied unless recalculation produced the
   // matching benefit line on this exact payroll run.
