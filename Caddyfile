@@ -1,0 +1,3 @@
+http://ssopshub.localhost {
+	reverse_proxy localhost:3020
+}
