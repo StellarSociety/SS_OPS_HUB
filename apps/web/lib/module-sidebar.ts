@@ -1,5 +1,10 @@
 import {
   BadgeCheck,
+  Boxes,
+  ChartPie,
+  Martini,
+  Utensils,
+  Wine,
   BookUser,
   Cake,
   CalendarCheck,
@@ -270,6 +275,54 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     ],
     bottomItems: [
       { label: "Settings", href: "/sales/settings", icon: Settings },
+    ],
+  },
+  {
+    moduleKey: "gp_cos",
+    basePath: "/gp-cos",
+    label: "GP & COS",
+    icon: ChartPie,
+    items: [
+      {
+        label: "Overview",
+        href: "/gp-cos",
+        exact: true,
+        icon: LayoutDashboard,
+        dividerAfter: true,
+      },
+      {
+        label: "Food",
+        href: "/gp-cos/food/cost-runs",
+        activePathPrefix: "/gp-cos/food",
+        icon: Utensils,
+      },
+      {
+        label: "Beverage",
+        href: "/gp-cos/beverage/cost-runs",
+        activePathPrefix: "/gp-cos/beverage",
+        icon: Martini,
+      },
+      {
+        label: "Wine",
+        href: "/gp-cos/wine/cost-runs",
+        activePathPrefix: "/gp-cos/wine",
+        icon: Wine,
+      },
+      {
+        label: "Other",
+        href: "/gp-cos/other/cost-runs",
+        activePathPrefix: "/gp-cos/other",
+        icon: Boxes,
+        dividerAfter: true,
+      },
+      {
+        label: "Reports",
+        href: "/gp-cos/reports",
+        icon: FileBarChart,
+      },
+    ],
+    bottomItems: [
+      { label: "Settings", href: "/gp-cos/settings", icon: Settings },
     ],
   },
   {

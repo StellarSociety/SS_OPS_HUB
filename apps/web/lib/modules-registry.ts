@@ -205,7 +205,8 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     label: "GP & COS",
     iconKey: "chart-pie",
     category: "revenue",
-    status: "coming_soon",
+    href: "/gp-cos",
+    status: "live",
     description:
       "Monitor gross profit and cost of sales to understand margins on every product and category.",
   },
