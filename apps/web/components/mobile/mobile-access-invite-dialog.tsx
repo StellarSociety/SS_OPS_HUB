@@ -354,7 +354,10 @@ export function MobileAccessInviteDialog({
         {inviteLink ? <div className="mt-4"><InviteLinkBox link={inviteLink} /></div> : null}
         {credentials ? (
           <div className="mt-4">
-            <AccessCredentialsBox credentials={credentials} />
+            <AccessCredentialsBox
+              credentials={credentials}
+              recipientName={row.name}
+            />
           </div>
         ) : null}
       </div>

@@ -5,6 +5,7 @@ export function isStandaloneDisplayMode(
   navigatorLike: { standalone?: boolean } | null | undefined,
 ): boolean {
   if (matchMedia?.("(display-mode: standalone)").matches) return true;
+  if (matchMedia?.("(display-mode: tabbed)").matches) return true;
   if (matchMedia?.("(display-mode: fullscreen)").matches) return true;
   if (matchMedia?.("(display-mode: minimal-ui)").matches) return true;
   if (navigatorLike?.standalone === true) return true;

@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import { ArrowRight, Loader2, Pencil, Plus, X } from "lucide-react";
+import { ArrowRight, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { DateInput } from "@/components/ui/date-input";
 import { toast } from "@/components/ui/toast";
 import { PayrollMonthPicker } from "@/components/hr/payroll-month-picker";
 import {
   createStaffPositionSalaryChange,
+  deleteStaffPositionSalaryChange,
   listStaffPositionSalaryChanges,
   updateStaffPositionSalaryChange,
+  type DeletePositionSalaryChangeResult,
   type StaffPositionSalaryChangeItem,
 } from "@/lib/actions/hr-staff-position-salary";
 import {
@@ -212,10 +215,10 @@ type StaffEmploymentPathPositionSalaryProps = {
   onRetry?: () => void;
   onItemsChange?: (items: StaffPositionSalaryChangeItem[]) => void;
   onApplied?: (patch: {
-    department_id: string;
-    position_id: string;
-    wage_package: string;
-    company_accommodation: string;
+    department_id?: string;
+    position_id?: string;
+    wage_package?: string;
+    company_accommodation?: string;
     visa_status?: string;
     visa_expiry?: string;
   }) => void;
@@ -254,19 +257,59 @@ function kindBadgeClass(kind: StaffPositionSalaryChangeItem["changeKind"]) {
   }
 }
 
+export type PositionSalaryDeletedPatch = Extract<
+  DeletePositionSalaryChangeResult,
+  { ok: true }
+>["staffPatch"];
+
 export function ChangePathRow({
   item,
+  staffId = null,
   canViewSalary,
   canEdit,
   salaryPct,
   onEdit,
+  onDeleted,
 }: {
   item: StaffPositionSalaryChangeItem;
+  staffId?: string | null;
   canViewSalary: boolean;
   canEdit: boolean;
   salaryPct: SalaryPercentages;
   onEdit?: (item: StaffPositionSalaryChangeItem) => void;
+  onDeleted?: (
+    item: StaffPositionSalaryChangeItem,
+    staffPatch: PositionSalaryDeletedPatch,
+  ) => void;
 }) {
+  const [deleting, startDelete] = useTransition();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const canDelete = canEdit && Boolean(staffId) && Boolean(onDeleted);
+
+  function openConfirm() {
+    setDeleteError(null);
+    setConfirmOpen(true);
+  }
+
+  function confirmDelete() {
+    if (!staffId || !onDeleted) return;
+    setDeleteError(null);
+    startDelete(async () => {
+      const result = await deleteStaffPositionSalaryChange({
+        staffId,
+        changeId: item.id,
+      });
+      if (!result.ok) {
+        setDeleteError(result.error);
+        return;
+      }
+      setConfirmOpen(false);
+      toast.saved("Change deleted.");
+      onDeleted(item, result.staffPatch);
+    });
+  }
+
   const showPosition =
     item.changeKind === "position" || item.changeKind === "both";
   const showSalary =
@@ -292,6 +335,44 @@ export function ChangePathRow({
 
   return (
     <li className="relative pl-6">
+      <ConfirmDeleteDialog
+        open={confirmOpen}
+        title="Delete this change?"
+        description="This removes the record from the Employment path. If it is the employee's latest change, their position, salary, and visa details go back to the previous values."
+        subject={
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium tabular-nums">
+                {formatDateOnly(item.effectiveDate)}
+              </span>
+              <span
+                className={cn(
+                  "inline-flex rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  kindBadgeClass(item.changeKind),
+                )}
+              >
+                {kindLabel(item.changeKind, item.changeVisa)}
+              </span>
+            </div>
+            {showPosition ? (
+              <p className="text-black/60">
+                {item.fromPositionName || "—"} → {item.toPositionName || "—"}
+              </p>
+            ) : null}
+            {showSalary && canViewSalary ? (
+              <p className="text-black/60">
+                {formatAed(item.fromWagePackage)} →{" "}
+                {formatAed(item.toWagePackage)}
+              </p>
+            ) : null}
+          </div>
+        }
+        confirmLabel="Delete change"
+        pending={deleting}
+        error={deleteError}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirmDelete}
+      />
       <span
         className="absolute left-0 top-3 size-2.5 rounded-full border-2 border-white bg-[var(--venue-primary,#6B7B3A)] shadow-sm ring-1 ring-black/10"
         aria-hidden
@@ -311,16 +392,34 @@ export function ChangePathRow({
               {kindLabel(item.changeKind, item.changeVisa)}
             </span>
           </div>
-          {canEdit && onEdit ? (
-            <button
-              type="button"
-              onClick={() => onEdit(item)}
-              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-[#3D421F] transition hover:bg-[var(--venue-primary)]/10"
-            >
-              <Pencil className="h-3 w-3" aria-hidden />
-              Edit
-            </button>
-          ) : null}
+          <div className="flex items-center gap-1">
+            {canEdit && onEdit ? (
+              <button
+                type="button"
+                onClick={() => onEdit(item)}
+                className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-[#3D421F] transition hover:bg-[var(--venue-primary)]/10"
+              >
+                <Pencil className="h-3 w-3" aria-hidden />
+                Edit
+              </button>
+            ) : null}
+            {canDelete ? (
+              <button
+                type="button"
+                onClick={openConfirm}
+                disabled={deleting}
+                title="Delete this change"
+                aria-label="Delete this change"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-black/40 transition hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+              >
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                )}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {showPosition ? (
@@ -1156,6 +1255,11 @@ export function StaffEmploymentPathPositionSalary({
                   canEdit={canEdit}
                   salaryPct={salaryPct}
                   onEdit={openEditDialog}
+                  staffId={staffId}
+                  onDeleted={(deleted, staffPatch) => {
+                    setItems(items.filter((row) => row.id !== deleted.id));
+                    if (staffPatch) onApplied?.(staffPatch);
+                  }}
                 />
               ))}
           </ul>

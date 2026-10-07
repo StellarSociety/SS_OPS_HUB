@@ -1,5 +1,6 @@
 // GP & COS calculations — mirrors the COS BEV spreadsheet.
-//   Cost of Sales = Purchases + Opening Stock - Closing Stock - Adjustments
+//   Cost of Sales = Purchases + Opening Stock - Closing Stock + Adjustments
+//   Adjustments   = Additions - Deductions (deductions are stored negative)
 //   Gross Profit  = Sales - Cost of Sales
 //   Cost %        = Cost of Sales / Sales * 100
 //   GP %          = Gross Profit / Sales * 100   (= 100 - Cost %)
@@ -85,7 +86,7 @@ export function deriveCosRun(
   const openingStock = Number(run.opening_stock_gs) || 0;
   const closingStock = Number(run.closing_stock_gs) || 0;
 
-  const costOfSales = purchases + openingStock - closingStock - adjustmentsTotal;
+  const costOfSales = purchases + openingStock - closingStock + adjustmentsTotal;
   const grossProfit = sales - costOfSales;
   const costPct = sales > 0 ? (costOfSales / sales) * 100 : null;
   const gpPct = sales > 0 ? (grossProfit / sales) * 100 : null;
@@ -187,11 +188,14 @@ export function rollupByMonth(
   return Array.from(byMonth.values()).sort((a, b) => a.monthIndex - b.monthIndex);
 }
 
-/** The auto-adjustment created from a discount at the configured %. */
+/**
+ * The auto-adjustment created from the net discounts at the configured %.
+ * It is a deduction, so it is returned as a negative amount.
+ */
 export function autoDiscountAdjustment(
   salesDiscountGs: number,
   autoAdjustmentPct: number,
 ): number {
   if (!autoAdjustmentPct) return 0;
-  return (Number(salesDiscountGs) || 0) * (autoAdjustmentPct / 100);
+  return -((Number(salesDiscountGs) || 0) * (autoAdjustmentPct / 100));
 }

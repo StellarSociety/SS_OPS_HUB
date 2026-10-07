@@ -1,7 +1,13 @@
 "use client";
 
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
-import { BarChart3, Table2, UserPlus, type LucideIcon } from "lucide-react";
+import {
+  BarChart3,
+  Table2,
+  TrendingUp,
+  UserPlus,
+  type LucideIcon,
+} from "lucide-react";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { pillSubNavShellClass } from "@/lib/sub-nav-ui";
 
@@ -16,6 +22,7 @@ const tabs: StaffTab[] = [
   { href: "/hr/staff/entry", label: "Entry Form", icon: UserPlus, exact: false },
   { href: "/hr/staff/insights", label: "Insights", icon: BarChart3, exact: false },
   { href: "/hr/staff/data", label: "Database Table", icon: Table2, exact: false },
+  { href: "/hr/staff/promotions", label: "Promotions", icon: TrendingUp, exact: false },
 ];
 
 export function StaffSubNav() {

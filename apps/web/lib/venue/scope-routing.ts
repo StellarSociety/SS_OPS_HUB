@@ -41,6 +41,7 @@ export const VENUE_APP_ROOTS = [
   "/mobile",
   "/settings",
   "/profile",
+  "/notifications",
   "/user-guide",
   "/developers",
   "/hub-terms",

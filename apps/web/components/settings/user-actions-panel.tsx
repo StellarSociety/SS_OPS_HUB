@@ -555,7 +555,12 @@ export function UserActionsPanel({ user }: { user: UserListRow }) {
         </div>
       ) : null}
 
-      {credentials ? <AccessCredentialsBox credentials={credentials} /> : null}
+      {credentials ? (
+        <AccessCredentialsBox
+          credentials={credentials}
+          recipientName={user.full_name}
+        />
+      ) : null}
       {inviteLink ? <InviteLinkBox link={inviteLink} /> : null}
 
       {viewingPw && viewedCredentials ? (

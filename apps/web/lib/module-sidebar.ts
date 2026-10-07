@@ -1,6 +1,6 @@
 import {
   BadgeCheck,
-  Boxes,
+  Cigarette,
   ChartPie,
   Martini,
   Utensils,
@@ -291,28 +291,28 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         dividerAfter: true,
       },
       {
-        label: "Food",
+        label: "Food Cost",
         href: "/gp-cos/food/cost-runs",
         activePathPrefix: "/gp-cos/food",
         icon: Utensils,
       },
       {
-        label: "Beverage",
+        label: "Beverages Cost",
         href: "/gp-cos/beverage/cost-runs",
         activePathPrefix: "/gp-cos/beverage",
         icon: Martini,
       },
       {
-        label: "Wine",
+        label: "Wine Cost",
         href: "/gp-cos/wine/cost-runs",
         activePathPrefix: "/gp-cos/wine",
         icon: Wine,
       },
       {
-        label: "Other",
+        label: "Others Cost",
         href: "/gp-cos/other/cost-runs",
         activePathPrefix: "/gp-cos/other",
-        icon: Boxes,
+        icon: Cigarette,
         dividerAfter: true,
       },
       {

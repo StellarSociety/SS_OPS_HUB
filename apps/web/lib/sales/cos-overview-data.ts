@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   COST_CENTRES,
+  type CosRunStatus,
   type CostCentre,
 } from "@/lib/sales/cos-types";
 import {
@@ -68,13 +69,33 @@ export type CentreWeekPoint = {
   costPct: number | null;
 };
 
+/** One retail week for one cost centre — feeds the MTD/YTD detail popups. */
+export type CentreWeekDetail = {
+  weekNo: number;
+  monthIndex: number;
+  start: string;
+  end: string;
+  sales: number;
+  purchases: number;
+  openingStock: number;
+  closingStock: number;
+  /** Named adjustments on the run (subtracted from cost of sales). */
+  adjustments: number;
+  costOfSales: number;
+  runId: string | null;
+  status: CosRunStatus | null;
+};
+
 export type CentreTotals = {
   costCentre: CostCentre;
   restaurantSales: number;
   sales: number;
   discount: number;
   purchases: number;
+  /** Named adjustments only (subtracted from cost of sales). */
   adjustments: number;
+  /** Sum of weekly opening − closing stock (added to cost of sales). */
+  stockMovement: number;
   costOfSales: number;
   grossProfit: number;
   costPct: number | null;
@@ -89,6 +110,10 @@ export type CosOverviewData = {
   period: Record<CostCentre, CentreTotals>;
   mtd: Record<CostCentre, CentreTotals>;
   ytd: Record<CostCentre, CentreTotals>;
+  /** All 52 retail weeks per centre, for drill-down. */
+  weeks: Record<CostCentre, CentreWeekDetail[]>;
+  /** Week numbers that make up the MTD totals. */
+  mtdWeeks: number[];
   targetByCentre: Record<CostCentre, number>;
   // range metadata
   scope: "week" | "month" | "year";
@@ -104,6 +129,7 @@ function emptyTotals(c: CostCentre): CentreTotals {
     discount: 0,
     purchases: 0,
     adjustments: 0,
+    stockMovement: 0,
     costOfSales: 0,
     grossProfit: 0,
     costPct: null,
@@ -182,6 +208,7 @@ export async function getCosOverviewData(
   const period = {} as Record<CostCentre, CentreTotals>;
   const mtd = {} as Record<CostCentre, CentreTotals>;
   const ytd = {} as Record<CostCentre, CentreTotals>;
+  const weeks = {} as Record<CostCentre, CentreWeekDetail[]>;
 
   const inScope = (wk: number) => {
     if (scope === "year") return true;
@@ -197,6 +224,7 @@ export async function getCosOverviewData(
     for (const r of runsByCentre[c]) runByWeek.set(r.week_no, r);
 
     const points: CentreWeekPoint[] = [];
+    const details: CentreWeekDetail[] = [];
     const p = emptyTotals(c);
     const m = emptyTotals(c);
     const y = emptyTotals(c);
@@ -211,6 +239,22 @@ export async function getCosOverviewData(
       const cos = d?.costOfSales ?? 0;
       const discount = run?.sales_discount_gs ?? 0;
       const adj = d?.adjustmentsTotal ?? 0;
+      const stockMovement = d ? d.openingStock - d.closingStock : 0;
+      const range = cosWeekRange(fiscalYear, wk);
+      details.push({
+        weekNo: wk,
+        monthIndex: monthIndexForWeek(wk),
+        start: range.start,
+        end: range.end,
+        sales,
+        purchases,
+        openingStock: d?.openingStock ?? 0,
+        closingStock: d?.closingStock ?? 0,
+        adjustments: adj,
+        costOfSales: cos,
+        runId: run?.id ?? null,
+        status: run?.status ?? null,
+      });
 
       if (restaurant > 0 || sales > 0 || purchases > 0) {
         points.push({
@@ -229,6 +273,7 @@ export async function getCosOverviewData(
         t.discount += discount;
         t.purchases += purchases;
         t.adjustments += adj;
+        t.stockMovement += stockMovement;
         t.costOfSales += cos;
         t.grossProfit += sales - cos;
       };
@@ -238,6 +283,7 @@ export async function getCosOverviewData(
     }
 
     weekly[c] = points;
+    weeks[c] = details;
     period[c] = finalisePct(p);
     mtd[c] = finalisePct(m);
     ytd[c] = finalisePct(y);
@@ -249,6 +295,8 @@ export async function getCosOverviewData(
     period,
     mtd,
     ytd,
+    weeks,
+    mtdWeeks: Array.from({ length: 52 }, (_, i) => i + 1).filter(inMtd),
     targetByCentre,
     scope,
     weekNo,

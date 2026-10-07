@@ -1,8 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  CosMonthlyTargetInput,
   CostCentre,
   CosWeekSalesSnapshot,
   VenueCosAdjustment,
+  VenueCosAdjustmentKind,
+  VenueCosMonthlyTarget,
+  VenueCosTransfer,
+  CosAdjustmentSide,
+  CosAdjustmentSource,
   VenueCosPurchase,
   VenueCosRun,
   VenueCosRunWithAdjustments,
@@ -76,6 +82,8 @@ export async function upsertVenueCosSettings(
     closing_stock_target_gs?: number;
     auto_adjustment_pct?: number;
     approver_user_id?: string | null;
+    ledger_account_ids?: string[];
+    approver_user_ids?: string[];
   },
 ): Promise<VenueCosSettings> {
   const row = {
@@ -86,6 +94,12 @@ export async function upsertVenueCosSettings(
     closing_stock_target_gs: payload.closing_stock_target_gs ?? 0,
     auto_adjustment_pct: payload.auto_adjustment_pct ?? 0,
     approver_user_id: payload.approver_user_id ?? null,
+    ...(payload.ledger_account_ids
+      ? { ledger_account_ids: payload.ledger_account_ids }
+      : {}),
+    ...(payload.approver_user_ids
+      ? { approver_user_ids: payload.approver_user_ids }
+      : {}),
     updated_by: userId,
   };
   const { data, error } = await supabase
@@ -294,7 +308,7 @@ export async function replaceCosRunAdjustments(
   adjustments: {
     reason: string;
     amount_gs: number;
-    source?: "manual" | "auto_discount" | "stock" | "other";
+    source?: CosAdjustmentSource;
     ledger_account?: string;
   }[],
 ): Promise<void> {
@@ -426,4 +440,242 @@ export async function getCosWeekSalesSnapshot(
     sales_gs: centre,
     sales_discount_gs: centreDiscount,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Monthly targets
+// ---------------------------------------------------------------------------
+
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function listVenueCosMonthlyTargets(
+  supabase: SupabaseClient,
+  venueId: string,
+  filter?: { costCentre?: CostCentre; fiscalYear?: number },
+): Promise<VenueCosMonthlyTarget[]> {
+  let query = supabase
+    .from("venue_cos_monthly_targets")
+    .select("*")
+    .eq("venue_id", venueId);
+  if (filter?.costCentre) query = query.eq("cost_centre", filter.costCentre);
+  if (filter?.fiscalYear) query = query.eq("fiscal_year", filter.fiscalYear);
+  const { data, error } = await query;
+  if (error) {
+    // Table not created yet → behave as "no monthly overrides".
+    if (isCosSchemaMissingError(error)) return [];
+    throw error;
+  }
+  return (data ?? []).map((r) => ({
+    ...(r as VenueCosMonthlyTarget),
+    target_cost_pct: numOrNull(r.target_cost_pct),
+    purchase_target_gs: numOrNull(r.purchase_target_gs),
+    closing_stock_target_gs: numOrNull(r.closing_stock_target_gs),
+  }));
+}
+
+/** Replace a centre's monthly targets for one year (all-null months removed). */
+export async function saveVenueCosMonthlyTargets(
+  supabase: SupabaseClient,
+  venueId: string,
+  userId: string,
+  costCentre: CostCentre,
+  fiscalYear: number,
+  months: CosMonthlyTargetInput[],
+): Promise<void> {
+  const keep = months.filter(
+    (m) =>
+      m.target_cost_pct != null ||
+      m.purchase_target_gs != null ||
+      m.closing_stock_target_gs != null,
+  );
+  const clear = months
+    .filter((m) => !keep.includes(m))
+    .map((m) => m.month_index);
+
+  if (keep.length > 0) {
+    const { error } = await supabase.from("venue_cos_monthly_targets").upsert(
+      keep.map((m) => ({
+        venue_id: venueId,
+        cost_centre: costCentre,
+        fiscal_year: fiscalYear,
+        month_index: m.month_index,
+        target_cost_pct: m.target_cost_pct,
+        purchase_target_gs: m.purchase_target_gs,
+        closing_stock_target_gs: m.closing_stock_target_gs,
+        created_by: userId,
+        updated_by: userId,
+      })),
+      { onConflict: "venue_id,cost_centre,fiscal_year,month_index" },
+    );
+    if (error) throw error;
+  }
+  if (clear.length > 0) {
+    const { error } = await supabase
+      .from("venue_cos_monthly_targets")
+      .delete()
+      .eq("venue_id", venueId)
+      .eq("cost_centre", costCentre)
+      .eq("fiscal_year", fiscalYear)
+      .in("month_index", clear);
+    if (error) throw error;
+  }
+}
+
+/** Effective targets for a month: monthly override, else the centre default. */
+export function resolveCosTargets(
+  settings: Pick<
+    VenueCosSettings,
+    "target_cost_pct" | "purchase_target_gs" | "closing_stock_target_gs"
+  > | null,
+  monthly: VenueCosMonthlyTarget | null | undefined,
+): {
+  targetCostPct: number;
+  purchaseTargetGs: number;
+  closingStockTargetGs: number;
+} {
+  return {
+    targetCostPct:
+      monthly?.target_cost_pct ?? Number(settings?.target_cost_pct ?? 27),
+    purchaseTargetGs:
+      monthly?.purchase_target_gs ?? Number(settings?.purchase_target_gs ?? 0),
+    closingStockTargetGs:
+      monthly?.closing_stock_target_gs ??
+      Number(settings?.closing_stock_target_gs ?? 0),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Adjustment kinds
+// ---------------------------------------------------------------------------
+
+export async function listCosAdjustmentKinds(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<VenueCosAdjustmentKind[]> {
+  const { data, error } = await supabase
+    .from("venue_cos_adjustment_kinds")
+    .select("*")
+    .eq("venue_id", venueId)
+    .order("sort_order")
+    .order("name");
+  if (error) {
+    if (isCosSchemaMissingError(error)) return [];
+    throw error;
+  }
+  return (data ?? []) as VenueCosAdjustmentKind[];
+}
+
+export async function upsertCosAdjustmentKind(
+  supabase: SupabaseClient,
+  venueId: string,
+  userId: string,
+  kind: {
+    id?: string;
+    name: string;
+    ledger_account_id: string | null;
+    default_side: CosAdjustmentSide;
+    active?: boolean;
+  },
+): Promise<VenueCosAdjustmentKind> {
+  const row = {
+    venue_id: venueId,
+    name: kind.name.trim(),
+    ledger_account_id: kind.ledger_account_id,
+    default_side: kind.default_side,
+    active: kind.active ?? true,
+    updated_by: userId,
+  };
+  const query = kind.id
+    ? supabase
+        .from("venue_cos_adjustment_kinds")
+        .update(row)
+        .eq("id", kind.id)
+        .eq("venue_id", venueId)
+    : supabase
+        .from("venue_cos_adjustment_kinds")
+        .insert({ ...row, created_by: userId });
+  const { data, error } = await query.select("*").single();
+  if (error) throw error;
+  return data as VenueCosAdjustmentKind;
+}
+
+export async function deleteCosAdjustmentKind(
+  supabase: SupabaseClient,
+  venueId: string,
+  id: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("venue_cos_adjustment_kinds")
+    .delete()
+    .eq("id", id)
+    .eq("venue_id", venueId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Transfers
+// ---------------------------------------------------------------------------
+
+export async function listCosTransfers(
+  supabase: SupabaseClient,
+  venueId: string,
+  range?: { from: string; to: string },
+): Promise<VenueCosTransfer[]> {
+  let query = supabase
+    .from("venue_cos_transfers")
+    .select("*")
+    .eq("venue_id", venueId)
+    .order("transfer_date", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (range) {
+    query = query.gte("transfer_date", range.from).lte("transfer_date", range.to);
+  }
+  const { data, error } = await query;
+  if (error) {
+    if (isCosSchemaMissingError(error)) return [];
+    throw error;
+  }
+  return (data ?? []).map((t) => ({
+    ...(t as VenueCosTransfer),
+    transfer_date: String(t.transfer_date).slice(0, 10),
+    amount_net: Number(t.amount_net) || 0,
+  }));
+}
+
+export async function createCosTransfer(
+  supabase: SupabaseClient,
+  venueId: string,
+  userId: string,
+  input: Omit<VenueCosTransfer, "id" | "venue_id">,
+): Promise<VenueCosTransfer> {
+  const { data, error } = await supabase
+    .from("venue_cos_transfers")
+    .insert({
+      venue_id: venueId,
+      ...input,
+      note: input.note.trim(),
+      created_by: userId,
+      updated_by: userId,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as VenueCosTransfer;
+}
+
+export async function deleteCosTransfer(
+  supabase: SupabaseClient,
+  venueId: string,
+  id: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("venue_cos_transfers")
+    .delete()
+    .eq("id", id)
+    .eq("venue_id", venueId);
+  if (error) throw error;
 }

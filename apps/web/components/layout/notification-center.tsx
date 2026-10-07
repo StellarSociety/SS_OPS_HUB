@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  ArrowUpRight,
   Bell,
   Check,
   CheckCheck,
@@ -501,6 +502,14 @@ export function NotificationCenter({
               })
             )}
           </ul>
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="flex items-center justify-center gap-1 border-t border-black/5 px-4 py-2.5 text-xs font-medium text-[var(--venue-primary,#818a40)] hover:bg-black/[0.02]"
+          >
+            View all notifications
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
           <DeviceNotificationEnableRow />
         </div>
       ) : null}

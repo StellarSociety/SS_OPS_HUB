@@ -7,7 +7,11 @@ import {
   canViewCos,
   canEditCos,
 } from "@/lib/sales/cos-page-context";
+import { getCosLedgerPurchasesNet } from "@/lib/sales/cos-purchases-data";
+import { monthIndexForWeek } from "@/lib/sales/cos-calculations";
 import {
+  listVenueCosMonthlyTargets,
+  resolveCosTargets,
   getVenueCosRun,
   getVenueCosSettings,
   listVenueCosRuns,
@@ -15,6 +19,7 @@ import {
 import {
   COST_CENTRES,
   COST_CENTRE_LABELS,
+  DEFAULT_AUTO_ADJUSTMENT_PCT,
   type CostCentre,
 } from "@/lib/sales/cos-types";
 
@@ -76,20 +81,45 @@ export default async function CostRunEntryPage({
 
   const { start, end } = weekDates(fiscalYear, weekNo);
 
+  // Targets for this run's month (monthly override, else centre default).
+  const monthIndex = monthIndexForWeek(weekNo);
+  const monthlyTargets = await listVenueCosMonthlyTargets(supabase, venue.id, {
+    costCentre: centre,
+    fiscalYear,
+  });
+  const targets = resolveCosTargets(
+    settings,
+    monthlyTargets.find((t) => t.month_index === monthIndex),
+  );
+
+  // Accounts-app purchases on this centre's linked ledgers for the week.
+  const ledgerIds = settings?.ledger_account_ids ?? [];
+  let accountsPurchasesNet: number | null = null;
+  try {
+    accountsPurchasesNet = await getCosLedgerPurchasesNet(
+      venue.id,
+      ledgerIds,
+      start,
+      end,
+    );
+  } catch (error) {
+    console.error("[gp-cos/cost-run] accounts purchases:", error);
+  }
+
   // Opening stock default = previous week's closing stock.
   const prevRun = allRuns.find((r) => r.week_no === weekNo - 1);
   const defaultOpening = existing?.opening_stock_gs ?? (prevRun?.closing_stock_gs ?? 0);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6">
+    <div className="mx-auto w-[clamp(min(100%,1100px),83.333%,100%)] space-y-6">
+      {/*
+        2.5/3 of the page on wide screens; never narrower than the form needs
+        (1100px) so side space shrinks first; full width on small windows.
+      */}
       <div>
         <ModulePageTitle>
           {label} — {isNew ? "New Cost Run" : `Week ${weekNo}`}
         </ModulePageTitle>
-        <p className="mt-1 text-sm text-black/60">
-          {venue.name} · {fiscalYear} · Week {weekNo}
-        </p>
-        <hr className="mt-4 border-black/10" />
       </div>
 
       <CostRunEntryForm
@@ -100,12 +130,16 @@ export default async function CostRunEntryPage({
         weekEnd={end}
         existing={existing}
         defaultOpeningStock={defaultOpening}
-        targetCostPct={settings?.target_cost_pct ?? 27}
-        purchaseTargetGs={settings?.purchase_target_gs ?? 0}
-        closingStockTargetGs={settings?.closing_stock_target_gs ?? 0}
-        autoAdjustmentPct={settings?.auto_adjustment_pct ?? 0}
+        targetCostPct={targets.targetCostPct}
+        purchaseTargetGs={targets.purchaseTargetGs}
+        closingStockTargetGs={targets.closingStockTargetGs}
+        autoAdjustmentPct={
+          settings?.auto_adjustment_pct ?? DEFAULT_AUTO_ADJUSTMENT_PCT[centre]
+        }
         approverUserId={settings?.approver_user_id ?? null}
         canEdit={editable}
+        ledgerLinked={ledgerIds.length > 0}
+        accountsPurchasesNet={accountsPurchasesNet}
       />
     </div>
   );

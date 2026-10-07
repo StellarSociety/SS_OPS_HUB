@@ -35,7 +35,13 @@ export function buildPwaWebManifest(
     start_url: mobile ? PWA_START_URL : PWA_DESKTOP_START_URL,
     scope: mobile ? PWA_SCOPE : PWA_DESKTOP_SCOPE,
     display: "standalone",
-    display_override: ["standalone", "minimal-ui"],
+    // Desktop (Chrome/Edge): "tabbed" gives the installed app a tab strip
+    // instead of opening every new tab in a separate window. Unsupported
+    // browsers (Safari "Add to Dock", iOS) skip it and fall back to standalone.
+    // Next's Manifest type doesn't list "tabbed" yet, hence the cast.
+    display_override: (mobile
+      ? ["standalone", "minimal-ui"]
+      : ["tabbed", "standalone", "minimal-ui"]) as MetadataRoute.Manifest["display_override"],
     ...(mobile ? { orientation: "portrait-primary" as const } : {}),
     background_color: PWA_BACKGROUND_COLOR,
     theme_color: PWA_THEME_COLOR,

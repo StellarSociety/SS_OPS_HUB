@@ -12,6 +12,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Card } from "@/components/ui/card";
+import { CosPeriodTables } from "@/components/sales/cos/cos-period-tables";
 import { MONTH_SHORT } from "@/lib/sales/cos-calculations";
 import {
   COST_CENTRES,
@@ -27,6 +28,12 @@ const AED = (n: number) =>
   n.toLocaleString("en-AE", { maximumFractionDigits: 0 });
 const PCT = (n: number | null) => (n == null ? "—" : `${n.toFixed(1)}%`);
 
+/** ISO date → DD/MM/YY for the week picker. */
+function ddmmyy(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y.slice(2)}`;
+}
+
 const CENTRE_COLOR: Record<CostCentre, string> = {
   food: "#8A9A5B",
   beverage: "#4E6151",
@@ -34,13 +41,7 @@ const CENTRE_COLOR: Record<CostCentre, string> = {
   other: "#D9A441",
 };
 
-export function CosOverviewDashboard({
-  venueName,
-  data,
-}: {
-  venueName: string;
-  data: CosOverviewData;
-}) {
+export function CosOverviewDashboard({ data }: { data: CosOverviewData }) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -109,19 +110,18 @@ export function CosOverviewDashboard({
             onChange={(e) => setParam({ week: e.target.value })}
             className="rounded-lg border border-black/10 bg-white px-3 py-2 text-sm"
           >
-            {Array.from({ length: 52 }, (_, i) => i + 1).map((w) => (
-              <option key={w} value={w}>
-                Week {w}
+            {data.weeks.food.map((w) => (
+              <option key={w.weekNo} value={w.weekNo}>
+                W{w.weekNo} - {ddmmyy(w.start)} to {ddmmyy(w.end)}
               </option>
             ))}
           </select>
         ) : null}
 
-        <span className="ml-auto text-xs text-black/45">{venueName}</span>
       </Card>
 
       {/* Headline cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <HeadlineCard
           label="Restaurant sales"
           value={AED(totalPeriod.restaurantSales)}
@@ -138,6 +138,18 @@ export function CosOverviewDashboard({
           value={PCT(data.period.beverage.costPct)}
           sub={`Target ${data.targetByCentre.beverage}%`}
           tone={toneFor(data.period.beverage.costPct, data.targetByCentre.beverage)}
+        />
+        <HeadlineCard
+          label="Wine cost %"
+          value={PCT(data.period.wine.costPct)}
+          sub={`Target ${data.targetByCentre.wine}%`}
+          tone={toneFor(data.period.wine.costPct, data.targetByCentre.wine)}
+        />
+        <HeadlineCard
+          label="Others cost %"
+          value={PCT(data.period.other.costPct)}
+          sub={`Target ${data.targetByCentre.other}%`}
+          tone={toneFor(data.period.other.costPct, data.targetByCentre.other)}
         />
         <HeadlineCard
           label="Gross profit"
@@ -159,44 +171,8 @@ export function CosOverviewDashboard({
         ))}
       </div>
 
-      {/* MTD / YTD table */}
-      <Card className="overflow-hidden">
-        <div className="border-b border-black/5 p-4">
-          <h3 className="font-serif text-lg text-[#3D421F]">
-            Month-to-date &amp; Year-to-date
-          </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/50 text-xs font-bold uppercase tracking-wide text-black">
-                <th className="px-3 py-2 text-left">Cost centre</th>
-                <th className="px-3 py-2 text-right">MTD sales</th>
-                <th className="px-3 py-2 text-right">MTD purchases</th>
-                <th className="px-3 py-2 text-right">MTD cost %</th>
-                <th className="px-3 py-2 text-right">YTD sales</th>
-                <th className="px-3 py-2 text-right">YTD purchases</th>
-                <th className="px-3 py-2 text-right">YTD cost %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {COST_CENTRES.map((c) => (
-                <tr key={c} className="border-b border-black/5">
-                  <td className="px-3 py-2 text-left font-medium">
-                    {COST_CENTRE_LABELS[c]}
-                  </td>
-                  <td className="px-3 py-2 text-right">{AED(data.mtd[c].sales)}</td>
-                  <td className="px-3 py-2 text-right">{AED(data.mtd[c].purchases)}</td>
-                  <td className="px-3 py-2 text-right">{PCT(data.mtd[c].costPct)}</td>
-                  <td className="px-3 py-2 text-right">{AED(data.ytd[c].sales)}</td>
-                  <td className="px-3 py-2 text-right">{AED(data.ytd[c].purchases)}</td>
-                  <td className="px-3 py-2 text-right">{PCT(data.ytd[c].costPct)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {/* MTD and YTD boxes with drill-down popups */}
+      <CosPeriodTables data={data} />
     </div>
   );
 }
@@ -288,7 +264,7 @@ function HeadlineCard({
           ? "text-red-600"
           : "text-[#3D421F]";
   return (
-    <Card className="p-5">
+    <Card className="p-5 text-center">
       <div className="text-xs text-black/50">{label}</div>
       <div className={`mt-1 text-2xl font-bold ${toneClass}`}>{value}</div>
       {sub ? <div className="mt-0.5 text-xs text-black/45">{sub}</div> : null}
@@ -329,6 +305,7 @@ function sumCentres(list: CentreTotals[]): CentreTotals {
     discount: 0,
     purchases: 0,
     adjustments: 0,
+    stockMovement: 0,
     costOfSales: 0,
     grossProfit: 0,
     costPct: null,

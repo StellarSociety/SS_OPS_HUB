@@ -12,9 +12,25 @@ export const COST_CENTRE_LABELS: Record<CostCentre, string> = {
   other: "Other",
 };
 
+/**
+ * Auto adjustment % of the cost centre's net discounts, used until a venue
+ * saves its own value in GP & COS Settings → Adjustments.
+ */
+export const DEFAULT_AUTO_ADJUSTMENT_PCT: Record<CostCentre, number> = {
+  food: 30,
+  beverage: 0,
+  wine: 0,
+  other: 30,
+};
+
 export type CosRunStatus = "draft" | "pending_approval" | "approved";
 
-export type CosAdjustmentSource = "manual" | "auto_discount" | "stock" | "other";
+export type CosAdjustmentSource =
+  | "manual"
+  | "auto_discount"
+  | "stock"
+  | "other"
+  | "transfer";
 
 export type VenueCosSettings = {
   id: string;
@@ -24,6 +40,10 @@ export type VenueCosSettings = {
   purchase_target_gs: number;
   closing_stock_target_gs: number;
   auto_adjustment_pct: number;
+  /** Accounts ledgers whose AP invoice lines are this centre's purchases. */
+  ledger_account_ids?: string[];
+  /** People notified (and allowed) to approve this centre's cost runs. */
+  approver_user_ids?: string[];
   approver_user_id: string | null;
   created_by: string | null;
   updated_by: string | null;
@@ -101,4 +121,47 @@ export type CosWeekSalesSnapshot = {
   restaurant_sales_gs: number; // total venue sales for the week
   sales_gs: number; // this cost centre's sales for the week
   sales_discount_gs: number; // discount attributed to the cost centre
+};
+
+/** Per-month target override; null fields fall back to VenueCosSettings. */
+export type VenueCosMonthlyTarget = {
+  id: string;
+  venue_id: string;
+  cost_centre: CostCentre;
+  fiscal_year: number;
+  month_index: number;
+  target_cost_pct: number | null;
+  purchase_target_gs: number | null;
+  closing_stock_target_gs: number | null;
+};
+
+export type CosMonthlyTargetInput = {
+  month_index: number;
+  target_cost_pct: number | null;
+  purchase_target_gs: number | null;
+  closing_stock_target_gs: number | null;
+};
+
+/** DB = (+) addition (raises cost of sales); CR = (-) deduction. */
+export type CosAdjustmentSide = "DB" | "CR";
+
+export type VenueCosAdjustmentKind = {
+  id: string;
+  venue_id: string;
+  name: string;
+  ledger_account_id: string | null;
+  default_side: CosAdjustmentSide;
+  active: boolean;
+  sort_order: number;
+};
+
+/** NET purchase value moved between cost centres on a date. */
+export type VenueCosTransfer = {
+  id: string;
+  venue_id: string;
+  transfer_date: string;
+  from_centre: CostCentre;
+  to_centre: CostCentre;
+  amount_net: number;
+  note: string;
 };

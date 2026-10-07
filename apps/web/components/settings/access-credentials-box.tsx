@@ -1,7 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, KeyRound, SlidersHorizontal } from "lucide-react";
+import {
+  Check,
+  Copy,
+  KeyRound,
+  Monitor,
+  SlidersHorizontal,
+  Smartphone,
+} from "lucide-react";
+import {
+  AccessShareKitDialog,
+  type ShareKit,
+} from "@/components/settings/access-share-kit-dialog";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { Button, buttonVariants } from "@/components/ui/button";
 
@@ -41,28 +52,15 @@ function CopyRow({ label, value }: { label: string; value: string }) {
 export function AccessCredentialsBox({
   credentials,
   manageHref,
+  recipientName,
 }: {
   credentials: Credentials;
   /** Unscoped path to the user's management page (access + credentials). */
   manageHref?: string;
+  /** Used to greet the staff member in the share messages. */
+  recipientName?: string | null;
 }) {
-  const [copiedAll, setCopiedAll] = useState(false);
-
-  async function copyAll() {
-    const block = [
-      "SS Operational Hub — your access",
-      `Login: ${credentials.loginUrl}`,
-      `Email: ${credentials.email}`,
-      `Password: ${credentials.password}`,
-    ].join("\n");
-    try {
-      await navigator.clipboard.writeText(block);
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 2000);
-    } catch {
-      // clipboard unavailable
-    }
-  }
+  const [shareKit, setShareKit] = useState<ShareKit | null>(null);
 
   return (
     <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
@@ -70,17 +68,22 @@ export function AccessCredentialsBox({
         <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-800">
           <KeyRound className="h-3.5 w-3.5" /> Account ready — share these with the user
         </p>
-        <div className="flex items-center gap-2">
-          <Button type="button" size="sm" variant="secondary" onClick={copyAll}>
-            {copiedAll ? (
-              <>
-                <Check className="h-4 w-4" /> Copied
-              </>
-            ) : (
-              <>
-                <Copy className="h-4 w-4" /> Copy all
-              </>
-            )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setShareKit("web")}
+          >
+            <Monitor className="h-4 w-4" /> Web app access
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => setShareKit("mobile")}
+          >
+            <Smartphone className="h-4 w-4" /> Mobile app kit
           </Button>
           {manageHref ? (
             <ScopedLink
@@ -98,9 +101,18 @@ export function AccessCredentialsBox({
         <CopyRow label="Password" value={credentials.password} />
       </div>
       <p className="text-[11px] text-emerald-700/80">
-        Copy these credentials to share with the user. You can also view the
-        password later from this page under View password.
+        Use Web app access or Mobile app kit for a ready-to-send message with
+        links and sign-in details. You can also view the password later from
+        this page under View password.
       </p>
+      {shareKit ? (
+        <AccessShareKitDialog
+          kit={shareKit}
+          credentials={credentials}
+          recipientName={recipientName}
+          onClose={() => setShareKit(null)}
+        />
+      ) : null}
     </div>
   );
 }

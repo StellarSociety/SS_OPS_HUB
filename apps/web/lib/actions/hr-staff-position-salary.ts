@@ -176,6 +176,7 @@ function revalidateStaffPaths(staffId: string) {
   revalidatePath("/hr");
   revalidatePath("/hr/staff");
   revalidatePath("/hr/staff/entry");
+  revalidatePath("/hr/staff/promotions");
 }
 
 async function syncVisaHistoryFromStaffFields(
@@ -878,6 +879,184 @@ export async function updateStaffPositionSalaryChange(
         ? {
             visa_status: toVisaStatus ?? "",
             visa_expiry: toVisaExpiry ?? "",
+          }
+        : {}),
+    },
+  };
+}
+
+export type DeletePositionSalaryChangeResult =
+  | {
+      ok: true;
+      /** Set when the deleted change was the latest and staff fields were reverted. */
+      staffPatch: Partial<{
+        department_id: string;
+        position_id: string;
+        wage_package: string;
+        company_accommodation: string;
+        visa_status: string;
+        visa_expiry: string;
+      }> | null;
+    }
+  | { ok: false; error: string };
+
+export async function deleteStaffPositionSalaryChange(input: {
+  staffId: string;
+  changeId: string;
+}): Promise<DeletePositionSalaryChangeResult> {
+  const ctx = await getActionAuthContext();
+  if ("error" in ctx) return { ok: false, error: ctx.error };
+  const { supabase, user, venue, permissions } = ctx;
+
+  const changeId = input.changeId.trim();
+  const staffId = input.staffId.trim();
+  if (!changeId || !staffId) {
+    return { ok: false, error: "Alteration and staff are required." };
+  }
+
+  const service = createServiceClient();
+  const { data: existing, error: loadChangeError } = await service
+    .from("hr_staff_position_salary_changes")
+    .select("*")
+    .eq("id", changeId)
+    .eq("venue_id", venue.id)
+    .eq("staff_id", staffId)
+    .maybeSingle();
+
+  if (loadChangeError || !existing) {
+    return {
+      ok: false,
+      error: loadChangeError?.message ?? "Alteration not found.",
+    };
+  }
+
+  const kind = existing.change_kind as PositionSalaryChangeKind;
+  const touchesSalary = kind === "salary" || kind === "both";
+  const touchesPosition = kind === "position" || kind === "both";
+  const touchesVisa = Boolean(existing.change_visa) || kind === "visa";
+
+  if (touchesSalary && !canViewSalary(permissions, venue.id)) {
+    return { ok: false, error: "You do not have permission to change salary." };
+  }
+
+  const { data: staff, error: loadStaffError } = await supabase
+    .from("staff")
+    .select("id, created_by")
+    .eq("id", staffId)
+    .eq("home_venue_id", venue.id)
+    .maybeSingle();
+
+  if (loadStaffError || !staff) {
+    return { ok: false, error: loadStaffError?.message ?? "Staff not found." };
+  }
+
+  if (
+    !canEditOwnStaff(
+      permissions,
+      venue.id,
+      (staff.created_by as string | null) ?? null,
+      user.id,
+    )
+  ) {
+    return { ok: false, error: "You do not have permission to edit staff." };
+  }
+
+  const { data: latest } = await service
+    .from("hr_staff_position_salary_changes")
+    .select("id")
+    .eq("venue_id", venue.id)
+    .eq("staff_id", staffId)
+    .order("effective_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Only the latest change is reflected on the staff record, so only then
+  // do we roll the employee back to the change's "from" values.
+  const staffUpdates: Record<string, unknown> = {};
+  if (latest?.id === changeId) {
+    if (touchesPosition) {
+      staffUpdates.department_id = existing.from_department_id ?? null;
+      staffUpdates.position_id = existing.from_position_id ?? null;
+    }
+    if (touchesSalary) {
+      staffUpdates.wage_package = existing.from_wage_package ?? null;
+      staffUpdates.basic_salary_60 = existing.from_basic_salary_60 ?? null;
+      staffUpdates.accom_all_25 = existing.from_accom_all_25 ?? null;
+      staffUpdates.transp_all_15 = existing.from_transp_all_15 ?? null;
+      staffUpdates.company_accommodation =
+        (existing.from_company_accommodation as string | null)?.trim() || "No";
+    }
+    if (touchesVisa) {
+      staffUpdates.visa_status = normalizeVisaStatus(
+        existing.from_visa_status as string | null,
+      );
+      staffUpdates.visa_expiry = existing.from_visa_expiry
+        ? String(existing.from_visa_expiry).slice(0, 10)
+        : null;
+    }
+  }
+
+  const { error: deleteError } = await service
+    .from("hr_staff_position_salary_changes")
+    .delete()
+    .eq("id", changeId)
+    .eq("venue_id", venue.id);
+
+  if (deleteError) return { ok: false, error: deleteError.message };
+
+  if (Object.keys(staffUpdates).length > 0) {
+    const { error: staffError } = await service
+      .from("staff")
+      .update(staffUpdates)
+      .eq("id", staffId)
+      .eq("home_venue_id", venue.id);
+    if (staffError) return { ok: false, error: staffError.message };
+    if (touchesVisa) {
+      await syncVisaHistoryFromStaffFields(service, venue.id, staffId, {
+        visa_status: staffUpdates.visa_status as string | null,
+        visa_expiry: staffUpdates.visa_expiry as string | null,
+      });
+    }
+  }
+
+  await writeAuditLog({
+    actor_id: user.id,
+    action: "delete",
+    module_key: HR_MODULE_KEY,
+    entity: "staff_position_salary_change",
+    entity_id: changeId,
+    venue_id: venue.id,
+    before: existing,
+    after: { staff_updates: staffUpdates },
+  });
+
+  revalidateStaffPaths(staffId);
+
+  if (Object.keys(staffUpdates).length === 0) {
+    return { ok: true, staffPatch: null };
+  }
+
+  const str = (v: unknown) => (v == null ? "" : String(v));
+  return {
+    ok: true,
+    staffPatch: {
+      ...(touchesPosition
+        ? {
+            department_id: str(staffUpdates.department_id),
+            position_id: str(staffUpdates.position_id),
+          }
+        : {}),
+      ...(touchesSalary
+        ? {
+            wage_package: str(staffUpdates.wage_package),
+            company_accommodation: str(staffUpdates.company_accommodation),
+          }
+        : {}),
+      ...(touchesVisa
+        ? {
+            visa_status: str(staffUpdates.visa_status),
+            visa_expiry: str(staffUpdates.visa_expiry),
           }
         : {}),
     },

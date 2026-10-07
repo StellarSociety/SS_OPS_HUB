@@ -71,7 +71,7 @@ export default async function GpCosOverviewPage({
           </p>
         </Card>
       ) : (
-        <CosOverviewDashboard venueName={venue.name} data={data} />
+        <CosOverviewDashboard data={data} />
       )}
     </div>
   );
