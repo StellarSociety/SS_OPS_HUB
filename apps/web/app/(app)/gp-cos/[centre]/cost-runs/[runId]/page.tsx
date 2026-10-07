@@ -9,7 +9,11 @@ import {
 } from "@/lib/sales/cos-page-context";
 import { getCosLedgerPurchasesNet } from "@/lib/sales/cos-purchases-data";
 import { monthIndexForWeek } from "@/lib/sales/cos-calculations";
+import { createServiceClient } from "@/lib/supabase/service";
+import { isAppAdmin } from "@/lib/role-permissions";
 import {
+  listCosAdjustmentKinds,
+  listCosTransfers,
   listVenueCosMonthlyTargets,
   resolveCosTargets,
   getVenueCosRun,
@@ -54,7 +58,7 @@ export default async function CostRunEntryPage({
   const { centre, runId } = await params;
   if (!isCostCentre(centre)) notFound();
 
-  const { venue, permissions, supabase } = await getCosPageContext();
+  const { venue, permissions, supabase, user } = await getCosPageContext();
   if (!canViewCos(permissions, venue.id)) return <AccessDeniedBounce />;
   const editable = canEditCos(permissions, venue.id);
 
@@ -91,6 +95,38 @@ export default async function CostRunEntryPage({
     settings,
     monthlyTargets.find((t) => t.month_index === monthIndex),
   );
+
+  // Adjustment kinds (dropdown) and this week's transfers for the centre.
+  const [kinds, weekTransfers] = await Promise.all([
+    listCosAdjustmentKinds(supabase, venue.id),
+    listCosTransfers(supabase, venue.id, { from: start, to: end }),
+  ]);
+  const activeKinds = kinds.filter((k) => k.active);
+  const ledgerIdsForKinds = activeKinds
+    .map((k) => k.ledger_account_id)
+    .filter((id): id is string => Boolean(id));
+  const ledgerCodeById = new Map<string, string>();
+  if (ledgerIdsForKinds.length > 0) {
+    const { data } = await createServiceClient()
+      .from("accounts")
+      .select("id, code")
+      .in("id", ledgerIdsForKinds);
+    for (const a of data ?? []) ledgerCodeById.set(a.id as string, String(a.code));
+  }
+  const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  const transferAdjustments = weekTransfers
+    .filter((t) => t.to_centre === centre || t.from_centre === centre)
+    .map((t) =>
+      t.to_centre === centre
+        ? {
+            reason: `Transfer in from ${COST_CENTRE_LABELS[t.from_centre]} (${ddmm(t.transfer_date)})${t.note ? ` — ${t.note}` : ""}`,
+            amount_gs: t.amount_net,
+          }
+        : {
+            reason: `Transfer out to ${COST_CENTRE_LABELS[t.to_centre]} (${ddmm(t.transfer_date)})${t.note ? ` — ${t.note}` : ""}`,
+            amount_gs: -t.amount_net,
+          },
+    );
 
   // Accounts-app purchases on this centre's linked ledgers for the week.
   const ledgerIds = settings?.ledger_account_ids ?? [];
@@ -140,6 +176,20 @@ export default async function CostRunEntryPage({
         canEdit={editable}
         ledgerLinked={ledgerIds.length > 0}
         accountsPurchasesNet={accountsPurchasesNet}
+        adjustmentKinds={activeKinds.map((k) => ({
+          name: k.name,
+          ledgerCode: k.ledger_account_id
+            ? (ledgerCodeById.get(k.ledger_account_id) ?? "")
+            : "",
+          deduction: k.default_side === "CR",
+        }))}
+        transferAdjustments={transferAdjustments}
+        canApprove={
+          editable &&
+          ((settings?.approver_user_ids ?? []).length === 0 ||
+            (settings?.approver_user_ids ?? []).includes(user.id) ||
+            isAppAdmin(permissions))
+        }
       />
     </div>
   );

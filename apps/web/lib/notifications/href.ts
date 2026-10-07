@@ -21,6 +21,11 @@ export function notificationCanonicalHref(n: {
   if (n.module_key === "hr" && n.entity === "hiring_form") {
     return `/hr/hiring/replies/${n.entity_id}`;
   }
+  if (n.module_key === "gp_cos" && n.entity === "cos_run") {
+    // entity_id = "<centre>:<runId>"
+    const [centre, runId] = n.entity_id.split(":");
+    if (centre && runId) return `/gp-cos/${centre}/cost-runs/${runId}`;
+  }
   if (n.module_key === "mobile_app" && n.entity === "mobile_app") {
     return "/install?reinstall=1";
   }

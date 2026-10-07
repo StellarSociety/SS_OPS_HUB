@@ -24,6 +24,7 @@ describe("notificationCategory", () => {
       n("hr", "attendance_not_approved", "attendance"),
       n("sentiment", "review_justification_requested", "sentiment_review"),
       n("sentiment", "review_justification_submitted", "sentiment_review"),
+      n("gp_cos", "cos_run_approval_requested", "cos_run"),
     ]) {
       expect(notificationCategory(row)).toBe("approvals");
     }

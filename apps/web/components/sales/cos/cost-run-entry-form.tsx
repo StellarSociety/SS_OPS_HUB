@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { Card } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 import {
   deriveCosRun,
   costHealth,
@@ -44,6 +45,8 @@ type AdjRow = {
   source: CosAdjustmentSource;
   /** UI flag so a deduction keeps its type while its amount is still 0. */
   deduction?: boolean;
+  /** Ledger code from the adjustment kind. */
+  ledger_account?: string;
 };
 
 type Props = {
@@ -64,6 +67,12 @@ type Props = {
   ledgerLinked: boolean;
   /** Net AP purchases on the linked ledgers for the week (null if unavailable). */
   accountsPurchasesNet: number | null;
+  /** Active adjustment kinds (Settings → Adjustments). */
+  adjustmentKinds: { name: string; ledgerCode: string; deduction: boolean }[];
+  /** Transfers touching this centre in the run's week, signed for this centre. */
+  transferAdjustments: { reason: string; amount_gs: number }[];
+  /** Approvers from Settings → Approvals (or anyone with edit if none set). */
+  canApprove: boolean;
 };
 
 const RUN_STATUS: Record<
@@ -127,12 +136,14 @@ export function CostRunEntryForm(props: Props) {
   );
   const [adjustments, setAdjustments] = useState<AdjRow[]>(
     props.existing?.adjustments
-      .filter((a) => a.source !== "auto_discount")
+      // Auto and transfer rows are re-derived from Settings each time.
+      .filter((a) => a.source !== "auto_discount" && a.source !== "transfer")
       .map((a) => ({
         reason: a.reason,
         amount_gs: a.amount_gs,
         source: a.source,
         deduction: Number(a.amount_gs) < 0,
+        ledger_account: a.ledger_account ?? "",
       })) ?? [],
   );
   const [message, setMessage] = useState<string | null>(null);
@@ -181,9 +192,17 @@ export function CostRunEntryForm(props: Props) {
   // Auto discount adjustment (e.g. shisha 30%). Shown as a derived line.
   const autoAdj = autoDiscountAdjustment(discount, props.autoAdjustmentPct);
   const manualAdjTotal = adjustments.reduce((s, a) => s + (Number(a.amount_gs) || 0), 0);
-  const adjustmentsTotal = manualAdjTotal + autoAdj;
+  const transferTotal = props.transferAdjustments.reduce(
+    (s, t) => s + t.amount_gs,
+    0,
+  );
+  const adjustmentsTotal = manualAdjTotal + autoAdj + transferTotal;
   // Additions reduce cost of sales; deductions (negative amounts) add to it.
-  const signedAdjustments = [autoAdj, ...adjustments.map((a) => Number(a.amount_gs) || 0)];
+  const signedAdjustments = [
+    autoAdj,
+    ...props.transferAdjustments.map((t) => t.amount_gs),
+    ...adjustments.map((a) => Number(a.amount_gs) || 0),
+  ];
   const additionsTotal = signedAdjustments.reduce((s, v) => s + Math.max(v, 0), 0);
   const deductionsTotal = signedAdjustments.reduce((s, v) => s + Math.max(-v, 0), 0);
 
@@ -244,6 +263,12 @@ export function CostRunEntryForm(props: Props) {
           reason: a.reason,
           amount_gs: a.amount_gs,
           source: a.source,
+          ledger_account: a.ledger_account ?? "",
+        })),
+        ...props.transferAdjustments.map((t) => ({
+          reason: t.reason,
+          amount_gs: t.amount_gs,
+          source: "transfer" as const,
         })),
         ...(autoAdj
           ? [
@@ -286,10 +311,14 @@ export function CostRunEntryForm(props: Props) {
   function approve() {
     if (!props.existing) return;
     startTransition(async () => {
-      await approveCosRunAction({
+      const res = await approveCosRunAction({
         runId: props.existing!.id,
         costCentre: props.costCentre,
       });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
       router.push(listHref);
     });
   }
@@ -547,6 +576,26 @@ export function CostRunEntryForm(props: Props) {
                   {!locked ? <td className="border border-black/15" /> : null}
                 </tr>
               ) : null}
+              {props.transferAdjustments.map((t, ti) => (
+                <tr key={`transfer-${ti}`} className="bg-sky-50/70 text-sky-900">
+                  <td className="border border-black/15 px-2 py-2 text-center text-xs text-sky-700/70">
+                    Transfer
+                  </td>
+                  <td className="border border-black/15 px-3 py-2">
+                    {t.reason}
+                    <span className="ml-1 text-xs text-sky-700/70">
+                      (Settings → Transfers)
+                    </span>
+                  </td>
+                  <td className="border border-black/15 px-3 py-2 text-center">
+                    <TypeBadge deduction={t.amount_gs < 0} />
+                  </td>
+                  <td className="border border-black/15 px-3 py-2 text-right tabular-nums">
+                    {SIGNED(t.amount_gs)}
+                  </td>
+                  {!locked ? <td className="border border-black/15" /> : null}
+                </tr>
+              ))}
               {adjustments.map((a, i) => {
                 const amount = Math.abs(Number(a.amount_gs) || 0);
                 const isDeduction = a.deduction ?? Number(a.amount_gs) < 0;
@@ -560,13 +609,48 @@ export function CostRunEntryForm(props: Props) {
                       {i + 1}
                     </td>
                     <td className="border border-black/15 p-0">
-                      <input
-                        disabled={locked}
-                        value={a.reason}
-                        placeholder="Reason"
-                        onChange={(e) => patchRow({ reason: e.target.value })}
-                        className="h-9 w-full bg-transparent px-3 text-sm text-[#3D421F] outline-none focus:bg-[var(--venue-secondary,#F0F3DD)]/40 disabled:opacity-60"
-                      />
+                      {props.adjustmentKinds.length > 0 ? (
+                        <select
+                          disabled={locked}
+                          value={a.reason}
+                          onChange={(e) => {
+                            const kind = props.adjustmentKinds.find(
+                              (k) => k.name === e.target.value,
+                            );
+                            patchRow({
+                              reason: e.target.value,
+                              ledger_account: kind?.ledgerCode ?? "",
+                              ...(kind
+                                ? {
+                                    deduction: kind.deduction,
+                                    amount_gs: kind.deduction ? -amount : amount,
+                                  }
+                                : {}),
+                            });
+                          }}
+                          className="h-9 w-full bg-transparent px-2 text-sm text-[#3D421F] outline-none focus:bg-[var(--venue-secondary,#F0F3DD)]/40 disabled:opacity-60"
+                        >
+                          <option value="">Choose an adjustment…</option>
+                          {props.adjustmentKinds.map((k) => (
+                            <option key={k.name} value={k.name}>
+                              {k.name}
+                              {k.ledgerCode ? ` · ${k.ledgerCode}` : ""}
+                            </option>
+                          ))}
+                          {a.reason &&
+                          !props.adjustmentKinds.some((k) => k.name === a.reason) ? (
+                            <option value={a.reason}>{a.reason}</option>
+                          ) : null}
+                        </select>
+                      ) : (
+                        <input
+                          disabled={locked}
+                          value={a.reason}
+                          placeholder="Reason — set up kinds in Settings → Adjustments"
+                          onChange={(e) => patchRow({ reason: e.target.value })}
+                          className="h-9 w-full bg-transparent px-3 text-sm text-[#3D421F] outline-none focus:bg-[var(--venue-secondary,#F0F3DD)]/40 disabled:opacity-60"
+                        />
+                      )}
                     </td>
                     <td className="border border-black/15 px-2 py-1 text-center">
                       {locked ? (
@@ -627,7 +711,9 @@ export function CostRunEntryForm(props: Props) {
                   </tr>
                 );
               })}
-              {adjustments.length === 0 && !autoAdj ? (
+              {adjustments.length === 0 &&
+              !autoAdj &&
+              props.transferAdjustments.length === 0 ? (
                 <tr>
                   <td
                     colSpan={locked ? 4 : 5}
@@ -699,7 +785,7 @@ export function CostRunEntryForm(props: Props) {
           >
             <Send className="h-4 w-4" /> Send for approval
           </button>
-          {props.existing?.status === "pending_approval" ? (
+          {props.existing?.status === "pending_approval" && props.canApprove ? (
             <button
               type="button"
               disabled={pending}

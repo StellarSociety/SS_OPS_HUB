@@ -3,7 +3,20 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { resolveActiveVenue } from "@/lib/venue/active-venue";
+import { dispatchPendingPushes } from "@/lib/push/send";
+import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
+import { createServiceClient } from "@/lib/supabase/service";
 import {
+  COS_MODULE_KEY,
+  COST_CENTRE_LABELS,
+  type CosAdjustmentSide,
+} from "@/lib/sales/cos-types";
+import {
+  createCosTransfer,
+  deleteCosAdjustmentKind,
+  deleteCosTransfer,
+  getVenueCosSettings,
+  upsertCosAdjustmentKind,
   replaceCosRunAdjustments,
   setCosRunStatus,
   upsertVenueCosRun,
@@ -55,20 +68,60 @@ export async function saveCosRunAction(input: SaveCosRunInput) {
   return { ok: true as const, runId: run.id };
 }
 
+async function centreApprovers(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  venueId: string,
+  costCentre: CostCentre,
+): Promise<string[]> {
+  const settings = await getVenueCosSettings(supabase, venueId, costCentre);
+  return settings?.approver_user_ids ?? [];
+}
+
 export async function submitCosRunForApprovalAction(input: {
   runId: string;
   costCentre: CostCentre;
   approverUserId: string | null;
 }) {
   const { supabase, user, venue } = await requireContext();
-  await setCosRunStatus(
+  const approvers = await centreApprovers(supabase, venue.id, input.costCentre);
+  const run = await setCosRunStatus(
     supabase,
     venue.id,
     user.id,
     input.runId,
     "pending_approval",
-    input.approverUserId,
+    approvers[0] ?? input.approverUserId,
   );
+
+  // Notify this cost centre's approvers (Settings → Approvals).
+  const recipients = approvers.filter((id) => id !== user.id);
+  if (recipients.length > 0) {
+    const label = COST_CENTRE_LABELS[input.costCentre];
+    const service = createServiceClient();
+    const rows = recipients.map((approverId) => ({
+      user_id: approverId,
+      venue_id: venue.id,
+      module_key: COS_MODULE_KEY,
+      type: "cos_run_approval_requested",
+      title: `${label} cost run approval requested — W${run.week_no}`,
+      body: `Please review and approve the ${label.toLowerCase()} cost of sales calculation for week ${run.week_no} (${run.fiscal_year}).`,
+      entity: "cos_run",
+      entity_id: `${input.costCentre}:${run.id}`,
+      severity: "warning" as const,
+      dedupe_key: `cos-run-approval:${venue.id}:${run.id}:${approverId}:${run.submitted_at ?? ""}`,
+      read_at: null,
+      push_sent_at: null,
+    }));
+    const { error } = await service
+      .from("notifications")
+      .upsert(rows, { onConflict: "dedupe_key" });
+    if (error) {
+      console.error("[gp-cos] approval notify failed:", error.message);
+    } else {
+      await dispatchPendingPushes(service);
+    }
+  }
+
   revalidatePath(`/gp-cos/${input.costCentre}/cost-runs`);
   return { ok: true as const };
 }
@@ -78,6 +131,20 @@ export async function approveCosRunAction(input: {
   costCentre: CostCentre;
 }) {
   const { supabase, user, venue } = await requireContext();
+  // When approvers are set, only they (or an app admin) may approve.
+  const approvers = await centreApprovers(supabase, venue.id, input.costCentre);
+  if (approvers.length > 0 && !approvers.includes(user.id)) {
+    const { data: permissions } = await supabase
+      .from("user_permissions")
+      .select("*")
+      .eq("user_id", user.id);
+    if (!isAppAdmin((permissions ?? []) as UserPermission[])) {
+      return {
+        ok: false as const,
+        error: "Only this cost centre's approvers can approve the run.",
+      };
+    }
+  }
   await setCosRunStatus(supabase, venue.id, user.id, input.runId, "approved");
   revalidatePath(`/gp-cos/${input.costCentre}/cost-runs`);
   return { ok: true as const };
@@ -125,6 +192,7 @@ export async function saveCosSettingsAction(input: {
   auto_adjustment_pct?: number;
   approver_user_id?: string | null;
   ledger_account_ids?: string[];
+  approver_user_ids?: string[];
 }) {
   const { supabase, user, venue } = await requireContext();
   await upsertVenueCosSettings(supabase, venue.id, user.id, input);
@@ -148,5 +216,78 @@ export async function saveCosMonthlyTargetsAction(input: {
   );
   revalidatePath(`/gp-cos/settings`);
   revalidatePath(`/gp-cos/${input.cost_centre}/cost-runs`);
+  return { ok: true as const };
+}
+
+// ---------------------------------------------------------------------------
+// Adjustment kinds & transfers (Settings)
+// ---------------------------------------------------------------------------
+
+export async function saveCosAdjustmentKindAction(input: {
+  id?: string;
+  name: string;
+  ledger_account_id: string | null;
+  default_side: CosAdjustmentSide;
+  active?: boolean;
+}) {
+  if (!input.name.trim()) return { ok: false as const, error: "Name is required." };
+  const { supabase, user, venue } = await requireContext();
+  try {
+    const kind = await upsertCosAdjustmentKind(supabase, venue.id, user.id, input);
+    revalidatePath(`/gp-cos/settings`);
+    return { ok: true as const, kind };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Could not save.";
+    return {
+      ok: false as const,
+      error: message.includes("duplicate")
+        ? "An adjustment kind with this name already exists."
+        : message,
+    };
+  }
+}
+
+export async function deleteCosAdjustmentKindAction(id: string) {
+  const { supabase, venue } = await requireContext();
+  await deleteCosAdjustmentKind(supabase, venue.id, id);
+  revalidatePath(`/gp-cos/settings`);
+  return { ok: true as const };
+}
+
+export async function createCosTransferAction(input: {
+  transfer_date: string;
+  from_centre: CostCentre;
+  to_centre: CostCentre;
+  amount_net: number;
+  note: string;
+}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.transfer_date)) {
+    return { ok: false as const, error: "Choose a date." };
+  }
+  if (input.from_centre === input.to_centre) {
+    return { ok: false as const, error: "Choose two different cost centres." };
+  }
+  if (!(input.amount_net > 0)) {
+    return { ok: false as const, error: "Enter an amount above 0." };
+  }
+  const { supabase, user, venue } = await requireContext();
+  try {
+    const transfer = await createCosTransfer(supabase, venue.id, user.id, input);
+    revalidatePath(`/gp-cos/settings`);
+    revalidatePath(`/gp-cos/${input.from_centre}/cost-runs`);
+    revalidatePath(`/gp-cos/${input.to_centre}/cost-runs`);
+    return { ok: true as const, transfer };
+  } catch (e) {
+    return {
+      ok: false as const,
+      error: e instanceof Error ? e.message : "Could not save the transfer.",
+    };
+  }
+}
+
+export async function deleteCosTransferAction(id: string) {
+  const { supabase, venue } = await requireContext();
+  await deleteCosTransfer(supabase, venue.id, id);
+  revalidatePath(`/gp-cos/settings`);
   return { ok: true as const };
 }

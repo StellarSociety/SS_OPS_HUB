@@ -7,9 +7,12 @@ import {
   canEditCosSettings,
 } from "@/lib/sales/cos-page-context";
 import {
+  listCosAdjustmentKinds,
+  listCosTransfers,
   listVenueCosMonthlyTargets,
   listVenueCosSettings,
 } from "@/lib/sales/cos-store";
+import { createServiceClient } from "@/lib/supabase/service";
 import { dubaiTodayIso } from "@/lib/hr/benefits/flight-ticket";
 import { listLedgerAccountOptions } from "@/lib/sales/cos-purchases-data";
 import {
@@ -22,11 +25,29 @@ export default async function CosSettingsPage() {
   const { venue, permissions, supabase } = await getCosPageContext();
   if (!canViewCos(permissions, venue.id)) return <AccessDeniedBounce />;
 
-  const [stored, ledgerAccounts, monthly] = await Promise.all([
-    listVenueCosSettings(supabase, venue.id),
-    listLedgerAccountOptions(),
-    listVenueCosMonthlyTargets(supabase, venue.id),
-  ]);
+  const today = dubaiTodayIso();
+  const year = Number(today.slice(0, 4));
+  const [stored, ledgerAccounts, monthly, adjustmentKinds, transfers, profiles] =
+    await Promise.all([
+      listVenueCosSettings(supabase, venue.id),
+      listLedgerAccountOptions(),
+      listVenueCosMonthlyTargets(supabase, venue.id),
+      listCosAdjustmentKinds(supabase, venue.id),
+      listCosTransfers(supabase, venue.id, {
+        from: `${year - 1}-01-01`,
+        to: `${year + 1}-12-31`,
+      }),
+      createServiceClient()
+        .from("profiles")
+        .select("id, full_name, email, status")
+        .neq("status", "disabled")
+        .order("full_name"),
+    ]);
+  const users = (profiles.data ?? []).map((p) => ({
+    id: p.id as string,
+    name: String(p.full_name ?? ""),
+    email: String(p.email ?? ""),
+  }));
   const byCentre = new Map<string, VenueCosSettings>();
   for (const s of stored) byCentre.set(s.cost_centre, s);
 
@@ -40,6 +61,7 @@ export default async function CosSettingsPage() {
       auto_adjustment_pct:
         s?.auto_adjustment_pct ?? DEFAULT_AUTO_ADJUSTMENT_PCT[centre],
       ledger_account_ids: s?.ledger_account_ids ?? [],
+      approver_user_ids: s?.approver_user_ids ?? [],
     };
   });
 
@@ -56,7 +78,11 @@ export default async function CosSettingsPage() {
         rows={rows}
         ledgerAccounts={ledgerAccounts}
         monthly={monthly}
-        currentYear={Number(dubaiTodayIso().slice(0, 4))}
+        currentYear={year}
+        adjustmentKinds={adjustmentKinds}
+        transfers={transfers}
+        users={users}
+        today={today}
         canEdit={canEditCosSettings(permissions, venue.id)}
       />
     </div>

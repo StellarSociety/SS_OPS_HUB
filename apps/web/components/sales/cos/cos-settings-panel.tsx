@@ -7,7 +7,13 @@ import { Input } from "@/components/ui/input";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { CosTargetsEditor } from "@/components/sales/cos/cos-targets-editor";
 import type { LedgerAccountOption } from "@/lib/sales/cos-purchases-data";
-import type { VenueCosMonthlyTarget } from "@/lib/sales/cos-types";
+import type {
+  VenueCosAdjustmentKind,
+  VenueCosMonthlyTarget,
+  VenueCosTransfer,
+} from "@/lib/sales/cos-types";
+import { CosAdjustmentKindsEditor } from "@/components/sales/cos/cos-adjustment-kinds-editor";
+import { CosTransfersEditor } from "@/components/sales/cos/cos-transfers-editor";
 import { saveCosSettingsAction } from "@/lib/actions/cos";
 import { pillSubNavLinkClass, pillSubNavShellClass } from "@/lib/sub-nav-ui";
 import { COST_CENTRE_LABELS, type CostCentre } from "@/lib/sales/cos-types";
@@ -19,13 +25,17 @@ type Row = {
   closing_stock_target_gs: number;
   auto_adjustment_pct: number;
   ledger_account_ids: string[];
+  approver_user_ids: string[];
 };
 
-type SettingsTab = "targets" | "adjustments" | "ledger";
+type SettingsTab =
+  "targets" | "adjustments" | "transfers" | "approvals" | "ledger";
 
 const TABS: { value: SettingsTab; label: string }[] = [
   { value: "targets", label: "Targets" },
   { value: "adjustments", label: "Adjustments" },
+  { value: "transfers", label: "Transfers" },
+  { value: "approvals", label: "Approvals" },
   { value: "ledger", label: "Ledger accounts" },
 ];
 
@@ -35,13 +45,27 @@ export function CosSettingsPanel({
   ledgerAccounts,
   monthly,
   currentYear,
+  adjustmentKinds,
+  transfers,
+  users,
+  today,
 }: {
   rows: Row[];
   canEdit: boolean;
   ledgerAccounts: LedgerAccountOption[];
   monthly: VenueCosMonthlyTarget[];
   currentYear: number;
+  adjustmentKinds: VenueCosAdjustmentKind[];
+  transfers: VenueCosTransfer[];
+  /** People who can be picked as approvers. */
+  users: { id: string; name: string; email: string }[];
+  today: string;
 }) {
+  const userOptions = users.map((u) => ({
+    value: u.id,
+    label: u.name || u.email,
+    searchText: `${u.name} ${u.email}`,
+  }));
   // Cost-of-sales ledgers first, then the rest, each by code.
   const ledgerOptions = [...ledgerAccounts]
     .sort(
@@ -73,7 +97,6 @@ export function CosSettingsPanel({
       router.refresh();
     });
   }
-
 
   return (
     <div className="space-y-4">
@@ -231,6 +254,85 @@ export function CosSettingsPanel({
             </div>
           ) : null}
         </Card>
+      ) : null}
+
+      {tab === "adjustments" ? (
+        <CosAdjustmentKindsEditor
+          kinds={adjustmentKinds}
+          ledgerOptions={ledgerOptions}
+          canEdit={canEdit}
+        />
+      ) : null}
+
+      {tab === "transfers" ? (
+        <CosTransfersEditor
+          transfers={transfers}
+          today={today}
+          canEdit={canEdit}
+        />
+      ) : null}
+
+      {tab === "approvals" ? (
+        <>
+          <p className="text-sm text-black/55">
+            People who receive cost run approval requests for each cost centre.
+            They are notified when a run is sent for approval, and only they (or
+            an app admin) can approve it. With nobody set, anyone with edit
+            access can approve.
+          </p>
+          <Card className="overflow-visible p-0">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/60 text-xs font-bold uppercase tracking-wide text-black/70">
+                  <th className="w-40 px-4 py-2.5 text-left">Cost centre</th>
+                  <th className="px-4 py-2.5 text-left">Approvers</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr
+                    key={row.cost_centre}
+                    className="border-b border-black/5 align-top last:border-0"
+                  >
+                    <td className="px-4 py-3 font-medium text-[#3D421F]">
+                      {COST_CENTRE_LABELS[row.cost_centre]}
+                    </td>
+                    <td className="px-4 py-2">
+                      <SearchableMultiSelect
+                        values={row.approver_user_ids}
+                        onChange={(next) =>
+                          update(i, { approver_user_ids: next })
+                        }
+                        options={userOptions}
+                        placeholder="Select approvers…"
+                        searchPlaceholder="Search name or email…"
+                        disabled={!canEdit}
+                        aria-label={`${COST_CENTRE_LABELS[row.cost_centre]} approvers`}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {canEdit ? (
+              <div className="flex items-center justify-end gap-3 border-t border-black/5 px-4 py-3">
+                {saved === "all" ? (
+                  <span className="text-xs font-semibold text-emerald-600">
+                    Saved
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={saveAll}
+                  className="rounded-lg bg-[var(--venue-primary,#818a40)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {pending ? "Saving…" : "Save approvers"}
+                </button>
+              </div>
+            ) : null}
+          </Card>
+        </>
       ) : null}
 
       {tab === "targets" ? (
