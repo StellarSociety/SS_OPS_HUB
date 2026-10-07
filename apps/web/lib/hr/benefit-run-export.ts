@@ -15,12 +15,59 @@ export type BenefitRunExportRow = {
   points: number | null;
   workedDays: number | null;
   deductionPercent: number;
+  deductionAmount: number;
   retain: number;
 };
 
 export type BenefitRunExportSummaryCard = {
   label: string;
   value: string;
+  hint?: string;
+  details?: string[];
+  opBefore?: string;
+  highlight?: boolean;
+};
+
+export type BenefitRunExportBreakdownSection = {
+  title: string;
+  rows: Array<{
+    label: string;
+    value: string;
+    indent?: number;
+    emphasis?: "group" | "total";
+  }>;
+};
+
+export type BenefitRunExportDepartmentRow = {
+  label: string;
+  staffCount: number;
+  percent: number;
+  amount: number;
+  pointValue: number | null;
+  pointValueMonth: number | null;
+};
+
+export type BenefitRunExportContributorRow = {
+  empNo: string;
+  name: string;
+  position: string;
+  department: string;
+  collectionDays: number | null;
+  ccTips: number;
+  cashTips: number;
+  totalObtain: number;
+  asph: number | null;
+  tipOutPercent: number | null;
+  asphStatus: "Met" | "Missed" | null;
+  poolContribution: number;
+  deduction: number;
+  retain: number | null;
+  roundedPayout: number | null;
+};
+
+export type BenefitRunExportPolicySection = {
+  title: string;
+  paragraphs: string[];
 };
 
 export type ExportBenefitRunPdfOptions = {
@@ -35,6 +82,10 @@ export type ExportBenefitRunPdfOptions = {
   payoutMode: "rounded" | "exact";
   rows: BenefitRunExportRow[];
   summaryCards: BenefitRunExportSummaryCard[];
+  breakdownSections?: BenefitRunExportBreakdownSection[];
+  departmentShares?: BenefitRunExportDepartmentRow[];
+  contributors?: BenefitRunExportContributorRow[];
+  policySections?: BenefitRunExportPolicySection[];
   exportedAt: Date;
   userDisplayName: string;
 };
@@ -127,6 +178,333 @@ function groupRowsByDepartment(
     .map(([department, groupRows]) => ({ department, rows: groupRows }));
 }
 
+function drawSummaryCards(
+  doc: jsPDF,
+  cards: BenefitRunExportSummaryCard[],
+  startY: number,
+  marginLeft: number,
+  marginRight: number,
+): number {
+  if (cards.length === 0) return startY;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const gap = 3;
+  const cardWidth =
+    (pageWidth - marginLeft - marginRight - gap * (cards.length - 1)) /
+    cards.length;
+  const cardHeight = 35;
+
+  cards.forEach((card, index) => {
+    const x = marginLeft + index * (cardWidth + gap);
+    if (card.highlight) {
+      doc.setFillColor(...HEADER_BG);
+    } else {
+      doc.setFillColor(255, 255, 255);
+    }
+    doc.setDrawColor(210, 211, 201);
+    doc.roundedRect(x, startY, cardWidth, cardHeight, 2, 2, "FD");
+
+    if (card.opBefore && index > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(130, 133, 112);
+      doc.text(card.opBefore, x - gap / 2, startY + cardHeight / 2 + 1, {
+        align: "center",
+      });
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(110, 110, 105);
+    doc.text(
+      pdfSafeText(card.label.toUpperCase()),
+      x + cardWidth / 2,
+      startY + 5,
+      { align: "center", maxWidth: cardWidth - 4 },
+    );
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...BRAND_DARK);
+    doc.text(pdfSafeText(card.value), x + cardWidth / 2, startY + 11, {
+      align: "center",
+      maxWidth: cardWidth - 4,
+    });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(5);
+    doc.setTextColor(105, 105, 100);
+    const supporting = [card.hint, ...(card.details ?? [])]
+      .filter(Boolean)
+      .map((line) => pdfSafeText(String(line)))
+      .join("\n");
+    if (supporting) {
+      doc.text(supporting, x + cardWidth / 2, startY + 15, {
+        align: "center",
+        maxWidth: cardWidth - 4,
+        lineHeightFactor: 1.15,
+      });
+    }
+  });
+
+  return startY + cardHeight + 5;
+}
+
+function drawOverviewPanels(
+  doc: jsPDF,
+  startY: number,
+  sections: BenefitRunExportBreakdownSection[],
+  departmentShares: BenefitRunExportDepartmentRow[],
+  marginLeft: number,
+  marginRight: number,
+): number {
+  if (sections.length === 0 && departmentShares.length === 0) return startY;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const available = pageWidth - marginLeft - marginRight;
+  const gap = 3;
+  const leftWidth = (available - gap * 2) * 0.22;
+  const centerWidth = leftWidth;
+  const rightWidth = available - leftWidth - centerWidth - gap * 2;
+  const panelWidths = [leftWidth, centerWidth, rightWidth];
+  const panelXs = [
+    marginLeft,
+    marginLeft + leftWidth + gap,
+    marginLeft + leftWidth + gap + centerWidth + gap,
+  ];
+
+  const finalYs: number[] = [];
+  for (let index = 0; index < 2; index += 1) {
+    const section = sections[index];
+    if (!section) continue;
+    autoTable(doc, {
+      startY,
+      head: [[{ content: pdfSafeText(section.title), colSpan: 2 }]],
+      body: section.rows.map((row) => [
+        {
+          content: pdfSafeText(`${row.indent ? "  ".repeat(row.indent) : ""}${row.label}`),
+          styles: {
+            fontStyle: row.emphasis ? "bold" : "normal",
+            textColor:
+              row.emphasis === "total" ? BRAND_DARK : ([90, 90, 86] as [number, number, number]),
+          },
+        },
+        {
+          content: pdfSafeText(row.value),
+          styles: {
+            halign: "right",
+            fontStyle: row.emphasis ? "bold" : "normal",
+            textColor: BRAND_DARK,
+          },
+        },
+      ]),
+      theme: "grid",
+      styles: {
+        fontSize: 6.4,
+        cellPadding: 1.15,
+        lineColor: [225, 225, 218],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [255, 255, 255],
+        textColor: BRAND_DARK,
+        fontStyle: "bold",
+        fontSize: 9,
+        halign: "left",
+      },
+      columnStyles: { 0: { cellWidth: panelWidths[index] * 0.65 }, 1: { cellWidth: panelWidths[index] * 0.35 } },
+      margin: {
+        left: panelXs[index],
+        right: pageWidth - panelXs[index] - panelWidths[index],
+        bottom: 14,
+      },
+    });
+    const last = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable;
+    finalYs.push(last?.finalY ?? startY);
+  }
+
+  if (departmentShares.length > 0) {
+    const totalStaff = departmentShares.reduce((sum, row) => sum + row.staffCount, 0);
+    const totalPercent = round2(departmentShares.reduce((sum, row) => sum + row.percent, 0));
+    const totalAmount = round2(departmentShares.reduce((sum, row) => sum + row.amount, 0));
+    autoTable(doc, {
+      startY,
+      head: [
+        [{ content: "Department shares", colSpan: 6 }],
+        ["Department", "Staff", "%", "Share", "1 pt value", "1 pt x month"],
+      ],
+      body: departmentShares.map((row) => [
+        pdfSafeText(row.label),
+        String(row.staffCount),
+        `${round2(row.percent)}%`,
+        moneyPlain(row.amount),
+        row.pointValue == null ? "-" : moneyPlain(row.pointValue),
+        row.pointValueMonth == null ? "-" : moneyPlain(row.pointValueMonth),
+      ]),
+      foot: [["Departments", String(totalStaff), `${totalPercent}%`, moneyPlain(totalAmount), "-", "-"]],
+      theme: "grid",
+      styles: {
+        fontSize: 6.4,
+        cellPadding: 1.15,
+        lineColor: [225, 225, 218],
+        lineWidth: 0.1,
+        textColor: BRAND_DARK,
+      },
+      headStyles: { fillColor: HEADER_BG, textColor: BRAND_DARK, fontStyle: "bold", fontSize: 6.4 },
+      footStyles: { fillColor: TOTALS_BG, textColor: BRAND_DARK, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: rightWidth * 0.28 },
+        1: { halign: "right", cellWidth: rightWidth * 0.1 },
+        2: { halign: "right", cellWidth: rightWidth * 0.1 },
+        3: { halign: "right", cellWidth: rightWidth * 0.18 },
+        4: { halign: "right", cellWidth: rightWidth * 0.17 },
+        5: { halign: "right", cellWidth: rightWidth * 0.17 },
+      },
+      margin: { left: panelXs[2], right: marginRight, bottom: 14 },
+    });
+    const last = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable;
+    finalYs.push(last?.finalY ?? startY);
+  }
+
+  return Math.max(startY, ...finalYs) + 4;
+}
+
+function drawContributors(
+  doc: jsPDF,
+  rows: BenefitRunExportContributorRow[],
+  payoutMode: "rounded" | "exact",
+  startY: number,
+  marginLeft: number,
+  marginRight: number,
+): number {
+  if (rows.length === 0) return startY;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(...BRAND_DARK);
+  doc.text("Contributors", marginLeft, startY);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7);
+  doc.setTextColor(100, 100, 95);
+  doc.text(
+    "Waiters and bar staff whose tip collections feed this month's distribution pool.",
+    marginLeft,
+    startY + 5,
+  );
+
+  const total = rows.reduce(
+    (acc, row) => ({
+      days: acc.days + (row.collectionDays ?? 0),
+      cc: acc.cc + row.ccTips,
+      cash: acc.cash + row.cashTips,
+      obtain: acc.obtain + row.totalObtain,
+      pool: acc.pool + row.poolContribution,
+      deduction: acc.deduction + row.deduction,
+      retain: acc.retain + (row.retain ?? 0),
+      payout: acc.payout + (row.roundedPayout ?? 0),
+    }),
+    { days: 0, cc: 0, cash: 0, obtain: 0, pool: 0, deduction: 0, retain: 0, payout: 0 },
+  );
+
+  autoTable(doc, {
+    startY: startY + 9,
+    head: [[
+      "Emp no", "Name", "Position", "Department", "Days", "CC tips", "Cash tips",
+      "Total obtain", "ASPH", "Tip-out", "Pool contribution", "Deduction", "Retain",
+      payoutHeader(payoutMode),
+    ]],
+    body: rows.map((row) => [
+      row.empNo || "-",
+      row.name || "-",
+      row.position || "-",
+      row.department || "-",
+      row.collectionDays == null ? "-" : String(row.collectionDays),
+      moneyPlain(row.ccTips),
+      moneyPlain(row.cashTips),
+      moneyPlain(row.totalObtain),
+      row.asph == null ? "-" : String(Math.round(row.asph)),
+      row.tipOutPercent == null
+        ? "-"
+        : `${round2(row.tipOutPercent)}%${row.asphStatus ? ` ${row.asphStatus}` : ""}`,
+      moneyPlain(row.poolContribution),
+      row.deduction > 0 ? `-${moneyPlain(row.deduction)}` : "-",
+      row.retain == null ? "-" : moneyPlain(row.retain),
+      row.roundedPayout == null ? "-" : moneyPlain(row.roundedPayout),
+    ].map(pdfSafeText)),
+    foot: [[
+      `${rows.length} contributors`, "", "", "", String(round2(total.days)),
+      moneyPlain(total.cc), moneyPlain(total.cash), moneyPlain(total.obtain), "", "",
+      moneyPlain(total.pool), total.deduction > 0 ? `-${moneyPlain(total.deduction)}` : "-",
+      moneyPlain(total.retain), moneyPlain(total.payout),
+    ].map(pdfSafeText)],
+    theme: "grid",
+    styles: {
+      fontSize: 5.4,
+      cellPadding: 1,
+      textColor: BRAND_DARK,
+      lineColor: [220, 221, 214],
+      lineWidth: 0.1,
+      overflow: "linebreak",
+      valign: "middle",
+    },
+    headStyles: { fillColor: HEADER_BG, textColor: BRAND_DARK, fontStyle: "bold", fontSize: 5.2 },
+    footStyles: { fillColor: TOTALS_BG, textColor: BRAND_DARK, fontStyle: "bold" },
+    columnStyles: {
+      0: { cellWidth: 14 }, 1: { cellWidth: 28 }, 2: { cellWidth: 22 }, 3: { cellWidth: 20 },
+      4: { cellWidth: 12, halign: "center" }, 5: { cellWidth: 19, halign: "right" },
+      6: { cellWidth: 19, halign: "right" }, 7: { cellWidth: 19, halign: "right", fillColor: [246, 247, 239] },
+      8: { cellWidth: 12, halign: "center" }, 9: { cellWidth: 15, halign: "center" },
+      10: { cellWidth: 21, halign: "right" }, 11: { cellWidth: 18, halign: "right" },
+      12: { cellWidth: 20, halign: "right", fillColor: [247, 247, 244] },
+      13: { cellWidth: 20, halign: "right", fillColor: [243, 245, 232], fontStyle: "bold" },
+    },
+    margin: { left: marginLeft, right: marginRight, bottom: 14 },
+  });
+  const last = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable;
+  return (last?.finalY ?? 23) + 4;
+}
+
+function drawPolicy(
+  doc: jsPDF,
+  sections: BenefitRunExportPolicySection[],
+  startY: number,
+  marginLeft: number,
+  marginRight: number,
+): number {
+  if (sections.length === 0) return startY;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const maxWidth = pageWidth - marginLeft - marginRight;
+  const gap = 5;
+  const columnWidth = sections.length === 1 ? maxWidth : (maxWidth - gap) / 2;
+  let y = startY;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...BRAND_DARK);
+  doc.text("Tips policy", marginLeft, y);
+  y += 5;
+
+  sections.forEach((section, sectionIndex) => {
+    const x = marginLeft + sectionIndex * (columnWidth + gap);
+    let columnY = y;
+    doc.setFillColor(...HEADER_BG);
+    doc.setDrawColor(215, 217, 205);
+    doc.roundedRect(x, columnY - 4, columnWidth, 7, 1.5, 1.5, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...BRAND_DARK);
+    doc.text(pdfSafeText(section.title), x + 2, columnY + 1);
+    columnY += 7;
+
+    for (const paragraph of section.paragraphs) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.8);
+      doc.setTextColor(75, 75, 72);
+      const lines = doc.splitTextToSize(pdfSafeText(paragraph), columnWidth - 5) as string[];
+      doc.text(lines, x + 2, columnY, { lineHeightFactor: 1.2 });
+      columnY += lines.length * 2.9 + 2.4;
+    }
+    y = Math.max(y, columnY);
+  });
+  return y;
+}
+
 function drawFooter(
   doc: jsPDF,
   exportedAt: Date,
@@ -154,9 +532,9 @@ function drawFooter(
   }
 }
 
-export async function exportBenefitRunPdf(
+async function buildBenefitRunPdf(
   options: ExportBenefitRunPdfOptions,
-): Promise<void> {
+): Promise<{ doc: jsPDF; filename: string }> {
   const {
     kind,
     venueName,
@@ -164,11 +542,14 @@ export async function exportBenefitRunPdf(
     benefitMonth,
     periodStart,
     periodEnd,
-    distributionDate,
     statusLabel,
     payoutMode,
     rows,
     summaryCards,
+    breakdownSections = [],
+    departmentShares = [],
+    contributors = [],
+    policySections = [],
     exportedAt,
     userDisplayName,
   } = options;
@@ -209,7 +590,6 @@ export async function exportBenefitRunPdf(
   const periodLine = [
     formatBenefitMonthLabel(benefitMonth),
     `${periodStart.slice(0, 10)} -> ${periodEnd.slice(0, 10)}`,
-    distributionDate ? `Distribute ${distributionDate.slice(0, 10)}` : null,
     statusLabel,
   ]
     .filter(Boolean)
@@ -219,15 +599,15 @@ export async function exportBenefitRunPdf(
   });
   y += 7;
 
-  if (summaryCards.length > 0) {
-    const summaryText = summaryCards
-      .map((card) => `${card.label}: ${card.value}`)
-      .join("   ");
-    doc.setFontSize(8);
-    doc.setTextColor(...BRAND_DARK);
-    doc.text(pdfSafeText(summaryText), marginLeft, y);
-    y += 5;
-  }
+  y = drawSummaryCards(doc, summaryCards, y, marginLeft, marginRight);
+  y = drawOverviewPanels(
+    doc,
+    y,
+    breakdownSections,
+    departmentShares,
+    marginLeft,
+    marginRight,
+  );
 
   const head = [
     "Emp no",
@@ -241,9 +621,45 @@ export async function exportBenefitRunPdf(
   ];
 
   const groups = groupRowsByDepartment(rows);
+  doc.addPage("a4", "landscape");
+  const contributorsEndY = drawContributors(
+    doc,
+    contributors,
+    payoutMode,
+    14,
+    marginLeft,
+    marginRight,
+  );
+  drawPolicy(
+    doc,
+    policySections.filter((section) => section.title === "Tip Out Policy"),
+    contributorsEndY,
+    marginLeft,
+    marginRight,
+  );
+
+  doc.addPage("a4", "landscape");
+  y = 14;
+  if (summaryCards.length > 0 || breakdownSections.length > 0) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(...BRAND_DARK);
+    doc.text("Allocations", marginLeft, y);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 100, 95);
+    doc.text(
+      pdfSafeText(`${formatBenefitMonthLabel(benefitMonth)} - ${rows.length} staff`),
+      pageWidth - marginRight,
+      y,
+      { align: "right" },
+    );
+    y += 4;
+  }
   let cursorY = y;
   let totalRetain = 0;
   let totalPayout = 0;
+  let totalDeduction = 0;
 
   if (groups.length === 0) {
     autoTable(doc, {
@@ -271,19 +687,26 @@ export async function exportBenefitRunPdf(
   for (const group of groups) {
     let groupRetain = 0;
     let groupPayout = 0;
+    let groupDeduction = 0;
     const body = group.rows.map((row) => {
       const payout = payoutOf(row.retain, payoutMode);
       groupRetain += row.retain;
       groupPayout += payout;
+      groupDeduction += row.deductionAmount;
       totalRetain += row.retain;
       totalPayout += payout;
+      totalDeduction += row.deductionAmount;
       return [
         row.empNo || "-",
         row.fullName || "-",
         row.position || "-",
         row.points == null ? "-" : String(row.points),
         row.workedDays == null ? "-" : String(row.workedDays),
-        row.deductionPercent > 0 ? `${row.deductionPercent}%` : "-",
+        row.deductionAmount > 0
+          ? moneyPlain(row.deductionAmount)
+          : row.deductionPercent > 0
+            ? `${row.deductionPercent}%`
+            : "-",
         moneyPlain(row.retain),
         moneyPlain(payout),
       ].map(pdfSafeText);
@@ -302,7 +725,7 @@ export async function exportBenefitRunPdf(
               fillColor: DEPT_BAND_BG,
               textColor: BRAND_DARK,
               fontStyle: "bold",
-              fontSize: 8,
+              fontSize: 5.4,
               halign: "left",
             },
           },
@@ -313,7 +736,7 @@ export async function exportBenefitRunPdf(
       foot: [
         [
           "Subtotal",
-          "",
+          groupDeduction > 0 ? moneyPlain(round2(groupDeduction)) : "-",
           "",
           "",
           "",
@@ -324,8 +747,8 @@ export async function exportBenefitRunPdf(
       ],
       theme: "grid",
       styles: {
-        fontSize: 7.5,
-        cellPadding: 1.3,
+        fontSize: 5.2,
+        cellPadding: 0.65,
         textColor: BRAND_DARK,
         lineColor: [200, 200, 190],
         lineWidth: 0.15,
@@ -336,13 +759,13 @@ export async function exportBenefitRunPdf(
         fillColor: HEADER_BG,
         textColor: BRAND_DARK,
         fontStyle: "bold",
-        fontSize: 7,
+        fontSize: 5,
       },
       footStyles: {
         fillColor: TOTALS_BG,
         textColor: BRAND_DARK,
         fontStyle: "bold",
-        fontSize: 7.5,
+        fontSize: 5.2,
       },
       columnStyles: {
         0: { cellWidth: 20 },
@@ -369,8 +792,12 @@ export async function exportBenefitRunPdf(
         [
           {
             content: pdfSafeText(`Total  |  ${rows.length} staff`),
-            colSpan: 6,
+            colSpan: 5,
             styles: { halign: "left", fontStyle: "bold" },
+          },
+          {
+            content: pdfSafeText(moneyPlain(round2(totalDeduction))),
+            styles: { halign: "right", fontStyle: "bold" },
           },
           {
             content: pdfSafeText(moneyPlain(round2(totalRetain))),
@@ -384,8 +811,8 @@ export async function exportBenefitRunPdf(
       ],
       theme: "grid",
       styles: {
-        fontSize: 8,
-        cellPadding: 1.5,
+        fontSize: 5.2,
+        cellPadding: 0.8,
         textColor: BRAND_DARK,
         fillColor: TOTALS_BG,
         lineColor: [200, 200, 190],
@@ -403,8 +830,39 @@ export async function exportBenefitRunPdf(
       },
       margin: { left: marginLeft, right: marginRight, bottom: 14 },
     });
+    const last = (doc as jsPDF & { lastAutoTable?: { finalY?: number } })
+      .lastAutoTable;
+    cursorY = (last?.finalY ?? cursorY) + 4;
   }
 
+  drawPolicy(
+    doc,
+    policySections.filter((section) => section.title === "Distribution Policy"),
+    cursorY,
+    marginLeft,
+    marginRight,
+  );
+
   drawFooter(doc, exportedAt, userDisplayName, marginLeft, marginRight);
-  doc.save(buildFilename(venueName, kind, benefitMonth, exportedAt));
+  return {
+    doc,
+    filename: buildFilename(venueName, kind, benefitMonth, exportedAt),
+  };
+}
+
+export async function exportBenefitRunPdf(
+  options: ExportBenefitRunPdfOptions,
+): Promise<void> {
+  const { doc, filename } = await buildBenefitRunPdf(options);
+  doc.save(filename);
+}
+
+export async function previewBenefitRunPdf(
+  options: ExportBenefitRunPdfOptions,
+): Promise<{ url: string; filename: string }> {
+  const { doc, filename } = await buildBenefitRunPdf(options);
+  return {
+    url: URL.createObjectURL(doc.output("blob")),
+    filename,
+  };
 }

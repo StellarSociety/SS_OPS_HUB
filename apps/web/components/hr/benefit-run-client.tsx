@@ -66,7 +66,7 @@ import {
   resolveBenefitPointsForStaff,
   DEFAULT_GRATUITY_POINT_TIERS,
 } from "@/lib/hr/benefits";
-import { exportBenefitRunPdf } from "@/lib/hr/benefit-run-export";
+import { previewBenefitRunPdf } from "@/lib/hr/benefit-run-export";
 import type { PayrollDayFraction } from "@/lib/hr/payroll";
 import { cn } from "@/lib/utils";
 import {
@@ -850,8 +850,18 @@ export function BenefitRunClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [pdfPreview, setPdfPreview] = useState<{
+    url: string;
+    filename: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreview) URL.revokeObjectURL(pdfPreview.url);
+    };
+  }, [pdfPreview]);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("amount");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -2372,7 +2382,7 @@ export function BenefitRunClient({
               setExportingPdf(true);
               void (async () => {
                 try {
-                  await exportBenefitRunPdf({
+                  const preview = await previewBenefitRunPdf({
                     kind,
                     venueName,
                     venueLogoUrl,
@@ -2385,7 +2395,133 @@ export function BenefitRunClient({
                     summaryCards: summaryCards.map((card) => ({
                       label: card.label,
                       value: card.value,
+                      hint: "hint" in card ? card.hint : undefined,
+                      details: "details" in card ? card.details : undefined,
+                      opBefore: "opBefore" in card ? card.opBefore : undefined,
+                      highlight: "highlight" in card ? card.highlight : false,
                     })),
+                    breakdownSections:
+                      kind === "gratuity"
+                        ? [
+                            {
+                              title: "Total tips",
+                              rows: [
+                                { label: "Collected", value: "", emphasis: "group" as const },
+                                { label: "All bar collections", value: formatMoney(allBarCollections), emphasis: "group" as const },
+                                { label: "Cash", value: formatMoney(barCashCollected), indent: 1 },
+                                { label: "to bar staff", value: formatMoney(barCashToBarStaff), indent: 2 },
+                                { label: "Card", value: formatMoney(barCcCollected), indent: 1 },
+                                { label: `to general pool (${barCcPoolPercent}%)`, value: formatMoney(barCcToPool), indent: 2 },
+                                { label: `to bar staff (${barCcBarStaffPercent}%)`, value: formatMoney(barCcToBarStaff), indent: 2 },
+                                { label: "Waiter cash tips", value: formatMoney(waiterCashCollected), emphasis: "group" as const },
+                                { label: "after tip-out", value: formatMoney(waiterCashRetain), indent: 1 },
+                                { label: "general pool", value: formatMoney(waiterCashTipOut), indent: 1 },
+                                { label: "Waiter CC tips", value: formatMoney(waiterCcCollected), emphasis: "group" as const },
+                                { label: "after tip-out", value: formatMoney(waiterCcRetain), indent: 1 },
+                                { label: "general pool", value: formatMoney(waiterCcTipOut), indent: 1 },
+                                { label: "Divided to", value: "", emphasis: "group" as const },
+                                { label: "Allocations Share", value: formatMoney(allocationsShare), emphasis: "group" as const },
+                                { label: "Deducted", value: `-${formatMoney(deductedThisRun)}`, indent: 1 },
+                                { label: "Collections", value: formatMoney(collectionsTotal), emphasis: "group" as const },
+                                { label: "Waiters retain", value: formatMoney(waitersRetainPaid), emphasis: "group" as const },
+                                { label: "Rounding collection", value: `-${formatMoney(roundingCollected)}`, emphasis: "group" as const },
+                                { label: "Total tips", value: formatMoney(totalTips), emphasis: "total" as const },
+                              ],
+                            },
+                            {
+                              title: "Collections",
+                              rows: [
+                                { label: `OS&E deduction (${Number(deductionPercents.osePercent) || 0}%)`, value: formatMoney(oseTotal), emphasis: "group" as const },
+                                { label: "from general pool", value: formatMoney(oseFromPool), indent: 1 },
+                                { label: "from waiters retain", value: formatMoney(oseFromRetain), indent: 1 },
+                                { label: `Staff activities (${Number(deductionPercents.activitiesPercent) || 0}%)`, value: formatMoney(activitiesTotal), emphasis: "group" as const },
+                                { label: "from general pool", value: formatMoney(activitiesFromPool), indent: 1 },
+                                { label: "from waiters retain", value: formatMoney(activitiesFromRetain), indent: 1 },
+                                { label: "Rounding collection", value: formatMoney(roundingCollected), emphasis: "group" as const },
+                                ...(deductedThisRun > 0
+                                  ? [{ label: "Deducted", value: formatMoney(deductedThisRun), emphasis: "group" as const }]
+                                  : []),
+                                { label: "Total", value: formatMoney(collectionsTotal), emphasis: "total" as const },
+                              ],
+                            },
+                          ]
+                        : [],
+                    departmentShares:
+                      kind === "gratuity"
+                        ? departmentShareDisplayRows.map((row) => ({
+                            label: row.label,
+                            staffCount: row.staffCount,
+                            percent: Number(deptPercents[row.key] ?? row.percent) || 0,
+                            amount: row.amount,
+                            pointValue: row.pointValue,
+                            pointValueMonth: row.pointValueMonth,
+                          }))
+                        : [],
+                    contributors:
+                      kind === "gratuity"
+                        ? sortedContributors.map((row) => {
+                            const deduction = row.staffId
+                              ? contributorCutsByStaff.get(row.staffId)?.cut ?? 0
+                              : 0;
+                            const retain = row.retain == null
+                              ? null
+                              : row.withheld
+                                ? row.retain
+                                : row.staffId
+                                  ? contributorCutsByStaff.get(row.staffId)?.net ?? row.retain
+                                  : row.retain;
+                            return {
+                              empNo: row.empNo ?? "",
+                              name: row.name,
+                              position: row.position ?? "",
+                              department: row.departmentName ?? "",
+                              collectionDays: row.workedDays ?? null,
+                              ccTips: row.ccCollected,
+                              cashTips: row.cashCollected,
+                              totalObtain: row.obtain,
+                              asph: row.asph ?? null,
+                              tipOutPercent: row.tipOutPercent ?? null,
+                              asphStatus:
+                                row.asphKpiMet == null
+                                  ? null
+                                  : row.asphKpiMet
+                                    ? "Met" as const
+                                    : "Missed" as const,
+                              poolContribution: row.contributedToPool,
+                              deduction,
+                              retain,
+                              roundedPayout:
+                                retain == null || row.withheld
+                                  ? null
+                                  : displayPayoutAmount(retain, payoutMode),
+                            };
+                          })
+                        : [],
+                    policySections:
+                      kind === "gratuity" && poolContributionRule
+                        ? [
+                            {
+                              title: "Tip Out Policy",
+                              paragraphs: [
+                                `Floor waiters tip out ${Number(poolContributionRule.waiterCashPoolPercent) || 0}% of cash tips and ${waiterCcTipOutLabel(poolContributionRule)} into the general tips pool. The rest stays as their Retain after the Runner / HK cut.`,
+                                `Bar CC tips split ${Number(poolContributionRule.barCcPoolPercent) || 0}% to the general tips pool and ${Number(poolContributionRule.barCcBarStaffPercent) || 0}% to a bar-staff fund, shared among bar staff by points x worked days x (1 - disciplinary %). Bar cash tips are split ${poolContributionRule.barCashEqualSplit ? "equally" : "by the same weight rule"} among all bar staff who worked the period.`,
+                                "Nothing is retained by the individual bar collector. Bar amounts are paid through Allocations, so bar staff also receive their normal Beverage department share.",
+                                `After tip-out, ${Number(deductionPercents.runnerHousekeeperPercent) || 0}% of each floor waiter's remaining cash and CC is set aside for the Runner / HK fund. Disciplinary cuts take a percentage of Retain and move it into the general tips pool. OS&E and Staff activities percentages are also taken from Retain and added to those deduction totals.`,
+                              ],
+                            },
+                            {
+                              title: "Distribution Policy",
+                              paragraphs: [
+                                `After tip-outs land in the tips pool, ${Number(deductionPercents.osePercent) || 0}% OS&E and ${Number(deductionPercents.activitiesPercent) || 0}% Staff activities are taken from the pool and again from each contributor's Retain. What remains is the net pool for distribution.`,
+                                departmentAllocationMode === "equal_point_value" || departmentAllocationMode === "bypass_department"
+                                  ? "Bypass / redistribution mode uses one shared point rate for the general pool. Each eligible person's share is proportional to points x worked days, adjusted by disciplinary percentage."
+                                  : `The general net pool is first split by department share (${departmentOrder.map((d) => `${d.label} ${Number(deptPercents[d.key] ?? d.percent) || 0}%`).join(", ")}). Within each department, staff are paid by points x worked days x (1 - disciplinary %). Floor waiters are excluded because they are paid via Retain under Contributors.`,
+                                "Bar staff receive the bar CC staff fund and an equal share of bar cash in addition to their Beverage department share. Both are paid regardless of the department mode.",
+                                "Editable points and warning levels recalculate shares immediately. Finalized runs feed Payroll as Tips lines.",
+                              ],
+                            },
+                          ]
+                        : [],
                     rows: poolAllocationRows.map((row) => ({
                       empNo: row.emp_no ?? "",
                       fullName: row.full_name ?? "",
@@ -2394,10 +2530,16 @@ export function BenefitRunClient({
                       points: row.points,
                       workedDays: allocationWorkedDays(row),
                       deductionPercent: deductionPctOf(row),
+                      deductionAmount:
+                        allocationCutsByStaff.get(row.staff_id)?.cut ?? 0,
                       retain: Number(row.amount) || 0,
                     })),
                     exportedAt: new Date(),
                     userDisplayName,
+                  });
+                  setPdfPreview((current) => {
+                    if (current) URL.revokeObjectURL(current.url);
+                    return preview;
                   });
                 } catch (err) {
                   setError(
@@ -2412,7 +2554,7 @@ export function BenefitRunClient({
             }}
           >
             <FileDown className="h-4 w-4" aria-hidden />
-            {exportingPdf ? "Exporting…" : "PDF"}
+            {exportingPdf ? "Preparing…" : "PDF"}
           </Button>
           {canFinalize ? (
             <Button
@@ -4003,6 +4145,67 @@ export function BenefitRunClient({
       {run.notes ? (
         <p className="text-sm text-black/50">{run.notes}</p>
       ) : null}
+
+      {pdfPreview
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[220] flex flex-col bg-black/70 p-3 sm:p-5"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="benefit-pdf-preview-title"
+            >
+              <div className="mx-auto flex h-full w-full max-w-[1500px] flex-col overflow-hidden rounded-xl border border-black/15 bg-white shadow-2xl">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/10 px-4 py-3">
+                  <div className="min-w-0">
+                    <h2
+                      id="benefit-pdf-preview-title"
+                      className="font-serif text-xl text-[#3D421F]"
+                    >
+                      {formatBenefitMonthLabel(run.benefit_month)} PDF preview
+                    </h2>
+                    <p className="truncate text-xs text-black/45">
+                      {pdfPreview.filename}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={pdfPreview.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex h-9 items-center rounded-md border border-black/10 bg-white px-3 text-sm font-medium text-[#3D421F] transition hover:bg-black/[0.03]"
+                    >
+                      Open in tab
+                    </a>
+                    <a
+                      href={pdfPreview.url}
+                      download={pdfPreview.filename}
+                      className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-medium text-white transition hover:bg-emerald-800"
+                    >
+                      <FileDown className="h-4 w-4" aria-hidden />
+                      Download PDF
+                    </a>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="border border-black/10"
+                      onClick={() => setPdfPreview(null)}
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                      Close
+                    </Button>
+                  </div>
+                </div>
+                <iframe
+                  title={`${formatBenefitMonthLabel(run.benefit_month)} gratuity PDF preview`}
+                  src={pdfPreview.url}
+                  className="min-h-0 flex-1 bg-[#f4f4f0]"
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {redistributeOpen
         ? createPortal(
