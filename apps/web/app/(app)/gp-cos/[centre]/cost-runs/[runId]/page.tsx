@@ -181,7 +181,7 @@ export default async function CostRunEntryPage({
           ledgerCode: k.ledger_account_id
             ? (ledgerCodeById.get(k.ledger_account_id) ?? "")
             : "",
-          deduction: k.default_side === "CR",
+          side: k.default_side,
         }))}
         transferAdjustments={transferAdjustments}
         canApprove={

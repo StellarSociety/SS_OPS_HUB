@@ -28,7 +28,18 @@ type Draft = {
 const SIDES: { value: CosAdjustmentSide; label: string; hint: string }[] = [
   { value: "DB", label: "DB · (+) Addition", hint: "Raises cost of sales" },
   { value: "CR", label: "CR · (-) Deduction", hint: "Lowers cost of sales" },
+  {
+    value: "NEU",
+    label: "NEU · (=) Neutral",
+    hint: "Recorded on the run, no effect on cost of sales",
+  },
 ];
+
+const SIDE_ACTIVE: Record<CosAdjustmentSide, string> = {
+  DB: "bg-emerald-600 text-white",
+  CR: "bg-red-600 text-white",
+  NEU: "bg-slate-500 text-white",
+};
 
 const inputClass =
   "h-9 w-full rounded-md border border-black/10 bg-white px-2.5 text-sm text-[#3D421F] outline-none focus:border-[var(--venue-primary)]/50 focus:ring-2 focus:ring-[var(--venue-primary)]/20 disabled:opacity-60";
@@ -132,7 +143,7 @@ export function CosAdjustmentKindsEditor({
             <tr className="border-b border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/60 text-xs font-bold uppercase tracking-wide text-black/70">
               <th className="px-4 py-2.5 text-left">Name</th>
               <th className="px-3 py-2.5 text-left">Ledger account</th>
-              <th className="w-56 px-3 py-2.5 text-left">Default (DB / CR)</th>
+              <th className="w-80 px-3 py-2.5 text-left">Default (DB / CR / NEU)</th>
               <th className="w-20 px-3 py-2.5 text-center">Active</th>
               {canEdit ? <th className="w-10" aria-label="Remove" /> : null}
             </tr>
@@ -182,9 +193,7 @@ export function CosAdjustmentKindsEditor({
                         className={cn(
                           "whitespace-nowrap rounded px-2 py-1 transition",
                           row.default_side === side.value
-                            ? side.value === "CR"
-                              ? "bg-red-600 text-white"
-                              : "bg-emerald-600 text-white"
+                            ? SIDE_ACTIVE[side.value]
                             : "text-black/55 hover:text-black",
                         )}
                       >

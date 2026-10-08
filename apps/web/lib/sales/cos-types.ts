@@ -30,7 +30,9 @@ export type CosAdjustmentSource =
   | "auto_discount"
   | "stock"
   | "other"
-  | "transfer";
+  | "transfer"
+  /** Recorded for reference only; excluded from cost of sales. */
+  | "neutral";
 
 export type VenueCosSettings = {
   id: string;
@@ -142,8 +144,11 @@ export type CosMonthlyTargetInput = {
   closing_stock_target_gs: number | null;
 };
 
-/** DB = (+) addition (raises cost of sales); CR = (-) deduction. */
-export type CosAdjustmentSide = "DB" | "CR";
+/**
+ * DB = (+) addition (raises cost of sales); CR = (-) deduction;
+ * NEU = (=) neutral (recorded, but no effect on cost of sales).
+ */
+export type CosAdjustmentSide = "DB" | "CR" | "NEU";
 
 export type VenueCosAdjustmentKind = {
   id: string;

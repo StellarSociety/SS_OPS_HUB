@@ -25,6 +25,7 @@ import {
 import {
   COST_CENTRE_LABELS,
   type CostCentre,
+  type CosAdjustmentSide,
   type CosAdjustmentSource,
   type CosRunStatus,
   type VenueCosRunWithAdjustments,
@@ -68,7 +69,7 @@ type Props = {
   /** Net AP purchases on the linked ledgers for the week (null if unavailable). */
   accountsPurchasesNet: number | null;
   /** Active adjustment kinds (Settings → Adjustments). */
-  adjustmentKinds: { name: string; ledgerCode: string; deduction: boolean }[];
+  adjustmentKinds: { name: string; ledgerCode: string; side: CosAdjustmentSide }[];
   /** Transfers touching this centre in the run's week, signed for this centre. */
   transferAdjustments: { reason: string; amount_gs: number }[];
   /** Approvers from Settings → Approvals (or anyone with edit if none set). */
@@ -142,7 +143,7 @@ export function CostRunEntryForm(props: Props) {
         reason: a.reason,
         amount_gs: a.amount_gs,
         source: a.source,
-        deduction: Number(a.amount_gs) < 0,
+        deduction: a.source !== "neutral" && Number(a.amount_gs) < 0,
         ledger_account: a.ledger_account ?? "",
       })) ?? [],
   );
@@ -191,7 +192,15 @@ export function CostRunEntryForm(props: Props) {
 
   // Auto discount adjustment (e.g. shisha 30%). Shown as a derived line.
   const autoAdj = autoDiscountAdjustment(discount, props.autoAdjustmentPct);
-  const manualAdjTotal = adjustments.reduce((s, a) => s + (Number(a.amount_gs) || 0), 0);
+  // Neutral rows are recorded for reference only.
+  const countedAdjustments = adjustments.filter((a) => a.source !== "neutral");
+  const neutralTotal = adjustments
+    .filter((a) => a.source === "neutral")
+    .reduce((s, a) => s + Math.abs(Number(a.amount_gs) || 0), 0);
+  const manualAdjTotal = countedAdjustments.reduce(
+    (s, a) => s + (Number(a.amount_gs) || 0),
+    0,
+  );
   const transferTotal = props.transferAdjustments.reduce(
     (s, t) => s + t.amount_gs,
     0,
@@ -201,7 +210,7 @@ export function CostRunEntryForm(props: Props) {
   const signedAdjustments = [
     autoAdj,
     ...props.transferAdjustments.map((t) => t.amount_gs),
-    ...adjustments.map((a) => Number(a.amount_gs) || 0),
+    ...countedAdjustments.map((a) => Number(a.amount_gs) || 0),
   ];
   const additionsTotal = signedAdjustments.reduce((s, v) => s + Math.max(v, 0), 0);
   const deductionsTotal = signedAdjustments.reduce((s, v) => s + Math.max(-v, 0), 0);
@@ -549,7 +558,7 @@ export function CostRunEntryForm(props: Props) {
               <tr className="bg-[var(--venue-secondary,#F0F3DD)] text-xs font-bold uppercase tracking-wide text-black/70">
                 <th className="w-10 border border-black/15 px-2 py-2 text-center">#</th>
                 <th className="border border-black/15 px-3 py-2 text-left">Reference</th>
-                <th className="w-60 border border-black/15 px-3 py-2 text-center">Type</th>
+                <th className="w-80 border border-black/15 px-3 py-2 text-center">Type</th>
                 <th className="w-44 border border-black/15 px-3 py-2 text-right">Amount</th>
                 {!locked ? <th className="w-10 border border-black/15" aria-label="Remove" /> : null}
               </tr>
@@ -598,7 +607,24 @@ export function CostRunEntryForm(props: Props) {
               ))}
               {adjustments.map((a, i) => {
                 const amount = Math.abs(Number(a.amount_gs) || 0);
-                const isDeduction = a.deduction ?? Number(a.amount_gs) < 0;
+                const isNeutral = a.source === "neutral";
+                const isDeduction =
+                  !isNeutral && (a.deduction ?? Number(a.amount_gs) < 0);
+                const side: CosAdjustmentSide = isNeutral
+                  ? "NEU"
+                  : isDeduction
+                    ? "CR"
+                    : "DB";
+                const sideRow = (next: CosAdjustmentSide): Partial<AdjRow> => ({
+                  deduction: next === "CR",
+                  source:
+                    next === "NEU"
+                      ? "neutral"
+                      : a.source === "neutral"
+                        ? "manual"
+                        : a.source,
+                  amount_gs: next === "CR" ? -amount : amount,
+                });
                 const patchRow = (patch: Partial<AdjRow>) =>
                   setAdjustments((arr) =>
                     arr.map((x, j) => (j === i ? { ...x, ...patch } : x)),
@@ -620,12 +646,7 @@ export function CostRunEntryForm(props: Props) {
                             patchRow({
                               reason: e.target.value,
                               ledger_account: kind?.ledgerCode ?? "",
-                              ...(kind
-                                ? {
-                                    deduction: kind.deduction,
-                                    amount_gs: kind.deduction ? -amount : amount,
-                                  }
-                                : {}),
+                              ...(kind ? sideRow(kind.side) : {}),
                             });
                           }}
                           className="h-9 w-full bg-transparent px-2 text-sm text-[#3D421F] outline-none focus:bg-[var(--venue-secondary,#F0F3DD)]/40 disabled:opacity-60"
@@ -654,28 +675,26 @@ export function CostRunEntryForm(props: Props) {
                     </td>
                     <td className="border border-black/15 px-2 py-1 text-center">
                       {locked ? (
-                        <TypeBadge deduction={isDeduction} />
+                        <TypeBadge side={side} />
                       ) : (
                         <div className="inline-flex rounded-md bg-black/[0.04] p-0.5 text-xs font-semibold">
-                          {[false, true].map((ded) => (
+                          {(["DB", "CR", "NEU"] as const).map((opt) => (
                             <button
-                              key={String(ded)}
+                              key={opt}
                               type="button"
-                              onClick={() =>
-                                patchRow({
-                                  deduction: ded,
-                                  amount_gs: ded ? -amount : amount,
-                                })
+                              title={
+                                opt === "NEU"
+                                  ? "Recorded only — no effect on cost of sales"
+                                  : undefined
                               }
+                              onClick={() => patchRow(sideRow(opt))}
                               className={`whitespace-nowrap rounded px-2 py-1 transition ${
-                                isDeduction === ded
-                                  ? ded
-                                    ? "bg-red-600 text-white"
-                                    : "bg-emerald-600 text-white"
+                                side === opt
+                                  ? SIDE_ACTIVE[opt]
                                   : "text-black/55 hover:text-black"
                               }`}
                             >
-                              {ded ? "(-) Deduction" : "(+) Addition"}
+                              {SIDE_LABEL[opt]}
                             </button>
                           ))}
                         </div>
@@ -685,13 +704,17 @@ export function CostRunEntryForm(props: Props) {
                       <div className="flex items-center">
                         {isDeduction ? (
                           <span className="pl-3 text-sm font-medium text-red-700">(-)</span>
+                        ) : isNeutral ? (
+                          <span className="pl-3 text-sm font-medium text-slate-500">(=)</span>
                         ) : null}
                         <MoneyInput
                           bare
                           disabled={locked}
                           value={amount}
                           onValue={(v) =>
-                            patchRow({ amount_gs: isDeduction ? -Math.abs(v) : Math.abs(v) })
+                            patchRow({
+                              amount_gs: isDeduction ? -Math.abs(v) : Math.abs(v),
+                            })
                           }
                         />
                       </div>
@@ -743,6 +766,17 @@ export function CostRunEntryForm(props: Props) {
                 </td>
                 {!locked ? <td className="border border-black/15" /> : null}
               </tr>
+              {neutralTotal > 0 ? (
+                <tr className="bg-black/[0.02]">
+                  <td colSpan={3} className="border border-black/15 px-3 py-1.5 text-right text-black/60">
+                    Neutral (recorded, not in cost of sales)
+                  </td>
+                  <td className="border border-black/15 px-3 py-1.5 text-right tabular-nums text-slate-500">
+                    (=) {MONEY(neutralTotal)}
+                  </td>
+                  {!locked ? <td className="border border-black/15" /> : null}
+                </tr>
+              ) : null}
               <tr className="bg-black/[0.04] font-semibold">
                 <td colSpan={3} className="border border-black/15 px-3 py-2 text-right">
                   Net adjustments (additions − deductions)
@@ -1011,14 +1045,37 @@ function EquationValue({
   );
 }
 
-function TypeBadge({ deduction }: { deduction: boolean }) {
+const SIDE_LABEL: Record<CosAdjustmentSide, string> = {
+  DB: "(+) Addition",
+  CR: "(-) Deduction",
+  NEU: "(=) Neutral",
+};
+
+const SIDE_ACTIVE: Record<CosAdjustmentSide, string> = {
+  DB: "bg-emerald-600 text-white",
+  CR: "bg-red-600 text-white",
+  NEU: "bg-slate-500 text-white",
+};
+
+const SIDE_BADGE: Record<CosAdjustmentSide, string> = {
+  DB: "bg-emerald-100 text-emerald-800",
+  CR: "bg-red-100 text-red-800",
+  NEU: "bg-slate-100 text-slate-700",
+};
+
+function TypeBadge({
+  deduction,
+  side,
+}: {
+  deduction?: boolean;
+  side?: CosAdjustmentSide;
+}) {
+  const s: CosAdjustmentSide = side ?? (deduction ? "CR" : "DB");
   return (
     <span
-      className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
-        deduction ? "bg-red-100 text-red-800" : "bg-emerald-100 text-emerald-800"
-      }`}
+      className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${SIDE_BADGE[s]}`}
     >
-      {deduction ? "(-) Deduction" : "(+) Addition"}
+      {SIDE_LABEL[s]}
     </span>
   );
 }

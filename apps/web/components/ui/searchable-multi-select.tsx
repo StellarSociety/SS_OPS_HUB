@@ -43,9 +43,14 @@ export function SearchableMultiSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelPos, setPanelPos] = useState<{
-    top: number;
+    /** Set when opening below the trigger. */
+    top?: number;
+    /** Set when opening above the trigger (not enough room below). */
+    bottom?: number;
     left: number;
     width: number;
+    /** Height available to the option list. */
+    listMaxHeight: number;
   } | null>(null);
 
   const selectedSet = useMemo(() => new Set(values), [values]);
@@ -69,12 +74,26 @@ export function SearchableMultiSelect({
   function updatePanelPos() {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const width = Math.max(rect.width, 220);
+    // Wide enough that typical option labels stay on one line.
+    const width = Math.min(Math.max(rect.width, 320), window.innerWidth - 16);
     const left = Math.min(
       Math.max(8, rect.left),
       window.innerWidth - width - 8,
     );
-    setPanelPos({ top: rect.bottom + 4, left, width });
+    // Search box (~53px) + list (up to 240px). Open upwards when the space
+    // below the trigger can't fit it and there is more room above.
+    const SEARCH_H = 53;
+    const LIST_MAX = 240;
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const openUp = spaceBelow < SEARCH_H + LIST_MAX && spaceAbove > spaceBelow;
+    const room = openUp ? spaceAbove : spaceBelow;
+    const listMaxHeight = Math.max(96, Math.min(LIST_MAX, room - SEARCH_H));
+    setPanelPos(
+      openUp
+        ? { bottom: window.innerHeight - rect.top + 4, left, width, listMaxHeight }
+        : { top: rect.bottom + 4, left, width, listMaxHeight },
+    );
   }
 
   useLayoutEffect(() => {
@@ -179,6 +198,7 @@ export function SearchableMultiSelect({
               className="fixed overflow-hidden rounded-md border border-black/10 bg-white shadow-lg"
               style={{
                 top: panelPos.top,
+                bottom: panelPos.bottom,
                 left: panelPos.left,
                 width: panelPos.width,
                 zIndex: 450,
@@ -208,7 +228,11 @@ export function SearchableMultiSelect({
                   </button>
                 </div>
               ) : null}
-              <ul role="listbox" className="max-h-60 overflow-y-auto py-1 text-sm">
+              <ul
+                role="listbox"
+                className="overflow-y-auto py-1 text-sm"
+                style={{ maxHeight: panelPos.listMaxHeight }}
+              >
                 {filtered.map((option) => {
                   const isSelected = selectedSet.has(option.value);
                   return (

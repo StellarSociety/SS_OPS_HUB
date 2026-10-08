@@ -57,8 +57,12 @@ export function weeksInMonth(monthIndex: number): number[] {
   return Array.from({ length: count }, (_, i) => start + i);
 }
 
+/** Neutral adjustments are informational and never change cost of sales. */
 export function sumAdjustments(adjustments: VenueCosAdjustment[]): number {
-  return adjustments.reduce((sum, a) => sum + (Number(a.amount_gs) || 0), 0);
+  return adjustments.reduce(
+    (sum, a) => (a.source === "neutral" ? sum : sum + (Number(a.amount_gs) || 0)),
+    0,
+  );
 }
 
 export type CosDerived = {

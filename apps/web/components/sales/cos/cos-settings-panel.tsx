@@ -78,6 +78,15 @@ export function CosSettingsPanel({
       value: a.id,
       label: `${a.code} · ${a.name}`,
       searchText: `${a.code} ${a.name} ${a.accountType}`,
+      // One compact line in the list (the default would repeat searchText).
+      dropdownLabel: (
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="shrink-0 font-mono text-xs text-black/50">
+            {a.code}
+          </span>
+          <span className="truncate">{a.name}</span>
+        </span>
+      ),
     }));
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(initial);
