@@ -36,7 +36,9 @@ export type CosInsightWeek = {
   runSales: number | null;
   /** Cost of sales ÷ sales on the cost run; null without a run or sales. */
   costPct: number | null;
+  /** AED: the Settings purchase target % of this week's centre net sales. */
   purchaseTarget: number;
+  purchaseTargetPct: number;
   closingStockTarget: number;
 };
 
@@ -127,7 +129,8 @@ export async function getCosInsightsData(
         costOfSales: derived?.costOfSales ?? null,
         runSales: derived?.sales ?? null,
         costPct: derived?.costPct ?? null,
-        purchaseTarget: targets.purchaseTargetGs,
+        purchaseTarget: 0, // set once the week's sales are known
+        purchaseTargetPct: targets.purchaseTargetPct,
         closingStockTarget: targets.closingStockTargetGs,
       };
       weeks.push(week);
@@ -147,6 +150,10 @@ export async function getCosInsightsData(
       const gs = CENTRE_SALES_FIELDS[c].reduce((s, f) => s + num(row[f]), 0);
       week.salesNet[c] += grossToNet(gs, totalTaxPct);
     }
+  }
+
+  for (const w of weeks) {
+    w.purchaseTarget = (w.salesNet[centre] * w.purchaseTargetPct) / 100;
   }
 
   // Purchases: AP invoices on the centre's linked ledgers, else cost runs.

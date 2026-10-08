@@ -30,7 +30,7 @@ type Field =
 
 const FIELDS: { key: Field; label: string; suffix?: string }[] = [
   { key: "target_cost_pct", label: "Target cost %", suffix: "%" },
-  { key: "purchase_target_gs", label: "Purchase target" },
+  { key: "purchase_target_gs", label: "Purchase target %", suffix: "%" },
   { key: "closing_stock_target_gs", label: "Closing stock target" },
 ];
 
@@ -88,6 +88,12 @@ export function CosTargetsEditor({
   });
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Every centre / centre-year edited since the last save, so switching
+  // centres before saving doesn't drop edits.
+  const [touched, setTouched] = useState<Set<string>>(() => new Set());
+  const touch = (k: string) =>
+    setTouched((t) => (t.has(k) ? t : new Set(t).add(k)));
 
   const defaultsRow = defaults.find((d) => d.cost_centre === centre)!;
   const draftFor = (m: number) =>
@@ -95,6 +101,7 @@ export function CosTargetsEditor({
 
   function setMonth(m: number, field: Field, value: string) {
     setSaved(false);
+    touch(`${centre}:${year}`);
     setDrafts((d) => ({
       ...d,
       [key(centre, year, m)]: { ...draftFor(m), [field]: value },
@@ -103,28 +110,44 @@ export function CosTargetsEditor({
 
   function setDefault(field: Field, value: string) {
     setSaved(false);
+    touch(centre);
     onDefaultsChange(centre, { [field]: parse(value) ?? 0 });
   }
 
   function save() {
     setSaved(false);
+    setError(null);
+    const keys = new Set(touched).add(centre).add(`${centre}:${year}`);
     startTransition(async () => {
-      await saveCosSettingsAction(defaultsRow);
-      await saveCosMonthlyTargetsAction({
-        cost_centre: centre,
-        fiscal_year: year,
-        months: MONTH_LABELS.map((_, m) => {
-          const d = draftFor(m);
-          return {
-            month_index: m,
-            target_cost_pct: parse(d.target_cost_pct),
-            purchase_target_gs: parse(d.purchase_target_gs),
-            closing_stock_target_gs: parse(d.closing_stock_target_gs),
-          };
-        }),
-      });
-      setSaved(true);
-      router.refresh();
+      try {
+        for (const k of keys) {
+          const [c, y] = k.split(":") as [CostCentre, string | undefined];
+          if (y == null) {
+            const row = defaults.find((d) => d.cost_centre === c);
+            if (row) await saveCosSettingsAction(row);
+            continue;
+          }
+          const fy = Number(y);
+          await saveCosMonthlyTargetsAction({
+            cost_centre: c,
+            fiscal_year: fy,
+            months: MONTH_LABELS.map((_, m) => {
+              const d = drafts[key(c, fy, m)] ?? toDraft(undefined);
+              return {
+                month_index: m,
+                target_cost_pct: parse(d.target_cost_pct),
+                purchase_target_gs: parse(d.purchase_target_gs),
+                closing_stock_target_gs: parse(d.closing_stock_target_gs),
+              };
+            }),
+          });
+        }
+        setTouched(new Set());
+        setSaved(true);
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Saving targets failed.");
+      }
     });
   }
 
@@ -244,9 +267,18 @@ export function CosTargetsEditor({
         </table>
         {canEdit ? (
           <div className="flex items-center justify-end gap-3 border-t border-black/5 px-4 py-3">
-            {saved ? (
+            {error ? (
+              <span className="text-xs font-semibold text-red-700">{error}</span>
+            ) : saved ? (
               <span className="text-xs font-semibold text-emerald-600">
                 Saved
+              </span>
+            ) : touched.size > 0 ? (
+              <span className="text-xs text-amber-700">
+                Unsaved changes ·{" "}
+                {[...new Set([...touched].map((k) => k.split(":")[0]))]
+                  .map((c) => COST_CENTRE_LABELS[c as CostCentre])
+                  .join(", ")}
               </span>
             ) : null}
             <button
@@ -255,9 +287,7 @@ export function CosTargetsEditor({
               onClick={save}
               className="rounded-lg bg-[var(--venue-primary,#818a40)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
             >
-              {pending
-                ? "Saving…"
-                : `Save ${COST_CENTRE_LABELS[centre]} targets ${year}`}
+              {pending ? "Saving…" : "Save targets"}
             </button>
           </div>
         ) : null}

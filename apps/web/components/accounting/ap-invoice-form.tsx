@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "@/components/ui/toast";
+import { ApDuplicateDialog } from "@/components/accounting/ap-duplicate-dialog";
+import type { ApDuplicateDoc } from "@/lib/accounting/ap-duplicates";
 import {
   checkSupplierInvoiceDuplicate,
   saveApInvoiceForm,
@@ -110,7 +112,12 @@ export function ApInvoiceForm({
   );
   const memo = invoice?.memo ?? "";
   const [attachment, setAttachment] = useState<File | null>(null);
-  const [dupWarning, setDupWarning] = useState<string | null>(null);
+  // Existing documents sharing this document's supplier reference.
+  const [dupMatches, setDupMatches] = useState<ApDuplicateDoc[]>([]);
+  /** Dialog state; `fromSave` when it interrupted a save. */
+  const [dupDialog, setDupDialog] = useState<{ fromSave: boolean } | null>(null);
+  /** The user chose to keep both for the current numbers. */
+  const [dupAccepted, setDupAccepted] = useState(false);
   const [showNewSupplier, setShowNewSupplier] = useState(false);
   const [newSupplierName, setNewSupplierName] = useState("");
   const [newSupplierTrn, setNewSupplierTrn] = useState("");
@@ -214,24 +221,27 @@ export function ApInvoiceForm({
       })),
     [lines, lineAmounts],
   );
-  async function onSupplierInvoiceBlur() {
-    if (!supplierId || !supplierInvoiceNo.trim()) {
-      setDupWarning(null);
+  async function checkDuplicates() {
+    if (!supplierId || (!supplierInvoiceNo.trim() && !deliveryNoteNo.trim())) {
+      setDupMatches([]);
       return;
     }
     const result = await checkSupplierInvoiceDuplicate({
       supplierId,
       supplierInvoiceNo,
+      deliveryNoteNo: isDeliveryNote ? deliveryNoteNo : "",
       documentType,
       excludeId: invoice?.id,
     });
-    if (result.ok && result.duplicate) {
-      setDupWarning(
-        `Duplicate — already exists as ${result.existing?.invoice_no ?? "another invoice"}.`,
-      );
-    } else {
-      setDupWarning(null);
-    }
+    const matches = result.ok ? result.matches : [];
+    setDupMatches(matches);
+    if (matches.length && !dupAccepted) setDupDialog({ fromSave: false });
+  }
+
+  /** Editing a reference clears an earlier "keep both". */
+  function onReferenceChange() {
+    setDupAccepted(false);
+    setDupMatches([]);
   }
 
   function updateLine(key: string, patch: Partial<LineDraft>) {
@@ -283,7 +293,7 @@ export function ApInvoiceForm({
     });
   }
 
-  function save(submit: boolean) {
+  function save(allowDuplicate = dupAccepted) {
     if (!canEdit) {
       toast.error("You do not have permission to edit invoices.");
       return;
@@ -292,20 +302,12 @@ export function ApInvoiceForm({
       toast.error("This venue is not mapped to a legal entity.");
       return;
     }
-    if (dupWarning) {
-      toast.error(dupWarning);
-      return;
-    }
     if (isDeliveryNote && !deliveryNoteNo.trim()) {
       toast.error("Delivery note number is required.");
       return;
     }
-    if (!supplierInvoiceNo.trim() && (!isDeliveryNote || submit)) {
-      toast.error(
-        isDeliveryNote
-          ? "Add the supplier's invoice number before submitting this delivery note."
-          : "Invoice number is required.",
-      );
+    if (!supplierInvoiceNo.trim() && !isDeliveryNote) {
+      toast.error("Invoice number is required.");
       return;
     }
     if (!invoiceDate) {
@@ -332,20 +334,22 @@ export function ApInvoiceForm({
     if (currency.toUpperCase() !== "AED") fd.set("fxRate", fxRate);
     fd.set("memo", memo);
     fd.set("lines", JSON.stringify(lineInputs));
-    fd.set("submit", submit ? "1" : "0");
+    if (allowDuplicate) fd.set("allowDuplicate", "1");
     if (attachment) fd.set("attachment", attachment);
 
     startTransition(async () => {
       const result = await saveApInvoiceForm(fd);
       if (!result.ok) {
+        const duplicates = (result as { duplicates?: ApDuplicateDoc[] }).duplicates;
+        if (duplicates?.length) {
+          setDupMatches(duplicates);
+          setDupDialog({ fromSave: true });
+          return;
+        }
         toast.error(result.error ?? "Save failed.");
         return;
       }
-      toast.saved(
-        submit
-          ? `Submitted ${result.invoiceNo}.`
-          : `Saved draft ${result.invoiceNo}.`,
-      );
+      toast.saved(`Saved and posted ${result.invoiceNo}.`);
       router.push(toScopedHref(`/accounting/invoices/${result.id}`, scope, slug));
       router.refresh();
     });
@@ -435,7 +439,7 @@ export function ApInvoiceForm({
                     checked={documentType === type}
                     onChange={() => {
                       setDocumentType(type);
-                      setDupWarning(null);
+                      onReferenceChange();
                     }}
                     className="size-4 accent-[var(--venue-primary,#818a40)]"
                   />
@@ -458,7 +462,10 @@ export function ApInvoiceForm({
                 <div className="relative">
                   <SearchableSelect
                     value={supplierId}
-                    onChange={setSupplierId}
+                    onChange={(v) => {
+                      setSupplierId(v);
+                      onReferenceChange();
+                    }}
                     options={supplierOptions}
                     placeholder="Select supplier…"
                     disabled={!canEdit}
@@ -483,7 +490,11 @@ export function ApInvoiceForm({
                   <Input
                     id="delivery-note-no"
                     value={deliveryNoteNo}
-                    onChange={(e) => setDeliveryNoteNo(e.target.value)}
+                    onChange={(e) => {
+                      setDeliveryNoteNo(e.target.value);
+                      onReferenceChange();
+                    }}
+                    onBlur={checkDuplicates}
                     disabled={!canEdit}
                     className="h-10"
                   />
@@ -505,13 +516,23 @@ export function ApInvoiceForm({
                 <Input
                   id="supplier-inv-no"
                   value={supplierInvoiceNo}
-                  onChange={(e) => setSupplierInvoiceNo(e.target.value)}
-                  onBlur={onSupplierInvoiceBlur}
+                  onChange={(e) => {
+                    setSupplierInvoiceNo(e.target.value);
+                    onReferenceChange();
+                  }}
+                  onBlur={checkDuplicates}
                   disabled={!canEdit}
                   className="h-10"
                 />
-                {dupWarning && (
-                  <p className="text-xs text-red-700">{dupWarning}</p>
+                {dupMatches.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setDupDialog({ fromSave: false })}
+                    className="text-left text-xs text-amber-700 underline-offset-2 hover:underline"
+                  >
+                    {dupAccepted ? "Duplicate kept — " : "Already used on "}
+                    {dupMatches.length} document{dupMatches.length === 1 ? "" : "s"} · view
+                  </button>
                 )}
               </div>
               <div className={fieldClass}>
@@ -762,17 +783,42 @@ export function ApInvoiceForm({
         </div>
 
         {canEdit && (
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="secondary" disabled={pending} onClick={() => save(true)}>
-              Submit for approval
-            </Button>
-            <Button type="button" disabled={pending} onClick={() => save(false)}>
-              Save draft
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <p className="text-xs text-black/50">
+              {invoice?.status === "posted"
+                ? "Saving reverses the posted journal and posts the corrected document."
+                : "Saving posts this document to the ledger."}
+            </p>
+            <Button type="button" disabled={pending} onClick={() => save()}>
+              {pending ? "Saving…" : invoice ? "Save changes" : "Save & post"}
             </Button>
           </div>
         )}
       </div>
 
+      <ApDuplicateDialog
+        open={dupDialog != null && dupMatches.length > 0}
+        docs={dupMatches}
+        supplierName={selectedSupplier?.name ?? "This supplier"}
+        number={
+          [supplierInvoiceNo.trim(), isDeliveryNote ? deliveryNoteNo.trim() : ""]
+            .filter(Boolean)
+            .join(" / ")
+        }
+        keepLabel={dupDialog?.fromSave ? "Keep both & save" : "Keep both"}
+        pending={pending}
+        hrefFor={(id) => toScopedHref(`/accounting/invoices/${id}`, scope, slug)}
+        onChangeNumber={() => {
+          setDupDialog(null);
+          document.getElementById("supplier-inv-no")?.focus();
+        }}
+        onKeepBoth={() => {
+          const fromSave = dupDialog?.fromSave;
+          setDupAccepted(true);
+          setDupDialog(null);
+          if (fromSave) save(true);
+        }}
+      />
     </div>
   );
 }

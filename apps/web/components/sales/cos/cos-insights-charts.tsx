@@ -726,7 +726,8 @@ function PurchasesVsTargetChart({
         ? `W${weekNo} · ${ddmmyy(w.start)} – ${ddmmyy(w.end)}`
         : `W${weekNo}`,
       purchases: w?.purchases ?? null,
-      target: w?.purchaseTarget ?? month.weeks[0]?.purchaseTarget ?? null,
+      // Target follows sales, so weeks still to come have none yet.
+      target: w ? w.purchaseTarget : null,
     };
   });
   const total = rows.reduce((s, r) => s + (r.purchases ?? 0), 0);
@@ -739,7 +740,11 @@ function PurchasesVsTargetChart({
       subtitle={`${note} · month ${formatMoney(total)} of ${formatMoney(totalTarget)} target`}
       legend={[
         { kind: "bar", color: BAR, text: "Purchases" },
-        { kind: "line", color: LINE, text: "Purchase target" },
+        {
+          kind: "line",
+          color: LINE,
+          text: `Purchase target (${month.weeks[0]?.purchaseTargetPct ?? 0}% of sales)`,
+        },
       ]}
       control={
         <select

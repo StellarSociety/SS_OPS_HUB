@@ -30,6 +30,10 @@ import type {
   CostCentre,
 } from "@/lib/sales/cos-types";
 import { getCosWeekImportSnapshot } from "@/lib/sales/cos-sales-data";
+import { getCosLiveWeeks } from "@/lib/sales/cos-live-figures";
+import { cosWeekRange } from "@/lib/sales/cos-overview-data";
+import { listVenueCosRuns } from "@/lib/sales/cos-store";
+import { dubaiTodayIso } from "@/lib/hr/benefits/flight-ticket";
 
 async function requireContext() {
   const supabase = await createClient();
@@ -176,6 +180,117 @@ export async function importCosWeekSalesAction(input: {
     input.weekEnd,
   );
   return { ok: true as const, snapshot };
+}
+
+/** Weeks that have started in a fiscal year (1..n). */
+function startedWeeks(fiscalYear: number): number {
+  const today = dubaiTodayIso();
+  let last = 0;
+  while (last < 52 && cosWeekRange(fiscalYear, last + 1).start <= today) last += 1;
+  return last;
+}
+
+/** Weeks Refresh Figures will process: unapproved runs and missing weeks. */
+export async function planCosRefreshAction(input: {
+  costCentre: CostCentre;
+  fiscalYear: number;
+}) {
+  const { supabase, venue } = await requireContext();
+  const runs = await listVenueCosRuns(supabase, venue.id, input.costCentre, input.fiscalYear);
+  const approved = new Set(
+    runs.filter((r) => r.status === "approved").map((r) => r.week_no),
+  );
+  const weeks: number[] = [];
+  for (let w = 1; w <= startedWeeks(input.fiscalYear); w++) {
+    if (!approved.has(w)) weeks.push(w);
+  }
+  return { ok: true as const, weeks };
+}
+
+/**
+ * Refresh the computed figures (Revenue sales & discounts, Accounts purchases,
+ * auto adjustment, transfers) on the given weeks, creating draft runs for
+ * weeks without an entry. Approved weeks are skipped; manual adjustments,
+ * stocks and notes are kept. Called in small batches so the page can show
+ * progress — pass weeks in ascending order.
+ */
+export async function refreshCosRunsAction(input: {
+  costCentre: CostCentre;
+  fiscalYear: number;
+  weeks: number[];
+}) {
+  const { supabase, user, venue } = await requireContext();
+  const weeks = [...input.weeks].sort((a, b) => a - b);
+  if (!weeks.length) return { ok: true as const, updated: 0, created: 0 };
+
+  const [live, runs] = await Promise.all([
+    getCosLiveWeeks(
+      supabase,
+      venue.id,
+      input.costCentre,
+      input.fiscalYear,
+      weeks[weeks.length - 1],
+      weeks[0],
+    ),
+    listVenueCosRuns(supabase, venue.id, input.costCentre, input.fiscalYear),
+  ]);
+  const runByWeek = new Map(runs.map((r) => [r.week_no, r]));
+
+  let updated = 0;
+  let created = 0;
+  for (const weekNo of weeks) {
+    const run = runByWeek.get(weekNo);
+    const w = live.get(weekNo);
+    if (!w || run?.status === "approved") continue;
+    // A new week opens with the previous week's closing stock.
+    const prevClosing = Number(runByWeek.get(weekNo - 1)?.closing_stock_gs) || 0;
+    const manualPurchases =
+      run?.manual_purchases_gs ?? (run ? Number(run.purchases_gs) : 0);
+    const saved = await upsertVenueCosRun(supabase, venue.id, user.id, {
+      id: run?.id,
+      cost_centre: input.costCentre,
+      fiscal_year: input.fiscalYear,
+      week_no: weekNo,
+      week_start: w.start,
+      week_end: w.end,
+      restaurant_sales_gs: w.restaurantSales,
+      sales_gs: w.sales,
+      sales_discount_gs: w.discount,
+      imported_sales_gs: w.sales,
+      purchases_gs: w.purchases ?? manualPurchases,
+      manual_purchases_gs: manualPurchases,
+      opening_stock_gs: run ? Number(run.opening_stock_gs) || 0 : prevClosing,
+      closing_stock_gs: run ? Number(run.closing_stock_gs) || 0 : 0,
+      forecast_cost_pct: run?.forecast_cost_pct ?? null,
+      notes: run?.notes ?? "",
+    });
+    runByWeek.set(weekNo, { ...saved, adjustments: [] });
+    await replaceCosRunAdjustments(supabase, venue.id, user.id, saved.id, [
+      ...(run?.adjustments ?? [])
+        .filter((a) => a.source !== "auto_discount" && a.source !== "transfer")
+        .map((a) => ({
+          reason: a.reason,
+          amount_gs: Number(a.amount_gs),
+          source: a.source,
+          ledger_account: a.ledger_account,
+        })),
+      ...w.transfers.map((t) => ({ ...t, source: "transfer" as const })),
+      ...(w.autoAdjustment
+        ? [
+            {
+              reason: w.autoAdjustmentReason,
+              amount_gs: w.autoAdjustment,
+              source: "auto_discount" as const,
+            },
+          ]
+        : []),
+    ]);
+    if (run) updated += 1;
+    else created += 1;
+  }
+
+  revalidatePath(`/gp-cos/${input.costCentre}/cost-runs`);
+  return { ok: true as const, updated, created };
 }
 
 export async function saveCosSettingsAction(input: {

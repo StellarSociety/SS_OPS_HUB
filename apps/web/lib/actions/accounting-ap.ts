@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
 import {
-  canApproveOrPostApInvoice,
   buildApJournalLines,
   flipJournalLines,
   type ApApprovalContext,
@@ -33,6 +32,10 @@ import {
   computePurchaseLineTax,
   resolveTaxRate,
 } from "@/lib/accounting/tax";
+import {
+  findApDuplicateDocs,
+  type ApDuplicateDoc,
+} from "@/lib/accounting/ap-duplicates";
 import { isAppAdmin } from "@/lib/role-permissions";
 import { convertImageToWebp } from "@/lib/storage/convert-to-webp";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -45,7 +48,6 @@ function fail(message: string) {
 
 function revalidateAp(invoiceId?: string) {
   revalidatePath("/accounting/invoices", "page");
-  revalidatePath("/accounting/invoices/approvals", "page");
   revalidatePath("/accounting/invoices/insights", "page");
   revalidatePath("/accounting/invoices/suppliers", "page");
   revalidatePath("/accounting/invoices/suppliers/general", "page");
@@ -55,6 +57,13 @@ function revalidateAp(invoiceId?: string) {
     revalidatePath(`/accounting/invoices/${invoiceId}`, "page");
   }
 }
+
+type ApCtx = {
+  userId: string;
+  venueId: string;
+  permissions: import("@/lib/role-permissions").UserPermission[];
+  service: ReturnType<typeof createServiceClient>;
+};
 
 async function requireApAccess(min: "view" | "edit" = "view"): Promise<
   | { error: string }
@@ -256,36 +265,30 @@ export async function upsertSupplier(input: {
 export async function checkSupplierInvoiceDuplicate(input: {
   supplierId: string;
   supplierInvoiceNo: string;
+  deliveryNoteNo?: string;
   documentType?: ApDocumentType;
   excludeId?: string;
 }) {
   const ctx = await requireApAccess("view");
   if ("error" in ctx) return fail(ctx.error);
-  if (!input.supplierInvoiceNo.trim()) {
-    return { ok: true as const, duplicate: false, existing: null };
+  if (!input.supplierId) {
+    return { ok: true as const, duplicate: false, matches: [] as ApDuplicateDoc[] };
   }
 
   const mapping = await getVenueEntity(ctx.service, ctx.venueId);
-  if (!mapping) return { ok: true as const, duplicate: false };
+  if (!mapping) {
+    return { ok: true as const, duplicate: false, matches: [] as ApDuplicateDoc[] };
+  }
 
-  let query = ctx.service
-    .from("ap_invoices")
-    .select("id, invoice_no, status")
-    .eq("entity_id", mapping.entity_id)
-    .eq("supplier_id", input.supplierId)
-    .eq("supplier_invoice_no", input.supplierInvoiceNo.trim())
-    .eq("document_type", input.documentType ?? "invoice")
-    .neq("status", "void")
-    .limit(1);
-
-  if (input.excludeId) query = query.neq("id", input.excludeId);
-
-  const { data } = await query.maybeSingle();
-  return {
-    ok: true as const,
-    duplicate: Boolean(data),
-    existing: data ?? null,
-  };
+  const matches = await findApDuplicateDocs(ctx.service, {
+    entityId: mapping.entity_id,
+    supplierId: input.supplierId,
+    documentType: input.documentType ?? "invoice",
+    supplierInvoiceNo: input.supplierInvoiceNo,
+    deliveryNoteNo: input.deliveryNoteNo,
+    excludeId: input.excludeId,
+  });
+  return { ok: true as const, duplicate: matches.length > 0, matches };
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +376,7 @@ export async function saveApInvoiceForm(formData: FormData) {
     memo: String(formData.get("memo") ?? "") || undefined,
     lines,
     attachment: attachment instanceof File && attachment.size > 0 ? attachment : null,
-    submit: formData.get("submit") === "1",
+    allowDuplicate: formData.get("allowDuplicate") === "1",
   });
 }
 
@@ -390,7 +393,8 @@ export async function saveApInvoice(input: {
   memo?: string;
   lines: ApInvoiceLineInput[];
   attachment?: File | null;
-  submit?: boolean;
+  /** The user saw the duplicate warning and chose to keep both. */
+  allowDuplicate?: boolean;
 }) {
   const ctx = await requireApAccess("edit");
   if ("error" in ctx) return fail(ctx.error);
@@ -428,11 +432,6 @@ export async function saveApInvoice(input: {
       return fail(`Line ${idx + 1}: enter an amount.`);
     }
   }
-  if (input.submit && !supplierInvoiceNo) {
-    return fail(
-      "Add the supplier's invoice number before submitting this delivery note.",
-    );
-  }
 
   const { data: supplier } = await ctx.service
     .from("suppliers")
@@ -445,31 +444,21 @@ export async function saveApInvoice(input: {
   // Credit notes are stored with negative amounts.
   const sign = documentType === "credit_note" ? -1 : 1;
 
-  const dup = await checkSupplierInvoiceDuplicate({
-    supplierId: input.supplierId,
-    supplierInvoiceNo: input.supplierInvoiceNo,
-    documentType,
-    excludeId: input.id,
-  });
-  if ("duplicate" in dup && dup.duplicate) {
-    return fail(
-      `Duplicate supplier invoice number — already exists as ${dup.existing?.invoice_no ?? "another invoice"}.`,
-    );
-  }
-  if (deliveryNoteNo) {
-    let dnQuery = ctx.service
-      .from("ap_invoices")
-      .select("invoice_no")
-      .eq("supplier_id", input.supplierId)
-      .eq("delivery_note_no", deliveryNoteNo)
-      .neq("status", "void")
-      .limit(1);
-    if (input.id) dnQuery = dnQuery.neq("id", input.id);
-    const { data: dnDup } = await dnQuery.maybeSingle();
-    if (dnDup) {
-      return fail(
-        `Duplicate delivery note number — already exists as ${dnDup.invoice_no}.`,
-      );
+  if (!input.allowDuplicate) {
+    const matches = await findApDuplicateDocs(ctx.service, {
+      entityId: mapping.entity_id,
+      supplierId: input.supplierId,
+      documentType,
+      supplierInvoiceNo,
+      deliveryNoteNo,
+      excludeId: input.id,
+    });
+    if (matches.length) {
+      return {
+        ok: false as const,
+        error: "This document number already exists.",
+        duplicates: matches,
+      };
     }
   }
 
@@ -527,8 +516,13 @@ export async function saveApInvoice(input: {
       .eq("id", invoiceId)
       .single();
     if (!existing) return fail("Invoice not found.");
-    if (existing.status !== "draft") {
-      return fail("Only draft invoices can be edited.");
+    if (existing.status === "void" || existing.status === "reversed") {
+      return fail(`A ${existing.status} document can't be edited.`);
+    }
+    if (existing.status === "posted") {
+      // Edits to a posted document: reverse its journal, reopen, re-post below.
+      const reopened = await reopenPostedApDocument(ctx, existing);
+      if (!reopened.ok) return reopened;
     }
     before = existing;
     invoiceNo = existing.invoice_no;
@@ -612,16 +606,11 @@ export async function saveApInvoice(input: {
     }
   }
 
-  if (input.submit) {
-    const now = new Date().toISOString();
-    await ctx.service
-      .from("ap_invoices")
-      .update({
-        status: "submitted",
-        submitted_by: ctx.userId,
-        submitted_at: now,
-      })
-      .eq("id", invoiceId);
+  // No approval step: every saved document goes straight to the ledger.
+  const posted = await postApDocument(ctx, invoiceId!);
+  if (!posted.ok) {
+    revalidateAp(invoiceId!);
+    return fail(`Saved as draft ${invoiceNo}, but posting failed: ${posted.error}`);
   }
 
   const { data: after } = await ctx.service
@@ -632,7 +621,7 @@ export async function saveApInvoice(input: {
 
   await writeAuditLog({
     actor_id: ctx.userId,
-    action: input.submit ? "submit" : input.id ? "update" : "create",
+    action: input.id ? "update" : "create",
     module_key: "accounting",
     entity: "ap_invoices",
     entity_id: invoiceId!,
@@ -645,203 +634,41 @@ export async function saveApInvoice(input: {
   return { ok: true as const, id: invoiceId!, invoiceNo };
 }
 
-export async function submitApInvoice(invoiceId: string) {
-  const ctx = await requireApAccess("edit");
-  if ("error" in ctx) return fail(ctx.error);
-
-  const { data: inv } = await ctx.service
-    .from("ap_invoices")
-    .select("*")
-    .eq("id", invoiceId)
-    .single();
-  if (!inv) return fail("Invoice not found.");
-  if (inv.status !== "draft") return fail("Only drafts can be submitted.");
-  if (!inv.supplier_invoice_no) {
-    return fail("Add the supplier's invoice number before submitting.");
-  }
-
-  const { count } = await ctx.service
-    .from("ap_invoice_lines")
-    .select("id", { count: "exact", head: true })
-    .eq("ap_invoice_id", invoiceId);
-  if (!count) return fail("Add at least one line before submitting.");
-
-  const now = new Date().toISOString();
-  const { error } = await ctx.service
-    .from("ap_invoices")
-    .update({
-      status: "submitted",
-      submitted_by: ctx.userId,
-      submitted_at: now,
-      rejection_reason: null,
-    })
-    .eq("id", invoiceId);
-  if (error) return fail(error.message);
-
-  await writeAuditLog({
-    actor_id: ctx.userId,
-    action: "submit",
-    module_key: "accounting",
-    entity: "ap_invoices",
-    entity_id: invoiceId,
-    venue_id: ctx.venueId,
-    before: { status: "draft" },
-    after: { status: "submitted" },
-  });
-
-  revalidateAp(invoiceId);
-  return { ok: true as const };
-}
-
-export async function rejectApInvoice(invoiceId: string, reason: string) {
-  const ctx = await requireApAccess("edit");
-  if ("error" in ctx) return fail(ctx.error);
-
-  const approval = await buildApprovalCtx(
-    ctx.service,
-    ctx.permissions,
-    ctx.userId,
-    ctx.venueId,
-  );
-  // Rejectors need approve rights or admin
-  const { data: inv } = await ctx.service
-    .from("ap_invoices")
-    .select("*")
-    .eq("id", invoiceId)
-    .single();
-  if (!inv) return fail("Invoice not found.");
-  if (inv.status !== "submitted") {
-    return fail("Only submitted invoices can be rejected.");
-  }
-  if (!canApproveOrPostApInvoice(approval, Math.abs(Number(inv.total_gross)))) {
-    if (!canAdminAp(ctx.permissions, ctx.venueId) && !approval.isAppAdmin) {
-      return fail("You do not have permission to reject this invoice.");
-    }
-  }
-
-  const note = reason.trim();
-  if (!note) return fail("Rejection reason is required.");
-
-  const { error } = await ctx.service
-    .from("ap_invoices")
-    .update({
-      status: "draft",
-      rejection_reason: note,
-      submitted_by: null,
-      submitted_at: null,
-    })
-    .eq("id", invoiceId);
-  if (error) return fail(error.message);
-
-  await writeAuditLog({
-    actor_id: ctx.userId,
-    action: "reject",
-    module_key: "accounting",
-    entity: "ap_invoices",
-    entity_id: invoiceId,
-    venue_id: ctx.venueId,
-    before: { status: "submitted" },
-    after: { status: "draft", rejection_reason: note },
-  });
-
-  revalidateAp(invoiceId);
-  return { ok: true as const };
-}
-
-export async function approveApInvoice(invoiceId: string) {
-  const ctx = await requireApAccess("edit");
-  if ("error" in ctx) return fail(ctx.error);
-
-  const { data: inv } = await ctx.service
-    .from("ap_invoices")
-    .select("*")
-    .eq("id", invoiceId)
-    .single();
-  if (!inv) return fail("Invoice not found.");
-  if (inv.status !== "submitted") {
-    return fail("Only submitted invoices can be approved.");
-  }
-
-  const approval = await buildApprovalCtx(
-    ctx.service,
-    ctx.permissions,
-    ctx.userId,
-    ctx.venueId,
-  );
-  if (!canApproveOrPostApInvoice(approval, Math.abs(Number(inv.total_gross)))) {
-    return fail(
-      "Your approval limit does not cover this invoice (or bookkeepers cannot approve).",
-    );
-  }
-
-  const now = new Date().toISOString();
-  const { error } = await ctx.service
-    .from("ap_invoices")
-    .update({
-      status: "approved",
-      approved_by: ctx.userId,
-      approved_at: now,
-    })
-    .eq("id", invoiceId);
-  if (error) return fail(error.message);
-
-  await writeAuditLog({
-    actor_id: ctx.userId,
-    action: "approve",
-    module_key: "accounting",
-    entity: "ap_invoices",
-    entity_id: invoiceId,
-    venue_id: ctx.venueId,
-    before: { status: "submitted" },
-    after: { status: "approved" },
-  });
-
-  revalidateAp(invoiceId);
-  return { ok: true as const };
-}
-
 export async function postApInvoice(invoiceId: string) {
   const ctx = await requireApAccess("edit");
   if ("error" in ctx) return fail(ctx.error);
+  return postApDocument(ctx, invoiceId);
+}
 
+type PostingRefs = {
+  taxCodes: Awaited<ReturnType<typeof listTaxCodes>>;
+  taxRates: Awaited<ReturnType<typeof listTaxRates>>;
+  defaults: Awaited<ReturnType<typeof getSystemDefaultAccountIds>>;
+};
+
+async function loadPostingRefs(ctx: ApCtx): Promise<PostingRefs> {
+  const [taxCodes, taxRates, defaults] = await Promise.all([
+    listTaxCodes(ctx.service),
+    listTaxRates(ctx.service),
+    getSystemDefaultAccountIds(ctx.service),
+  ]);
+  return { taxCodes, taxRates, defaults };
+}
+
+/** Post a draft AP document to the ledger (no approval step). */
+async function postApDocument(ctx: ApCtx, invoiceId: string, refs?: PostingRefs) {
   const { data: inv } = await ctx.service
     .from("ap_invoices")
     .select("*, ap_invoice_lines(*), suppliers(id, name)")
     .eq("id", invoiceId)
     .single();
   if (!inv) return fail("Invoice not found.");
-  if (inv.status !== "approved" && inv.status !== "submitted") {
-    return fail("Invoice must be approved (or submitted) before posting.");
+  if (inv.status === "posted") return fail("Already posted.");
+  if (!["draft", "submitted", "approved"].includes(inv.status)) {
+    return fail(`A ${inv.status} document can't be posted.`);
   }
 
-  const approval = await buildApprovalCtx(
-    ctx.service,
-    ctx.permissions,
-    ctx.userId,
-    ctx.venueId,
-  );
-  if (!canApproveOrPostApInvoice(approval, Math.abs(Number(inv.total_gross)))) {
-    return fail(
-      "You cannot post this invoice — approval limit exceeded or insufficient role.",
-    );
-  }
-
-  // Auto-approve if posting from submitted
-  if (inv.status === "submitted") {
-    const now = new Date().toISOString();
-    await ctx.service
-      .from("ap_invoices")
-      .update({
-        status: "approved",
-        approved_by: ctx.userId,
-        approved_at: now,
-      })
-      .eq("id", invoiceId);
-  }
-
-  const taxCodes = await listTaxCodes(ctx.service);
-  const taxRates = await listTaxRates(ctx.service);
-  const defaults = await getSystemDefaultAccountIds(ctx.service);
+  const { taxCodes, taxRates, defaults } = refs ?? (await loadPostingRefs(ctx));
 
   if (!defaults.input_vat || !defaults.output_vat || !defaults.ap_control) {
     return fail("System default accounts (input VAT / output VAT / AP) are not configured.");
@@ -939,6 +766,42 @@ export async function postApInvoice(invoiceId: string) {
   return { ok: true as const, journalEntryId: journal.entryId, entryNo: journal.entryNo };
 }
 
+/** Reverse a posted document's journal and return it to draft for editing. */
+async function reopenPostedApDocument(
+  ctx: ApCtx,
+  inv: { id: string; invoice_no: string; journal_entry_id: string | null },
+) {
+  if (inv.journal_entry_id) {
+    try {
+      await reverseJournal(ctx.service, {
+        entryId: inv.journal_entry_id,
+        actorId: ctx.userId,
+        reason: `Edit of AP ${inv.invoice_no}`,
+      });
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : "Reversal failed");
+    }
+  }
+  // posted → reversed is the only change the immutability trigger allows;
+  // from there the document can be reopened as a draft.
+  let { error } = await ctx.service
+    .from("ap_invoices")
+    .update({ status: "reversed" })
+    .eq("id", inv.id);
+  if (error) return fail(error.message);
+  ({ error } = await ctx.service
+    .from("ap_invoices")
+    .update({
+      status: "draft",
+      journal_entry_id: null,
+      posted_by: null,
+      posted_at: null,
+    })
+    .eq("id", inv.id));
+  if (error) return fail(error.message);
+  return { ok: true as const };
+}
+
 export async function voidApInvoice(invoiceId: string) {
   const ctx = await requireApAccess("edit");
   if ("error" in ctx) return fail(ctx.error);
@@ -949,8 +812,8 @@ export async function voidApInvoice(invoiceId: string) {
     .eq("id", invoiceId)
     .single();
   if (!inv) return fail("Invoice not found.");
-  if (inv.status !== "draft") {
-    return fail("Only draft invoices can be voided.");
+  if (!["draft", "submitted", "approved"].includes(inv.status)) {
+    return fail("Only unposted documents can be voided — reverse a posted one instead.");
   }
 
   const { error } = await ctx.service
@@ -966,7 +829,7 @@ export async function voidApInvoice(invoiceId: string) {
     entity: "ap_invoices",
     entity_id: invoiceId,
     venue_id: ctx.venueId,
-    before: { status: "draft" },
+    before: { status: inv.status },
     after: { status: "void" },
   });
 
@@ -1100,10 +963,15 @@ export async function previewApJournal(input: {
   }
 }
 
-export async function bulkSubmitApInvoices(ids: string[]) {
-  const results = [];
+/** Post several drafts in one go (e.g. an imported batch). */
+export async function bulkPostApInvoices(ids: string[]) {
+  const ctx = await requireApAccess("edit");
+  if ("error" in ctx) return fail(ctx.error);
+  const refs = await loadPostingRefs(ctx);
+  const results: { id: string; ok: boolean; error?: string }[] = [];
   for (const id of ids) {
-    results.push({ id, ...(await submitApInvoice(id)) });
+    const r = await postApDocument(ctx, id, refs);
+    results.push(r.ok ? { id, ok: true } : { id, ok: false, error: r.error });
   }
   return { ok: true as const, results };
 }

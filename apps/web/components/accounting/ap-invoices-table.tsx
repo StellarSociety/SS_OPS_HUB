@@ -1,26 +1,34 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Download, ExternalLink, Send } from "lucide-react";
 import { InvoiceStatusBadge } from "@/components/accounting/invoices-sub-nav";
+import { ApInvoiceDialog } from "@/components/accounting/ap-invoice-dialog";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { Button } from "@/components/ui/button";
 import { DateInput } from "@/components/ui/date-input";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import {
-  bulkSubmitApInvoices,
-  submitApInvoice,
+  bulkPostApInvoices,
+  postApInvoice,
 } from "@/lib/actions/accounting-ap";
 import type { ApInvoice, ApInvoiceStatus } from "@/lib/accounting/ap-types";
 import {
   AP_DOCUMENT_TYPE_LABELS,
   AP_STATUS_LABELS,
 } from "@/lib/accounting/ap-types";
-import { formatAedAccounting } from "@/lib/accounting/money";
+import { formatAedAccounting, formatDateDmy } from "@/lib/accounting/money";
 import { cn } from "@/lib/utils";
 
-type StatusFilter = "needs_action" | "all" | ApInvoiceStatus;
+type StatusFilter = "not_posted" | "all" | ApInvoiceStatus;
+
+const PAGE_SIZE = 50;
+
+/** Saved but not yet on the ledger (left over from the old approval flow). */
+const isUnposted = (inv: ApInvoice) =>
+  inv.status === "draft" || inv.status === "submitted" || inv.status === "approved";
 
 type Props = {
   invoices: ApInvoice[];
@@ -36,9 +44,7 @@ function daysToDue(dueDate: string): number {
 
 function matchesStatus(inv: ApInvoice, filter: StatusFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "needs_action") {
-    return inv.status === "draft" || inv.status === "submitted" || inv.status === "approved";
-  }
+  if (filter === "not_posted") return isUnposted(inv);
   return inv.status === filter;
 }
 
@@ -49,12 +55,15 @@ function escapeCsv(value: string | number): string {
 }
 
 export function ApInvoicesTable({ invoices, canEdit }: Props) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("needs_action");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -76,8 +85,16 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
     });
   }, [invoices, statusFilter, search, dateFrom, dateTo]);
 
+  // Render one page at a time; hundreds of rows make the page sluggish.
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(
+    currentPage * PAGE_SIZE,
+    (currentPage + 1) * PAGE_SIZE,
+  );
+
   const draftIds = filtered
-    .filter((i) => i.status === "draft" && selected.has(i.id))
+    .filter((i) => isUnposted(i) && selected.has(i.id))
     .map((i) => i.id);
 
   function toggleAll(checked: boolean) {
@@ -85,7 +102,7 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
       setSelected(new Set());
       return;
     }
-    setSelected(new Set(filtered.filter((i) => i.status === "draft").map((i) => i.id)));
+    setSelected(new Set(filtered.filter(isUnposted).map((i) => i.id)));
   }
 
   function toggleOne(id: string, checked: boolean) {
@@ -136,33 +153,44 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
     URL.revokeObjectURL(url);
   }
 
-  function handleBulkSubmit() {
+  function handleBulkPost() {
     if (!draftIds.length) {
-      toast.error("Select draft invoices to submit.");
+      toast.error("Select unposted documents to post.");
       return;
     }
+    const ids = [...draftIds];
     startTransition(async () => {
-      const result = await bulkSubmitApInvoices(draftIds);
-      const failed = result.results.filter((r) => !r.ok);
+      // Small chunks: each server action must finish well inside its time limit.
+      const failed: { id: string; error?: string }[] = [];
+      for (let i = 0; i < ids.length; i += 15) {
+        const result = await bulkPostApInvoices(ids.slice(i, i + 15));
+        if (!result.ok) {
+          toast.error(result.error ?? "Posting failed.");
+          return;
+        }
+        failed.push(...result.results.filter((r) => !r.ok));
+      }
       if (failed.length) {
         toast.error(
-          `${failed.length} of ${draftIds.length} failed: ${failed[0]?.error ?? "error"}`,
+          `${failed.length} of ${ids.length} failed: ${failed[0]?.error ?? "error"}`,
         );
       } else {
-        toast.saved(`Submitted ${draftIds.length} invoice(s).`);
+        toast.saved(`Posted ${ids.length} document(s) to the ledger.`);
       }
       setSelected(new Set());
+      router.refresh();
     });
   }
 
-  function handleSubmitOne(id: string) {
+  function handlePostOne(id: string) {
     startTransition(async () => {
-      const result = await submitApInvoice(id);
+      const result = await postApInvoice(id);
       if (!result.ok) {
-        toast.error(result.error ?? "Submit failed.");
+        toast.error(result.error ?? "Posting failed.");
         return;
       }
-      toast.saved("Invoice submitted.");
+      toast.saved("Posted to the ledger.");
+      router.refresh();
     });
   }
 
@@ -177,10 +205,13 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
           <select
             className={selectClass}
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as StatusFilter);
+              setPage(0);
+            }}
           >
-            <option value="needs_action">Needs action</option>
             <option value="all">All</option>
+            <option value="not_posted">Not posted</option>
             {(Object.keys(AP_STATUS_LABELS) as ApInvoiceStatus[]).map((s) => (
               <option key={s} value={s}>
                 {AP_STATUS_LABELS[s]}
@@ -192,18 +223,35 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
           <label className="text-xs font-medium text-[#3D421F]">Search</label>
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
             placeholder="Invoice no, supplier, memo…"
             className="h-10"
           />
         </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-[#3D421F]">From</label>
-          <DateInput value={dateFrom} onChange={setDateFrom} className="w-[150px]" />
+          <DateInput
+            value={dateFrom}
+            onChange={(v) => {
+              setDateFrom(v);
+              setPage(0);
+            }}
+            className="w-[150px]"
+          />
         </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-[#3D421F]">To</label>
-          <DateInput value={dateTo} onChange={setDateTo} className="w-[150px]" />
+          <DateInput
+            value={dateTo}
+            onChange={(v) => {
+              setDateTo(v);
+              setPage(0);
+            }}
+            className="w-[150px]"
+          />
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -219,10 +267,10 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
             <Button
               type="button"
               disabled={pending || draftIds.length === 0}
-              onClick={handleBulkSubmit}
+              onClick={handleBulkPost}
             >
               <Send className="mr-1.5 h-4 w-4" />
-              Submit selected ({draftIds.length})
+              {pending ? "Posting…" : `Post selected (${draftIds.length})`}
             </Button>
           )}
           <ScopedLink
@@ -242,21 +290,20 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
                 <th className="px-3 py-2.5">
                   <input
                     type="checkbox"
-                    aria-label="Select all drafts"
+                    aria-label="Select all unposted"
                     checked={
-                      filtered.some((i) => i.status === "draft") &&
+                      filtered.some(isUnposted) &&
                       filtered
-                        .filter((i) => i.status === "draft")
+                        .filter(isUnposted)
                         .every((i) => selected.has(i.id))
                     }
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
                 </th>
               )}
+              <th className="px-3 py-2.5">Invoice date</th>
               <th className="px-3 py-2.5">Invoice</th>
               <th className="px-3 py-2.5">Supplier</th>
-              <th className="px-3 py-2.5">Supplier inv #</th>
-              <th className="px-3 py-2.5">Invoice date</th>
               <th className="px-3 py-2.5">Due date</th>
               <th className="px-3 py-2.5">Venue</th>
               <th className="px-3 py-2.5 text-right">Net</th>
@@ -271,14 +318,14 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={canEdit ? 13 : 12}
+                  colSpan={canEdit ? 12 : 11}
                   className="px-3 py-10 text-center text-black/45"
                 >
                   No invoices match these filters.
                 </td>
               </tr>
             ) : (
-              filtered.map((inv) => {
+              pageRows.map((inv) => {
                 const days = daysToDue(inv.due_date);
                 return (
                   <tr
@@ -287,7 +334,7 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
                   >
                     {canEdit && (
                       <td className="px-3 py-2.5">
-                        {inv.status === "draft" ? (
+                        {isUnposted(inv) ? (
                           <input
                             type="checkbox"
                             aria-label={`Select ${inv.invoice_no}`}
@@ -297,13 +344,17 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
                         ) : null}
                       </td>
                     )}
+                    <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">
+                      {formatDateDmy(inv.invoice_date)}
+                    </td>
                     <td className="px-3 py-2.5 font-medium text-[#3D421F]">
-                      <ScopedLink
-                        href={`/accounting/invoices/${inv.id}`}
-                        className="hover:underline"
+                      <button
+                        type="button"
+                        onClick={() => setOpenId(inv.id)}
+                        className="whitespace-nowrap text-left hover:underline"
                       >
                         {inv.invoice_no}
-                      </ScopedLink>
+                      </button>
                       {inv.document_type !== "invoice" ? (
                         <div
                           className={cn(
@@ -314,24 +365,17 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
                           )}
                         >
                           {AP_DOCUMENT_TYPE_LABELS[inv.document_type]}
+                          {inv.delivery_note_no ? ` · DN ${inv.delivery_note_no}` : ""}
                         </div>
+                      ) : null}
+                      {inv.document_type === "delivery_note" && !inv.supplier_invoice_no ? (
+                        <span className="mt-1 inline-flex whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                          Requires invoice number
+                        </span>
                       ) : null}
                     </td>
                     <td className="px-3 py-2.5">{inv.suppliers?.name ?? "—"}</td>
-                    <td className="px-3 py-2.5">
-                      {inv.supplier_invoice_no ?? (
-                        <span className="inline-flex whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                          Requires invoice number
-                        </span>
-                      )}
-                      {inv.delivery_note_no ? (
-                        <div className="text-[11px] text-black/50">
-                          DN {inv.delivery_note_no}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2.5 tabular-nums">{inv.invoice_date}</td>
-                    <td className="px-3 py-2.5 tabular-nums">{inv.due_date}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{formatDateDmy(inv.due_date)}</td>
                     <td className="px-3 py-2.5">{inv.venues?.name ?? "—"}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {formatAedAccounting(inv.subtotal_net)}
@@ -359,25 +403,26 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1">
-                        <ScopedLink
-                          href={`/accounting/invoices/${inv.id}`}
+                        <button
+                          type="button"
+                          onClick={() => setOpenId(inv.id)}
                           className="inline-flex h-9 items-center justify-center rounded-md px-3 hover:bg-black/5"
                           title="Open"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
                           <span className="sr-only">Open</span>
-                        </ScopedLink>
-                        {canEdit && inv.status === "draft" && (
+                        </button>
+                        {canEdit && isUnposted(inv) && (
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
                             disabled={pending}
-                            onClick={() => handleSubmitOne(inv.id)}
-                            title="Submit"
+                            onClick={() => handlePostOne(inv.id)}
+                            title="Post to ledger"
                           >
                             <Send className="h-3.5 w-3.5" />
-                            <span className="sr-only">Submit</span>
+                            <span className="sr-only">Post to ledger</span>
                           </Button>
                         )}
                       </div>
@@ -389,9 +434,44 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-black/45">
-        Showing {filtered.length} of {invoices.length} invoice(s).
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-black/45">
+        <span>
+          {filtered.length === 0
+            ? `0 of ${invoices.length} documents`
+            : `${currentPage * PAGE_SIZE + 1}–${currentPage * PAGE_SIZE + pageRows.length} of ${filtered.length}`}
+          {filtered.length !== invoices.length ? ` (filtered from ${invoices.length})` : ""}
+        </span>
+        {pageCount > 1 ? (
+          <span className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={currentPage === 0}
+              onClick={() => setPage(currentPage - 1)}
+            >
+              Previous
+            </Button>
+            <span className="px-2 tabular-nums">
+              Page {currentPage + 1} of {pageCount}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={currentPage >= pageCount - 1}
+              onClick={() => setPage(currentPage + 1)}
+            >
+              Next
+            </Button>
+          </span>
+        ) : null}
+      </div>
+      <ApInvoiceDialog
+        invoiceId={openId}
+        onClose={() => setOpenId(null)}
+        onChanged={() => router.refresh()}
+      />
     </div>
   );
 }

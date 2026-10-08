@@ -62,7 +62,8 @@ type Props = {
   existing: VenueCosRunWithAdjustments | null;
   defaultOpeningStock: number;
   targetCostPct: number;
-  purchaseTargetGs: number;
+  /** Purchase target as % of this centre's net sales. */
+  purchaseTargetPct: number;
   closingStockTargetGs: number;
   autoAdjustmentPct: number;
   approverUserId: string | null;
@@ -133,7 +134,20 @@ export function CostRunEntryForm(props: Props) {
   const [importedSales, setImportedSales] = useState<number | null>(
     props.existing?.imported_sales_gs ?? null,
   );
-  const [purchases, setPurchases] = useState(props.existing?.purchases_gs ?? 0);
+  // Manual STO purchases (comparison only once ledgers are linked).
+  const [manualPurchases, setManualPurchases] = useState(
+    props.existing?.manual_purchases_gs ?? props.existing?.purchases_gs ?? 0,
+  );
+  // Cost of sales uses the Accounts ledger purchases when available; an
+  // approved (locked) run keeps the figure it was approved with.
+  const ledgerPurchases =
+    props.ledgerLinked && props.accountsPurchasesNet != null
+      ? props.accountsPurchasesNet
+      : null;
+  const purchases =
+    props.existing?.status === "approved"
+      ? Number(props.existing.purchases_gs) || 0
+      : (ledgerPurchases ?? manualPurchases);
   const [openingStock, setOpeningStock] = useState(
     props.existing?.opening_stock_gs ?? props.defaultOpeningStock,
   );
@@ -163,6 +177,7 @@ export function CostRunEntryForm(props: Props) {
     discount,
     importedSales,
     purchases,
+    manualPurchases,
     openingStock,
     closingStock,
     adjustments,
@@ -246,8 +261,17 @@ export function CostRunEntryForm(props: Props) {
         sameMoney(sales, live.sales_gs) &&
         sameMoney(discount, live.sales_discount_gs);
 
+  // The saved run predates the latest posted invoices; saving updates it.
+  const savedPurchasesStale =
+    !!props.existing &&
+    props.existing.status !== "approved" &&
+    ledgerPurchases != null &&
+    !sameMoney(props.existing.purchases_gs, ledgerPurchases);
+
   const health = costHealth(derived.costPct, props.targetCostPct);
-  const purchaseVariance = purchases - props.purchaseTargetGs;
+  // Purchase target = the Settings % of this week's centre net sales.
+  const purchaseTarget = (sales * props.purchaseTargetPct) / 100;
+  const purchaseVariance = purchases - purchaseTarget;
   const stockVariance = closingStock - props.closingStockTargetGs;
 
 
@@ -285,6 +309,7 @@ export function CostRunEntryForm(props: Props) {
       sales_gs: sales,
       sales_discount_gs: discount,
       purchases_gs: purchases,
+      manual_purchases_gs: manualPurchases,
       opening_stock_gs: openingStock,
       closing_stock_gs: closingStock,
       imported_sales_gs: importedSales,
@@ -421,6 +446,15 @@ export function CostRunEntryForm(props: Props) {
               </span>
             )
           ) : null}
+          {savedPurchasesStale ? (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700"
+              title={`Saved ${MONEY(Number(props.existing?.purchases_gs) || 0)} · Accounts now ${MONEY(ledgerPurchases ?? 0)}`}
+            >
+              <AlertTriangle className="h-3 w-3" /> Purchases changed in Accounts —
+              save to update
+            </span>
+          ) : null}
         </div>
       </Card>
 
@@ -516,17 +550,21 @@ export function CostRunEntryForm(props: Props) {
               }
               hint={
                 props.ledgerLinked
-                  ? "Approved & posted invoices this week."
+                  ? "Posted invoices this week · used for cost of sales."
                   : "Link ledgers in Settings → Ledger accounts."
               }
               muted={!props.ledgerLinked || props.accountsPurchasesNet == null}
             />
             <Field
               label="Manual input (STO)"
-              value={purchases}
-              onValue={setPurchases}
+              value={manualPurchases}
+              onValue={setManualPurchases}
               locked={locked}
-              hint="Used for cost of sales."
+              hint={
+                ledgerPurchases != null
+                  ? "For checking only — cost of sales uses the Accounts figure."
+                  : "Used for cost of sales until ledgers are linked."
+              }
             />
           </div>
           <div className="mb-4 mt-3 flex items-center justify-between text-sm">
@@ -534,12 +572,12 @@ export function CostRunEntryForm(props: Props) {
             {props.ledgerLinked && props.accountsPurchasesNet != null ? (
               <span
                 className={`font-semibold tabular-nums ${
-                  Math.abs(props.accountsPurchasesNet - purchases) < 0.005
+                  Math.abs(props.accountsPurchasesNet - manualPurchases) < 0.005
                     ? "text-emerald-700"
                     : "text-red-700"
                 }`}
               >
-                {SIGNED(props.accountsPurchasesNet - purchases)}
+                {SIGNED(props.accountsPurchasesNet - manualPurchases)}
               </span>
             ) : (
               <span className="text-black/40" title="Checks STO once ledgers are linked">
@@ -549,7 +587,10 @@ export function CostRunEntryForm(props: Props) {
           </div>
           {/* mt-auto: bottom-aligned with the Stocks targets */}
           <div className="mt-auto border-t border-black/5 pt-3">
-            <Metric label="Purchase target" value={MONEY(props.purchaseTargetGs)} />
+            <Metric
+              label={`Purchase target (${props.purchaseTargetPct}% of ${centreLabel.toLowerCase()} sales)`}
+              value={MONEY(purchaseTarget)}
+            />
             <Metric
               label="Purchase variance"
               value={MONEY(purchaseVariance)}

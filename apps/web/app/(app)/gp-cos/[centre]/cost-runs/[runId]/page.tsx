@@ -183,7 +183,7 @@ export default async function CostRunEntryPage({
         existing={existing}
         defaultOpeningStock={defaultOpening}
         targetCostPct={targets.targetCostPct}
-        purchaseTargetGs={targets.purchaseTargetGs}
+        purchaseTargetPct={targets.purchaseTargetPct}
         closingStockTargetGs={targets.closingStockTargetGs}
         autoAdjustmentPct={
           settings?.auto_adjustment_pct ?? DEFAULT_AUTO_ADJUSTMENT_PCT[centre]

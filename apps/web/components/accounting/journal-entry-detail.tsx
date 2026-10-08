@@ -7,7 +7,7 @@ import type { JournalEntry } from "@/lib/accounting/journal-types";
 import {
   JOURNAL_SOURCE_LABELS,
 } from "@/lib/accounting/journal-types";
-import { formatAedAccounting } from "@/lib/accounting/money";
+import { formatAedAccounting, formatDateDmy } from "@/lib/accounting/money";
 
 type Props = {
   entry: JournalEntry;
@@ -43,7 +43,7 @@ export function JournalEntryDetail({ entry }: Props) {
             <InvoiceStatusBadge status={entry.status} />
           </div>
           <p className="text-sm text-black/55">
-            {entry.entry_date}
+            {formatDateDmy(entry.entry_date)}
             {entry.legal_entities
               ? ` · ${entry.legal_entities.entity_code} — ${entry.legal_entities.name}`
               : ""}

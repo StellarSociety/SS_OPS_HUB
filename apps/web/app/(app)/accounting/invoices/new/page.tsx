@@ -49,7 +49,9 @@ export default async function NewApInvoicePage({ searchParams }: PageProps) {
   let invoice = null;
   if (editId) {
     invoice = await getApInvoice(supabase, editId);
-    if (!invoice || invoice.status !== "draft") {
+    // Void / reversed documents are final; everything else can be edited
+    // (a posted one is reversed and re-posted on save).
+    if (!invoice || invoice.status === "void" || invoice.status === "reversed") {
       invoice = null;
     }
   }

@@ -27,6 +27,13 @@ export function formatAedAccounting(value: number | null | undefined): string {
   }).format(value);
 }
 
+/** ISO date (YYYY-MM-DD…) → DD-MM-YY, the house display format. */
+export function formatDateDmy(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}-${m}-${y.slice(2)}`;
+}
+
 export function addDaysIso(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);

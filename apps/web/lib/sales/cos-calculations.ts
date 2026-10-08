@@ -203,3 +203,8 @@ export function autoDiscountAdjustment(
   if (!autoAdjustmentPct) return 0;
   return -((Number(salesDiscountGs) || 0) * (autoAdjustmentPct / 100));
 }
+
+/** A week is missing its stock count when no closing stock is recorded. */
+export function isCosRunMissingStocks(run: { closing_stock_gs: number }): boolean {
+  return !(Number(run.closing_stock_gs) > 0);
+}

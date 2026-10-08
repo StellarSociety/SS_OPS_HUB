@@ -1,8 +1,8 @@
 "use client";
 
 import {
+  AlertTriangle,
   BarChart3,
-  CheckSquare,
   FilePlus2,
   FileText,
 } from "lucide-react";
@@ -26,9 +26,9 @@ const tabs = [
     exact: true as const,
   },
   {
-    href: "/accounting/invoices/approvals",
-    label: "Approvals",
-    icon: CheckSquare,
+    href: "/accounting/invoices/alerts",
+    label: "Alerts",
+    icon: AlertTriangle,
     exact: false as const,
   },
   {

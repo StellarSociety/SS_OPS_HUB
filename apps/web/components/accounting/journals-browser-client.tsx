@@ -16,7 +16,7 @@ import {
   JOURNAL_SOURCE_LABELS,
   JOURNAL_STATUS_LABELS,
 } from "@/lib/accounting/journal-types";
-import { formatAedAccounting } from "@/lib/accounting/money";
+import { formatAedAccounting, formatDateDmy } from "@/lib/accounting/money";
 import { cn } from "@/lib/utils";
 
 type StatusFilter = "all" | JournalStatus;
@@ -241,7 +241,7 @@ export function JournalsBrowserClient({ entries }: Props) {
                     </ScopedLink>
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-black/75">
-                    {entry.entry_date}
+                    {formatDateDmy(entry.entry_date)}
                   </td>
                   <td className="px-3 py-2.5 text-black/75">
                     {JOURNAL_SOURCE_LABELS[entry.source_type] ??

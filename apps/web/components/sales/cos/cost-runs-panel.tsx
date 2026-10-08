@@ -1,9 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Pencil, CheckCircle2, Clock, Lock } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Lock,
+  Pencil,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
+import { toast } from "@/components/ui/toast";
+import { planCosRefreshAction, refreshCosRunsAction } from "@/lib/actions/cos";
 import { Card } from "@/components/ui/card";
 import {
   CostRunWeekPickerDialog,
@@ -18,6 +28,7 @@ import {
   weeksInMonth,
   deriveCosRunWithAdjustments,
   costHealth,
+  isCosRunMissingStocks,
   type CostHealth,
 } from "@/lib/sales/cos-calculations";
 import type {
@@ -29,6 +40,8 @@ type Props = {
   costCentre: CostCentre;
   fiscalYear: number;
   runs: VenueCosRunWithAdjustments[];
+  /** Weeks whose saved figures no longer match Revenue / Accounts. */
+  staleWeeks: number[];
   targetCostPct: number;
   /** Effective target cost % per retail month (index 0 = January). */
   targetByMonth: number[];
@@ -88,6 +101,7 @@ export function CostRunsPanel({
   costCentre,
   fiscalYear,
   runs,
+  staleWeeks,
   targetCostPct,
   targetByMonth,
   canEdit,
@@ -102,6 +116,44 @@ export function CostRunsPanel({
   const [selMonth, setSelMonth] = useState(currentMonth);
   const [selWeek, setSelWeek] = useState(todayWeek);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [refreshing, startRefresh] = useTransition();
+  /** Refresh Figures progress: weeks done of total, and the week in hand. */
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+    current: number | null;
+  } | null>(null);
+  const stale = new Set(staleWeeks);
+
+  function refreshAll() {
+    startRefresh(async () => {
+      try {
+        const plan = await planCosRefreshAction({ costCentre, fiscalYear });
+        const weeks = plan.weeks;
+        let updated = 0;
+        let created = 0;
+        setProgress({ done: 0, total: weeks.length, current: weeks[0] ?? null });
+        // A few weeks per call: keeps each request short and the bar moving.
+        for (let i = 0; i < weeks.length; i += 3) {
+          const batch = weeks.slice(i, i + 3);
+          setProgress({ done: i, total: weeks.length, current: batch[0] });
+          const res = await refreshCosRunsAction({ costCentre, fiscalYear, weeks: batch });
+          updated += res.updated;
+          created += res.created;
+        }
+        setProgress({ done: weeks.length, total: weeks.length, current: null });
+        toast.saved(
+          `Figures refreshed — ${updated} week${updated === 1 ? "" : "s"} updated` +
+            (created ? `, ${created} missing week${created === 1 ? "" : "s"} created.` : "."),
+        );
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Refresh failed.");
+      } finally {
+        setTimeout(() => setProgress(null), 1200);
+      }
+    });
+  }
 
   const runByWeek = useMemo(() => {
     const m = new Map<number, VenueCosRunWithAdjustments>();
@@ -245,6 +297,18 @@ export function CostRunsPanel({
           {canEdit ? (
             <button
               type="button"
+              onClick={refreshAll}
+              disabled={refreshing}
+              title="Update Revenue sales, Accounts purchases, auto adjustments and transfers on every unapproved week, and create missing weeks"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-black/10 bg-[var(--venue-secondary,#F0F3DD)] px-3 py-2 text-xs font-semibold text-[#3D421F] hover:opacity-90 disabled:opacity-60"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Refreshing…" : "Refresh Figures"}
+            </button>
+          ) : null}
+          {canEdit ? (
+            <button
+              type="button"
               onClick={() => setPickerOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--venue-primary,#818a40)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
             >
@@ -253,6 +317,40 @@ export function CostRunsPanel({
           ) : null}
         </div>
       </div>
+
+      {progress ? (
+        <div className="border-b border-black/5 px-3 py-2.5" role="status" aria-live="polite">
+          <div className="mb-1.5 flex items-center justify-between text-xs text-black/60">
+            <span className="flex items-center gap-1.5">
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${progress.current != null ? "animate-spin" : ""}`}
+              />
+              {progress.current != null
+                ? `Refreshing figures · W${progress.current}`
+                : progress.total === 0
+                  ? "Nothing to refresh — every week is approved"
+                  : "Figures refreshed"}
+            </span>
+            <span className="tabular-nums">
+              {progress.done} / {progress.total} weeks
+            </span>
+          </div>
+          <div
+            className="h-2 overflow-hidden rounded-full bg-black/[0.06]"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={progress.total}
+            aria-valuenow={progress.done}
+          >
+            <div
+              className="h-full rounded-full bg-[var(--venue-primary,#818a40)] transition-[width] duration-500 ease-out"
+              style={{
+                width: `${progress.total ? (progress.done / progress.total) * 100 : 100}%`,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {/* Table */}
       <div className="overflow-x-auto">
@@ -395,9 +493,31 @@ export function CostRunsPanel({
                       {PCT(d.costPct)}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <StatusBadge status={run.status} />
+                      <span className="inline-flex flex-wrap items-center justify-center gap-1">
+                        <StatusBadge status={run.status} />
+                        {isCosRunMissingStocks(run) ? (
+                          <span
+                            className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700"
+                            title="Missing stocks details — no closing stock entered"
+                          >
+                            Stocks
+                          </span>
+                        ) : null}
+                      </span>
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="whitespace-nowrap px-3 py-2 text-right">
+                      {stale.has(weekNo) ? (
+                        <span
+                          className="mr-2 inline-flex align-middle text-amber-500"
+                          title={
+                            run.status === "approved"
+                              ? "Revenue / Accounts figures have changed since this week was approved"
+                              : "Figures not refreshed — use Refresh Figures"
+                          }
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                        </span>
+                      ) : null}
                       <Link
                         href={`${base}/cost-runs/${run.id}`}
                         className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--venue-primary,#818a40)] hover:underline"

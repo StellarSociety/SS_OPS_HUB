@@ -18,6 +18,7 @@ import {
 import { COST_CENTRES, type CostCentre } from "@/lib/sales/cos-types";
 import { dubaiTodayIso } from "@/lib/hr/benefits/flight-ticket";
 import { cosWeekForDate, cosWeekRange } from "@/lib/sales/cos-overview-data";
+import { getCosLiveWeeks, isCosRunStale } from "@/lib/sales/cos-live-figures";
 
 function isCostCentre(value: string): value is CostCentre {
   return (COST_CENTRES as readonly string[]).includes(value);
@@ -114,6 +115,18 @@ export default async function CostRunsPage({
     );
   }
 
+  // Weeks whose saved figures differ from Revenue / Accounts right now.
+  let staleWeeks: number[] = [];
+  try {
+    const lastWeek = Math.max(0, ...loaded.runs.map((r) => r.week_no));
+    const live = await getCosLiveWeeks(supabase, venue.id, centre, fiscalYear, lastWeek);
+    staleWeeks = loaded.runs
+      .filter((r) => isCosRunStale(r, live.get(r.week_no)))
+      .map((r) => r.week_no);
+  } catch (error) {
+    console.error("[gp-cos/cost-runs] live figures:", error);
+  }
+
   return (
     <div className="mx-auto w-full max-w-none space-y-6">
       <CosCentreHeader
@@ -131,6 +144,7 @@ export default async function CostRunsPage({
         costCentre={centre}
         fiscalYear={fiscalYear}
         runs={loaded.runs}
+        staleWeeks={staleWeeks}
         targetCostPct={loaded.targetCostPct}
         targetByMonth={loaded.targetByMonth}
         canEdit={canEditCos(permissions, venue.id)}

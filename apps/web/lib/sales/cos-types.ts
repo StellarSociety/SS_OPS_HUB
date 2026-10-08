@@ -79,7 +79,10 @@ export type VenueCosRun = {
   restaurant_sales_gs: number;
   sales_gs: number;
   sales_discount_gs: number;
+  /** Purchases used for cost of sales (Accounts ledger when linked). */
   purchases_gs: number;
+  /** Manually entered STO purchases, kept for the Accounts − STO check. */
+  manual_purchases_gs: number | null;
   opening_stock_gs: number;
   closing_stock_gs: number;
   imported_sales_gs: number | null;

@@ -193,6 +193,7 @@ export type UpsertCosRunPayload = {
   sales_gs?: number;
   sales_discount_gs?: number;
   purchases_gs?: number;
+  manual_purchases_gs?: number | null;
   opening_stock_gs?: number;
   closing_stock_gs?: number;
   imported_sales_gs?: number | null;
@@ -217,6 +218,7 @@ export async function upsertVenueCosRun(
     sales_gs: payload.sales_gs ?? 0,
     sales_discount_gs: payload.sales_discount_gs ?? 0,
     purchases_gs: payload.purchases_gs ?? 0,
+    manual_purchases_gs: payload.manual_purchases_gs ?? null,
     opening_stock_gs: payload.opening_stock_gs ?? 0,
     closing_stock_gs: payload.closing_stock_gs ?? 0,
     imported_sales_gs: payload.imported_sales_gs ?? null,
@@ -534,13 +536,14 @@ export function resolveCosTargets(
   monthly: VenueCosMonthlyTarget | null | undefined,
 ): {
   targetCostPct: number;
-  purchaseTargetGs: number;
+  /** Purchase target as % of the centre's net sales (stored in purchase_target_gs). */
+  purchaseTargetPct: number;
   closingStockTargetGs: number;
 } {
   return {
     targetCostPct:
       monthly?.target_cost_pct ?? Number(settings?.target_cost_pct ?? 27),
-    purchaseTargetGs:
+    purchaseTargetPct:
       monthly?.purchase_target_gs ?? Number(settings?.purchase_target_gs ?? 0),
     closingStockTargetGs:
       monthly?.closing_stock_target_gs ??
