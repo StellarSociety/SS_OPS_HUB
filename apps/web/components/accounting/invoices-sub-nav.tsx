@@ -5,6 +5,7 @@ import {
   BarChart3,
   FilePlus2,
   FileText,
+  Table2,
 } from "lucide-react";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
@@ -35,6 +36,12 @@ const tabs = [
     href: "/accounting/invoices/insights",
     label: "Insights",
     icon: BarChart3,
+    exact: false as const,
+  },
+  {
+    href: "/accounting/invoices/supplier-totals",
+    label: "Suppliers Totals",
+    icon: Table2,
     exact: false as const,
   },
 ] as const;
