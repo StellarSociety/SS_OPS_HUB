@@ -9,10 +9,10 @@ import {
   type VenueDailySalesRecord,
 } from "@/lib/sales/daily-sales-types";
 import type { VenueDailyDiscountsRecord } from "@/lib/sales/discounts-types";
-import type { CostCentre } from "@/lib/sales/cos-types";
+import type { CostCentre, CosWeekSalesSnapshot } from "@/lib/sales/cos-types";
 
 /** Revenue-app gross columns that make up each cost centre's sales. */
-const CENTRE_SALES_FIELDS: Record<CostCentre, (keyof VenueDailySalesRecord)[]> =
+export const CENTRE_SALES_FIELDS: Record<CostCentre, (keyof VenueDailySalesRecord)[]> =
   {
     food: ["lunch_food_gs", "dinner_food_gs"],
     beverage: ["lunch_beverages_gs", "dinner_beverages_gs"],
@@ -47,8 +47,12 @@ export type CosDailySalesRow = {
   hasSales: boolean;
   restaurantSalesNet: number;
   centreSalesNet: number;
-  centreDiscountNet: number;
-  /** All discount categories (food, beverages, wine, shisha, others). */
+  /** Null when the Discounts page has no category breakdown for the date. */
+  centreDiscountNet: number | null;
+  /**
+   * The day's total discounts: the all-day discount from the daily sales
+   * entry, falling back to the Discounts page breakdown when there isn't one.
+   */
   totalDiscountNet: number;
 };
 
@@ -74,6 +78,30 @@ function eachDate(from: string, to: string): string[] {
   return out;
 }
 
+/** The venue's total tax % (VAT + municipality + service), read-only. */
+export async function getVenueTotalTaxPct(
+  supabase: SupabaseClient,
+  venueId: string,
+): Promise<number> {
+  // Read-only: don't create default settings from a GP & COS page.
+  const { data } = await supabase
+    .from("venue_sales_tax_settings")
+    .select("*")
+    .eq("venue_id", venueId)
+    .maybeSingle();
+  return totalTaxRatePct({
+    ...DEFAULT_TAX_SETTINGS,
+    ...(data
+      ? {
+          municipality_fee_pct: num(data.municipality_fee_pct),
+          vat_pct: num(data.vat_pct),
+          service_charge_pct: num(data.service_charge_pct),
+          vat_on_service_charge_pct: num(data.vat_on_service_charge_pct),
+        }
+      : {}),
+  });
+}
+
 /**
  * Daily NET restaurant sales, cost-centre sales and cost-centre discounts
  * from the Revenue app (venue_daily_sales + venue_daily_discounts).
@@ -86,7 +114,7 @@ export async function getCosDailySales(
   from: string,
   to: string,
 ): Promise<CosDailySalesResult> {
-  const [salesRes, discountRes, taxRes] = await Promise.all([
+  const [salesRes, discountRes, totalTaxPct] = await Promise.all([
     supabase
       .from("venue_daily_sales")
       .select("*")
@@ -99,27 +127,10 @@ export async function getCosDailySales(
       .eq("venue_id", venueId)
       .gte("sale_date", from)
       .lte("sale_date", to),
-    // Read-only: don't create default settings from a GP & COS page.
-    supabase
-      .from("venue_sales_tax_settings")
-      .select("*")
-      .eq("venue_id", venueId)
-      .maybeSingle(),
+    getVenueTotalTaxPct(supabase, venueId),
   ]);
   if (salesRes.error) throw salesRes.error;
   if (discountRes.error) throw discountRes.error;
-
-  const totalTaxPct = totalTaxRatePct({
-    ...DEFAULT_TAX_SETTINGS,
-    ...(taxRes.data
-      ? {
-          municipality_fee_pct: num(taxRes.data.municipality_fee_pct),
-          vat_pct: num(taxRes.data.vat_pct),
-          service_charge_pct: num(taxRes.data.service_charge_pct),
-          vat_on_service_charge_pct: num(taxRes.data.vat_on_service_charge_pct),
-        }
-      : {}),
-  });
 
   const salesByDate = new Map<string, VenueDailySalesRecord>();
   for (const row of (salesRes.data ?? []) as VenueDailySalesRecord[]) {
@@ -154,21 +165,54 @@ export async function getCosDailySales(
     const centreGs = sales
       ? CENTRE_SALES_FIELDS[centre].reduce((s, f) => s + num(sales[f]), 0)
       : 0;
-    const totalDiscountGs = discount
-      ? ALL_DISCOUNT_FIELDS.reduce((s, f) => s + num(discount[f]), 0)
-      : 0;
+    const totalDiscountGs = sales
+      ? num(sales.all_day_discount_gs)
+      : discount
+        ? ALL_DISCOUNT_FIELDS.reduce((s, f) => s + num(discount[f]), 0)
+        : 0;
     const discountGs = discount
       ? CENTRE_DISCOUNT_FIELDS[centre].reduce((s, f) => s + num(discount[f]), 0)
-      : 0;
+      : null;
     return {
       date,
       hasSales: Boolean(sales),
       restaurantSalesNet: grossToNet(restaurantGs, totalTaxPct),
       centreSalesNet: grossToNet(centreGs, totalTaxPct),
-      centreDiscountNet: grossToNet(discountGs, totalTaxPct),
+      centreDiscountNet:
+        discountGs == null ? null : grossToNet(discountGs, totalTaxPct),
       totalDiscountNet: grossToNet(totalDiscountGs, totalTaxPct),
     };
   });
 
   return { rows, totalTaxPct };
+}
+
+/**
+ * The week's NET sales figures a cost run imports (restaurant sales, centre
+ * sales, centre discounts). Days without a discounts breakdown count as 0.
+ */
+export async function getCosWeekImportSnapshot(
+  supabase: SupabaseClient,
+  venueId: string,
+  centre: CostCentre,
+  weekStart: string,
+  weekEnd: string,
+): Promise<CosWeekSalesSnapshot> {
+  const { rows } = await getCosDailySales(
+    supabase,
+    venueId,
+    centre,
+    weekStart,
+    weekEnd,
+  );
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    restaurant_sales_gs: round2(
+      rows.reduce((s, r) => s + r.restaurantSalesNet, 0),
+    ),
+    sales_gs: round2(rows.reduce((s, r) => s + r.centreSalesNet, 0)),
+    sales_discount_gs: round2(
+      rows.reduce((s, r) => s + (r.centreDiscountNet ?? 0), 0),
+    ),
+  };
 }

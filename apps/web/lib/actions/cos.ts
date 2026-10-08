@@ -29,7 +29,7 @@ import type {
   CosMonthlyTargetInput,
   CostCentre,
 } from "@/lib/sales/cos-types";
-import { getCosDailySales } from "@/lib/sales/cos-sales-data";
+import { getCosWeekImportSnapshot } from "@/lib/sales/cos-sales-data";
 
 async function requireContext() {
   const supabase = await createClient();
@@ -168,19 +168,13 @@ export async function importCosWeekSalesAction(input: {
   const { supabase, venue } = await requireContext();
   // NET figures from Revenue (daily sales + per-category daily discounts),
   // the same source as the Sales/Discounts tab. Column names keep the _gs suffix.
-  const { rows } = await getCosDailySales(
+  const snapshot = await getCosWeekImportSnapshot(
     supabase,
     venue.id,
     input.costCentre,
     input.weekStart,
     input.weekEnd,
   );
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  const snapshot = {
-    restaurant_sales_gs: round2(rows.reduce((s, r) => s + r.restaurantSalesNet, 0)),
-    sales_gs: round2(rows.reduce((s, r) => s + r.centreSalesNet, 0)),
-    sales_discount_gs: round2(rows.reduce((s, r) => s + r.centreDiscountNet, 0)),
-  };
   return { ok: true as const, snapshot };
 }
 

@@ -662,7 +662,7 @@ export const moduleCatalog: ModuleDef[] = [
   },
   {
     key: "mobile_app",
-    label: "Mobile App",
+    label: "Mobile App Setup",
     description: "Venue operations on phones and tablets.",
     features: [
       {

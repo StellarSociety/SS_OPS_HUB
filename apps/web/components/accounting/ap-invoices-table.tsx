@@ -13,7 +13,10 @@ import {
   submitApInvoice,
 } from "@/lib/actions/accounting-ap";
 import type { ApInvoice, ApInvoiceStatus } from "@/lib/accounting/ap-types";
-import { AP_STATUS_LABELS } from "@/lib/accounting/ap-types";
+import {
+  AP_DOCUMENT_TYPE_LABELS,
+  AP_STATUS_LABELS,
+} from "@/lib/accounting/ap-types";
 import { formatAedAccounting } from "@/lib/accounting/money";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +65,8 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
       if (!q) return true;
       const hay = [
         inv.invoice_no,
-        inv.supplier_invoice_no,
+        inv.supplier_invoice_no ?? "",
+        inv.delivery_note_no ?? "",
         inv.memo ?? "",
         inv.suppliers?.name ?? "",
       ]
@@ -110,7 +114,7 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
     const rows = filtered.map((inv) => [
       inv.invoice_no,
       inv.suppliers?.name ?? "",
-      inv.supplier_invoice_no,
+      inv.supplier_invoice_no ?? "",
       inv.invoice_date,
       inv.due_date,
       inv.venues?.name ?? "",
@@ -300,9 +304,32 @@ export function ApInvoicesTable({ invoices, canEdit }: Props) {
                       >
                         {inv.invoice_no}
                       </ScopedLink>
+                      {inv.document_type !== "invoice" ? (
+                        <div
+                          className={cn(
+                            "text-[11px] font-normal",
+                            inv.document_type === "credit_note"
+                              ? "text-red-700"
+                              : "text-black/50",
+                          )}
+                        >
+                          {AP_DOCUMENT_TYPE_LABELS[inv.document_type]}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2.5">{inv.suppliers?.name ?? "—"}</td>
-                    <td className="px-3 py-2.5">{inv.supplier_invoice_no}</td>
+                    <td className="px-3 py-2.5">
+                      {inv.supplier_invoice_no ?? (
+                        <span className="inline-flex whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                          Requires invoice number
+                        </span>
+                      )}
+                      {inv.delivery_note_no ? (
+                        <div className="text-[11px] text-black/50">
+                          DN {inv.delivery_note_no}
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2.5 tabular-nums">{inv.invoice_date}</td>
                     <td className="px-3 py-2.5 tabular-nums">{inv.due_date}</td>
                     <td className="px-3 py-2.5">{inv.venues?.name ?? "—"}</td>

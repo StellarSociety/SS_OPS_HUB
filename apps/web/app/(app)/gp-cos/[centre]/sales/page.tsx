@@ -88,7 +88,7 @@ export default async function CosSalesDiscountsPage({
       <CosCentreHeader
         centre={costCentre}
         section="sales"
-        subtitle={<>Daily net sales &amp; discounts from Revenue — {venue.name}</>}
+        subtitle={<>Daily net sales &amp; discounts from Revenue</>}
       />
       {result ? (
         <CosSalesDiscountsTable

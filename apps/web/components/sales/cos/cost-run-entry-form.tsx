@@ -12,6 +12,8 @@ import {
   Send,
   CheckCircle2,
   Lock,
+  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { Card } from "@/components/ui/card";
@@ -28,6 +30,7 @@ import {
   type CosAdjustmentSide,
   type CosAdjustmentSource,
   type CosRunStatus,
+  type CosWeekSalesSnapshot,
   type VenueCosRunWithAdjustments,
 } from "@/lib/sales/cos-types";
 import { toScopedHref } from "@/lib/venue/scope-routing";
@@ -68,6 +71,8 @@ type Props = {
   ledgerLinked: boolean;
   /** Net AP purchases on the linked ledgers for the week (null if unavailable). */
   accountsPurchasesNet: number | null;
+  /** Current Revenue figures for the week (null if they couldn't load). */
+  liveSalesSnapshot: CosWeekSalesSnapshot | null;
   /** Active adjustment kinds (Settings → Adjustments). */
   adjustmentKinds: { name: string; ledgerCode: string; side: CosAdjustmentSide }[];
   /** Transfers touching this centre in the run's week, signed for this centre. */
@@ -229,6 +234,18 @@ export function CostRunEntryForm(props: Props) {
     [sales, purchases, openingStock, closingStock, adjustmentsTotal],
   );
 
+  // Imported once a sales snapshot has been taken; stale if Revenue has moved on.
+  const hasImported = importedSales != null;
+  const live = props.liveSalesSnapshot;
+  const sameMoney = (a: number, b: number) =>
+    Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.005;
+  const importUpToDate =
+    live == null
+      ? null
+      : sameMoney(restaurantSales, live.restaurant_sales_gs) &&
+        sameMoney(sales, live.sales_gs) &&
+        sameMoney(discount, live.sales_discount_gs);
+
   const health = costHealth(derived.costPct, props.targetCostPct);
   const purchaseVariance = purchases - props.purchaseTargetGs;
   const stockVariance = closingStock - props.closingStockTargetGs;
@@ -247,7 +264,11 @@ export function CostRunEntryForm(props: Props) {
         setSales(res.snapshot.sales_gs);
         setDiscount(res.snapshot.sales_discount_gs);
         setImportedSales(res.snapshot.sales_gs);
-        setMessage("Imported NET figures from Revenue daily sales.");
+        setMessage(
+          importedSales != null
+            ? "Updated NET figures from Revenue daily sales — save to keep them."
+            : "Imported NET figures from Revenue daily sales.",
+        );
       }
     });
   }
@@ -371,14 +392,36 @@ export function CostRunEntryForm(props: Props) {
             <span className="text-xs text-amber-700">Unsaved changes</span>
           ) : null}
         </div>
-        <button
-          type="button"
-          disabled={locked || pending}
-          onClick={doImport}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-[var(--venue-primary,#818a40)] px-3 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
-        >
-          <Download className="h-4 w-4" /> Import figures
-        </button>
+        <div className="ml-auto flex flex-col items-end gap-1">
+          <button
+            type="button"
+            disabled={locked || pending}
+            onClick={doImport}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--venue-primary,#818a40)] px-3 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {hasImported ? (
+              <RefreshCw className={`h-4 w-4 ${pending ? "animate-spin" : ""}`} />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}{" "}
+            {hasImported ? "Update figures" : "Import figures"}
+          </button>
+          {hasImported && importUpToDate != null ? (
+            importUpToDate ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                <CheckCircle2 className="h-3 w-3" /> Up to date with Revenue
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700"
+                title={`Revenue now: restaurant ${MONEY(live!.restaurant_sales_gs)} · ${centreLabel.toLowerCase()} ${MONEY(live!.sales_gs)} · discounts ${MONEY(live!.sales_discount_gs)}`}
+              >
+                <AlertTriangle className="h-3 w-3" /> Revenue figures changed —
+                needs a refresh
+              </span>
+            )
+          ) : null}
+        </div>
       </Card>
 
       <button

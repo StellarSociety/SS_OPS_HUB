@@ -137,6 +137,13 @@ export function assertBalanced(lines: BuiltJournalLine[]): void {
   }
 }
 
+/** Swap debits↔credits (e.g. to post a supplier credit note). */
+export function flipJournalLines(
+  lines: BuiltJournalLine[],
+): BuiltJournalLine[] {
+  return lines.map((l) => ({ ...l, debit: l.credit, credit: l.debit }));
+}
+
 /** Mirror debits↔credits for a reversal entry. */
 export function mirrorJournalLines(
   lines: BuiltJournalLine[],

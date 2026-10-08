@@ -9,6 +9,7 @@ import {
 } from "@/lib/sales/cos-page-context";
 import { getCosLedgerPurchasesNet } from "@/lib/sales/cos-purchases-data";
 import { monthIndexForWeek } from "@/lib/sales/cos-calculations";
+import { getCosWeekImportSnapshot } from "@/lib/sales/cos-sales-data";
 import { createServiceClient } from "@/lib/supabase/service";
 import { isAppAdmin } from "@/lib/role-permissions";
 import {
@@ -25,6 +26,7 @@ import {
   COST_CENTRE_LABELS,
   DEFAULT_AUTO_ADJUSTMENT_PCT,
   type CostCentre,
+  type CosWeekSalesSnapshot,
 } from "@/lib/sales/cos-types";
 
 function isCostCentre(v: string): v is CostCentre {
@@ -142,6 +144,20 @@ export default async function CostRunEntryPage({
     console.error("[gp-cos/cost-run] accounts purchases:", error);
   }
 
+  // Current Revenue figures, to tell whether an import is out of date.
+  let liveSalesSnapshot: CosWeekSalesSnapshot | null = null;
+  try {
+    liveSalesSnapshot = await getCosWeekImportSnapshot(
+      supabase,
+      venue.id,
+      centre,
+      start,
+      end,
+    );
+  } catch (error) {
+    console.error("[gp-cos/cost-run] live sales snapshot:", error);
+  }
+
   // Opening stock default = previous week's closing stock.
   const prevRun = allRuns.find((r) => r.week_no === weekNo - 1);
   const defaultOpening = existing?.opening_stock_gs ?? (prevRun?.closing_stock_gs ?? 0);
@@ -176,6 +192,7 @@ export default async function CostRunEntryPage({
         canEdit={editable}
         ledgerLinked={ledgerIds.length > 0}
         accountsPurchasesNet={accountsPurchasesNet}
+        liveSalesSnapshot={liveSalesSnapshot}
         adjustmentKinds={activeKinds.map((k) => ({
           name: k.name,
           ledgerCode: k.ledger_account_id

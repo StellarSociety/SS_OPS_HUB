@@ -6,6 +6,7 @@ import { getActionAuthContext } from "@/lib/auth/action-context";
 import {
   canApproveOrPostApInvoice,
   buildApJournalLines,
+  flipJournalLines,
   type ApApprovalContext,
 } from "@/lib/accounting/posting-ap";
 import { postJournal, reverseJournal } from "@/lib/accounting/posting";
@@ -18,6 +19,7 @@ import {
 } from "@/lib/accounting/ap-store";
 import {
   isSupplierKind,
+  type ApDocumentType,
   type ApInvoiceLineInput,
 } from "@/lib/accounting/ap-types";
 import {
@@ -254,10 +256,14 @@ export async function upsertSupplier(input: {
 export async function checkSupplierInvoiceDuplicate(input: {
   supplierId: string;
   supplierInvoiceNo: string;
+  documentType?: ApDocumentType;
   excludeId?: string;
 }) {
   const ctx = await requireApAccess("view");
   if ("error" in ctx) return fail(ctx.error);
+  if (!input.supplierInvoiceNo.trim()) {
+    return { ok: true as const, duplicate: false, existing: null };
+  }
 
   const mapping = await getVenueEntity(ctx.service, ctx.venueId);
   if (!mapping) return { ok: true as const, duplicate: false };
@@ -268,6 +274,7 @@ export async function checkSupplierInvoiceDuplicate(input: {
     .eq("entity_id", mapping.entity_id)
     .eq("supplier_id", input.supplierId)
     .eq("supplier_invoice_no", input.supplierInvoiceNo.trim())
+    .eq("document_type", input.documentType ?? "invoice")
     .neq("status", "void")
     .limit(1);
 
@@ -348,10 +355,17 @@ export async function saveApInvoiceForm(formData: FormData) {
   const id = String(formData.get("id") ?? "").trim() || undefined;
   const fxRaw = String(formData.get("fxRate") ?? "").trim();
 
+  const docType = String(formData.get("documentType") ?? "invoice");
   return saveApInvoice({
     id,
+    documentType: (["invoice", "delivery_note", "credit_note"] as const).includes(
+      docType as ApDocumentType,
+    )
+      ? (docType as ApDocumentType)
+      : "invoice",
     supplierId: String(formData.get("supplierId") ?? ""),
     supplierInvoiceNo: String(formData.get("supplierInvoiceNo") ?? ""),
+    deliveryNoteNo: String(formData.get("deliveryNoteNo") ?? ""),
     invoiceDate: String(formData.get("invoiceDate") ?? ""),
     dueDate: String(formData.get("dueDate") ?? "") || undefined,
     currency: String(formData.get("currency") ?? "AED") || "AED",
@@ -365,8 +379,10 @@ export async function saveApInvoiceForm(formData: FormData) {
 
 export async function saveApInvoice(input: {
   id?: string;
+  documentType?: ApDocumentType;
   supplierId: string;
   supplierInvoiceNo: string;
+  deliveryNoteNo?: string;
   invoiceDate: string;
   dueDate?: string;
   currency?: string;
@@ -384,12 +400,39 @@ export async function saveApInvoice(input: {
     return fail("This venue is not mapped to a legal entity.");
   }
 
+  const isDeliveryNote = input.documentType === "delivery_note";
+  const supplierInvoiceNo = input.supplierInvoiceNo.trim();
+  const deliveryNoteNo = isDeliveryNote
+    ? (input.deliveryNoteNo ?? "").trim()
+    : "";
+
   if (!input.supplierId) return fail("Supplier is required.");
-  if (!input.supplierInvoiceNo.trim()) {
-    return fail("Supplier invoice number is required.");
+  if (isDeliveryNote && !deliveryNoteNo) {
+    return fail("Delivery note number is required.");
+  }
+  // Delivery notes may be saved before the invoice number arrives.
+  if (!supplierInvoiceNo && !isDeliveryNote) {
+    return fail("Invoice number is required.");
   }
   if (!input.invoiceDate) return fail("Invoice date is required.");
-  if (!input.lines.length) return fail("Add at least one line.");
+
+  // Ignore untouched blank rows; every remaining line must be complete.
+  const filledLines = input.lines.filter(
+    (l) => l.accountId || l.description.trim() || l.netAmount > 0 || l.unitPrice > 0,
+  );
+  if (!filledLines.length) return fail("Add at least one line.");
+  for (const [idx, l] of filledLines.entries()) {
+    if (!l.accountId) return fail(`Line ${idx + 1}: choose an account.`);
+    if (!l.taxCodeId) return fail(`Line ${idx + 1}: choose a tax code.`);
+    if (!(l.netAmount > 0 || l.quantity * l.unitPrice > 0)) {
+      return fail(`Line ${idx + 1}: enter an amount.`);
+    }
+  }
+  if (input.submit && !supplierInvoiceNo) {
+    return fail(
+      "Add the supplier's invoice number before submitting this delivery note.",
+    );
+  }
 
   const { data: supplier } = await ctx.service
     .from("suppliers")
@@ -398,15 +441,36 @@ export async function saveApInvoice(input: {
     .single();
   if (!supplier) return fail("Supplier not found.");
 
+  const documentType = input.documentType ?? "invoice";
+  // Credit notes are stored with negative amounts.
+  const sign = documentType === "credit_note" ? -1 : 1;
+
   const dup = await checkSupplierInvoiceDuplicate({
     supplierId: input.supplierId,
     supplierInvoiceNo: input.supplierInvoiceNo,
+    documentType,
     excludeId: input.id,
   });
   if ("duplicate" in dup && dup.duplicate) {
     return fail(
       `Duplicate supplier invoice number — already exists as ${dup.existing?.invoice_no ?? "another invoice"}.`,
     );
+  }
+  if (deliveryNoteNo) {
+    let dnQuery = ctx.service
+      .from("ap_invoices")
+      .select("invoice_no")
+      .eq("supplier_id", input.supplierId)
+      .eq("delivery_note_no", deliveryNoteNo)
+      .neq("status", "void")
+      .limit(1);
+    if (input.id) dnQuery = dnQuery.neq("id", input.id);
+    const { data: dnDup } = await dnQuery.maybeSingle();
+    if (dnDup) {
+      return fail(
+        `Duplicate delivery note number — already exists as ${dnDup.invoice_no}.`,
+      );
+    }
   }
 
   const taxCodes = await listTaxCodes(ctx.service);
@@ -415,28 +479,29 @@ export async function saveApInvoice(input: {
   let subtotalNet = 0;
   let taxTotal = 0;
   let totalGross = 0;
-  const lineRows = input.lines.map((line, idx) => {
-    if (!line.accountId) throw new Error(`Line ${idx + 1}: account required`);
-    if (!line.taxCodeId) throw new Error(`Line ${idx + 1}: tax code required`);
+  const lineRows = filledLines.map((line, idx) => {
     const computed = computeLineAmounts(
       line,
       taxCodes,
       taxRates,
       input.invoiceDate,
     );
-    subtotalNet = roundMoney(subtotalNet + computed.netAmount);
-    taxTotal = roundMoney(taxTotal + computed.taxAmount);
-    totalGross = roundMoney(totalGross + computed.grossAmount);
+    const net = roundMoney(sign * computed.netAmount);
+    const tax = roundMoney(sign * computed.taxAmount);
+    const gross = roundMoney(sign * computed.grossAmount);
+    subtotalNet = roundMoney(subtotalNet + net);
+    taxTotal = roundMoney(taxTotal + tax);
+    totalGross = roundMoney(totalGross + gross);
     return {
       line_no: idx + 1,
       description: line.description.trim() || `Line ${idx + 1}`,
       account_id: line.accountId,
       quantity: computed.quantity,
       unit_price: computed.unitPrice,
-      net_amount: computed.netAmount,
+      net_amount: net,
       tax_code_id: line.taxCodeId,
-      tax_amount: computed.taxAmount,
-      gross_amount: computed.grossAmount,
+      tax_amount: tax,
+      gross_amount: gross,
       dimensions: line.dimensions ?? {},
     };
   });
@@ -471,8 +536,10 @@ export async function saveApInvoice(input: {
     const { error: updErr } = await ctx.service
       .from("ap_invoices")
       .update({
+        document_type: documentType,
         supplier_id: input.supplierId,
-        supplier_invoice_no: input.supplierInvoiceNo.trim(),
+        supplier_invoice_no: supplierInvoiceNo || null,
+        delivery_note_no: deliveryNoteNo || null,
         invoice_date: input.invoiceDate,
         due_date: dueDate,
         currency,
@@ -503,8 +570,10 @@ export async function saveApInvoice(input: {
         entity_id: mapping.entity_id,
         venue_id: ctx.venueId,
         invoice_no: invoiceNo,
+        document_type: documentType,
         supplier_id: input.supplierId,
-        supplier_invoice_no: input.supplierInvoiceNo.trim(),
+        supplier_invoice_no: supplierInvoiceNo || null,
+        delivery_note_no: deliveryNoteNo || null,
         invoice_date: input.invoiceDate,
         due_date: dueDate,
         currency,
@@ -544,14 +613,6 @@ export async function saveApInvoice(input: {
   }
 
   if (input.submit) {
-    const { data: inv } = await ctx.service
-      .from("ap_invoices")
-      .select("attachment_url")
-      .eq("id", invoiceId)
-      .single();
-    if (!inv?.attachment_url) {
-      return fail("Attachment is required to submit for approval.");
-    }
     const now = new Date().toISOString();
     await ctx.service
       .from("ap_invoices")
@@ -595,8 +656,8 @@ export async function submitApInvoice(invoiceId: string) {
     .single();
   if (!inv) return fail("Invoice not found.");
   if (inv.status !== "draft") return fail("Only drafts can be submitted.");
-  if (!inv.attachment_url) {
-    return fail("Attachment is required to submit for approval.");
+  if (!inv.supplier_invoice_no) {
+    return fail("Add the supplier's invoice number before submitting.");
   }
 
   const { count } = await ctx.service
@@ -652,7 +713,7 @@ export async function rejectApInvoice(invoiceId: string, reason: string) {
   if (inv.status !== "submitted") {
     return fail("Only submitted invoices can be rejected.");
   }
-  if (!canApproveOrPostApInvoice(approval, Number(inv.total_gross))) {
+  if (!canApproveOrPostApInvoice(approval, Math.abs(Number(inv.total_gross)))) {
     if (!canAdminAp(ctx.permissions, ctx.venueId) && !approval.isAppAdmin) {
       return fail("You do not have permission to reject this invoice.");
     }
@@ -707,7 +768,7 @@ export async function approveApInvoice(invoiceId: string) {
     ctx.userId,
     ctx.venueId,
   );
-  if (!canApproveOrPostApInvoice(approval, Number(inv.total_gross))) {
+  if (!canApproveOrPostApInvoice(approval, Math.abs(Number(inv.total_gross)))) {
     return fail(
       "Your approval limit does not cover this invoice (or bookkeepers cannot approve).",
     );
@@ -759,7 +820,7 @@ export async function postApInvoice(invoiceId: string) {
     ctx.userId,
     ctx.venueId,
   );
-  if (!canApproveOrPostApInvoice(approval, Number(inv.total_gross))) {
+  if (!canApproveOrPostApInvoice(approval, Math.abs(Number(inv.total_gross)))) {
     return fail(
       "You cannot post this invoice — approval limit exceeded or insufficient role.",
     );
@@ -796,11 +857,14 @@ export async function postApInvoice(invoiceId: string) {
 
   if (!lines.length) return fail("Invoice has no lines.");
 
+  // Credit notes hold negative amounts: post the positive figures, then flip
+  // every debit and credit (Dr AP, Cr expense / input VAT).
+  const isCreditNote = inv.document_type === "credit_note";
   const built = buildApJournalLines({
     lines: lines.map((l) => ({
       description: l.description,
       accountId: l.account_id,
-      netAmount: Number(l.net_amount),
+      netAmount: Math.abs(Number(l.net_amount)),
       taxCodeId: l.tax_code_id,
       dimensions: l.dimensions ?? {},
     })),
@@ -815,7 +879,7 @@ export async function postApInvoice(invoiceId: string) {
     supplierDimension: {
       supplier: inv.supplier_id,
     },
-    memo: `AP ${inv.invoice_no} / ${inv.supplier_invoice_no}`,
+    memo: `AP ${inv.invoice_no} / ${inv.supplier_invoice_no ?? inv.delivery_note_no ?? ""}`,
   });
 
   let journal;
@@ -824,10 +888,10 @@ export async function postApInvoice(invoiceId: string) {
       entityId: inv.entity_id,
       venueId: inv.venue_id,
       date: inv.invoice_date,
-      memo: `Supplier invoice ${inv.invoice_no}`,
+      memo: `Supplier ${isCreditNote ? "credit note" : "invoice"} ${inv.invoice_no}`,
       sourceType: "ap",
       sourceRef: inv.id,
-      lines: built.lines.map((l) => ({
+      lines: (isCreditNote ? flipJournalLines(built.lines) : built.lines).map((l) => ({
         accountId: l.accountId,
         debit: l.debit,
         credit: l.credit,

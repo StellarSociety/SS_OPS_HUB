@@ -443,7 +443,7 @@ function ShareOf({ part, whole }: { part: number; whole: number }) {
   );
 }
 
-function StatusBadge({
+export function StatusBadge({
   status,
 }: {
   status: "draft" | "pending_approval" | "approved";

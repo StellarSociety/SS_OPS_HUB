@@ -14,16 +14,16 @@ import { segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
 const tabs = [
   {
-    href: "/accounting/invoices",
-    label: "All Invoices",
-    icon: FileText,
-    exact: true as const,
-  },
-  {
     href: "/accounting/invoices/new",
     label: "New Invoice",
     icon: FilePlus2,
     exact: false as const,
+  },
+  {
+    href: "/accounting/invoices",
+    label: "All Invoices",
+    icon: FileText,
+    exact: true as const,
   },
   {
     href: "/accounting/invoices/approvals",

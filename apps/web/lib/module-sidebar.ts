@@ -495,7 +495,7 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
   {
     moduleKey: "mobile_app",
     basePath: "/mobile",
-    label: "Mobile App",
+    label: "Mobile App Setup",
     icon: Smartphone,
     items: [
       {

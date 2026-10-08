@@ -132,13 +132,26 @@ export type ApInvoiceLine = {
   tax_codes?: { id: string; code: string; label: string } | null;
 };
 
+/** What the supplier document is. Credit notes carry negative amounts. */
+export type ApDocumentType = "invoice" | "delivery_note" | "credit_note";
+
+export const AP_DOCUMENT_TYPE_LABELS: Record<ApDocumentType, string> = {
+  invoice: "Invoice",
+  delivery_note: "Delivery Note",
+  credit_note: "Credit Note",
+};
+
 export type ApInvoice = {
   id: string;
+  document_type: ApDocumentType;
   entity_id: string;
   venue_id: string;
   invoice_no: string;
   supplier_id: string;
-  supplier_invoice_no: string;
+  /** Null on a delivery note until the supplier's invoice number arrives. */
+  supplier_invoice_no: string | null;
+  /** Delivery notes only. */
+  delivery_note_no: string | null;
   invoice_date: string;
   due_date: string;
   currency: string;

@@ -278,7 +278,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
   },
   {
     key: "mobile_app",
-    label: "Mobile App",
+    label: "Mobile App Setup",
     iconKey: "smartphone",
     category: "management",
     href: "/mobile",

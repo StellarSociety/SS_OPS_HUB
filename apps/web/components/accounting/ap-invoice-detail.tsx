@@ -158,7 +158,13 @@ export function ApInvoiceDetail({ invoice, canEdit, canAdmin }: Props) {
       )}
 
       <div className="grid gap-4 rounded-lg border border-black/10 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Supplier invoice #" value={invoice.supplier_invoice_no} />
+        <Field
+          label="Supplier invoice #"
+          value={invoice.supplier_invoice_no ?? "Requires invoice number"}
+        />
+        {invoice.delivery_note_no ? (
+          <Field label="Delivery note #" value={invoice.delivery_note_no} />
+        ) : null}
         <Field label="Invoice date" value={invoice.invoice_date} />
         <Field label="Due date" value={invoice.due_date} />
         <Field

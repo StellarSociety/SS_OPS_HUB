@@ -40,8 +40,62 @@ type DisplayRow = {
   restaurant: number;
   sales: number;
   totalDiscount: number;
-  discount: number;
+  /** Null when no day in the row has a Discounts page breakdown. */
+  discount: number | null;
+  /** Total discounts of only the days that have a breakdown (the % base). */
+  discountBase: number;
+  /** Days with sales but no Discounts page breakdown. */
+  missingBreakdownDays: number;
 };
+
+type DiscountSums = Pick<
+  DisplayRow,
+  "discount" | "discountBase" | "missingBreakdownDays"
+>;
+
+/** Centre discounts summed over the days that have a category breakdown. */
+function sumDiscounts(days: CosDailySalesRow[]): DiscountSums {
+  const withBreakdown = days.filter((r) => r.centreDiscountNet != null);
+  return {
+    discount: withBreakdown.length
+      ? withBreakdown.reduce((s, r) => s + (r.centreDiscountNet ?? 0), 0)
+      : null,
+    discountBase: withBreakdown.reduce((s, r) => s + r.totalDiscountNet, 0),
+    missingBreakdownDays: days.filter(
+      (r) => r.hasSales && r.centreDiscountNet == null,
+    ).length,
+  };
+}
+
+function DiscountCells({ d }: { d: DiscountSums }) {
+  if (d.discount == null) {
+    return (
+      <td
+        colSpan={2}
+        className="px-3 py-2 text-right text-xs text-amber-700"
+        title="No category breakdown on the Discounts page for this date yet"
+      >
+        Not entered
+      </td>
+    );
+  }
+  return (
+    <>
+      <td className={numWithPct}>{formatMoney(d.discount)}</td>
+      <td className={pctCell}>
+        {pctOf(d.discount, d.discountBase)}
+        {d.missingBreakdownDays > 0 ? (
+          <span
+            className="ml-1 text-amber-700"
+            title={`${d.missingBreakdownDays} day${d.missingBreakdownDays === 1 ? "" : "s"} without a Discounts page breakdown`}
+          >
+            *
+          </span>
+        ) : null}
+      </td>
+    </>
+  );
+}
 
 const numCell = "px-3 py-2 text-right tabular-nums";
 /** Number cell that carries a % right after it (no gap on the right). */
@@ -114,7 +168,7 @@ export function CosSalesDiscountsTable({
       restaurant: r.restaurantSalesNet,
       sales: r.centreSalesNet,
       totalDiscount: r.totalDiscountNet,
-      discount: r.centreDiscountNet,
+      ...sumDiscounts([r]),
     };
   });
 
@@ -134,30 +188,39 @@ export function CosSalesDiscountsTable({
         restaurant: days.reduce((s, r) => s + r.restaurantSalesNet, 0),
         sales: days.reduce((s, r) => s + r.centreSalesNet, 0),
         totalDiscount: days.reduce((s, r) => s + r.totalDiscountNet, 0),
-        discount: days.reduce((s, r) => s + r.centreDiscountNet, 0),
+        ...sumDiscounts(days),
       };
     });
 
   const byWeek = scope === "month";
-  const displayRows = byWeek ? weeklyRows : dailyRows;
+  // Most recent first.
+  const displayRows = (byWeek ? weeklyRows : dailyRows).toReversed();
 
-  const totals = rows.reduce(
-    (t, r) => ({
-      restaurant: t.restaurant + r.restaurantSalesNet,
-      sales: t.sales + r.centreSalesNet,
-      totalDiscount: t.totalDiscount + r.totalDiscountNet,
-      discount: t.discount + r.centreDiscountNet,
-    }),
-    { restaurant: 0, sales: 0, totalDiscount: 0, discount: 0 },
-  );
+  const totals = {
+    restaurant: rows.reduce((s, r) => s + r.restaurantSalesNet, 0),
+    sales: rows.reduce((s, r) => s + r.centreSalesNet, 0),
+    totalDiscount: rows.reduce((s, r) => s + r.totalDiscountNet, 0),
+  };
+  const totalDiscounts = sumDiscounts(rows);
   const missingPast = rows.filter(isMissing).length;
 
-  const periodLabel =
+  /** Accounting month = its first retail week's start to its last week's end. */
+  const monthSpan = (i: number) => {
+    const wks = weeksInMonth(i);
+    const first = weeks.find((w) => w.weekNo === wks[0]);
+    const last = weeks.find((w) => w.weekNo === wks.at(-1));
+    return first && last
+      ? `${ddmmyy(first.start)} to ${ddmmyy(last.end)}`
+      : null;
+  };
+
+  const weekTag =
     scope === "month"
-      ? `${MONTH_LABELS[monthIndex]} ${fiscalYear} · W${weeksInMonth(monthIndex)[0]}–W${weeksInMonth(monthIndex).at(-1)}`
-      : scope === "range"
-        ? `${ddmmyy(from)} to ${ddmmyy(to)}`
-        : `W${weekNo} · ${ddmmyy(from)} to ${ddmmyy(to)}`;
+      ? `W${weeksInMonth(monthIndex)[0]}–W${weeksInMonth(monthIndex).at(-1)}`
+      : scope === "week"
+        ? `W${weekNo}`
+        : null;
+  const dateSpan = `${ddmmyy(from)} to ${ddmmyy(to)}`;
 
   return (
     <div className="space-y-4">
@@ -233,6 +296,7 @@ export function CosSalesDiscountsTable({
             {MONTH_LABELS.map((m, i) => (
               <option key={m} value={i}>
                 {m}
+                {monthSpan(i) ? ` - ${monthSpan(i)}` : ""}
               </option>
             ))}
           </select>
@@ -282,13 +346,34 @@ export function CosSalesDiscountsTable({
 
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-black/5 p-4">
-          <h3 className="font-serif text-lg text-[#3D421F]">{periodLabel}</h3>
-          {missingPast > 0 ? (
-            <span className="text-xs font-medium text-red-700">
-              {missingPast} day{missingPast === 1 ? "" : "s"} without a Revenue
-              sales entry
-            </span>
-          ) : null}
+          <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold text-[#3D421F]">
+            {scope === "month" ? (
+              <span>
+                {MONTH_LABELS[monthIndex]} {fiscalYear}
+              </span>
+            ) : null}
+            {weekTag ? (
+              <span className="rounded-md bg-[var(--venue-primary,#818a40)] px-2 py-0.5 text-xs font-semibold tabular-nums tracking-wide text-white">
+                {weekTag}
+              </span>
+            ) : null}
+            <span className="tabular-nums">{dateSpan}</span>
+          </h3>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {missingPast > 0 ? (
+              <span className="text-xs font-medium text-red-700">
+                {missingPast} day{missingPast === 1 ? "" : "s"} without a
+                Revenue sales entry
+              </span>
+            ) : null}
+            {totalDiscounts.missingBreakdownDays > 0 ? (
+              <span className="text-xs font-medium text-amber-700">
+                {totalDiscounts.missingBreakdownDays} day
+                {totalDiscounts.missingBreakdownDays === 1 ? "" : "s"} without a
+                discounts breakdown — {label} discounts need the Discounts page
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="max-h-[70vh] overflow-auto">
           <table className="w-full border-collapse text-sm">
@@ -315,7 +400,7 @@ export function CosSalesDiscountsTable({
                 <th className={pctHead} aria-hidden />
                 <th
                   className={headWithPct}
-                  title={`% = ${label} discounts ÷ total discounts`}
+                  title={`% = ${label} discounts ÷ total discounts (days with a breakdown)`}
                 >
                   {label} discounts
                 </th>
@@ -373,12 +458,7 @@ export function CosSalesDiscountsTable({
                         <td className={pctCell}>
                           {pctOf(r.totalDiscount, r.restaurant)}
                         </td>
-                        <td className={numWithPct}>
-                          {formatMoney(r.discount)}
-                        </td>
-                        <td className={pctCell}>
-                          {pctOf(r.discount, r.totalDiscount)}
-                        </td>
+                        <DiscountCells d={r} />
                       </>
                     ) : (
                       <td
@@ -411,10 +491,7 @@ export function CosSalesDiscountsTable({
                 <td className={pctCell}>
                   {pctOf(totals.totalDiscount, totals.restaurant)}
                 </td>
-                <td className={numWithPct}>{formatMoney(totals.discount)}</td>
-                <td className={pctCell}>
-                  {pctOf(totals.discount, totals.totalDiscount)}
-                </td>
+                <DiscountCells d={totalDiscounts} />
               </tr>
             </tfoot>
           </table>

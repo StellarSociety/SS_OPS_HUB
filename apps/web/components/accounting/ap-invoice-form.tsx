@@ -16,7 +16,9 @@ import {
   upsertSupplier,
 } from "@/lib/actions/accounting-ap";
 import {
+  AP_DOCUMENT_TYPE_LABELS,
   supplierKindPickerLabel,
+  type ApDocumentType,
   type ApInvoice,
   type ApInvoiceLineInput,
   type Supplier,
@@ -81,6 +83,18 @@ export function ApInvoiceForm({
   const [pending, startTransition] = useTransition();
   const [suppliers, setSuppliers] = useState(initialSuppliers);
 
+  const [documentType, setDocumentType] = useState<ApDocumentType>(
+    invoice?.document_type ?? "invoice",
+  );
+  // Credit notes are entered as positive amounts and shown/saved as negatives.
+  const sign = documentType === "credit_note" ? -1 : 1;
+  /** Signed amount for display; avoids showing "-AED 0.00". */
+  const signed = (n: number) => (n ? sign * n : 0);
+  const docLabel = AP_DOCUMENT_TYPE_LABELS[documentType].toLowerCase();
+  const isDeliveryNote = documentType === "delivery_note";
+  const [deliveryNoteNo, setDeliveryNoteNo] = useState(
+    invoice?.delivery_note_no ?? "",
+  );
   const [supplierId, setSupplierId] = useState(invoice?.supplier_id ?? "");
   const [supplierInvoiceNo, setSupplierInvoiceNo] = useState(
     invoice?.supplier_invoice_no ?? "",
@@ -112,7 +126,7 @@ export function ApInvoiceForm({
         description: l.description,
         accountId: l.account_id,
         quantity: "1",
-        unitPrice: String(l.net_amount),
+        unitPrice: String(Math.abs(Number(l.net_amount))),
         taxCodeId: l.tax_code_id,
       }));
     }
@@ -208,6 +222,7 @@ export function ApInvoiceForm({
     const result = await checkSupplierInvoiceDuplicate({
       supplierId,
       supplierInvoiceNo,
+      documentType,
       excludeId: invoice?.id,
     });
     if (result.ok && result.duplicate) {
@@ -281,15 +296,36 @@ export function ApInvoiceForm({
       toast.error(dupWarning);
       return;
     }
-    if (submit && !attachment && !invoice?.attachment_url) {
-      toast.error("Attachment is required to submit for approval.");
+    if (isDeliveryNote && !deliveryNoteNo.trim()) {
+      toast.error("Delivery note number is required.");
+      return;
+    }
+    if (!supplierInvoiceNo.trim() && (!isDeliveryNote || submit)) {
+      toast.error(
+        isDeliveryNote
+          ? "Add the supplier's invoice number before submitting this delivery note."
+          : "Invoice number is required.",
+      );
+      return;
+    }
+    if (!invoiceDate) {
+      toast.error("Invoice date is required.");
+      return;
+    }
+    const hasLine = lines.some(
+      (l, idx) => l.accountId && (lineAmounts[idx]?.net ?? 0) > 0,
+    );
+    if (!hasLine) {
+      toast.error("Add at least one line with an account and amount.");
       return;
     }
 
     const fd = new FormData();
     if (invoice?.id) fd.set("id", invoice.id);
+    fd.set("documentType", documentType);
     fd.set("supplierId", supplierId);
     fd.set("supplierInvoiceNo", supplierInvoiceNo);
+    if (isDeliveryNote) fd.set("deliveryNoteNo", deliveryNoteNo);
     fd.set("invoiceDate", invoiceDate);
     fd.set("dueDate", dueDate);
     fd.set("currency", currency || "AED");
@@ -358,162 +394,215 @@ export function ApInvoiceForm({
   return (
     <div>
       <div className="space-y-5">
-        <div className="rounded-lg border border-black/10 bg-white p-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(240px,1.5fr)_minmax(180px,1fr)_150px_150px_minmax(230px,1.2fr)]">
-            <div className={fieldClass}>
-              <Label>Venue</Label>
-              <Input value={venue.name} disabled className="h-10" />
-            </div>
-            <div className={fieldClass}>
-              <Label>Legal entity</Label>
-              <Input
-                value={
-                  entity
-                    ? `${entity.entity_code} — ${entity.name}`
-                    : "Not mapped — configure Accounting Settings"
-                }
-                disabled
-                className="h-10"
-              />
-            </div>
-          </div>
-        </div>
+        <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-[#3D421F]">
+          <span className="font-semibold">{venue.name}</span>
+          <span className="text-black/30">·</span>
+          {entity ? (
+            <span className="text-black/60">
+              {entity.entity_code} — {entity.name}
+            </span>
+          ) : (
+            <span className="text-amber-700">
+              Entity not mapped — configure Accounting Settings
+            </span>
+          )}
+        </p>
 
-        <div className="space-y-4 rounded-lg border border-black/10 bg-white p-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className={fieldClass}>
-              <Label>Supplier</Label>
-              <div className="relative">
-                <SearchableSelect
-                  value={supplierId}
-                  onChange={setSupplierId}
-                  options={supplierOptions}
-                  placeholder="Select supplier…"
+        <div className="flex flex-col gap-4 rounded-lg border border-black/10 bg-white p-4 sm:flex-row">
+          <fieldset
+            className="shrink-0 space-y-2 sm:w-40 sm:border-r sm:border-black/10 sm:pr-4"
+            disabled={!canEdit}
+          >
+            <legend className="mb-2 text-sm font-medium text-[#3D421F]">
+              Document
+            </legend>
+            {(Object.keys(AP_DOCUMENT_TYPE_LABELS) as ApDocumentType[]).map(
+              (type) => (
+                <label
+                  key={type}
+                  className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition ${
+                    documentType === type
+                      ? type === "credit_note"
+                        ? "bg-red-50 font-medium text-red-800"
+                        : "bg-[var(--venue-secondary,#F0F3DD)] font-medium text-[#3D421F]"
+                      : "text-black/60 hover:bg-black/[0.03]"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="document-type"
+                    value={type}
+                    checked={documentType === type}
+                    onChange={() => {
+                      setDocumentType(type);
+                      setDupWarning(null);
+                    }}
+                    className="size-4 accent-[var(--venue-primary,#818a40)]"
+                  />
+                  {AP_DOCUMENT_TYPE_LABELS[type]}
+                </label>
+              ),
+            )}
+            {documentType === "credit_note" ? (
+              <p className="px-2 text-[11px] leading-snug text-red-700">
+                Line amounts are recorded as negatives.
+              </p>
+            ) : null}
+          </fieldset>
+          <div className="min-w-0 flex-1 space-y-4">
+            <div
+              className={`grid gap-4 sm:grid-cols-2 ${isDeliveryNote ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
+            >
+              <div className={fieldClass}>
+                <Label>Supplier</Label>
+                <div className="relative">
+                  <SearchableSelect
+                    value={supplierId}
+                    onChange={setSupplierId}
+                    options={supplierOptions}
+                    placeholder="Select supplier…"
+                    disabled={!canEdit}
+                    triggerClassName="pr-16"
+                  />
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className="absolute right-8 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-black/35 transition hover:bg-black/5 hover:text-[var(--venue-primary)]"
+                      onClick={() => setShowNewSupplier((v) => !v)}
+                      aria-label={showNewSupplier ? "Cancel new supplier" : "New supplier"}
+                      title={showNewSupplier ? "Cancel new supplier" : "New supplier"}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {isDeliveryNote ? (
+                <div className={fieldClass}>
+                  <Label htmlFor="delivery-note-no">Delivery note no</Label>
+                  <Input
+                    id="delivery-note-no"
+                    value={deliveryNoteNo}
+                    onChange={(e) => setDeliveryNoteNo(e.target.value)}
+                    disabled={!canEdit}
+                    className="h-10"
+                  />
+                </div>
+              ) : null}
+              <div className={fieldClass}>
+                <Label htmlFor="supplier-inv-no">
+                  {isDeliveryNote ? (
+                    <>
+                      Invoice no{" "}
+                      <span className="font-normal text-black/45">
+                        (can be added later)
+                      </span>
+                    </>
+                  ) : (
+                    <>Supplier {docLabel} no</>
+                  )}
+                </Label>
+                <Input
+                  id="supplier-inv-no"
+                  value={supplierInvoiceNo}
+                  onChange={(e) => setSupplierInvoiceNo(e.target.value)}
+                  onBlur={onSupplierInvoiceBlur}
                   disabled={!canEdit}
-                  triggerClassName="pr-16"
+                  className="h-10"
                 />
-                {canEdit && (
-                  <button
-                    type="button"
-                    className="absolute right-8 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-black/35 transition hover:bg-black/5 hover:text-[var(--venue-primary)]"
-                    onClick={() => setShowNewSupplier((v) => !v)}
-                    aria-label={showNewSupplier ? "Cancel new supplier" : "New supplier"}
-                    title={showNewSupplier ? "Cancel new supplier" : "New supplier"}
+                {dupWarning && (
+                  <p className="text-xs text-red-700">{dupWarning}</p>
+                )}
+              </div>
+              <div className={fieldClass}>
+                <Label>Invoice date</Label>
+                <DateInput
+                  value={invoiceDate}
+                  onChange={setInvoiceDate}
+                  disabled={!canEdit}
+                  className="w-full"
+                />
+              </div>
+              <div className={fieldClass}>
+                <Label>Due date</Label>
+                <DateInput
+                  value={dueDate}
+                  onChange={(v) => {
+                    setDueManual(true);
+                    setDueDate(v);
+                  }}
+                  disabled={!canEdit}
+                  className="w-full"
+                />
+              </div>
+              <div className={`${fieldClass} sm:col-span-2 lg:col-span-4`}>
+                <Label htmlFor="attachment">
+                  Attachment {invoice?.attachment_url ? "(replace)" : "(optional)"}
+                </Label>
+                <Input
+                  id="attachment"
+                  type="file"
+                  accept="application/pdf,image/*"
+                  disabled={!canEdit}
+                  className="h-10"
+                  onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+                />
+                {invoice?.attachment_url && !attachment && (
+                  <a
+                    href={invoice.attachment_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-[var(--venue-primary)] underline"
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
+                    View existing attachment
+                  </a>
                 )}
               </div>
             </div>
-            <div className={fieldClass}>
-              <Label htmlFor="supplier-inv-no">Supplier invoice no</Label>
-              <Input
-                id="supplier-inv-no"
-                value={supplierInvoiceNo}
-                onChange={(e) => setSupplierInvoiceNo(e.target.value)}
-                onBlur={onSupplierInvoiceBlur}
-                disabled={!canEdit}
-                className="h-10"
-              />
-              {dupWarning && (
-                <p className="text-xs text-red-700">{dupWarning}</p>
-              )}
-            </div>
-            <div className={fieldClass}>
-              <Label>Invoice date</Label>
-              <DateInput
-                value={invoiceDate}
-                onChange={setInvoiceDate}
-                disabled={!canEdit}
-                className="w-full"
-              />
-            </div>
-            <div className={fieldClass}>
-              <Label>Due date</Label>
-              <DateInput
-                value={dueDate}
-                onChange={(v) => {
-                  setDueManual(true);
-                  setDueDate(v);
-                }}
-                disabled={!canEdit}
-                className="w-full"
-              />
-            </div>
-            <div className={`${fieldClass} sm:col-span-2 lg:col-span-4`}>
-              <Label htmlFor="attachment">
-                Attachment {invoice?.attachment_url ? "(replace)" : "(required to submit)"}
-              </Label>
-              <Input
-                id="attachment"
-                type="file"
-                accept="application/pdf,image/*"
-                disabled={!canEdit}
-                className="h-10"
-                onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
-              />
-              {invoice?.attachment_url && !attachment && (
-                <a
-                  href={invoice.attachment_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-[var(--venue-primary)] underline"
-                >
-                  View existing attachment
-                </a>
-              )}
-            </div>
+
+            {showNewSupplier && (
+              <div className="grid gap-3 rounded-md border border-dashed border-black/15 bg-black/[0.02] p-3 sm:grid-cols-4">
+                <div className={`${fieldClass} sm:col-span-2`}>
+                  <Label>Name</Label>
+                  <Input
+                    value={newSupplierName}
+                    onChange={(e) => setNewSupplierName(e.target.value)}
+                    className="h-10"
+                  />
+                </div>
+                <div className={fieldClass}>
+                  <Label>TRN</Label>
+                  <Input
+                    value={newSupplierTrn}
+                    onChange={(e) => setNewSupplierTrn(e.target.value)}
+                    className="h-10"
+                    placeholder="15 digits"
+                  />
+                </div>
+                <div className={fieldClass}>
+                  <Label>Terms (days)</Label>
+                  <Input
+                    value={newSupplierTerms}
+                    onChange={(e) => setNewSupplierTerms(e.target.value)}
+                    className="h-10"
+                    type="number"
+                    min={0}
+                  />
+                </div>
+                <div className="sm:col-span-4">
+                  <Button type="button" size="sm" disabled={pending} onClick={createSupplier}>
+                    Add supplier
+                  </Button>
+                </div>
+              </div>
+            )}
+
+        
           </div>
-
-          {showNewSupplier && (
-            <div className="grid gap-3 rounded-md border border-dashed border-black/15 bg-black/[0.02] p-3 sm:grid-cols-4">
-              <div className={`${fieldClass} sm:col-span-2`}>
-                <Label>Name</Label>
-                <Input
-                  value={newSupplierName}
-                  onChange={(e) => setNewSupplierName(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-              <div className={fieldClass}>
-                <Label>TRN</Label>
-                <Input
-                  value={newSupplierTrn}
-                  onChange={(e) => setNewSupplierTrn(e.target.value)}
-                  className="h-10"
-                  placeholder="15 digits"
-                />
-              </div>
-              <div className={fieldClass}>
-                <Label>Terms (days)</Label>
-                <Input
-                  value={newSupplierTerms}
-                  onChange={(e) => setNewSupplierTerms(e.target.value)}
-                  className="h-10"
-                  type="number"
-                  min={0}
-                />
-              </div>
-              <div className="sm:col-span-4">
-                <Button type="button" size="sm" disabled={pending} onClick={createSupplier}>
-                  Add supplier
-                </Button>
-              </div>
-            </div>
-          )}
-
         </div>
 
         <div className="space-y-3 rounded-lg border border-black/10 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-serif text-lg text-[#3D421F]">Lines</h2>
-            {canEdit && (
-              <Button type="button" size="sm" variant="secondary" onClick={addLine}>
-                <Plus className="h-4 w-4" />
-                Add line
-              </Button>
-            )}
-          </div>
+          <h2 className="font-serif text-lg text-[#3D421F]">Lines</h2>
 
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -615,10 +704,10 @@ export function ApInvoiceForm({
                         />
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums text-black/70">
-                        {formatAedAccounting(amt?.tax ?? 0)}
+                        {formatAedAccounting(signed(amt?.tax ?? 0))}
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums font-medium">
-                        {formatAedAccounting(amt?.gross ?? 0)}
+                        {formatAedAccounting(signed(amt?.gross ?? 0))}
                       </td>
                       <td className="px-2 py-2">
                         {canEdit && lines.length > 1 && (
@@ -635,39 +724,50 @@ export function ApInvoiceForm({
                     </tr>
                   );
                 })}
+                {canEdit && (
+                  <tr>
+                    <td />
+                    <td className="px-2 pb-1 pt-1" colSpan={7}>
+                      <Button type="button" size="sm" variant="secondary" onClick={addLine}>
+                        <Plus className="h-4 w-4" />
+                        Add line
+                      </Button>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
 
-          <div className="flex flex-wrap justify-end gap-6 border-t border-black/10 pt-3 text-sm">
+          <div className="flex flex-wrap items-baseline justify-end gap-x-8 gap-y-1 rounded-lg bg-black/[0.05] px-4 py-3 text-base">
             <div>
               <span className="text-black/45">Net </span>
               <span className="font-medium tabular-nums">
-                {formatAedAccounting(totals.net)}
+                {formatAedAccounting(signed(totals.net))}
               </span>
             </div>
             <div>
               <span className="text-black/45">VAT </span>
               <span className="font-medium tabular-nums">
-                {formatAedAccounting(totals.tax)}
+                {formatAedAccounting(signed(totals.tax))}
               </span>
             </div>
             <div>
               <span className="text-black/45">Gross </span>
-              <span className="font-semibold tabular-nums text-[#3D421F]">
-                {formatAedAccounting(totals.gross)}
+              <span className="text-lg font-semibold tabular-nums text-[#3D421F]">
+                {formatAedAccounting(signed(totals.gross))}
               </span>
             </div>
           </div>
         </div>
 
         {canEdit && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="secondary" disabled={pending} onClick={() => save(false)}>
-              Save draft
-            </Button>
-            <Button type="button" disabled={pending} onClick={() => save(true)}>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="secondary" disabled={pending} onClick={() => save(true)}>
               Submit for approval
+            </Button>
+            <Button type="button" disabled={pending} onClick={() => save(false)}>
+              Save draft
             </Button>
           </div>
         )}
