@@ -610,6 +610,34 @@ export async function fetchChatMessages(
   return { ok: true, ...page };
 }
 
+/**
+ * Archive (or restore) a chat for the viewer only. It reappears in the main
+ * list once a newer message arrives.
+ */
+export async function setChatArchived(
+  conversationId: string,
+  archived: boolean,
+): Promise<Result> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const membership = await getChatMembership(actor.service, conversationId, actor.userId);
+  if (!membership) return fail("Chat not found.");
+  const { error } = await actor.service
+    .from("chat_members")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", actor.userId);
+  if (error) {
+    return fail(
+      /archived_at/.test(error.message)
+        ? "Archiving needs a database update that hasn't been applied yet."
+        : error.message,
+    );
+  }
+  revalidateChats();
+  return { ok: true };
+}
+
 /** The viewer has seen everything in this chat: clear unread and its notification. */
 export async function markChatRead(conversationId: string): Promise<Result> {
   const actor = await requireActor();

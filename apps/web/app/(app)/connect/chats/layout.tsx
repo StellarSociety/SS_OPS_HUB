@@ -3,6 +3,7 @@ import { canCreateChatGroups } from "@/lib/connect/chat-permissions";
 import { listMyChats } from "@/lib/connect/chat-store";
 import { getConnectPageContext } from "@/lib/connect/page-context";
 import { listVenueAppUsers } from "@/lib/connect/store";
+import { getVenueBadgeUrl } from "@/lib/venue/branding";
 
 export default async function ConnectChatsLayout({
   children,
@@ -21,6 +22,8 @@ export default async function ConnectChatsLayout({
       meId={user.id}
       people={people}
       canCreateGroups={canCreateChatGroups(groups, isConnectAdmin)}
+      venueName={venue.name}
+      venueBadgeUrl={getVenueBadgeUrl(venue)}
     >
       {children}
     </ChatShell>

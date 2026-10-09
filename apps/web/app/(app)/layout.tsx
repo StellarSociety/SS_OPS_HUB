@@ -13,6 +13,9 @@ import { getUserRoleLabel } from "@/lib/user/display";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { fetchGroupBrandingState } from "@/lib/group/branding";
 import { GLOBAL_BASE, venueBase } from "@/lib/venue/scope-routing";
+import { getAppModuleState } from "@/lib/app-module-states";
+import { canAccessConnect } from "@/lib/connect/permissions";
+import { CONNECT_MODULE_KEY } from "@/lib/connect/types";
 
 export default async function AppLayout({
   children,
@@ -118,7 +121,7 @@ export default async function AppLayout({
     isGlobalVenue: venue.is_global,
   };
 
-  const [notifications, unreadCount, branding, hubTermsAccepted] = await Promise.all([
+  const [notifications, unreadCount, branding, hubTermsAccepted, connectState] = await Promise.all([
     listNotificationsForUser(supabase, user.id, { ...venueContext, limit: 40 }),
     countUnreadNotifications(supabase, user.id, venueContext),
     fetchGroupBrandingState(),
@@ -127,7 +130,12 @@ export default async function AppLayout({
       userId: user.id,
       venueId: venue.id,
     }),
+    getAppModuleState(CONNECT_MODULE_KEY),
   ]);
+  const chatWidget =
+    !venue.is_global &&
+    connectState === "live" &&
+    canAccessConnect(perms, venue.id);
 
   return (
     <AppShell
@@ -144,6 +152,7 @@ export default async function AppLayout({
       logoUrl={branding.logoUrl}
       appName={branding.appName}
       groupFaviconUrl={branding.faviconUrl}
+      chatWidget={chatWidget}
     >
       {children}
       <HubTermsGate

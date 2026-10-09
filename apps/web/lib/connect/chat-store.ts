@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CHAT_MESSAGES_PAGE_SIZE,
+  isChatArchived,
   mapChatMessageRow,
   type ChatDetail,
   type ChatKind,
@@ -106,12 +107,27 @@ export async function listMyChats(
   venueId: string,
   userId: string,
 ): Promise<ChatSummary[]> {
-  const { data: mine } = await service
+  type Membership = {
+    conversation_id: string;
+    last_read_at: string;
+    archived_at?: string | null;
+  };
+  const withArchive = await service
     .from("chat_members")
-    .select("conversation_id, last_read_at")
+    .select("conversation_id, last_read_at, archived_at")
     .eq("user_id", userId)
     .eq("venue_id", venueId);
-  const memberships = (mine ?? []) as { conversation_id: string; last_read_at: string }[];
+  // Before the archived_at migration is applied, read without it.
+  const mine: Membership[] | null = withArchive.error
+    ? (
+        await service
+          .from("chat_members")
+          .select("conversation_id, last_read_at")
+          .eq("user_id", userId)
+          .eq("venue_id", venueId)
+      ).data
+    : withArchive.data;
+  const memberships = mine ?? [];
   if (memberships.length === 0) return [];
   const ids = memberships.map((m) => m.conversation_id);
 
@@ -129,6 +145,7 @@ export async function listMyChats(
     membersByConv.set(m.conversation_id, [...(membersByConv.get(m.conversation_id) ?? []), m.user_id]);
   }
   const lastRead = new Map(memberships.map((m) => [m.conversation_id, m.last_read_at]));
+  const archivedAt = new Map(memberships.map((m) => [m.conversation_id, m.archived_at ?? null]));
 
   const [lasts, unreads] = await Promise.all([
     Promise.all(rows.map((c) => lastMessageFor(service, c.id))),
@@ -170,6 +187,7 @@ export async function listMyChats(
           : null,
         activityAt: last?.created_at ?? c.created_at,
         unreadCount: unreads[i] ?? 0,
+        archived: isChatArchived(archivedAt.get(c.id), last?.created_at),
       };
     })
     .sort((a, b) => b.activityAt.localeCompare(a.activityAt));
@@ -242,6 +260,7 @@ export async function getChatDetail(
       : null,
     activityAt: last?.created_at ?? conv.created_at,
     unreadCount: unread,
+    archived: false,
     contact,
     description: conv.description,
     onlyAdminsCanPost: conv.only_admins_can_post,

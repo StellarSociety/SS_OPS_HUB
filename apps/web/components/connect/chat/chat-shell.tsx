@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { BookUser, MessageCirclePlus, Search, Users } from "lucide-react";
+import { Archive, ArrowLeft, BookUser, MessageCirclePlus, Search, Users } from "lucide-react";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
 import { ChatModal } from "@/components/connect/chat/chat-modal";
 import { GroupChatForm } from "@/components/connect/chat/group-chat-form";
 import { ScopedLink } from "@/components/layout/scoped-link";
@@ -12,7 +13,7 @@ import {
   useVenueScope,
 } from "@/components/providers/venue-scope-provider";
 import { toast } from "@/components/ui/toast";
-import { startDirectChat } from "@/lib/actions/connect-chat";
+import { setChatArchived, startDirectChat } from "@/lib/actions/connect-chat";
 import { formatPostTime } from "@/lib/connect/format";
 import {
   chatPreviewText,
@@ -30,12 +31,17 @@ export function ChatShell({
   meId,
   people,
   canCreateGroups,
+  venueName,
+  venueBadgeUrl,
   children,
 }: {
   chats: ChatSummary[];
   meId: string;
   people: ConnectPerson[];
   canCreateGroups: boolean;
+  venueName: string;
+  /** Venue favicon / badge shown on the Directory entry. */
+  venueBadgeUrl: string | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -67,6 +73,21 @@ export function ChatShell({
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<"all" | "direct" | "group">("all");
   const [dialog, setDialog] = useState<"direct" | "group" | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [menu, setMenu] = useState<ChatMenuState>(null);
+
+  async function archive(conversationId: string, archived: boolean) {
+    setChats((prev) => prev.map((c) => (c.id === conversationId ? { ...c, archived } : c)));
+    const result = await setChatArchived(conversationId, archived);
+    if (!result.ok) {
+      setChats((prev) =>
+        prev.map((c) => (c.id === conversationId ? { ...c, archived: !archived } : c)),
+      );
+      toast.error(result.error);
+      return;
+    }
+    toast.saved(archived ? "Chat archived." : "Chat moved back to your chats.");
+  }
   const [pending, startTransition] = useTransition();
 
   // Live list: bump the conversation, update its preview and unread count.
@@ -101,6 +122,7 @@ export function ChatShell({
                 createdAt: row.created_at,
               },
               activityAt: row.created_at,
+              archived: false,
               unreadCount:
                 row.kind === "message" &&
                 row.sender_id !== meId &&
@@ -128,19 +150,21 @@ export function ChatShell({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return chats
+      .filter((c) => c.archived === showArchived)
       .filter((c) => kindFilter === "all" || c.kind === kindFilter)
       .filter((c) => !q || c.title.toLowerCase().includes(q));
-  }, [chats, query, kindFilter]);
+  }, [chats, query, kindFilter, showArchived]);
+  const archivedCount = chats.filter((c) => c.archived).length;
 
   const unreadByKind = useMemo(() => {
     const totals = { all: 0, direct: 0, group: 0 };
     for (const c of chats) {
-      if (c.unreadCount === 0) continue;
+      if (c.unreadCount === 0 || c.archived !== showArchived) continue;
       totals.all += 1;
       totals[c.kind] += 1;
     }
     return totals;
-  }, [chats]);
+  }, [chats, showArchived]);
 
   function openDirect(userId: string) {
     startTransition(async () => {
@@ -156,7 +180,7 @@ export function ChatShell({
   }
 
   return (
-    <div className="mx-auto grid h-[calc(100dvh-7.5rem)] min-h-[520px] w-full max-w-[1200px] overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm md:grid-cols-[320px_minmax(0,1fr)]">
+    <div className="grid h-[calc(100dvh-7.5rem)] min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm md:grid-cols-[320px_minmax(0,1fr)]">
       <aside
         className={cn(
           "flex min-h-0 flex-col border-r border-black/5",
@@ -198,7 +222,8 @@ export function ChatShell({
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/40"
             />
           </label>
-          <div className="grid grid-cols-3 gap-1 rounded-full bg-[#F0F2E8] p-1" role="tablist" aria-label="Filter chats">
+          <div className="flex items-center gap-1.5">
+          <div className="grid flex-1 grid-cols-3 gap-1 rounded-full bg-[#F0F2E8] p-1" role="tablist" aria-label="Filter chats">
             {(
               [
                 ["all", "All"],
@@ -228,9 +253,44 @@ export function ChatShell({
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowArchived((v) => !v)}
+            aria-pressed={showArchived}
+            title={showArchived ? "Back to chats" : "Archived chats"}
+            aria-label={showArchived ? "Back to chats" : `Archived chats (${archivedCount})`}
+            className={cn(
+              "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition",
+              showArchived
+                ? "bg-[var(--venue-primary,#818a40)] text-white"
+                : "bg-[#F0F2E8] text-black/55 hover:text-[#2B2F16]",
+            )}
+          >
+            <Archive className="h-4 w-4" />
+            {!showArchived && archivedCount > 0 ? (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-black/55 px-1 text-[10px] font-semibold text-white">
+                {archivedCount}
+              </span>
+            ) : null}
+          </button>
+          </div>
         </div>
 
-        <div className="border-b border-black/5 p-2">
+        {showArchived ? (
+          <div className="flex items-center gap-2 border-b border-black/5 bg-[#F7F8F2] px-4 py-2 text-xs text-black/55">
+            <button
+              type="button"
+              onClick={() => setShowArchived(false)}
+              className="inline-flex items-center gap-1 font-medium text-[#2B2F16] hover:underline"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Chats
+            </button>
+            <span>· Archived chats return when a new message arrives.</span>
+          </div>
+        ) : null}
+
+        <div className={cn("border-b border-black/5 p-2", showArchived && "hidden")}>
           <ScopedLink
             href="/connect/chats/directory"
             className={cn(
@@ -238,12 +298,19 @@ export function ChatShell({
               directoryOpen && "bg-[#E9ECD9] hover:bg-[#E9ECD9]",
             )}
           >
-            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white ring-2 ring-white">
-              <BookUser className="h-5 w-5" aria-hidden />
-            </span>
+            {venueBadgeUrl ? (
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white ring-2 ring-white shadow-sm">
+                {/* eslint-disable-next-line @next/next/no-img-element -- venue favicon */}
+                <img src={venueBadgeUrl} alt="" className="h-8 w-8 object-contain" />
+              </span>
+            ) : (
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white ring-2 ring-white">
+                <BookUser className="h-5 w-5" aria-hidden />
+              </span>
+            )}
             <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-semibold tracking-wide text-[#2B2F16]">
-                DIRECTORY
+              <span className="block truncate text-[15px] font-semibold text-[#2B2F16]">
+                {venueName} Directory
               </span>
               <span className="block truncate text-[13px] text-black/55">
                 {people.length - 1 > 0
@@ -268,6 +335,8 @@ export function ChatShell({
                     Start a conversation
                   </button>
                 </>
+              ) : showArchived ? (
+                "No archived chats."
               ) : query.trim() ? (
                 "No chats match your search."
               ) : kindFilter === "group" ? (
@@ -281,6 +350,10 @@ export function ChatShell({
               <li key={c.id}>
                 <ScopedLink
                   href={`/connect/chats/${c.id}`}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, conversationId: c.id, archived: c.archived });
+                  }}
                   className={cn(
                     "flex items-center gap-3 rounded-xl px-2.5 py-2.5 hover:bg-black/[0.04]",
                     c.id === activeId && "bg-[#E9ECD9] hover:bg-[#E9ECD9]",
@@ -333,6 +406,12 @@ export function ChatShell({
       <section className={cn("min-h-0 min-w-0", paneOpen ? "flex flex-col" : "hidden md:flex md:flex-col")}>
         {children}
       </section>
+
+      <ChatContextMenu
+        menu={menu}
+        onClose={() => setMenu(null)}
+        onArchive={(id, archived) => void archive(id, archived)}
+      />
 
       {dialog === "direct" ? (
         <PeoplePicker

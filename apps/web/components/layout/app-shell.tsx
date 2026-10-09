@@ -1,3 +1,4 @@
+import { ChatWidget } from "@/components/connect/chat/chat-widget";
 import { AccessLogger } from "@/components/layout/access-logger";
 import { DeviceNotificationsManager } from "@/components/pwa/device-notifications";
 import { AppShellLayout } from "@/components/layout/app-shell-layout";
@@ -28,6 +29,8 @@ type AppShellProps = {
   logoUrl?: string;
   appName?: string;
   groupFaviconUrl?: string;
+  /** Show the floating Connecteam chat launcher. */
+  chatWidget?: boolean;
   children: React.ReactNode;
 };
 
@@ -45,6 +48,7 @@ export function AppShell({
   logoUrl,
   appName,
   groupFaviconUrl,
+  chatWidget = false,
   children,
 }: AppShellProps) {
   const venueBadge = getVenueBadgeUrl(venue);
@@ -76,6 +80,7 @@ export function AppShell({
             >
               {children}
             </AppShellLayout>
+            {chatWidget ? <ChatWidget /> : null}
           </div>
         </VenueProvider>
       </PageAccessProvider>

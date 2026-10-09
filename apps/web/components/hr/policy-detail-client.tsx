@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PolicyProgress, useScoper } from "@/components/hr/policies-list-client";
 import { PolicyEditorDialog } from "@/components/hr/policy-editor-dialog";
@@ -178,7 +178,12 @@ export function PolicyDetailClient({
       ) : null}
 
       <Card className="overflow-hidden p-0">
-        <div className="flex items-center justify-between gap-3 border-b border-black/5 bg-[var(--venue-secondary,#F0F3DD)]/60 px-5 py-3">
+        <div
+          className={cn(
+            "flex items-center justify-between gap-3 bg-[var(--venue-secondary,#F0F3DD)]/60 px-5 py-3",
+            documentOpen && "border-b border-black/5",
+          )}
+        >
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-black/45">
               Policy text · version {policy.version}
@@ -191,20 +196,17 @@ export function PolicyDetailClient({
             aria-expanded={documentOpen}
             className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[#3D421F] hover:underline"
           >
-            {documentOpen ? "Collapse" : "Show full policy"}
+            {documentOpen ? "Hide policy text" : "Show policy text"}
             <ChevronDown
               className={cn("size-3.5 transition-transform", documentOpen && "rotate-180")}
             />
           </button>
         </div>
-        <div className="relative">
-          <div className={cn("px-6 py-5", !documentOpen && "max-h-64 overflow-hidden")}>
+        {documentOpen ? (
+          <div className="px-6 py-5">
             <RichDocument html={policy.message} className="mx-auto max-w-3xl" />
           </div>
-          {!documentOpen ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white to-transparent" />
-          ) : null}
-        </div>
+        ) : null}
       </Card>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -398,7 +400,8 @@ function SendPolicyDialog({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [department, setDepartment] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [departmentFilter, setDepartmentFilter] = useState<Set<string>>(new Set());
   const [hideSent, setHideSent] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<"select" | "sending" | "done">("select");
@@ -409,10 +412,10 @@ function SendPolicyDialog({
     ...new Set(staff.map((s) => s.department).filter((d): d is string => Boolean(d))),
   ].sort((a, b) => a.localeCompare(b));
 
-  const needle = query.trim().toLowerCase();
+  const needle = deferredQuery.trim().toLowerCase();
   const visible = staff.filter((s) => {
     if (hideSent && currentStatus.has(s.id)) return false;
-    if (department && s.department !== department) return false;
+    if (departmentFilter.size > 0 && !departmentFilter.has(s.department ?? "")) return false;
     if (!needle) return true;
     return [s.fullName, s.empNo, s.email ?? "", s.position ?? ""]
       .join(" ")
@@ -428,6 +431,23 @@ function SendPolicyDialog({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }
+
+  /** Everyone with an email (respecting "hide already sent"), ignoring filters. */
+  const everyone = staff.filter((s) => s.email && !(hideSent && currentStatus.has(s.id)));
+  const everyoneSelected = everyone.length > 0 && everyone.every((s) => selected.has(s.id));
+
+  function toggleEveryone() {
+    setSelected(everyoneSelected ? new Set() : new Set(everyone.map((s) => s.id)));
+  }
+
+  function toggleDepartment(name: string) {
+    setDepartmentFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
       return next;
     });
   }
@@ -508,28 +528,53 @@ function SendPolicyDialog({
         {phase === "select" ? (
           <>
             <div className="space-y-3 border-b border-black/8 px-6 py-3">
-              <div className="flex flex-wrap gap-2">
-                <div className="relative min-w-[12rem] flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-black/35" />
-                  <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search name, emp no, position…"
-                    className="h-10 pl-9"
-                  />
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-black/35" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search name, emp no, position…"
+                  className="h-10 pl-9"
+                />
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-black/45">
+                  Departments
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDepartmentFilter(new Set())}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium",
+                      departmentFilter.size === 0
+                        ? "border-[#3D421F] bg-[#3D421F] text-white"
+                        : "border-black/15 bg-white text-black/60 hover:bg-black/5",
+                    )}
+                  >
+                    All
+                  </button>
+                  {departments.map((d) => {
+                    const on = departmentFilter.has(d);
+                    const count = staff.filter((s) => s.department === d).length;
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleDepartment(d)}
+                        aria-pressed={on}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-medium",
+                          on
+                            ? "border-[var(--venue-primary,#818a40)] bg-[var(--venue-primary,#818a40)] text-white"
+                            : "border-black/15 bg-white text-black/60 hover:bg-black/5",
+                        )}
+                      >
+                        {d} <span className={on ? "text-white/75" : "text-black/35"}>{count}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <select
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className={fieldClass}
-                >
-                  <option value="">All departments</option>
-                  {departments.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <label className="flex items-center gap-2 text-[#3D421F]">
@@ -540,8 +585,20 @@ function SendPolicyDialog({
                     onChange={toggleAllVisible}
                     disabled={selectable.length === 0}
                   />
-                  Select all shown ({selectable.length})
+                  {departmentFilter.size > 0 || needle
+                    ? `Select all shown (${selectable.length})`
+                    : `Select all listed (${selectable.length})`}
                 </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 border border-black/15 bg-white text-[#3D421F] hover:bg-black/5"
+                  onClick={toggleEveryone}
+                  disabled={everyone.length === 0}
+                >
+                  {everyoneSelected ? "Clear selection" : `Select everyone (${everyone.length})`}
+                </Button>
                 <label className="flex items-center gap-2 text-xs text-black/55">
                   <input
                     type="checkbox"

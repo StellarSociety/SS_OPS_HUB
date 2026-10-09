@@ -87,7 +87,18 @@ export type ChatSummary = {
   /** Sort key: last message or creation time. */
   activityAt: string;
   unreadCount: number;
+  /** Archived by the viewer, with nothing new since. */
+  archived: boolean;
 };
+
+/** A chat stays archived until a message newer than the archive time arrives. */
+export function isChatArchived(
+  archivedAt: string | null | undefined,
+  lastMessageAt: string | null | undefined,
+): boolean {
+  if (!archivedAt) return false;
+  return !lastMessageAt || lastMessageAt <= archivedAt;
+}
 
 export type ChatMember = {
   userId: string;

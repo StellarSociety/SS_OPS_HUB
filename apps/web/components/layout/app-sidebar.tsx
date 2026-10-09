@@ -163,6 +163,31 @@ function SidebarLink({
     );
   }
 
+  // Collapsed rail: settings drop the boxed button and sit centred like the
+  // other icons, keeping the brand colour so they still stand out.
+  if (branded && collapsed) {
+    return (
+      <Link
+        href={href}
+        aria-label={collapsedTitle}
+        aria-haspopup={hasPopup ? "menu" : undefined}
+        {...triggerProps}
+        className={cn(
+          "relative flex w-full items-center justify-center rounded-lg py-2 transition-colors",
+          active
+            ? "bg-[var(--venue-primary)]/15 text-[var(--venue-primary,#818a40)]"
+            : "text-[var(--venue-primary,#818a40)]/80 hover:bg-black/5 hover:text-[var(--venue-primary,#818a40)]",
+        )}
+      >
+        <AnimatedSymbol>
+          <Icon className="h-5 w-5 shrink-0" />
+        </AnimatedSymbol>
+        {tooltip}
+        <NavigationPendingIndicator className="absolute right-1 top-1" />
+      </Link>
+    );
+  }
+
   if (branded) {
     return (
       <Link

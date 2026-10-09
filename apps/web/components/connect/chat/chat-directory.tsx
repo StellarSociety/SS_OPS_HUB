@@ -12,7 +12,13 @@ import type { ConnectPerson } from "@/lib/connect/types";
 import { toScopedHref } from "@/lib/venue/scope-routing";
 
 /** Everyone on the Hub at this venue — tap the message icon to start a 1:1 chat. */
-export function ChatDirectory({ people }: { people: ConnectPerson[] }) {
+export function ChatDirectory({
+  people,
+  venueName,
+}: {
+  people: ConnectPerson[];
+  venueName: string;
+}) {
   const router = useRouter();
   const { scope, slug } = useVenueScope();
   const [pending, startTransition] = useTransition();
@@ -53,7 +59,7 @@ export function ChatDirectory({ people }: { people: ConnectPerson[] }) {
           <ArrowLeft className="h-5 w-5" />
         </ScopedLink>
         <div className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-semibold text-[#2B2F16]">Directory</h2>
+          <h2 className="text-[15px] font-semibold text-[#2B2F16]">{venueName} Directory</h2>
           <p className="text-xs text-black/50">
             {people.length} {people.length === 1 ? "person" : "people"} you can message
           </p>
@@ -73,31 +79,28 @@ export function ChatDirectory({ people }: { people: ConnectPerson[] }) {
         {shown.length === 0 ? (
           <p className="py-10 text-center text-sm text-black/50">Nobody found.</p>
         ) : (
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {shown.map((p) => (
               <li
                 key={p.userId}
-                className="flex flex-col items-center rounded-2xl border border-black/5 bg-white p-4 text-center shadow-sm"
+                className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-3 py-2.5 shadow-sm"
               >
-                <ConnectAvatar
-                  name={p.name}
-                  photoUrl={p.photoUrl}
-                  size="lg"
-                  className="h-20 w-20 text-xl"
-                />
-                <p className="mt-3 line-clamp-1 text-sm font-semibold text-[#2B2F16]">{p.name}</p>
-                <p className="line-clamp-2 min-h-[2rem] text-xs text-black/55">
-                  {p.positionName ?? p.departmentName ?? "—"}
-                </p>
+                <ConnectAvatar name={p.name} photoUrl={p.photoUrl} size="md" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[#2B2F16]">{p.name}</p>
+                  <p className="truncate text-xs text-black/55">
+                    {p.positionName ?? p.departmentName ?? "—"}
+                  </p>
+                </div>
                 <button
                   type="button"
                   disabled={pending}
                   onClick={() => message(p.userId)}
-                  className="mt-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-sm hover:opacity-90 disabled:opacity-50"
                   aria-label={`Message ${p.name}`}
                   title={`Message ${p.name}`}
                 >
-                  <MessageCircle className={openingId === p.userId ? "h-5 w-5 animate-pulse" : "h-5 w-5"} />
+                  <MessageCircle className={openingId === p.userId ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
                 </button>
               </li>
             ))}

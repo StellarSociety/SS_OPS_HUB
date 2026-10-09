@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Download, FileText, Info, Megaphone, Paperclip, SendHorizontal, Trash2, X } from "lucide-react";
 import { ChatAvatar } from "@/components/connect/chat/chat-shell";
 import { ChatInfoPanel } from "@/components/connect/chat/chat-info-panel";
+import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { toast } from "@/components/ui/toast";
@@ -76,6 +77,9 @@ export function ChatConversation({
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  // Lifted from the composer so a file dropped anywhere on the chat attaches.
+  const [file, setFile] = useState<File | null>(null);
+  const { dragging, dropProps } = useFileDrop(setFile, detail.canPost);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -183,7 +187,8 @@ export function ChatConversation({
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1" {...dropProps}>
+      <DropOverlay show={dragging} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-black/5 px-4 py-3">
           <ScopedLink
@@ -270,7 +275,14 @@ export function ChatConversation({
         </div>
 
         {detail.canPost ? (
-          <Composer conversationId={detail.id} meId={meId} onPending={addPending} onSent={onSent} />
+          <Composer
+            conversationId={detail.id}
+            meId={meId}
+            file={file}
+            setFile={setFile}
+            onPending={addPending}
+            onSent={onSent}
+          />
         ) : (
           <p className="flex items-center justify-center gap-2 border-t border-black/5 px-4 py-4 text-sm text-black/55">
             <Megaphone className="h-4 w-4" aria-hidden />
@@ -503,16 +515,19 @@ let tempCounter = 0;
 function Composer({
   conversationId,
   meId,
+  file,
+  setFile,
   onPending,
   onSent,
 }: {
   conversationId: string;
   meId: string;
+  file: File | null;
+  setFile: (file: File | null) => void;
   onPending: (m: UiMessage) => void;
   onSent: (tempId: string, message: ChatMessage | null) => void;
 }) {
   const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
