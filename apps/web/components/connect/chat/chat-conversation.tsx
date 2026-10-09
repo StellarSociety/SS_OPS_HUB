@@ -68,12 +68,14 @@ export function ChatConversation({
   initialHasMore,
   me,
   venuePeople,
+  backHref = "/connect/chats",
 }: {
   detail: ChatDetail;
   initialMessages: ChatMessage[];
   initialHasMore: boolean;
   me: ConnectPerson | null;
   venuePeople: ConnectPerson[];
+  backHref?: string;
 }) {
   const router = useRouter();
   const panes = useChatPanes();
@@ -256,7 +258,7 @@ export function ChatConversation({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-black/5 px-4 py-3">
           <ScopedLink
-            href="/connect/chats"
+            href={backHref}
             className="rounded-full p-1.5 text-black/55 hover:bg-black/5 md:hidden"
             aria-label="Back to chats"
           >

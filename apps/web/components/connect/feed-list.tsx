@@ -10,6 +10,7 @@ export function FeedList({
   nextBefore,
   basePath,
   emptyMessage,
+  groupBasePath = "/connect/chats/feed",
 }: {
   posts: ConnectPost[];
   me: ConnectPerson | null;
@@ -17,6 +18,7 @@ export function FeedList({
   nextBefore: string | null;
   basePath: string;
   emptyMessage: string;
+  groupBasePath?: string;
 }) {
   if (posts.length === 0) {
     return (
@@ -30,7 +32,7 @@ export function FeedList({
   return (
     <div className="space-y-4">
       {posts.map((post) => (
-        <PostCard key={post.id} post={post} me={me} showGroup={showGroup} />
+        <PostCard key={post.id} post={post} me={me} showGroup={showGroup} groupBasePath={groupBasePath} />
       ))}
       {nextBefore ? (
         <div className="flex justify-center pt-2">

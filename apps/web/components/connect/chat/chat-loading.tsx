@@ -55,7 +55,7 @@ export function ChatPaneSkeleton() {
 export function ChatShellSkeleton() {
   return (
     <div
-      className="grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm md:grid-cols-[320px_minmax(0,1fr)]"
+      className="grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm md:grid-cols-[20rem_1fr]"
       style={{ zoom: 0.9 }}
       aria-busy
       aria-label="Loading Connecteam"
@@ -157,7 +157,7 @@ export function FeedPaneSkeleton() {
 export function FeedShellSkeleton() {
   return (
     <div
-      className="feed-backdrop grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 shadow-sm md:grid-cols-[320px_minmax(0,1fr)]"
+      className="feed-backdrop grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 shadow-sm md:grid-cols-[20rem_1fr]"
       style={{ zoom: 0.9 }}
       aria-busy
       aria-label="Loading feed"

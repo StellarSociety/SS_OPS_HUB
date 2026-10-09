@@ -20,6 +20,8 @@ import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
 import { MobileDirectoryScreen } from "@/components/mobile/mobile-directory-screen";
 import { MobileHiringScreen } from "@/components/mobile/mobile-hiring-screen";
+import { MobileConnectScreen } from "@/components/mobile/mobile-connect-screen";
+import { MobileConnectFeed } from "@/components/mobile/mobile-connect-feed";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import { MobileChromeHostProvider } from "@/components/mobile/mobile-chrome-host";
 import {
@@ -54,6 +56,8 @@ import type { NotificationRow } from "@/lib/notifications/types";
 import type { SelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 import type { SalesOverviewResult } from "@/lib/sales/sales-overview-data";
 import type { Venue } from "@/lib/types/database";
+import type { ChatSummary } from "@/lib/connect/chat-types";
+import type { ConnectGroup, ConnectPerson, ConnectPost } from "@/lib/connect/types";
 import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
 import { DevicePreviewDensity, COMPACT_PREVIEW_DENSITY } from "@/components/simulators/device-preview-density";
 import { DevicePreviewStage } from "@/components/simulators/device-preview-stage";
@@ -131,6 +135,7 @@ export function DeviceSimulator({
   previewEmployees,
   hiring,
   hiringAppointments,
+  connect,
 }: {
   loginLogoUrl: string;
   selectVenue: SelectVenuePageData;
@@ -145,6 +150,14 @@ export function DeviceSimulator({
   previewEmployees: MobilePreviewEmployee[];
   hiring: MobileHiringPage;
   hiringAppointments: MobileHiringAppointment[];
+  connect: {
+    chats: ChatSummary[];
+    groups: ConnectGroup[];
+    meId: string;
+    me: ConnectPerson | null;
+    posts: ConnectPost[];
+    nextBefore: string | null;
+  };
 }) {
   const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE_ID);
   const [pageId, setPageId] = useState(APP_PATH[0].id);
@@ -197,6 +210,7 @@ export function DeviceSimulator({
         previewEmployees={previewEmployees}
         hiring={hiring}
         hiringAppointments={hiringAppointments}
+        connect={connect}
         pageId={pageId}
         setPageId={setPageId}
         previewVenue={previewVenue}
@@ -221,6 +235,7 @@ function PhoneStage({
   previewEmployees,
   hiring,
   hiringAppointments,
+  connect,
   pageId,
   setPageId,
   previewVenue,
@@ -240,6 +255,14 @@ function PhoneStage({
   previewEmployees: MobilePreviewEmployee[];
   hiring: MobileHiringPage;
   hiringAppointments: MobileHiringAppointment[];
+  connect: {
+    chats: ChatSummary[];
+    groups: ConnectGroup[];
+    meId: string;
+    me: ConnectPerson | null;
+    posts: ConnectPost[];
+    nextBefore: string | null;
+  };
   pageId: string;
   setPageId: (id: string) => void;
   previewVenue: Venue;
@@ -368,6 +391,7 @@ function PhoneStage({
                 notificationCount={previewWelcome.notificationCount}
                 unreadCount={previewWelcome.unreadCount}
                 onOpenNotifications={() => setPageId("notifications")}
+                onOpenConnect={() => setPageId("connect")}
                 onOpenRevenue={() => setPageId("revenue")}
                 onOpenSentiment={() => setPageId("sentiment")}
                 onOpenDirectory={() => setPageId("directory")}
@@ -386,6 +410,28 @@ function PhoneStage({
                     notificationFolderFromPageId(page.id)!,
                   ),
                 )}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "connect" ? (
+              <MobileConnectScreen
+                venue={previewVenue}
+                chats={connect.chats}
+                groups={connect.groups}
+                meId={connect.meId}
+                onSelectTab={(tab) => {
+                  if (tab.pageId) setPageId(tab.pageId);
+                }}
+              />
+            ) : page.id === "connect-feed" ? (
+              <MobileConnectFeed
+                venue={previewVenue}
+                me={connect.me}
+                groups={connect.groups}
+                selectedGroup={null}
+                posts={connect.posts}
+                nextBefore={connect.nextBefore}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}

@@ -56,6 +56,17 @@ export function notificationClickPath(input: {
     return "/install?reinstall=1";
   }
   if (input.platform !== "desktop") {
+    if (input.venueSlug && input.module_key === "team_connect") {
+      if (input.entity === "chat_conversation") {
+        return `/m/${input.venueSlug}/connect/chats/${input.entity_id}`;
+      }
+      if (input.entity === "connect_post") {
+        const [groupId, postId] = input.entity_id.split(":");
+        if (groupId && postId) {
+          return `/m/${input.venueSlug}/connect/feed/${groupId}#post-${postId}`;
+        }
+      }
+    }
     return input.venueSlug ? `/m/${input.venueSlug}/notifications` : "/m/";
   }
   const canonical = notificationCanonicalHref(input) ?? "/modules";

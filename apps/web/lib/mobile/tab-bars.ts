@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Network,
+  Newspaper,
   OctagonAlert,
   Settings,
   UserRound,
@@ -45,7 +46,8 @@ export type MobileTabBarApp =
   | "revenue"
   | "sentiment"
   | "directory"
-  | "hiring";
+  | "hiring"
+  | "connect";
 
 const HOME_TAB: MobileTabItem = {
   id: MOBILE_HOME_TAB_ID,
@@ -64,6 +66,34 @@ const APP_TABS: Record<
   MobileTabBarApp,
   readonly [MobileTabItem, MobileTabItem, MobileTabItem, MobileTabItem]
 > = {
+  connect: [
+    {
+      id: "reserved-connect-1",
+      label: " ",
+      icon: CircleDashed,
+      path: "/connect/reserved-1",
+    },
+    {
+      id: "reserved-connect-2",
+      label: " ",
+      icon: CircleDashed,
+      path: "/connect/reserved-2",
+    },
+    {
+      id: "chats",
+      label: "Chats",
+      icon: MessageSquare,
+      pageId: "connect",
+      path: "/connect",
+    },
+    {
+      id: "feed",
+      label: "Feed",
+      icon: Newspaper,
+      pageId: "connect-feed",
+      path: "/connect/feed",
+    },
+  ],
   profile: [
     {
       id: "profile",

@@ -55,6 +55,8 @@ type MobileWelcomeScreenProps = {
   unreadCount?: number;
   onOpenNotifications?: () => void;
   notificationsHref?: string;
+  onOpenConnect?: () => void;
+  connectHref?: string;
   onOpenRevenue?: () => void;
   revenueHref?: string;
   onOpenSentiment?: () => void;
@@ -79,6 +81,8 @@ export function MobileWelcomeScreen({
   notificationCount = 0,
   onOpenNotifications,
   notificationsHref,
+  onOpenConnect,
+  connectHref,
   onOpenRevenue,
   revenueHref,
   onOpenSentiment,
@@ -239,17 +243,24 @@ export function MobileWelcomeScreen({
                               onOpen: onOpenSentiment,
                               noun: "Sentiment",
                             }
-                          : live && mod.key === "directory"
+                        : live && mod.key === "directory"
                             ? {
                                 href: directoryHref,
                                 onOpen: onOpenDirectory,
-                                noun: "Directory",
+                              noun: "Directory",
+                            }
+                          : live && mod.key === "team_connect"
+                            ? {
+                                href: connectHref,
+                                onOpen: onOpenConnect,
+                                noun: "Connecteam",
                               }
                             : null;
                     const reservedToggle =
                       mod.key === "sales" ||
                       mod.key === "sentiment" ||
-                      mod.key === "directory";
+                      mod.key === "directory" ||
+                      mod.key === "team_connect";
                     return (
                       <ModuleTile
                         key={mod.key}
@@ -560,4 +571,3 @@ function WelcomeProfileCard({
     </section>
   );
 }
-

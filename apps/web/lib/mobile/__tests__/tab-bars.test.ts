@@ -13,6 +13,7 @@ const APPS: MobileTabBarApp[] = [
   "sentiment",
   "directory",
   "hiring",
+  "connect",
 ];
 
 describe("tab bars", () => {
@@ -21,6 +22,21 @@ describe("tab bars", () => {
     expect(items).toHaveLength(5);
     expect(items.at(-1)?.id).toBe(MOBILE_HOME_TAB_ID);
     expect(items.filter((tab) => tab.id === MOBILE_HOME_TAB_ID)).toHaveLength(1);
+  });
+});
+
+describe("Connecteam tab bar", () => {
+  it("keeps Chats, Feed, and Home together on the right", () => {
+    const items = tabBarItems("connect");
+    expect(items.map((tab) => tab.id)).toEqual([
+      "reserved-connect-1",
+      "reserved-connect-2",
+      "chats",
+      "feed",
+      MOBILE_HOME_TAB_ID,
+    ]);
+    expect(items[2]?.pageId).toBe("connect");
+    expect(items[3]?.pageId).toBe("connect-feed");
   });
 });
 

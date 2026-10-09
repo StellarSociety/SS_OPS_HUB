@@ -36,6 +36,20 @@ export const APP_PATH: AppPathPage[] = [
     from: "welcome",
   },
   {
+    id: "connect",
+    label: "Connecteam",
+    href: `${MOBILE_APP_BASE}/connect`,
+    venueScoped: true,
+    from: "welcome",
+  },
+  {
+    id: "connect-feed",
+    label: "Connecteam Feed",
+    href: `${MOBILE_APP_BASE}/connect/feed`,
+    venueScoped: true,
+    from: "connect",
+  },
+  {
     id: "notification-alerts",
     label: "Alerts",
     href: `${MOBILE_APP_BASE}/notifications/alerts`,
@@ -201,6 +215,26 @@ export function mobileWelcomeHref(venueSlug: string): string {
 
 export function mobileNotificationsHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/notifications`;
+}
+
+export function mobileConnectHref(venueSlug: string): string {
+  return `${MOBILE_APP_BASE}/${venueSlug}/connect`;
+}
+
+export function mobileConnectConversationHref(
+  venueSlug: string,
+  conversationId: string,
+): string {
+  return `${mobileConnectHref(venueSlug)}/chats/${conversationId}`;
+}
+
+export function mobileConnectFeedHref(
+  venueSlug: string,
+  groupId?: string | null,
+  postId?: string | null,
+): string {
+  const base = `${mobileConnectHref(venueSlug)}/feed${groupId ? `/${groupId}` : ""}`;
+  return postId ? `${base}#post-${postId}` : base;
 }
 
 export function mobileNotificationSettingsHref(venueSlug: string): string {

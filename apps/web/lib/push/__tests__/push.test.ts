@@ -125,6 +125,29 @@ describe("notification click paths", () => {
     ).toBe("/m/orilla/notifications");
   });
 
+  it("deep-links Connecteam phone notifications to the exact chat or post", () => {
+    expect(
+      notificationClickPath({
+        module_key: "team_connect",
+        entity: "chat_conversation",
+        entity_id: "chat-1",
+        venueSlug: "orilla",
+        isGlobalVenue: false,
+        platform: "ios",
+      }),
+    ).toBe("/m/orilla/connect/chats/chat-1");
+    expect(
+      notificationClickPath({
+        module_key: "team_connect",
+        entity: "connect_post",
+        entity_id: "group-1:post-1",
+        venueSlug: "orilla",
+        isGlobalVenue: false,
+        platform: "android",
+      }),
+    ).toBe("/m/orilla/connect/feed/group-1#post-post-1");
+  });
+
   it("opens the hub path on desktop", () => {
     expect(notificationCanonicalHref({
       module_key: "hr",

@@ -24,6 +24,14 @@ import {
   sentimentEditFlags,
 } from "@/lib/sentiment/workspace";
 import { loadSelectVenuePageData } from "@/lib/venue/select-venue-page-data";
+import { listMyChats } from "@/lib/connect/chat-store";
+import { canAccessConnectSettings, canAdminConnect } from "@/lib/connect/permissions";
+import {
+  listConnectGroups,
+  listConnectPosts,
+  loadConnectPeople,
+} from "@/lib/connect/store";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export default async function MobilePage() {
   const { venue, permissions, supabase, user } = await getMobilePageContext();
@@ -32,6 +40,7 @@ export default async function MobilePage() {
     return <AccessDeniedBounce />;
   }
 
+  const service = createServiceClient();
   const [
     { logoUrl },
     selectVenue,
@@ -48,6 +57,8 @@ export default async function MobilePage() {
     previewEmployees,
     hiring,
     hiringAppointments,
+    connectChats,
+    connectGroups,
   ] = await Promise.all([
     fetchGroupLogoState(),
     loadSelectVenuePageData(),
@@ -73,6 +84,21 @@ export default async function MobilePage() {
     loadMobilePreviewEmployees(venue.id),
     loadMobileHiringPage(venue.id),
     loadMobileHiringAppointments(venue.id),
+    listMyChats(service, venue.id, user.id),
+    listConnectGroups(service, venue.id, {
+      userId: user.id,
+      seesAllGroups: canAccessConnectSettings(permissions, venue.id),
+      isConnectAdmin: canAdminConnect(permissions, venue.id),
+    }),
+  ]);
+  const visibleConnectGroups = connectGroups.filter((group) => group.myRole !== null);
+  const [connectPeople, connectFeed] = await Promise.all([
+    loadConnectPeople(service, [user.id]),
+    listConnectPosts(service, {
+      venueId: venue.id,
+      groups: visibleConnectGroups,
+      viewerId: user.id,
+    }),
   ]);
   const sentimentFlags = sentimentEditFlags(permissions, venue.id);
 
@@ -112,6 +138,14 @@ export default async function MobilePage() {
       previewEmployees={previewEmployees}
       hiring={hiring}
       hiringAppointments={hiringAppointments}
+      connect={{
+        chats: connectChats,
+        groups: visibleConnectGroups,
+        meId: user.id,
+        me: connectPeople.get(user.id) ?? null,
+        posts: connectFeed.posts,
+        nextBefore: connectFeed.nextBefore,
+      }}
     />
   );
 }

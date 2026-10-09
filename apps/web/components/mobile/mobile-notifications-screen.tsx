@@ -12,6 +12,10 @@ import {
 import { formatDateOnly } from "@/lib/hr/derived";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
 import { mobileHiringHref } from "@/lib/mobile/app-path";
+import {
+  mobileConnectConversationHref,
+  mobileConnectFeedHref,
+} from "@/lib/mobile/app-path";
 import { notificationCanonicalHref } from "@/lib/notifications/href";
 import type { NotificationFolder } from "@/lib/notifications/folder";
 import type { NotificationRow } from "@/lib/notifications/types";
@@ -100,6 +104,15 @@ export function MobileNotificationsScreen({
               const tapHref =
                 n.module_key === "hr" && n.entity === "hiring_form"
                   ? mobileHiringHref(venue.slug)
+                  : n.module_key === "team_connect" && n.entity === "chat_conversation"
+                    ? mobileConnectConversationHref(venue.slug, n.entity_id)
+                    : n.module_key === "team_connect" && n.entity === "connect_post"
+                      ? (() => {
+                          const [groupId, postId] = n.entity_id.split(":");
+                          return groupId
+                            ? mobileConnectFeedHref(venue.slug, groupId, postId)
+                            : mobileConnectFeedHref(venue.slug);
+                        })()
                   : notificationCanonicalHref(n);
               return (
                 <li

@@ -11,6 +11,7 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ChevronLeft,
   ChevronRight,
@@ -79,10 +80,12 @@ export function PostCard({
   post,
   me,
   showGroup,
+  groupBasePath = "/connect/chats/feed",
 }: {
   post: ConnectPost;
   me: ConnectPerson | null;
   showGroup: boolean;
+  groupBasePath?: string;
 }) {
   const router = usePostRefresh();
   const [pending, startTransition] = useTransition();
@@ -169,13 +172,23 @@ export function PostCard({
             {showGroup ? (
               <>
                 <ChevronRight className="h-3.5 w-3.5 text-black/35" aria-hidden />
-                <ScopedLink
-                  href={`/connect/chats/feed/${post.groupId}`}
-                  className="font-semibold hover:underline"
-                  style={{ color: post.groupColor }}
-                >
-                  {post.groupName}
-                </ScopedLink>
+                {groupBasePath.startsWith("/m/") ? (
+                  <Link
+                    href={`${groupBasePath}/${post.groupId}`}
+                    className="font-semibold hover:underline"
+                    style={{ color: post.groupColor }}
+                  >
+                    {post.groupName}
+                  </Link>
+                ) : (
+                  <ScopedLink
+                    href={`${groupBasePath}/${post.groupId}`}
+                    className="font-semibold hover:underline"
+                    style={{ color: post.groupColor }}
+                  >
+                    {post.groupName}
+                  </ScopedLink>
+                )}
               </>
             ) : null}
           </p>

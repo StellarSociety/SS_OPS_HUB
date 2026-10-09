@@ -3,7 +3,7 @@ import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
 import { getMobileAppContext } from "@/lib/mobile/page-context";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
 import { canAccessHiring } from "@/lib/hr/permissions";
-import { mobileNotificationsHref, mobileProfileHref, mobileRevenueHref, mobileSentimentHref, mobileDirectoryHref, mobileHiringHref, mobileTermsHref, MOBILE_APP_BASE } from "@/lib/mobile/app-path";
+import { mobileConnectHref, mobileNotificationsHref, mobileProfileHref, mobileRevenueHref, mobileSentimentHref, mobileDirectoryHref, mobileHiringHref, mobileTermsHref, MOBILE_APP_BASE } from "@/lib/mobile/app-path";
 import { MOBILE_APP_MODULE_KEY } from "@/lib/mobile/types";
 import { loadMobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { loadMobileNotifications } from "@/lib/mobile/welcome-notifications";
@@ -50,6 +50,7 @@ export default async function MobileWelcomePage({ params }: PageProps) {
         notificationCount={notices.totalCount}
         unreadCount={notices.unreadCount}
         notificationsHref={mobileNotificationsHref(venue.slug)}
+        connectHref={mobileConnectHref(venue.slug)}
         revenueHref={mobileRevenueHref(venue.slug)}
         sentimentHref={mobileSentimentHref(venue.slug)}
         directoryHref={mobileDirectoryHref(venue.slug)}

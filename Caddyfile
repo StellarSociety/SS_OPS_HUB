@@ -1,3 +1,4 @@
 http://ssopshub.localhost {
+	header Cache-Control "no-store, no-cache, must-revalidate"
 	reverse_proxy localhost:3020
 }

@@ -276,7 +276,7 @@ export function ChatShell({
     <PresenceProvider initial={presence}>
     <div
       className={cn(
-        "grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 shadow-sm md:grid-cols-[320px_minmax(0,1fr)]",
+        "grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 shadow-sm md:grid-cols-[20rem_1fr]",
         // Feed view: one continuous colour backdrop under the glass list and the posts.
         feedOpen ? "feed-backdrop" : "bg-white",
       )}
@@ -756,4 +756,3 @@ function PeoplePicker({
     </ChatModal>
   );
 }
-
