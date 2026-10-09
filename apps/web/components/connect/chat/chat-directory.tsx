@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, MessageCircle, Search } from "lucide-react";
-import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { PresenceAvatar } from "@/components/connect/presence";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { toast } from "@/components/ui/toast";
@@ -85,7 +85,7 @@ export function ChatDirectory({
                 key={p.userId}
                 className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-3 py-2.5 shadow-sm"
               >
-                <ConnectAvatar name={p.name} photoUrl={p.photoUrl} size="md" />
+                <PresenceAvatar userId={p.userId} name={p.name} photoUrl={p.photoUrl} size="md" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-[#2B2F16]">{p.name}</p>
                   <p className="truncate text-xs text-black/55">

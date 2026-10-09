@@ -3,6 +3,7 @@
 import {
   Archive,
   ArrowLeft,
+  BookUser,
   ExternalLink,
   FileText,
   Loader2,
@@ -18,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
+import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
 import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
@@ -31,7 +34,15 @@ import {
   setChatArchived,
   startDirectChat,
 } from "@/lib/actions/connect-chat";
-import { getChatWidgetData, type ChatWidgetData } from "@/lib/actions/connect-chat-widget";
+import {
+  getChatPresence,
+  getChatWidgetData,
+  type ChatWidgetData,
+} from "@/lib/actions/connect-chat-widget";
+import { PRESENCE_LABELS, type PresenceStatus } from "@/lib/connect/presence";
+import { PresenceLabel, PresenceRing } from "@/components/connect/presence";
+import { useVenue } from "@/components/providers/venue-provider";
+import { getVenueBadgeUrl } from "@/lib/venue/branding";
 import { formatFileSize, formatPostTime } from "@/lib/connect/format";
 import { CONNECT_MAX_FILE_BYTES } from "@/lib/connect/types";
 import {
@@ -114,7 +125,16 @@ function Badge({ count, className }: { count: number; className?: string }) {
   );
 }
 
-function RailAvatar({ chat, size = 44 }: { chat: Pick<ChatSummary, "kind" | "title" | "photoUrl" | "color">; size?: number }) {
+function RailAvatar({
+  chat,
+  size = 44,
+  status,
+}: {
+  chat: Pick<ChatSummary, "kind" | "title" | "photoUrl" | "color">;
+  size?: number;
+  /** Direct chats: online status shown as a coloured ring. */
+  status?: PresenceStatus;
+}) {
   if (chat.kind === "group") {
     return (
       <span
@@ -126,13 +146,16 @@ function RailAvatar({ chat, size = 44 }: { chat: Pick<ChatSummary, "kind" | "tit
       </span>
     );
   }
+  const ringed = status && status !== "offline";
   return (
-    <ConnectAvatar
-      name={chat.title}
-      photoUrl={chat.photoUrl}
-      size="md"
-      className={size === 44 ? undefined : "h-9 w-9 text-xs"}
-    />
+    <PresenceRing status={status ?? "offline"}>
+      <ConnectAvatar
+        name={chat.title}
+        photoUrl={chat.photoUrl}
+        size="md"
+        className={cn(size === 44 ? undefined : "h-9 w-9 text-xs", ringed && "ring-0")}
+      />
+    </PresenceRing>
   );
 }
 
@@ -157,6 +180,10 @@ export function ChatWidget() {
   const [error, setError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
+  /** The people list doubles as the venue Directory. */
+  const [directoryMode, setDirectoryMode] = useState(false);
+  const { venue } = useVenue();
+  const venueBadge = venue ? getVenueBadgeUrl(venue) : null;
   const [pickerQuery, setPickerQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [menu, setMenu] = useState<ChatMenuState>(null);
@@ -179,13 +206,29 @@ export function ChatWidget() {
     };
   }, [open, activeId, muted, data, chatsPageConversation]);
 
+  const [presence, setPresence] = useState<Record<string, PresenceStatus>>({});
   const load = useCallback(
     () =>
       getChatWidgetData().then((result) => {
-        if (result.ok) setData(result.data);
+        if (result.ok) {
+          setData(result.data);
+          setPresence(result.data.presence);
+        }
       }),
     [],
   );
+
+  // Online status refreshes every minute while the page is visible.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      void getChatPresence().then((result) => {
+        if (result.ok) setPresence(result.presence);
+      });
+    };
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -330,7 +373,13 @@ export function ChatWidget() {
     await openChat(result.id);
   }
 
+  function openDirectory() {
+    startNewChat();
+    setDirectoryMode(true);
+  }
+
   function startNewChat() {
+    setDirectoryMode(false);
     setComposing(true);
     setActiveId(null);
     setPickerQuery("");
@@ -413,11 +462,11 @@ export function ChatWidget() {
         <div
           role="dialog"
           aria-label="Chats"
-          className="fixed inset-x-2 bottom-20 z-[150] flex h-[min(580px,calc(100dvh-7rem))] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl sm:inset-x-auto sm:right-5 sm:w-[min(560px,calc(100vw-2.5rem))]"
+          className="fixed inset-x-2 bottom-20 z-[150] flex h-[min(580px,calc(100dvh-7rem))] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl sm:inset-x-auto sm:right-5 sm:w-[min(400px,calc(100vw-2.5rem))]"
         >
           <nav
             aria-label="Conversations"
-            className="flex w-[68px] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-black/5 bg-[#F7F8F2] py-3"
+            className="flex w-[64px] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-black/5 bg-[#F7F8F2] py-3"
           >
             <button
               type="button"
@@ -430,6 +479,23 @@ export function ChatWidget() {
               )}
             >
               <Plus className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={openDirectory}
+              title={`${venue?.name ?? "Venue"} Directory`}
+              aria-label={`${venue?.name ?? "Venue"} Directory`}
+              className={cn(
+                "relative inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm transition hover:opacity-90",
+                composing && directoryMode && "ring-2 ring-[var(--venue-primary,#818a40)] ring-offset-2 ring-offset-[#F7F8F2]",
+              )}
+            >
+              {venueBadge ? (
+                // eslint-disable-next-line @next/next/no-img-element -- venue favicon
+                <img src={venueBadge} alt="" className="h-7 w-7 object-contain" />
+              ) : (
+                <BookUser className="h-5 w-5 text-[var(--venue-primary,#818a40)]" />
+              )}
             </button>
             <span className="my-0.5 h-px w-8 bg-black/10" aria-hidden />
             {showArchived ? (
@@ -446,16 +512,27 @@ export function ChatWidget() {
                   e.preventDefault();
                   setMenu({ x: e.clientX, y: e.clientY, conversationId: chat.id, archived: chat.archived });
                 }}
-                title={`${chat.title}${chat.lastMessage ? ` — ${chatPreviewText(chat, data.meId)}` : ""}`}
+                title={`${chat.title}${
+                  chat.kind === "direct" && chat.otherUserId
+                    ? ` · ${PRESENCE_LABELS[presence[chat.otherUserId] ?? "offline"]}`
+                    : ""
+                }${chat.lastMessage ? ` — ${chatPreviewText(chat, data.meId)}` : ""}`}
                 aria-label={`${chat.title}${chat.unreadCount ? `, ${chat.unreadCount} unread` : ""}`}
                 className={cn(
-                  "relative shrink-0 rounded-full p-0.5 transition",
-                  chat.id === activeId
-                    ? "ring-2 ring-[var(--venue-primary,#818a40)]"
-                    : "opacity-90 hover:opacity-100",
+                  "relative inline-flex shrink-0 items-center justify-center rounded-full p-1 transition",
+                  chat.id === activeId ? "bg-[var(--venue-primary,#818a40)]/15" : "hover:bg-black/5",
                 )}
               >
-                <RailAvatar chat={chat} />
+                {chat.id === activeId ? (
+                  <span
+                    aria-hidden
+                    className="absolute -left-2 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-[var(--venue-primary,#818a40)]"
+                  />
+                ) : null}
+                <RailAvatar
+                  chat={chat}
+                  status={chat.kind === "direct" && chat.otherUserId ? (presence[chat.otherUserId] ?? "offline") : undefined}
+                />
                 <Badge count={chat.unreadCount} className="absolute -right-1 -top-1" />
               </button>
             ))}
@@ -492,14 +569,24 @@ export function ChatWidget() {
             <DropOverlay show={dragging} />
             <header className="flex items-center gap-3 border-b border-black/5 px-4 py-2.5">
               {composing ? (
-                <p className="flex-1 font-serif text-lg text-[#2B2F16]">New chat</p>
+                <p className="flex-1 truncate font-serif text-lg text-[#2B2F16]">
+                  {directoryMode ? `${venue?.name ?? ""} Directory`.trim() : "New chat"}
+                </p>
               ) : active ? (
                 <>
-                  <RailAvatar chat={active} size={36} />
+                  <RailAvatar
+                    chat={active}
+                    size={36}
+                    status={active.kind === "direct" && active.otherUserId ? (presence[active.otherUserId] ?? "offline") : undefined}
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-[#2B2F16]">{active.title}</p>
                     <p className="truncate text-xs text-black/45">
-                      {active.kind === "group" ? `${active.memberCount} members` : "Direct message"}
+                      {active.kind === "group" ? (
+                        `${active.memberCount} members`
+                      ) : (
+                        <PresenceLabel status={presence[active.otherUserId ?? ""] ?? "offline"} />
+                      )}
                     </p>
                   </div>
                 </>
@@ -546,7 +633,9 @@ export function ChatWidget() {
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="border-b border-black/5 p-3">
                   <label className="flex items-center gap-2 rounded-full bg-[#F0F2E8] px-3 py-2">
-                    <span className="text-xs font-semibold text-black/50">To:</span>
+                    {directoryMode ? null : (
+                      <span className="text-xs font-semibold text-black/50">To:</span>
+                    )}
                     <Search className="h-4 w-4 text-black/40" aria-hidden />
                     <input
                       autoFocus
@@ -579,7 +668,9 @@ export function ChatWidget() {
                           disabled={startingId !== null}
                           className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-black/[0.04] disabled:opacity-60"
                         >
-                          <ConnectAvatar name={p.name} photoUrl={p.photoUrl} size="sm" />
+                          <PresenceRing status={presence[p.userId] ?? "offline"}>
+                            <ConnectAvatar name={p.name} photoUrl={p.photoUrl} size="sm" />
+                          </PresenceRing>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-medium text-[#2B2F16]">{p.name}</span>
                             <span className="block truncate text-xs text-black/50">
@@ -588,6 +679,8 @@ export function ChatWidget() {
                           </span>
                           {startingId === p.userId ? (
                             <Loader2 className="h-4 w-4 animate-spin text-black/40" />
+                          ) : directoryMode ? (
+                            <MessageCircle className="h-4 w-4 shrink-0 text-[var(--venue-primary,#818a40)]" aria-hidden />
                           ) : null}
                         </button>
                       </li>
@@ -597,7 +690,9 @@ export function ChatWidget() {
               </div>
             ) : (
               <>
-                <div className="min-h-0 flex-1 overflow-y-auto bg-[#F7F8F2] px-4 py-3">
+                <div className="relative min-h-0 flex-1">
+                <ChatBackdrop />
+                <div className="absolute inset-0 overflow-y-auto px-4 py-3">
                   {!active ? (
                     <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-black/50">
                       <MessagesSquare className="h-8 w-8 text-[var(--venue-primary,#818a40)]" />
@@ -646,24 +741,22 @@ export function ChatWidget() {
                                   <>
                                     {m.attachment ? (
                                       m.attachment.type.startsWith("image/") ? (
-                                        <a href={m.attachment.url} target="_blank" rel="noreferrer">
+                                        <AttachmentTrigger file={m.attachment} className="block">
                                           {/* eslint-disable-next-line @next/next/no-img-element -- chat attachment */}
                                           <img
                                             src={m.attachment.url}
                                             alt={m.attachment.name}
                                             className="mb-1 max-h-48 rounded-lg object-cover"
                                           />
-                                        </a>
+                                        </AttachmentTrigger>
                                       ) : (
-                                        <a
-                                          href={m.attachment.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="mb-1 flex items-center gap-1.5 underline"
+                                        <AttachmentTrigger
+                                          file={m.attachment}
+                                          className="mb-1 flex max-w-full items-center gap-1.5 underline"
                                         >
                                           <FileText className="h-4 w-4 shrink-0" />
                                           <span className="truncate">{m.attachment.name}</span>
-                                        </a>
+                                        </AttachmentTrigger>
                                       )
                                     ) : null}
                                     {m.body}
@@ -683,6 +776,7 @@ export function ChatWidget() {
                     </ul>
                   )}
                   <div ref={listEndRef} />
+                </div>
                 </div>
 
                 {active ? (

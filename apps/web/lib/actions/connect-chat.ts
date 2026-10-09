@@ -8,6 +8,7 @@ import { getActionAuthContext } from "@/lib/auth/action-context";
 import {
   directKey,
   getChatConversation,
+  getChatDetail,
   getChatMembership,
   listChatMessages,
   listChatShared,
@@ -16,6 +17,7 @@ import {
   CHAT_MAX_MESSAGE_CHARS,
   CHAT_NOTIFICATION_ENTITY,
   mapChatMessageRow,
+  type ChatDetail,
   type ChatMessage,
   type ChatMessageRow,
   type ChatRole,
@@ -25,6 +27,7 @@ import { canAccessConnect, canAdminConnect } from "@/lib/connect/permissions";
 import { canCreateChatGroups } from "@/lib/connect/chat-permissions";
 import { listConnectGroups, listVenueAppUsers, loadConnectPeople } from "@/lib/connect/store";
 import {
+  type ConnectPerson,
   CONNECT_BUCKET,
   CONNECT_MAX_FILE_BYTES,
   CONNECT_MODULE_KEY,
@@ -670,4 +673,33 @@ export async function fetchChatShared(
   const membership = await getChatMembership(actor.service, conversationId, actor.userId);
   if (!membership) return fail("Chat not found.");
   return { ok: true, shared: await listChatShared(actor.service, conversationId) };
+}
+
+/** Everything a side-by-side chat window needs (Chats page, extra panes). */
+export async function fetchChatPane(conversationId: string): Promise<
+  Result<{
+    detail: ChatDetail;
+    messages: ChatMessage[];
+    hasMore: boolean;
+    me: ConnectPerson | null;
+    venuePeople: ConnectPerson[];
+  }>
+> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const detail = await getChatDetail(actor.service, actor.venueId, conversationId, actor.userId);
+  if (!detail) return fail("This chat isn't available.");
+  const [page, venuePeople, people] = await Promise.all([
+    listChatMessages(actor.service, conversationId),
+    listVenueAppUsers(actor.service, actor.venueId),
+    loadConnectPeople(actor.service, [actor.userId]),
+  ]);
+  return {
+    ok: true,
+    detail,
+    messages: page.messages,
+    hasMore: page.hasMore,
+    me: people.get(actor.userId) ?? null,
+    venuePeople,
+  };
 }

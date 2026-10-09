@@ -13,8 +13,10 @@ import { ModuleTile } from "@/components/modules/module-tile";
 import { AnimatedSymbol } from "@/components/ui/animated-symbol";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { usePageAccess } from "@/components/providers/page-access-provider";
+import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { HUB_MODULE_ROWS, hubModuleSortIndex, type ModuleCategory } from "@/lib/modules-registry";
 import { cn } from "@/lib/utils";
+import { toScopedHref } from "@/lib/venue/scope-routing";
 
 export type AppsHubStageSection = {
   category: ModuleCategory;
@@ -32,6 +34,9 @@ function statusCopy(mod: ModuleGridItem): string {
   if (mod.status === "coming_soon") return "Coming soon";
   return "Locked";
 }
+
+/** Apps that open directly in a new browser tab from the Apps Hub. */
+const NEW_TAB_APPS = new Set(["team_connect"]);
 
 export function AppsHubStage({ sections, trailingItem }: AppsHubStageProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -75,7 +80,13 @@ export function AppsHubStage({ sections, trailingItem }: AppsHubStageProps) {
     };
   }, [selected]);
 
+  const { scope, slug } = useVenueScope();
   const toggle = (mod: ModuleGridItem) => {
+    // Some apps skip the details panel and open straight in their own tab.
+    if (NEW_TAB_APPS.has(mod.key) && mod.status === "live" && mod.clickable && mod.href) {
+      window.open(toScopedHref(mod.href, scope, slug), "_blank", "noopener");
+      return;
+    }
     setSelectedKey((current) => (current === mod.key ? null : mod.key));
   };
 

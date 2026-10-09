@@ -35,7 +35,7 @@ export function FeedList({
       {nextBefore ? (
         <div className="flex justify-center pt-2">
           <ScopedLink
-            href={`${basePath}?before=${encodeURIComponent(nextBefore)}`}
+            href={`${basePath}${basePath.includes("?") ? "&" : "?"}before=${encodeURIComponent(nextBefore)}`}
             className="rounded-full border border-black/10 bg-white px-5 py-2 text-sm font-medium text-[#3D421F] shadow-sm hover:bg-[#F0F3DD]"
           >
             Older posts

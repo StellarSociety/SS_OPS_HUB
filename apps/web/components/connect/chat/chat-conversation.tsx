@@ -2,9 +2,13 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Download, FileText, Info, Megaphone, Paperclip, SendHorizontal, Trash2, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Download, FileText, Info, Megaphone, Paperclip, Search, SendHorizontal, Trash2, X } from "lucide-react";
 import { ChatAvatar } from "@/components/connect/chat/chat-shell";
+import { PresenceLabel, usePresence } from "@/components/connect/presence";
+import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
+import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
 import { ChatInfoPanel } from "@/components/connect/chat/chat-info-panel";
+import { useChatPanes } from "@/components/connect/chat/chat-panes-context";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
 import { ScopedLink } from "@/components/layout/scoped-link";
@@ -72,7 +76,9 @@ export function ChatConversation({
   venuePeople: ConnectPerson[];
 }) {
   const router = useRouter();
+  const panes = useChatPanes();
   const meId = me?.userId ?? "";
+  const otherStatus = usePresence(detail.kind === "direct" ? detail.otherUserId : null);
   const [messages, setMessages] = useState<UiMessage[]>(initialMessages);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -186,6 +192,64 @@ export function ChatConversation({
     setMessages((prev) => [...prev, message]);
   }
 
+  // ---- Search within this chat ------------------------------------------
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [loadingAll, setLoadingAll] = useState(false);
+  const needle = searchOpen ? searchQuery.trim().toLowerCase() : "";
+  const matchIds = useMemo(() => {
+    if (!needle) return [];
+    return messages
+      .filter(
+        (m) =>
+          m.kind === "message" &&
+          !m.deletedAt &&
+          (m.body.toLowerCase().includes(needle) ||
+            (m.attachment?.name.toLowerCase().includes(needle) ?? false)),
+      )
+      .map((m) => m.id);
+  }, [messages, needle]);
+  // Newest match first, like WhatsApp; the index counts back from the bottom.
+  const currentMatchId = matchIds.length
+    ? matchIds[matchIds.length - 1 - (matchIndex % matchIds.length)]
+    : null;
+
+  async function openSearch() {
+    setSearchOpen(true);
+    if (!hasMore) return;
+    // Load the full history once so search covers the whole chat.
+    setLoadingAll(true);
+    let oldest = messages.find((m) => !m.pending)?.createdAt ?? null;
+    let more: boolean = hasMore;
+    let guard = 0;
+    while (more && oldest && guard < 40) {
+      guard += 1;
+      const result = await fetchChatMessages(detail.id, oldest);
+      if (!result.ok) break;
+      const page = result.messages;
+      setMessages((prev) => [...page.filter((m) => !prev.some((p) => p.id === m.id)), ...prev]);
+      more = result.hasMore;
+      oldest = page[0]?.createdAt ?? null;
+    }
+    setHasMore(more);
+    setLoadingAll(false);
+  }
+
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setMatchIndex(0);
+  }
+
+  useEffect(() => {
+    if (!currentMatchId) return;
+    stickToBottom.current = false;
+    document
+      .getElementById(`msg-${currentMatchId}`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [currentMatchId]);
+
   return (
     <div className="relative flex min-h-0 flex-1" {...dropProps}>
       <DropOverlay show={dragging} />
@@ -209,21 +273,35 @@ export function ChatConversation({
                 {detail.title}
               </span>
               <span className="block truncate text-xs text-black/50">
-                {detail.kind === "group"
-                  ? `${detail.memberCount} member${detail.memberCount === 1 ? "" : "s"}`
-                  : (() => {
+                {detail.kind === "group" ? (
+                  `${detail.memberCount} member${detail.memberCount === 1 ? "" : "s"}`
+                ) : (
+                  <>
+                    <PresenceLabel status={otherStatus} />
+                    {(() => {
                       const other = detail.members.find((m) => m.userId !== meId)?.person;
-                      return (
-                        [
-                          other?.positionName ?? detail.contact?.positionName,
-                          other?.departmentName ?? detail.contact?.departmentName,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ") || "Direct message"
-                      );
+                      const role = [
+                        other?.positionName ?? detail.contact?.positionName,
+                        other?.departmentName ?? detail.contact?.departmentName,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
+                      return role ? ` · ${role}` : "";
                     })()}
+                  </>
+                )}
               </span>
             </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => (searchOpen ? closeSearch() : void openSearch())}
+            className={cn("rounded-full p-2 hover:bg-black/5", searchOpen ? "text-[var(--venue-primary,#818a40)]" : "text-black/50")}
+            aria-label="Search in chat"
+            aria-pressed={searchOpen}
+            title="Search in chat"
+          >
+            <Search className="h-5 w-5" />
           </button>
           <button
             type="button"
@@ -234,15 +312,92 @@ export function ChatConversation({
           >
             <Info className="h-5 w-5" />
           </button>
+          {panes ? (
+            <button
+              type="button"
+              onClick={() => panes.closePane(detail.id)}
+              className="rounded-full p-2 text-black/50 hover:bg-black/5 hover:text-black/75"
+              aria-label="Close chat window"
+              title="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          ) : null}
         </header>
 
+        {searchOpen ? (
+          <div className="flex items-center gap-2 border-b border-black/5 bg-white px-3 py-2">
+            <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-[#F0F2E8] px-3 py-1.5">
+              <Search className="h-4 w-4 shrink-0 text-black/40" aria-hidden />
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setMatchIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") closeSearch();
+                  if (e.key === "Enter" && matchIds.length) {
+                    e.preventDefault();
+                    setMatchIndex((i) =>
+                      e.shiftKey ? (i - 1 + matchIds.length) % matchIds.length : (i + 1) % matchIds.length,
+                    );
+                  }
+                }}
+                placeholder="Search in this chat"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/40"
+              />
+            </label>
+            <span className="w-20 shrink-0 text-center text-xs tabular-nums text-black/50">
+              {loadingAll
+                ? "Loading…"
+                : needle
+                  ? matchIds.length
+                    ? `${(matchIndex % matchIds.length) + 1} of ${matchIds.length}`
+                    : "No results"
+                  : ""}
+            </span>
+            <button
+              type="button"
+              disabled={matchIds.length === 0}
+              onClick={() => setMatchIndex((i) => (i + 1) % matchIds.length)}
+              className="rounded-full p-1.5 text-black/55 hover:bg-black/5 disabled:opacity-30"
+              aria-label="Older match"
+              title="Older match (Enter)"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              disabled={matchIds.length === 0}
+              onClick={() => setMatchIndex((i) => (i - 1 + matchIds.length) % matchIds.length)}
+              className="rounded-full p-1.5 text-black/55 hover:bg-black/5 disabled:opacity-30"
+              aria-label="Newer match"
+              title="Newer match (Shift+Enter)"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={closeSearch}
+              className="rounded-full p-1.5 text-black/55 hover:bg-black/5"
+              aria-label="Close search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
+
+        <div className="relative min-h-0 flex-1">
+        <ChatBackdrop />
         <div
           ref={scrollRef}
           onScroll={(e) => {
             const el = e.currentTarget;
             stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
-          className="min-h-0 flex-1 overflow-y-auto bg-[#F7F8F2] px-3 py-4 sm:px-5"
+          className="absolute inset-0 overflow-y-auto px-3 py-4 sm:px-5"
         >
           {hasMore ? (
             <div className="mb-3 flex justify-center">
@@ -264,6 +419,8 @@ export function ChatConversation({
             isGroup={detail.kind === "group"}
             canModerate={detail.myRole === "admin" && detail.kind === "group"}
             peopleById={peopleById}
+            highlight={needle}
+            currentMatchId={currentMatchId}
             onDeleted={(id) =>
               setMessages((prev) =>
                 prev.map((m) =>
@@ -272,6 +429,7 @@ export function ChatConversation({
               )
             }
           />
+        </div>
         </div>
 
         {detail.canPost ? (
@@ -324,6 +482,8 @@ function MessageList({
   isGroup,
   canModerate,
   peopleById,
+  highlight,
+  currentMatchId,
   onDeleted,
 }: {
   messages: UiMessage[];
@@ -331,6 +491,9 @@ function MessageList({
   isGroup: boolean;
   canModerate: boolean;
   peopleById: Map<string, ConnectPerson>;
+  /** Lower-cased search text to mark in bubbles. */
+  highlight: string;
+  currentMatchId: string | null;
   onDeleted: (id: string) => void;
 }) {
   const [, startTransition] = useTransition();
@@ -376,7 +539,10 @@ function MessageList({
         return (
           <Fragment key={m.id}>
             {separator}
-            <div className={cn("group flex items-end gap-2", mine ? "justify-end" : "justify-start", !sameAsPrev && "mt-2")}>
+            <div
+              id={`msg-${m.id}`}
+              className={cn("group flex scroll-mt-24 items-end gap-2", mine ? "justify-end" : "justify-start", !sameAsPrev && "mt-2")}
+            >
               {!mine && isGroup ? (
                 <span className="w-8 shrink-0">
                   {!sameAsNext ? (
@@ -413,6 +579,7 @@ function MessageList({
                     mine ? (sameAsNext ? "rounded-br-md" : "") : sameAsNext ? "rounded-bl-md" : "",
                     m.pending && "opacity-70",
                     deleted && "bg-transparent italic text-black/45 shadow-none ring-1 ring-black/10",
+                    m.id === currentMatchId && "ring-2 ring-amber-400 ring-offset-2 ring-offset-transparent",
                   )}
                   title={timeLabel(m.createdAt)}
                 >
@@ -421,7 +588,11 @@ function MessageList({
                   ) : (
                     <>
                       {m.attachment ? <MessageAttachment attachment={m.attachment} mine={mine} /> : null}
-                      {m.body ? <p className="whitespace-pre-wrap break-words">{m.body}</p> : null}
+                      {m.body ? (
+                        <p className="whitespace-pre-wrap break-words">
+                          <Highlighted text={m.body} needle={highlight} />
+                        </p>
+                      ) : null}
                     </>
                   )}
                 </div>
@@ -481,20 +652,17 @@ function MessageAttachment({
 }) {
   if (isImageAttachment(attachment.type)) {
     return (
-      <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="-mx-1 -mt-0.5 mb-1 block">
+      <AttachmentTrigger file={attachment} className="-mx-1 -mt-0.5 mb-1 block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={attachment.url} alt={attachment.name} className="max-h-72 rounded-xl object-cover" loading="lazy" />
-      </a>
+      </AttachmentTrigger>
     );
   }
   return (
-    <a
-      href={attachment.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      download={attachment.name}
+    <AttachmentTrigger
+      file={attachment}
       className={cn(
-        "mb-1 flex items-center gap-2.5 rounded-xl px-2.5 py-2",
+        "mb-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2",
         mine ? "bg-white/15 hover:bg-white/25" : "bg-black/[0.04] hover:bg-black/[0.07]",
       )}
     >
@@ -506,8 +674,29 @@ function MessageAttachment({
         </span>
       </span>
       <Download className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
-    </a>
+    </AttachmentTrigger>
   );
+}
+
+/** Marks every case-insensitive occurrence of `needle` in `text`. */
+function Highlighted({ text, needle }: { text: string; needle: string }) {
+  if (!needle) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let from = 0;
+  let at = lower.indexOf(needle);
+  while (at !== -1) {
+    if (at > from) parts.push(text.slice(from, at));
+    parts.push(
+      <mark key={at} className="rounded bg-amber-300/80 px-0.5 text-inherit">
+        {text.slice(at, at + needle.length)}
+      </mark>,
+    );
+    from = at + needle.length;
+    at = lower.indexOf(needle, from);
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return <>{parts}</>;
 }
 
 let tempCounter = 0;

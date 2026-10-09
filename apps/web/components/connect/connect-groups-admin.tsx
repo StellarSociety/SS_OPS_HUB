@@ -87,7 +87,7 @@ export function ConnectGroupsAdmin({
         </div>
       ) : (
         <ScopedLink
-          href={`/connect/groups/${g.id}`}
+          href={`/connect/chats/feed/${g.id}`}
           className="text-sm font-medium text-[#3D421F] hover:underline"
         >
           Open

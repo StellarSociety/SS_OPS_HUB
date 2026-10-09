@@ -474,14 +474,15 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
     items: [
       {
         label: "Feed",
-        href: "/connect",
-        exact: true,
+        href: "/connect/chats/feed",
+        activePathPrefix: "/connect/chats/feed",
         icon: Newspaper,
       },
       {
         label: "Chats",
         href: "/connect/chats",
         activePathPrefix: "/connect/chats",
+        excludePathPrefixes: ["/connect/chats/feed"],
         icon: MessageCircle,
       },
     ],

@@ -1,5 +1,6 @@
 import { RouteLoadingSkeleton } from "@/components/layout/route-loading-skeleton";
 
-export default function Loading() {
+/** Connecteam-shaped loading screen (chat or feed, matching the page). */
+export default function ConnectLoading() {
   return <RouteLoadingSkeleton />;
 }

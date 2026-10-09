@@ -485,6 +485,8 @@ export type ListPostsOptions = {
   /** Show pinned posts above the timeline (group view). */
   pinnedFirst?: boolean;
   limit?: number;
+  /** Only posts whose text contains this (case-insensitive). */
+  search?: string | null;
 };
 
 export async function listConnectPosts(
@@ -505,11 +507,29 @@ export async function listConnectPosts(
     .in("group_id", groupIds)
     .order("created_at", { ascending: false })
     .limit(limit + 1);
-  if (options.pinnedFirst) query = query.is("pinned_at", null);
+  const search = options.search?.trim();
+  // Escape LIKE wildcards so the text is matched literally.
+  const pattern = search ? `%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+  // While searching, pinned posts are just results like any other.
+  if (options.pinnedFirst && !pattern) query = query.is("pinned_at", null);
   if (options.before) query = query.lt("created_at", options.before);
+  if (pattern) {
+    // Match the post text, the author's name, or the person a celebration is for.
+    const [{ data: authors }, { data: celebrated }] = await Promise.all([
+      service.from("profiles").select("id").ilike("full_name", pattern).limit(200),
+      service.from("staff").select("id").ilike("full_name", pattern).limit(200),
+    ]);
+    const authorIds = (authors ?? []).map((r) => r.id as string);
+    const staffIds = (celebrated ?? []).map((r) => r.id as string);
+    const quoted = `"${pattern.replace(/"/g, '\\"')}"`;
+    const clauses = [`body.ilike.${quoted}`];
+    if (authorIds.length) clauses.push(`author_id.in.(${authorIds.join(",")})`);
+    if (staffIds.length) clauses.push(`celebration_staff_id.in.(${staffIds.join(",")})`);
+    query = query.or(clauses.join(","));
+  }
 
   const pinnedQuery =
-    options.pinnedFirst && !options.before
+    options.pinnedFirst && !options.before && !pattern
       ? service
           .from("connect_posts")
           .select(POST_SELECT)

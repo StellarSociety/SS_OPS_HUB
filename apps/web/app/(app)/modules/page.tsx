@@ -14,7 +14,8 @@ export default async function ModulesPage() {
   const displaySections = isGlobal ? settingsSections : sections;
 
   return (
-    <div className="mx-auto max-w-6xl">
+    // The Apps Hub renders ~10% smaller than the rest of the Hub.
+    <div className="mx-auto max-w-6xl" style={{ zoom: 0.9 }}>
       <ModulesOverview
         venue={venue}
         isGlobal={isGlobal}

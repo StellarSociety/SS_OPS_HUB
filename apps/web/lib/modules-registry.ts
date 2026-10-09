@@ -102,7 +102,7 @@ export const moduleOverviewRegistry: ModuleOverviewItem[] = [
     label: "Connecteam",
     iconKey: "messages-square",
     category: "operational",
-    href: "/connect",
+    href: "/connect/chats",
     status: "live",
     description:
       "Company social feed — announcements, team groups, photos, files, and celebrations so the whole team stays aligned.",

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download, FileText, Image as ImageIcon, Link2 } from "lucide-react";
+import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
 import { fetchChatShared } from "@/lib/actions/connect-chat";
 import { formatFileSize, formatPostTimestamp } from "@/lib/connect/format";
 import type { ChatShared, SharedItem } from "@/lib/connect/chat-types";
@@ -84,16 +85,14 @@ export function ChatSharedSection({
         <ul className="grid grid-cols-3 gap-1">
           {items.map((item) => (
             <li key={item.messageId}>
-              <a
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block aspect-square overflow-hidden rounded-lg bg-black/5"
+              <AttachmentTrigger
+                file={item}
+                className="block aspect-square w-full overflow-hidden rounded-lg bg-black/5"
                 title={`${item.name} · ${formatPostTimestamp(item.createdAt)}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={item.url} alt={item.name} loading="lazy" className="h-full w-full object-cover" />
-              </a>
+              </AttachmentTrigger>
             </li>
           ))}
         </ul>
@@ -146,12 +145,9 @@ function SharedRow({
     );
   }
   return (
-    <a
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      download={item.name}
-      className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-black/[0.04]"
+    <AttachmentTrigger
+      file={item}
+      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-black/[0.04]"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F0F2E8] text-[#3D421F]">
         <FileText className="h-4 w-4" aria-hidden />
@@ -163,6 +159,6 @@ function SharedRow({
         </span>
       </span>
       <Download className="h-4 w-4 shrink-0 text-black/35" aria-hidden />
-    </a>
+    </AttachmentTrigger>
   );
 }

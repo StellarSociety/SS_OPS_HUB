@@ -2,10 +2,30 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArrowLeft, BookUser, MessageCirclePlus, Search, Users } from "lucide-react";
+import {
+  Archive,
+  ArrowLeft,
+  BookUser,
+  MessageCircle,
+  MessageCirclePlus,
+  Newspaper,
+  Search,
+  Settings,
+  Users,
+} from "lucide-react";
+import { GroupBadge } from "@/components/connect/group-icon";
+import {
+  PresenceAvatar,
+  PresenceProvider,
+  PresenceRing,
+  usePresence,
+} from "@/components/connect/presence";
+import type { PresenceStatus } from "@/lib/connect/presence";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
 import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
+import { ChatExtraPane } from "@/components/connect/chat/chat-extra-pane";
 import { ChatModal } from "@/components/connect/chat/chat-modal";
+import { ChatPanesContext } from "@/components/connect/chat/chat-panes-context";
 import { GroupChatForm } from "@/components/connect/chat/group-chat-form";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import {
@@ -25,6 +45,10 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { toScopedHref } from "@/lib/venue/scope-routing";
 
+const MAX_EXTRA_PANES = 2;
+/** Connecteam renders slightly smaller than the rest of the Hub. */
+const UI_SCALE = 0.9;
+
 /** Two-pane messenger: conversation list (live) + the open conversation. */
 export function ChatShell({
   chats: initialChats,
@@ -33,6 +57,9 @@ export function ChatShell({
   canCreateGroups,
   venueName,
   venueBadgeUrl,
+  feedGroups,
+  canManageGroups,
+  presence,
   children,
 }: {
   chats: ChatSummary[];
@@ -42,6 +69,10 @@ export function ChatShell({
   venueName: string;
   /** Venue favicon / badge shown on the Directory entry. */
   venueBadgeUrl: string | null;
+  /** Feed groups shown in the list like contacts. */
+  feedGroups: { id: string; name: string; icon: string; color: string; memberCount: number }[];
+  canManageGroups: boolean;
+  presence: Record<string, PresenceStatus>;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -51,7 +82,24 @@ export function ChatShell({
     ? (pathname.split("/")[3] ?? null)
     : null;
   const directoryOpen = segment === "directory";
-  const activeId = segment && !directoryOpen ? segment : null;
+  const feedOpen = segment === "feed";
+  const feedGroupId = feedOpen ? (pathname.split("/")[4] ?? null) : null;
+  const activeId = segment && !directoryOpen && !feedOpen ? segment : null;
+  /** Liquid-glass list only in the Feed view (over the shared feed backdrop). */
+  const glass = feedOpen;
+  const ui = glass
+    ? {
+        divider: "border-white/60",
+        field: "bg-white/55 ring-1 ring-white/70",
+        hover: "hover:bg-white/45",
+        selected: "bg-white/75 shadow-sm ring-1 ring-white/80 hover:bg-white/75",
+      }
+    : {
+        divider: "border-black/5",
+        field: "bg-[#F0F2E8]",
+        hover: "hover:bg-black/[0.04]",
+        selected: "bg-[#E9ECD9] hover:bg-[#E9ECD9]",
+      };
   // On phones the list and the open pane (a chat or the Directory) swap places.
   const paneOpen = Boolean(segment);
 
@@ -75,6 +123,46 @@ export function ChatShell({
   const [dialog, setDialog] = useState<"direct" | "group" | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [menu, setMenu] = useState<ChatMenuState>(null);
+
+  // Extra chat windows opened side by side (right-click → Open side by side).
+  // The shell lives in the Chats layout, so these stay open while you switch chats.
+  const [extraIds, setExtraIds] = useState<string[]>([]);
+  const shownExtras = useMemo(
+    () =>
+      activeId
+        ? extraIds.filter((id) => id !== activeId && chats.some((c) => c.id === id))
+        : [],
+    [activeId, extraIds, chats],
+  );
+
+  function openSide(conversationId: string) {
+    if (!activeId) {
+      router.push(toScopedHref(`/connect/chats/${conversationId}`, scope, slug));
+      return;
+    }
+    if (conversationId === activeId) return;
+    setExtraIds((prev) =>
+      prev.includes(conversationId)
+        ? prev
+        : [...prev, conversationId].slice(-MAX_EXTRA_PANES),
+    );
+  }
+
+  const panes = useMemo(
+    () => ({
+      closePane: (conversationId: string) => {
+        if (conversationId !== activeId) {
+          setExtraIds((prev) => prev.filter((id) => id !== conversationId));
+          return;
+        }
+        // Closing the main chat promotes the next window, or returns to the list.
+        const next = shownExtras[0];
+        setExtraIds((prev) => prev.filter((id) => id !== next));
+        router.push(toScopedHref(next ? `/connect/chats/${next}` : "/connect/chats", scope, slug));
+      },
+    }),
+    [activeId, shownExtras, router, scope, slug],
+  );
 
   async function archive(conversationId: string, archived: boolean) {
     setChats((prev) => prev.map((c) => (c.id === conversationId ? { ...c, archived } : c)));
@@ -155,6 +243,11 @@ export function ChatShell({
       .filter((c) => !q || c.title.toLowerCase().includes(q));
   }, [chats, query, kindFilter, showArchived]);
   const archivedCount = chats.filter((c) => c.archived).length;
+  const totalUnreadChats = chats.filter((c) => c.unreadCount > 0 && !c.archived).length;
+  const visibleGroups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? feedGroups.filter((g) => g.name.toLowerCase().includes(q)) : feedGroups;
+  }, [feedGroups, query]);
 
   const unreadByKind = useMemo(() => {
     const totals = { all: 0, direct: 0, group: 0 };
@@ -180,49 +273,68 @@ export function ChatShell({
   }
 
   return (
-    <div className="grid h-[calc(100dvh-7.5rem)] min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm md:grid-cols-[320px_minmax(0,1fr)]">
+    <PresenceProvider initial={presence}>
+    <div
+      className={cn(
+        "grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 shadow-sm md:grid-cols-[320px_minmax(0,1fr)]",
+        // Feed view: one continuous colour backdrop under the glass list and the posts.
+        feedOpen ? "feed-backdrop" : "bg-white",
+      )}
+      // Everything in Connecteam renders ~10% smaller (percentage sizes still fill the page).
+      style={{ zoom: UI_SCALE }}
+    >
       <aside
         className={cn(
-          "flex min-h-0 flex-col border-r border-black/5",
+          "flex min-h-0 flex-col",
+          glass ? "liquid-glass" : "border-r border-black/5",
           paneOpen ? "hidden md:flex" : "flex",
         )}
       >
-        <div className="space-y-3 border-b border-black/5 p-4">
-          <div className="flex items-center justify-between">
-            <h1 className="font-serif text-2xl text-[#2B2F16]">Chats</h1>
-            <div className="flex gap-1">
-              {canCreateGroups ? (
-                <button
-                  type="button"
-                  onClick={() => setDialog("group")}
-                  className="rounded-full p-2 text-[#3D421F] hover:bg-black/5"
-                  title="New group chat"
-                  aria-label="New group chat"
-                >
-                  <Users className="h-5 w-5" />
-                </button>
-              ) : null}
+        <div
+          className={cn(
+            "border-b px-4",
+            ui.divider,
+            // Feed view: same frosted bar as the feed header beside it.
+            feedOpen
+              ? "flex h-16 shrink-0 flex-col justify-center bg-[#fbfaf6]"
+              : "space-y-3 py-4",
+          )}
+        >
+          {/* Search, with the new-chat buttons beside it (chats view only). */}
+          <div className="flex items-center gap-1.5">
+            <label className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-2", ui.field)}>
+              <Search className="h-4 w-4 text-black/40" aria-hidden />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={feedOpen ? "Search feeds" : "Search chats and feeds"}
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/40"
+              />
+            </label>
+            {!feedOpen && canCreateGroups ? (
+              <button
+                type="button"
+                onClick={() => setDialog("group")}
+                className="shrink-0 rounded-full p-2 text-[#3D421F] hover:bg-black/5"
+                title="New group chat"
+                aria-label="New group chat"
+              >
+                <Users className="h-5 w-5" />
+              </button>
+            ) : null}
+            {!feedOpen ? (
               <button
                 type="button"
                 onClick={() => setDialog("direct")}
-                className="rounded-full bg-[var(--venue-primary,#818a40)] p-2 text-white hover:opacity-90"
+                className="shrink-0 rounded-full bg-[var(--venue-primary,#818a40)] p-2 text-white hover:opacity-90"
                 title="New message"
                 aria-label="New message"
               >
                 <MessageCirclePlus className="h-5 w-5" />
               </button>
-            </div>
+            ) : null}
           </div>
-          <label className="flex items-center gap-2 rounded-full bg-[#F0F2E8] px-3 py-2">
-            <Search className="h-4 w-4 text-black/40" aria-hidden />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search chats"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/40"
-            />
-          </label>
-          <div className="flex items-center gap-1.5">
+          <div className={cn("flex items-center gap-1.5", feedOpen && "hidden")}>
           <div className="grid flex-1 grid-cols-3 gap-1 rounded-full bg-[#F0F2E8] p-1" role="tablist" aria-label="Filter chats">
             {(
               [
@@ -290,12 +402,58 @@ export function ChatShell({
           </div>
         ) : null}
 
-        <div className={cn("border-b border-black/5 p-2", showArchived && "hidden")}>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className={cn("border-b p-2", ui.divider, showArchived && "hidden")}>
+          <ScopedLink
+            href="/connect/chats/feed"
+            className={cn(
+              "flex items-center gap-3 rounded-xl px-2.5 py-2.5",
+              ui.hover,
+              // Hidden while the all-groups feed is open; shown from a group feed to get back.
+              feedOpen && !feedGroupId && "hidden",
+            )}
+          >
+            <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white ring-2 ring-white">
+              <Newspaper className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[15px] font-semibold text-[#2B2F16]">
+                {venueName} Feed
+              </span>
+              <span className="block truncate text-[13px] text-black/55">
+                Posts from all your groups
+              </span>
+            </span>
+          </ScopedLink>
+          {feedOpen ? (
+            <ScopedLink
+              href="/connect/chats"
+              className="flex items-center gap-3 rounded-xl bg-white/85 px-2.5 py-2.5 shadow-sm ring-1 ring-black/5 hover:bg-white"
+            >
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white ring-2 ring-white">
+                <MessageCircle className="h-5 w-5" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold text-[#2B2F16]">Chats</span>
+                <span className="block truncate text-[13px] text-black/55">
+                  {totalUnreadChats > 0
+                    ? `${totalUnreadChats} unread conversation${totalUnreadChats === 1 ? "" : "s"}`
+                    : "Your conversations"}
+                </span>
+              </span>
+              {totalUnreadChats > 0 ? (
+                <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[#E5484D] px-1.5 text-[11px] font-semibold text-white">
+                  {totalUnreadChats}
+                </span>
+              ) : null}
+            </ScopedLink>
+          ) : null}
           <ScopedLink
             href="/connect/chats/directory"
             className={cn(
-              "flex items-center gap-3 rounded-xl px-2.5 py-2.5 hover:bg-black/[0.04]",
-              directoryOpen && "bg-[#E9ECD9] hover:bg-[#E9ECD9]",
+              cn("flex items-center gap-3 rounded-xl px-2.5 py-2.5", ui.hover),
+              feedOpen && "hidden",
+              directoryOpen && ui.selected,
             )}
           >
             {venueBadgeUrl ? (
@@ -321,7 +479,51 @@ export function ChatShell({
           </ScopedLink>
         </div>
 
-        <ul className="min-h-0 flex-1 overflow-y-auto p-2">
+        {/* Feed groups appear under Feed only while a feed is open (or when searching). */}
+        {!showArchived && (feedOpen || query.trim()) && visibleGroups.length > 0 ? (
+          <div className={cn("border-b p-2", ui.divider)}>
+            <p className="flex items-center justify-between px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-black/45">
+              Feeds
+              {canManageGroups ? (
+                <ScopedLink
+                  href="/connect/settings"
+                  className="rounded-full p-1 text-black/40 hover:bg-black/5 hover:text-black/70"
+                  title="Manage groups"
+                  aria-label="Manage groups"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </ScopedLink>
+              ) : null}
+            </p>
+            {visibleGroups.map((g) => (
+              <ScopedLink
+                key={g.id}
+                href={`/connect/chats/feed/${g.id}`}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl px-2.5 py-2",
+                  ui.hover,
+                  feedGroupId === g.id && ui.selected,
+                )}
+              >
+                <GroupBadge
+                  icon={g.icon}
+                  color={g.color}
+                  className="h-11 w-11 rounded-full ring-2 ring-white"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-medium text-[#2B2F16]">
+                    {g.name}
+                  </span>
+                  <span className="block truncate text-[13px] text-black/55">
+                    {g.memberCount} member{g.memberCount === 1 ? "" : "s"}
+                  </span>
+                </span>
+              </ScopedLink>
+            ))}
+          </div>
+        ) : null}
+
+        <ul className={cn("p-2", feedOpen && "hidden")}>
           {filtered.length === 0 ? (
             <li className="px-3 py-10 text-center text-sm text-black/50">
               {chats.length === 0 ? (
@@ -355,8 +557,8 @@ export function ChatShell({
                     setMenu({ x: e.clientX, y: e.clientY, conversationId: c.id, archived: c.archived });
                   }}
                   className={cn(
-                    "flex items-center gap-3 rounded-xl px-2.5 py-2.5 hover:bg-black/[0.04]",
-                    c.id === activeId && "bg-[#E9ECD9] hover:bg-[#E9ECD9]",
+                    cn("flex items-center gap-3 rounded-xl px-2.5 py-2.5", ui.hover),
+                    c.id === activeId && ui.selected,
                   )}
                 >
                   <ChatAvatar chat={c} />
@@ -401,16 +603,36 @@ export function ChatShell({
             ))
           )}
         </ul>
+        </div>
       </aside>
 
-      <section className={cn("min-h-0 min-w-0", paneOpen ? "flex flex-col" : "hidden md:flex md:flex-col")}>
-        {children}
-      </section>
+      <ChatPanesContext.Provider value={activeId ? panes : null}>
+        <section
+          className={cn(
+            "min-h-0 min-w-0 overflow-x-auto",
+            !feedOpen && "bg-white",
+            paneOpen ? "flex" : "hidden md:flex",
+          )}
+        >
+          <div className={cn("flex min-h-0 flex-1 flex-col", shownExtras.length > 0 && "min-w-[320px]")}>
+            {children}
+          </div>
+          {shownExtras.map((id) => (
+            <div
+              key={id}
+              className="hidden min-h-0 min-w-[320px] flex-1 flex-col border-l border-black/10 md:flex"
+            >
+              <ChatExtraPane conversationId={id} />
+            </div>
+          ))}
+        </section>
+      </ChatPanesContext.Provider>
 
       <ChatContextMenu
         menu={menu}
         onClose={() => setMenu(null)}
         onArchive={(id, archived) => void archive(id, archived)}
+        onOpenSide={openSide}
       />
 
       {dialog === "direct" ? (
@@ -434,6 +656,7 @@ export function ChatShell({
         </ChatModal>
       ) : null}
     </div>
+    </PresenceProvider>
   );
 }
 
@@ -441,11 +664,23 @@ export function ChatAvatar({
   chat,
   size = "md",
 }: {
-  chat: Pick<ChatSummary, "kind" | "title" | "photoUrl" | "color">;
+  chat: Pick<ChatSummary, "kind" | "title" | "photoUrl" | "color"> & {
+    otherUserId?: string | null;
+  };
   size?: "sm" | "md";
 }) {
+  const status = usePresence(chat.kind === "direct" ? chat.otherUserId : null);
   if (chat.kind === "direct") {
-    return <ConnectAvatar name={chat.title} photoUrl={chat.photoUrl} size={size} />;
+    return (
+      <PresenceRing status={status}>
+        <ConnectAvatar
+          name={chat.title}
+          photoUrl={chat.photoUrl}
+          size={size}
+          className={status !== "offline" ? "ring-0" : undefined}
+        />
+      </PresenceRing>
+    );
   }
   return (
     <span
@@ -506,7 +741,7 @@ function PeoplePicker({
                 onClick={() => onPick(p.userId)}
                 className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-black/[0.04] disabled:opacity-60"
               >
-                <ConnectAvatar name={p.name} photoUrl={p.photoUrl} size="sm" />
+                <PresenceAvatar userId={p.userId} name={p.name} photoUrl={p.photoUrl} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium text-[#2B2F16]">{p.name}</span>
                   <span className="block truncate text-xs text-black/50">
@@ -521,3 +756,4 @@ function PeoplePicker({
     </ChatModal>
   );
 }
+

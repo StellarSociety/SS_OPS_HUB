@@ -38,7 +38,7 @@ export default async function ConnectGroupSettingsPage({
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
         <ScopedLink
-          href={isConnectAdmin ? "/connect/settings" : `/connect/groups/${group.id}`}
+          href={isConnectAdmin ? "/connect/settings" : `/connect/chats/feed/${group.id}`}
           className="inline-flex items-center gap-1.5 text-sm text-black/55 hover:text-black/80"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />

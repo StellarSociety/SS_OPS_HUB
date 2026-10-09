@@ -149,7 +149,7 @@ export function PostCard({
               <>
                 <ChevronRight className="h-3.5 w-3.5 text-black/35" aria-hidden />
                 <ScopedLink
-                  href={`/connect/groups/${post.groupId}`}
+                  href={`/connect/chats/feed/${post.groupId}`}
                   className="font-semibold hover:underline"
                   style={{ color: post.groupColor }}
                 >

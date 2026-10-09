@@ -1,6 +1,7 @@
 "use client";
 
-import { Menu } from "lucide-react";
+import { House, Menu } from "lucide-react";
+import { ScopedLink } from "@/components/layout/scoped-link";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import { NotificationCenter } from "@/components/layout/notification-center";
 import {
@@ -22,6 +23,8 @@ type AppHeaderProps = {
   unreadCount: number;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  /** Full-width apps (Connecteam) get a Home button next to the menu toggle. */
+  showHomeLink?: boolean;
 };
 
 export function AppHeader({
@@ -31,6 +34,7 @@ export function AppHeader({
   unreadCount,
   sidebarOpen = true,
   onToggleSidebar,
+  showHomeLink = false,
 }: AppHeaderProps) {
   const pathname = useRelativePathname();
   const moduleSidebar = getModuleSidebarForPath(pathname);
@@ -75,6 +79,16 @@ export function AppHeader({
           <Menu className="h-5 w-5" />
         </button>
         {sidebarToggle}
+        {showHomeLink ? (
+          <ScopedLink
+            href="/modules"
+            className="rounded-md p-2 text-black/60 hover:bg-black/5 hover:text-[#3D421F] md:-ml-2"
+            aria-label="Apps Hub"
+            title="Apps Hub"
+          >
+            <House className="h-5 w-5" />
+          </ScopedLink>
+        ) : null}
       </div>
       <h1
         className={cn(
