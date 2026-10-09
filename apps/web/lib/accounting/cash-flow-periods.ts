@@ -124,6 +124,34 @@ export function resolveCashFlowWindow(
   };
 }
 
+/** Month ticks covered by an expense period. Quarters follow the fiscal year. */
+export function resolveExpenseMonths(
+  period: ExpensePeriod,
+  asOfIso: string,
+  fiscalStartMonth = 1,
+): MonthTick[] {
+  switch (period) {
+    case "this-fiscal-year":
+    case "previous-fiscal-year":
+    case "last-6-months":
+    case "last-12-months":
+      return resolveCashFlowWindow(period, asOfIso, fiscalStartMonth).points;
+  }
+  const asOf = parseIsoDate(asOfIso);
+  if (period === "this-month" || period === "previous-month") {
+    const delta = period === "previous-month" ? -1 : 0;
+    const { year, month } = shiftMonth(asOf.getFullYear(), asOf.getMonth(), delta);
+    return monthSpan(year, month, 1);
+  }
+  const start = fiscalYearStart(asOf, fiscalStartMonth);
+  const monthsIn =
+    (asOf.getFullYear() - start.year) * 12 + asOf.getMonth() - start.month;
+  const quarterOffset =
+    Math.floor(monthsIn / 3) * 3 - (period === "previous-quarter" ? 3 : 0);
+  const { year, month } = shiftMonth(start.year, start.month, quarterOffset);
+  return monthSpan(year, month, 3);
+}
+
 export function expenseEmptyMessage(period: ExpensePeriod): string {
   switch (period) {
     case "this-fiscal-year":

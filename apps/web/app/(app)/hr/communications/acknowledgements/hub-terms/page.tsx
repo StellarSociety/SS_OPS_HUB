@@ -1,23 +1,9 @@
-import { HubTermsAcknowledgementsClient } from "@/components/hr/hub-terms-acknowledgements-client";
-import { listHubTermsAcknowledgements } from "@/lib/actions/hub-terms";
+import { redirect } from "next/navigation";
 import { getHrPageContext } from "@/lib/hr/page-context";
-import { canViewStaff, hasHrFeatureAccess } from "@/lib/hr/permissions";
+import { scopedHrefForVenue } from "@/lib/venue/scope-routing";
 
-export default async function HrHubTermsAcknowledgementsPage() {
-  const { venue, permissions } = await getHrPageContext();
-
-  if (
-    !hasHrFeatureAccess(permissions, "communications", venue.id) &&
-    !canViewStaff(permissions, venue.id)
-  ) {
-    return (
-      <p className="text-sm text-black/60">
-        You do not have permission to view acknowledgements for this venue.
-      </p>
-    );
-  }
-
-  const records = await listHubTermsAcknowledgements();
-
-  return <HubTermsAcknowledgementsClient records={records} />;
+/** SS OPS HUB T&C's moved under Policies Templates. */
+export default async function HrHubTermsMovedPage() {
+  const { venue } = await getHrPageContext();
+  redirect(scopedHrefForVenue(venue, "/hr/communications/policies/hub-terms"));
 }

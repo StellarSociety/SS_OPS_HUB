@@ -146,6 +146,8 @@ async function prepareEmailHeaderLogoAttachment(params: {
  */
 export async function buildHrTemplateEmailHtml(params: {
   body: string;
+  /** Pre-rendered, sanitized body HTML; `body` is then the plain-text copy. */
+  bodyHtml?: string;
   venue: VenueEmailBrand;
   /** When set, use these chrome settings instead of loading from the venue. */
   chrome?: HrEmailChromeSettings;
@@ -155,7 +157,7 @@ export async function buildHrTemplateEmailHtml(params: {
   html: string;
   inlineAttachments: SendAppEmailAttachment[];
 }> {
-  let bodyHtml = emailTemplateBodyToHtml(params.body);
+  let bodyHtml = params.bodyHtml ?? emailTemplateBodyToHtml(params.body);
   if (params.acknowledgement?.url) {
     bodyHtml += buildAcknowledgementButtonHtml({
       url: params.acknowledgement.url,

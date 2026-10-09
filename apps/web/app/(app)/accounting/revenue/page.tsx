@@ -26,7 +26,16 @@ export default async function AccountingRevenuePage() {
     const days = revenueDaysFromSales(records, taxSettings);
 
     return (
-      <div className="mx-auto w-full max-w-none">
+      <div className="mx-auto w-full max-w-none space-y-5">
+        <div className="space-y-1">
+          <h1 className="font-serif text-2xl font-semibold tracking-tight text-[#3D421F] md:text-3xl">
+            Revenue
+          </h1>
+          <p className="text-sm text-black/55">
+            Daily gross sales by revenue center, with tax, service charge and
+            net revenue.
+          </p>
+        </div>
         <RevenueTable days={days} taxSettings={taxSettings} />
       </div>
     );

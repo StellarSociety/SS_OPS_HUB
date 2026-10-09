@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   Inbox,
   Layers,
+  MessagesSquare,
   Search,
   Trash2,
   UserSearch,
@@ -45,6 +46,7 @@ const TABS: { value: NotificationsTab; label: string; icon: LucideIcon }[] = [
   { value: "people", label: "People", icon: Users },
   { value: "approvals", label: "Approvals", icon: ClipboardCheck },
   { value: "candidates", label: "Candidates", icon: UserSearch },
+  { value: "social", label: "Feed & Chats", icon: MessagesSquare },
   { value: "others", label: "Others", icon: Layers },
   { value: "archive", label: "Archive", icon: Archive },
 ];
@@ -53,6 +55,7 @@ const CATEGORY_BADGE: Record<NotificationCategory, string> = {
   people: "border-sky-200/80 bg-sky-50 text-sky-900",
   approvals: "border-amber-200/80 bg-amber-50 text-amber-900",
   candidates: "border-violet-200/80 bg-violet-50 text-violet-900",
+  social: "border-emerald-200/80 bg-emerald-50 text-emerald-900",
   others: "border-black/10 bg-black/[0.03] text-black/60",
 };
 

@@ -63,6 +63,10 @@ import {
   canAccessDirectoryStaff,
 } from "@/lib/directory/permissions";
 import {
+  canAccessConnect,
+  canAccessConnectSettings,
+} from "@/lib/connect/permissions";
+import {
   canAccessMobileApp,
   canAccessSettings as canAccessMobileSettings,
 } from "@/lib/mobile/permissions";
@@ -294,6 +298,13 @@ export function canOpenAppPath(
       return canAccessDirectoryHierarchy(permissions, venueId);
     }
     return canAccessModule(permissions, "directory", venueId);
+  }
+
+  if (startsWithPath(pathname, "/connect")) {
+    if (startsWithPath(pathname, "/connect/settings")) {
+      return canAccessConnectSettings(permissions, venueId);
+    }
+    return canAccessConnect(permissions, venueId);
   }
 
   if (startsWithPath(pathname, "/mobile")) {

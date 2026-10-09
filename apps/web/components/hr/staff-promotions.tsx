@@ -16,11 +16,16 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { PositionSalaryEmailButton } from "@/components/hr/position-salary-email-button";
 import { StaffDirectoryLink } from "@/components/hr/staff-directory-link";
 import { StaffPhotoThumbnail } from "@/components/hr/staff-photo-thumbnail";
 import { StatusBadge } from "@/components/hr/status-badge";
 import { toast } from "@/components/ui/toast";
 import { formatAed, formatDateOnly } from "@/lib/hr/derived";
+import {
+  suggestPositionSalaryEmailKind,
+  type PositionSalaryEmailRecord,
+} from "@/lib/hr/position-salary-email";
 import {
   buildPromotionsSnapshotFilename,
   downloadElementAsPng,
@@ -215,6 +220,7 @@ function PromotionsTable({
   activeView,
   showRoles,
   showSalary,
+  emailRecords,
   snapshot = false,
 }: {
   rows: PromotionItem[];
@@ -222,6 +228,8 @@ function PromotionsTable({
   activeView: (typeof VIEWS)[number];
   showRoles: boolean;
   showSalary: boolean;
+  /** Latest letter per change; null hides the Actions column. */
+  emailRecords: Record<string, PositionSalaryEmailRecord> | null;
   /** Static rendering for the PNG export: no links, sticky header, or lightbox. */
   snapshot?: boolean;
 }) {
@@ -253,6 +261,9 @@ function PromotionsTable({
           ) : null}
           <th className="border-b border-black/10 px-3 py-2">Reason</th>
           <th className="border-b border-black/10 px-3 py-2">Notes</th>
+          {emailRecords && !snapshot ? (
+            <th className="border-b border-black/10 px-3 py-2">Actions</th>
+          ) : null}
         </tr>
       </thead>
       <tbody>
@@ -383,6 +394,16 @@ function PromotionsTable({
               <td className="min-w-48 max-w-80 px-3 py-2 text-black/55">
                 {item.notes || "—"}
               </td>
+              {emailRecords && !snapshot ? (
+                <td className="whitespace-nowrap px-3 py-2">
+                  <PositionSalaryEmailButton
+                    changeId={item.id}
+                    employeeName={item.fullName}
+                    suggestedKind={suggestPositionSalaryEmailKind(item)}
+                    latest={emailRecords[item.id] ?? null}
+                  />
+                </td>
+              ) : null}
             </tr>
           );
         })}
@@ -397,12 +418,15 @@ export function StaffPromotions({
   canViewSalary,
   venueName,
   logoUrl,
+  emailRecords,
 }: {
   items: PromotionItem[];
   todayIso: string;
   canViewSalary: boolean;
   venueName: string;
   logoUrl: string | null;
+  /** Latest letter per change; null when the user cannot send letters. */
+  emailRecords: Record<string, PositionSalaryEmailRecord> | null;
 }) {
   const snapshotRef = useRef<HTMLDivElement>(null);
   const [snapshotting, setSnapshotting] = useState(false);
@@ -689,6 +713,7 @@ export function StaffPromotions({
                 activeView={activeView}
                 showRoles={showRoles}
                 showSalary={showSalary}
+                emailRecords={null}
                 snapshot
               />
             </div>
@@ -704,6 +729,7 @@ export function StaffPromotions({
             activeView={activeView}
             showRoles={showRoles}
             showSalary={showSalary}
+            emailRecords={emailRecords}
           />
         </div>
         {filtered.length === 0 ? (

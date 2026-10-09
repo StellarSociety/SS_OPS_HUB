@@ -34,6 +34,8 @@ type ModuleTileProps = {
   /** Compact mobile tiles that open a screen (not a local toggle). */
   navigates?: boolean;
   density?: "default" | "compact";
+  /** Unread notification count — red bubble on the icon's top-right corner. */
+  badgeCount?: number;
 };
 
 export function ModuleTile({
@@ -50,6 +52,7 @@ export function ModuleTile({
   iconWell = false,
   density = "default",
   navigates = false,
+  badgeCount = 0,
 }: ModuleTileProps) {
   const compact = density === "compact";
   const { beginNav } = useMobileNavBusy();
@@ -111,6 +114,19 @@ export function ModuleTile({
             )}
           />
         </AnimatedSymbol>
+        {badgeCount > 0 ? (
+          <span
+            aria-label={`${badgeCount} unread`}
+            className={cn(
+              "pointer-events-none absolute flex items-center justify-center rounded-full bg-[#E5484D] font-semibold leading-none text-white shadow-sm ring-2 ring-white",
+              compact
+                ? "-right-1 -top-1 h-5 min-w-5 px-1 text-[11px]"
+                : "-right-1.5 -top-1.5 h-6 min-w-6 px-1.5 text-xs",
+            )}
+          >
+            {badgeCount > 99 ? "99+" : badgeCount}
+          </span>
+        ) : null}
         {isAccessBlocked ? (
           <span
             aria-hidden

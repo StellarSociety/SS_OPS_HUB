@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { canAccessModule } from "@/lib/module-access";
+import { canAccessConnect } from "@/lib/connect/permissions";
+import { CONNECT_MODULE_KEY } from "@/lib/connect/types";
 import {
   fetchAppModuleStateMap,
   resolveModuleState,
@@ -41,6 +43,7 @@ const MODULE_SETTINGS_ROUTES: Record<string, string> = {
   sentiment: "/sentiment/settings",
   guests_intel: "/guests-intel/settings",
   save_log: "/save-log/settings",
+  team_connect: "/connect/settings",
   mobile_app: "/mobile/settings",
 };
 
@@ -71,7 +74,11 @@ export function buildModuleGridItems(
     .map((mod) => {
       const state = resolveModuleState(mod.status, appStateMap.get(mod.key));
       const venueEnabled = isModuleEnabledForVenue(venueModuleRows, mod.key);
-      const hasAccess = admin || canAccessModule(permissions, mod.key, venueId);
+      const hasAccess =
+        admin ||
+        (mod.key === CONNECT_MODULE_KEY
+          ? canAccessConnect(permissions, venueId)
+          : canAccessModule(permissions, mod.key, venueId));
       const settingsHref = MODULE_SETTINGS_ROUTES[mod.key];
       const href = isGlobal ? settingsHref : mod.href;
       const openableIfPermitted =
@@ -131,6 +138,33 @@ function accessToConfig(
       : "viewer"),
     venueId: row.venue_id,
   };
+}
+
+/** Apps whose icon shows an unread-notification count. */
+const BADGED_MODULE_KEYS = [CONNECT_MODULE_KEY] as const;
+
+/** Unread, unarchived notifications per badged app for this user at the venue. */
+async function loadAppBadgeCounts(
+  supabase: Awaited<ReturnType<typeof getRenderClient>>,
+  userId: string,
+  venueId: string,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("module_key")
+    .eq("user_id", userId)
+    .eq("venue_id", venueId)
+    .in("module_key", [...BADGED_MODULE_KEYS])
+    .is("read_at", null)
+    .is("archived_at", null)
+    .limit(1000);
+  if (error) return counts;
+  for (const row of data ?? []) {
+    const key = row.module_key as string;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
 }
 
 export async function loadModulesHubContext(options?: {
@@ -196,6 +230,7 @@ export async function loadModulesHubContext(options?: {
 
   const perms = (permissions ?? []) as UserPermission[];
   const admin = isAppAdmin(perms);
+  const badgeCounts = await loadAppBadgeCounts(supabase, user.id, venue.id);
   const venueModuleRows = venueModules ?? [];
   const isGlobal = Boolean((venue as Venue).is_global);
 
@@ -208,6 +243,10 @@ export async function loadModulesHubContext(options?: {
       admin,
       appStateMap,
       asSettings,
+    ).map((item) =>
+      !asSettings && item.clickable && badgeCounts.get(item.key)
+        ? { ...item, badgeCount: badgeCounts.get(item.key) }
+        : item,
     );
 
   return {

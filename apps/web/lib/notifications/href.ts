@@ -29,6 +29,14 @@ export function notificationCanonicalHref(n: {
   if (n.module_key === "mobile_app" && n.entity === "mobile_app") {
     return "/install?reinstall=1";
   }
+  if (n.module_key === "team_connect" && n.entity === "connect_post") {
+    // entity_id = "<groupId>:<postId>"
+    const [groupId, postId] = n.entity_id.split(":");
+    if (groupId && postId) return `/connect/groups/${groupId}#post-${postId}`;
+  }
+  if (n.module_key === "team_connect" && n.entity === "chat_conversation") {
+    return `/connect/chats/${n.entity_id}`;
+  }
   return null;
 }
 

@@ -24,7 +24,9 @@ import {
   LineChart,
   MessageSquareHeart,
   MessageSquareQuote,
+  MessageCircle,
   MessagesSquare,
+  Newspaper,
   Network,
   ScanFace,
   Percent,
@@ -462,6 +464,29 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         href: "/guests-intel/settings",
         icon: Settings,
       },
+    ],
+  },
+  {
+    moduleKey: "team_connect",
+    basePath: "/connect",
+    label: "Connecteam",
+    icon: MessagesSquare,
+    items: [
+      {
+        label: "Feed",
+        href: "/connect",
+        exact: true,
+        icon: Newspaper,
+      },
+      {
+        label: "Chats",
+        href: "/connect/chats",
+        activePathPrefix: "/connect/chats",
+        icon: MessageCircle,
+      },
+    ],
+    bottomItems: [
+      { label: "Settings", href: "/connect/settings", icon: Settings },
     ],
   },
   {

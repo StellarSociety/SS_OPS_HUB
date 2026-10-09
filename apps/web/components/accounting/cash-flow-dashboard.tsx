@@ -7,17 +7,25 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   XAxis,
   YAxis,
 } from "recharts";
 import { Card } from "@/components/ui/card";
 import {
+  OVERDUE_BUCKET_LABELS,
+  topExpenses,
+  type CashFlowApData,
+  type PayablesSummary,
+} from "@/lib/accounting/cash-flow-payables";
+import {
   CASH_FLOW_PERIODS,
   EXPENSE_PERIODS,
   expenseEmptyMessage,
   formatCashFlowAmount,
   resolveCashFlowWindow,
+  resolveExpenseMonths,
   type CashFlowPeriod,
   type ExpensePeriod,
   type MonthTick,
@@ -49,13 +57,6 @@ const PAYABLE_ACTIONS = [
   "New Recurring Bill",
 ] as const;
 
-const OVERDUE_BUCKETS = [
-  "1–15 Days",
-  "16–30 Days",
-  "31–45 Days",
-  "Above 45 Days",
-] as const;
-
 type Basis = "accrual" | "cash";
 
 type Props = {
@@ -63,9 +64,13 @@ type Props = {
   asOf: string;
   /** Daily gross sales. These totals are receivables and income. */
   revenueDays?: AccountingRevenueDay[];
+  /** Posted supplier bills: payables, outgoing cash and expenses. */
+  ap: CashFlowApData;
 };
 
-export function CashFlowDashboard({ asOf, revenueDays = [] }: Props) {
+const NO_RECEIVABLES_OVERDUE: PayablesSummary["overdueBuckets"] = [0, 0, 0, 0];
+
+export function CashFlowDashboard({ asOf, revenueDays = [], ap }: Props) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [cashPeriod, setCashPeriod] = useState<CashFlowPeriod>("this-fiscal-year");
   const [incomePeriod, setIncomePeriod] =
@@ -88,7 +93,18 @@ export function CashFlowDashboard({ asOf, revenueDays = [] }: Props) {
     2,
   );
   const receivablesGs = sumGsForMonthTicks(revenueDays, receivableWindow.points);
-  const cashCumulativeGs = cumulative(cashMonthlyGs);
+  const cashMonthlyBills = billsByMonthTick(ap, cashWindow.points);
+  const cashOutgoing = sumValues(cashMonthlyBills);
+  const cashClosing = roundMoney(cashIncomingGs - cashOutgoing, 2);
+  const cashBalance = cumulative(
+    cashMonthlyGs.map((value, index) => value - (cashMonthlyBills[index] ?? 0)),
+  );
+  const incomeMonthlyBills = billsByMonthTick(ap, incomeWindow.points);
+  const expenseTotal = sumValues(incomeMonthlyBills);
+  const topExpenseRows = topExpenses(
+    ap.expensesNetByMonth,
+    resolveExpenseMonths(expensePeriod, asOf).map((point) => point.key),
+  );
 
   function toggleMenu(id: string) {
     setOpenMenu((current) => (current === id ? null : id));
@@ -112,6 +128,7 @@ export function CashFlowDashboard({ asOf, revenueDays = [] }: Props) {
           total={receivablesGs}
           current={receivablesGs}
           overdue={0}
+          overdueBuckets={NO_RECEIVABLES_OVERDUE}
         />
         <BalanceCard
           title="Total Payables"
@@ -121,9 +138,10 @@ export function CashFlowDashboard({ asOf, revenueDays = [] }: Props) {
           onToggleMenu={toggleMenu}
           onCloseMenu={closeMenu}
           actions={PAYABLE_ACTIONS}
-          total={0}
-          current={0}
-          overdue={0}
+          total={ap.payables.total}
+          current={ap.payables.current}
+          overdue={ap.payables.overdue}
+          overdueBuckets={ap.payables.overdueBuckets}
         />
       </div>
 
@@ -147,16 +165,20 @@ export function CashFlowDashboard({ asOf, revenueDays = [] }: Props) {
         <div className="grid gap-4 px-4 py-4 md:grid-cols-[minmax(0,1fr)_13.5rem] md:items-center md:px-5">
           <MonthSeriesChart
             points={cashWindow.points}
-            values={cashCumulativeGs}
-            stroke={INCOMING}
+            series={[{ name: "Cash", values: cashBalance, stroke: CURRENT }]}
           />
           <CashFlowLegend
             openingLabel={cashWindow.openingLabel}
             closingLabel={cashWindow.closingLabel}
             incoming={cashIncomingGs}
-            closing={cashIncomingGs}
+            outgoing={cashOutgoing}
+            closing={cashClosing}
           />
         </div>
+        <p className="px-4 pb-4 text-xs text-black/40 md:px-5">
+          * Incoming is gross daily sales. Outgoing is posted supplier bills
+          (incl. VAT) by invoice date, until supplier payments are recorded.
+        </p>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
@@ -181,19 +203,26 @@ export function CashFlowDashboard({ asOf, revenueDays = [] }: Props) {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex flex-wrap gap-8">
                 <AmountStat label="Total Income" color={INCOMING} amount={incomeGs} />
-                <AmountStat label="Total Expenses" color={OUTGOING} amount={0} />
+                <AmountStat
+                  label="Total Expenses"
+                  color={OUTGOING}
+                  amount={expenseTotal}
+                />
               </div>
               <BasisToggle basis={basis} onChange={setBasis} />
             </div>
             <div className="mt-4">
               <MonthSeriesChart
                 points={incomeWindow.points}
-                values={incomeMonthlyGs}
-                stroke={INCOMING}
+                series={[
+                  { name: "Income", values: incomeMonthlyGs, stroke: INCOMING },
+                  { name: "Expenses", values: incomeMonthlyBills, stroke: OUTGOING },
+                ]}
               />
             </div>
             <p className="mt-3 text-xs text-black/40">
               * Income is gross daily sales (GS) from Revenue, inclusive of tax.
+              Expenses are posted supplier bills, inclusive of VAT.
             </p>
           </div>
         </Card>
@@ -215,11 +244,15 @@ export function CashFlowDashboard({ asOf, revenueDays = [] }: Props) {
               }}
             />
           </WidgetHeader>
-          <div className="flex flex-1 items-center justify-center px-6 py-16">
-            <p className="text-center text-sm text-black/40">
-              {expenseEmptyMessage(expensePeriod)}
-            </p>
-          </div>
+          {topExpenseRows.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center px-6 py-16">
+              <p className="text-center text-sm text-black/40">
+                {expenseEmptyMessage(expensePeriod)}
+              </p>
+            </div>
+          ) : (
+            <TopExpensesList rows={topExpenseRows} />
+          )}
         </Card>
       </div>
     </div>
@@ -237,6 +270,7 @@ function BalanceCard({
   total,
   current,
   overdue,
+  overdueBuckets,
 }: {
   title: string;
   subtitle: string;
@@ -248,6 +282,7 @@ function BalanceCard({
   total: number;
   current: number;
   overdue: number;
+  overdueBuckets: number[];
 }) {
   const overdueMenuId = `${menuId}-overdue`;
   const currentPct = total > 0 ? (current / total) * 100 : 0;
@@ -311,13 +346,13 @@ function BalanceCard({
                 onClick={() => onToggleMenu(overdueMenuId)}
               >
                 <Dot color={OVERDUE} />
-                Overdue : {formatCashFlowAmount(0)}
+                Overdue : {formatCashFlowAmount(overdue)}
                 <ChevronDown className="size-3.5 text-black/45" />
               </button>
             }
           >
             <div className="w-56 py-1" role="menu">
-              {OVERDUE_BUCKETS.map((bucket) => (
+              {OVERDUE_BUCKET_LABELS.map((bucket, index) => (
                 <div
                   key={bucket}
                   className="flex items-center justify-between px-3 py-2 text-sm text-[#3D421F]"
@@ -325,7 +360,7 @@ function BalanceCard({
                 >
                   <span>{bucket}</span>
                   <span className="tabular-nums text-black/70">
-                    {formatCashFlowAmount(0)}
+                    {formatCashFlowAmount(overdueBuckets[index] ?? 0)}
                   </span>
                 </div>
               ))}
@@ -626,11 +661,13 @@ function CashFlowLegend({
   openingLabel,
   closingLabel,
   incoming,
+  outgoing,
   closing,
 }: {
   openingLabel: string;
   closingLabel: string;
   incoming: number;
+  outgoing: number;
   closing: number;
 }) {
   return (
@@ -648,7 +685,7 @@ function CashFlowLegend({
       <LegendRow
         color={OUTGOING}
         label="Outgoing"
-        value={`${formatCashFlowAmount(0)} ( - )`}
+        value={`${formatCashFlowAmount(outgoing)} ( - )`}
       />
       <LegendRow
         color={CURRENT}
@@ -681,25 +718,31 @@ function LegendRow({
   );
 }
 
+type ChartSeries = { name: string; values: number[]; stroke: string };
+
 function MonthSeriesChart({
   points,
-  values,
-  stroke,
+  series,
 }: {
   points: MonthTick[];
-  values: number[];
-  stroke: string;
+  series: ChartSeries[];
 }) {
-  const data = points.map((point, index) => ({
-    label: `${point.month}|${point.year}`,
-    value: values[index] ?? 0,
-  }));
-  const peak = data.reduce((max, point) => Math.max(max, point.value), 0);
-  const empty = peak <= 0;
-  const max = empty ? EMPTY_AXIS_MAX : axisMax(peak);
+  const data = points.map((point, index) => {
+    const row: Record<string, string | number> = {
+      label: `${point.month}|${point.year}`,
+    };
+    for (const line of series) row[line.name] = line.values[index] ?? 0;
+    return row;
+  });
+  const all = series.flatMap((line) => line.values);
+  const peak = Math.max(0, ...all);
+  const trough = Math.min(0, ...all);
+  const empty = peak <= 0 && trough >= 0;
+  const max = empty ? EMPTY_AXIS_MAX : peak > 0 ? axisMax(peak) : 0;
+  const min = trough < 0 ? -axisMax(-trough) : 0;
   const ticks = empty
     ? [0, 1000, 2000, 3000, 4000, 5000]
-    : [0, 0.25, 0.5, 0.75, 1].map((step) => Math.round(max * step));
+    : axisTicks(min, max);
 
   return (
     <div className="h-64 w-full">
@@ -723,7 +766,7 @@ function MonthSeriesChart({
             tick={renderMonthTick}
           />
           <YAxis
-            domain={[0, max]}
+            domain={[min, max]}
             ticks={ticks}
             tickFormatter={formatAxisTick}
             tick={{ fontSize: 11, fill: "rgba(61,66,31,0.55)" }}
@@ -732,18 +775,85 @@ function MonthSeriesChart({
             width={48}
             allowDataOverflow
           />
-          <Line
-            dataKey="value"
-            stroke={empty ? "transparent" : stroke}
-            strokeWidth={2}
-            dot={empty ? false : { r: 3, fill: stroke, strokeWidth: 0 }}
-            activeDot={false}
-            isAnimationActive={false}
-            legendType="none"
-          />
+          {min < 0 ? (
+            <ReferenceLine y={0} stroke="rgba(0,0,0,0.25)" />
+          ) : null}
+          {series.map((line) => (
+            <Line
+              key={line.name}
+              dataKey={line.name}
+              stroke={empty ? "transparent" : line.stroke}
+              strokeWidth={2}
+              dot={empty ? false : { r: 3, fill: line.stroke, strokeWidth: 0 }}
+              activeDot={false}
+              isAnimationActive={false}
+              legendType="none"
+            />
+          ))}
         </LineChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+function axisTicks(min: number, max: number): number[] {
+  const span = max - min;
+  const step = span / 4;
+  return [0, 1, 2, 3, 4].map((index) => Math.round(min + step * index));
+}
+
+function TopExpensesList({
+  rows,
+}: {
+  rows: { label: string; amount: number }[];
+}) {
+  const total = rows.reduce((sum, row) => sum + row.amount, 0);
+  const largest = rows[0]?.amount ?? 0;
+  return (
+    <div className="flex flex-1 flex-col px-4 py-4 md:px-5">
+      <p className="text-sm text-black/50">Net of VAT, by ledger account</p>
+      <p className="mt-1 text-xl font-semibold tabular-nums tracking-tight text-[#3D421F]">
+        {formatCashFlowAmount(total)}
+      </p>
+      <ul className="mt-4 space-y-3">
+        {rows.map((row) => (
+          <li key={row.label}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate text-[#3D421F]">{row.label}</span>
+              <span className="shrink-0 tabular-nums text-black/70">
+                {formatCashFlowAmount(row.amount)}
+                <span className="ml-2 inline-block w-10 text-right text-xs text-black/40">
+                  {total > 0 ? Math.round((row.amount / total) * 100) : 0}%
+                </span>
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-black/5">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${largest > 0 ? (row.amount / largest) * 100 : 0}%`,
+                  backgroundColor: OUTGOING,
+                }}
+              />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function billsByMonthTick(
+  ap: CashFlowApData,
+  points: Pick<MonthTick, "key">[],
+): number[] {
+  return points.map((point) => ap.billsGrossByMonth[point.key] ?? 0);
+}
+
+function sumValues(values: number[]): number {
+  return roundMoney(
+    values.reduce((sum, value) => sum + value, 0),
+    2,
   );
 }
 
@@ -783,6 +893,7 @@ function renderMonthTick(props: {
 
 function formatAxisTick(value: number): string {
   if (value === 0) return "0";
+  if (value < 0) return `-${formatAxisTick(-value)}`;
   if (Math.abs(value) >= 1_000_000) {
     const millions = value / 1_000_000;
     const rounded = Math.round(millions * 10) / 10;

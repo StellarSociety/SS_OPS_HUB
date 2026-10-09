@@ -16,6 +16,7 @@ const TABS: NotificationsTab[] = [
   "people",
   "approvals",
   "candidates",
+  "social",
   "others",
   "archive",
 ];

@@ -259,6 +259,7 @@ export function MobileWelcomeScreen({
                         href={opensApp?.href}
                         clickable={mod.clickable}
                         blockedReason={mod.blockedReason}
+                        badgeCount={mod.badgeCount}
                         selected={
                           opensApp ? false : selectedKeys.includes(mod.key)
                         }

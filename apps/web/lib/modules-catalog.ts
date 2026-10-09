@@ -80,11 +80,21 @@ export const moduleCatalog: ModuleDef[] = [
   {
     key: "team_connect",
     label: "Connecteam",
-    description: "Internal messages, announcements, and team updates.",
+    description: "Company social feed — groups, posts, comments and celebrations.",
     features: [
-      { key: "messages", label: "Messages" },
-      { key: "announcements", label: "Announcements" },
-      { key: "settings", label: "Settings", settings: true },
+      {
+        key: "feed",
+        label: "Feed",
+        description: "Open the feed. What each person can do inside a group is set by their group role.",
+        href: "/connect",
+      },
+      {
+        key: "settings",
+        label: "Settings",
+        description: "View: see every group. Edit: create groups and manage members in all groups.",
+        href: "/connect/settings",
+        settings: true,
+      },
     ],
   },
   {

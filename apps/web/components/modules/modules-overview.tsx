@@ -15,6 +15,8 @@ export type ModuleGridItem = Omit<ModuleOverviewItem, "status"> & {
   /** Why the tile can't be opened, when it isn't clickable. "access" means the
    * app is live and enabled but the user lacks permission. */
   blockedReason?: "access" | null;
+  /** Unread notifications for this app — shown as a count on the icon. */
+  badgeCount?: number;
 };
 
 export type ModulesOverviewSection = {

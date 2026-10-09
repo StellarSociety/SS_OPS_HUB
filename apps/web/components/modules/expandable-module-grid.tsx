@@ -562,6 +562,7 @@ export function ExpandableModuleGrid({
                 href={mod.href}
                 clickable={mod.clickable}
                 blockedReason={mod.blockedReason}
+                badgeCount={mod.badgeCount}
                 selected={selectedKey === mod.key}
                 onSelect={
                   canExpandModule(mod)

@@ -1270,6 +1270,10 @@ export const HR_SETTINGS_KEYS = {
   payslipLetterhead: "payslip_letterhead",
   boardingEmail: "boarding_email",
   workAnniversaryEmail: "work_anniversary_email",
+  /** Promotion / demotion / increment / decrement letters. */
+  positionSalaryEmail: "position_salary_email",
+  /** Policy templates sent to employees for acknowledgement. */
+  policyTemplates: "policy_templates",
   /** Dedupe map of auto/manual anniversary emails already sent. */
   workAnniversaryEmailSent: "work_anniversary_email_sent",
   updatedDocsRequestEmail: "updated_docs_request_email",

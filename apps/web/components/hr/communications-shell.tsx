@@ -1,6 +1,6 @@
 "use client";
 
-import { MailCheck } from "lucide-react";
+import { MailCheck, ScrollText } from "lucide-react";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { SubNavTab } from "@/components/layout/sub-nav-tab";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
@@ -11,6 +11,11 @@ const TABS = [
     href: "/hr/communications/acknowledgements",
     label: "Acknowledgements",
     icon: MailCheck,
+  },
+  {
+    href: "/hr/communications/policies",
+    label: "Policies Templates",
+    icon: ScrollText,
   },
 ] as const;
 
@@ -26,7 +31,8 @@ export function CommunicationsShell({
       <div className="shrink-0">
         <ModulePageTitle>Communications</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
-          Track employee acknowledgements for emails that require confirmation.
+          Track employee acknowledgements, and send policies for employees to
+          acknowledge.
         </p>
         <hr className="mt-4 border-black/10" />
       </div>

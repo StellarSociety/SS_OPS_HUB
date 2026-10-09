@@ -16,6 +16,10 @@
       "schedule": "15 5 * * *"
     },
     {
+      "path": "/api/cron/position-salary-emails",
+      "schedule": "30 5 * * *"
+    },
+    {
       "path": "/api/cron/sentiment-google",
       "schedule": "0 6 * * *"
     },

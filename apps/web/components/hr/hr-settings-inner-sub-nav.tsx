@@ -34,6 +34,7 @@ import {
   UserRound,
   Users,
   VenusAndMars,
+  TrendingUp,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -51,6 +52,7 @@ import {
   HR_SETTINGS_EMAILS_OTHER_INSURANCE_REQUEST_HREF,
   HR_SETTINGS_EMAILS_OTHER_VISA_REQUEST_HREF,
   HR_SETTINGS_EMAILS_OTHER_HREF,
+  HR_SETTINGS_EMAILS_OTHER_POSITION_SALARY_HREF,
   HR_SETTINGS_EMAILS_OTHER_UNIFORM_TERMS_HREF,
   HR_SETTINGS_EMAILS_OTHER_UPDATED_DOCS_HREF,
   HR_SETTINGS_EMAILS_OTHER_WORK_ANNIVERSARY_HREF,
@@ -363,6 +365,11 @@ const EMAILS_OTHER_TABS: Tab[] = [
     href: HR_SETTINGS_EMAILS_OTHER_WORK_ANNIVERSARY_HREF,
     label: "Work Anniversary",
     icon: PartyPopper,
+  },
+  {
+    href: HR_SETTINGS_EMAILS_OTHER_POSITION_SALARY_HREF,
+    label: "Position & Salary",
+    icon: TrendingUp,
   },
   {
     href: HR_SETTINGS_EMAILS_OTHER_UPDATED_DOCS_HREF,

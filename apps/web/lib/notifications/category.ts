@@ -2,7 +2,7 @@ import type { NotificationRow } from "./types";
 
 /** Notifications page tabs (besides All and Archive). */
 export type NotificationCategory =
-  "people" | "approvals" | "candidates" | "others";
+  "people" | "approvals" | "candidates" | "social" | "others";
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<
   NotificationCategory,
@@ -11,6 +11,7 @@ export const NOTIFICATION_CATEGORY_LABELS: Record<
   people: "People",
   approvals: "Approvals",
   candidates: "Candidates",
+  social: "Feed & Chats",
   others: "Others",
 };
 
@@ -27,6 +28,7 @@ const APPROVAL_ENTITIES = new Set([
  * - Approvals: approval / review / justification workflows (payroll,
  *   schedules, attendance, guest review reports).
  * - People: staff records — document expiries, anniversaries, birthdays.
+ * - Feed & Chats: Connecteam posts, comments, reactions and chat messages.
  * - Others: everything else (app updates, system notices).
  */
 export function notificationCategory(
@@ -34,6 +36,8 @@ export function notificationCategory(
 ): NotificationCategory {
   const type = n.type.toLowerCase();
   const entity = n.entity.toLowerCase();
+
+  if (n.module_key === "team_connect") return "social";
 
   if (type.startsWith("hiring_") || entity.startsWith("hiring")) {
     return "candidates";
