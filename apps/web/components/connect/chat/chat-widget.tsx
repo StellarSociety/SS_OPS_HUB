@@ -3,12 +3,12 @@
 import {
   Archive,
   ArrowLeft,
-  BookUser,
   ExternalLink,
   FileText,
   Loader2,
   MessageCircle,
   MessagesSquare,
+  Newspaper,
   Paperclip,
   Plus,
   Search,
@@ -21,9 +21,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
 import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
+import { ChatWidgetFeed } from "@/components/connect/chat/chat-widget-feed";
 import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { GroupBadge } from "@/components/connect/group-icon";
 import { toast } from "@/components/ui/toast";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
@@ -37,7 +39,9 @@ import {
 import {
   getChatPresence,
   getChatWidgetData,
+  getWidgetFeed,
   type ChatWidgetData,
+  type WidgetFeedData,
 } from "@/lib/actions/connect-chat-widget";
 import { PRESENCE_LABELS, type PresenceStatus } from "@/lib/connect/presence";
 import { PresenceLabel, PresenceRing } from "@/components/connect/presence";
@@ -180,8 +184,13 @@ export function ChatWidget() {
   const [error, setError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
-  /** The people list doubles as the venue Directory. */
-  const [directoryMode, setDirectoryMode] = useState(false);
+  /** The venue feed: every member group's posts, or one group's. */
+  const [feedMode, setFeedMode] = useState(false);
+  const [feedGroupId, setFeedGroupId] = useState<string | null>(null);
+  const [feed, setFeed] = useState<WidgetFeedData | null>(null);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const { venue } = useVenue();
   const venueBadge = venue ? getVenueBadgeUrl(venue) : null;
   const [pickerQuery, setPickerQuery] = useState("");
@@ -189,7 +198,10 @@ export function ChatWidget() {
   const [menu, setMenu] = useState<ChatMenuState>(null);
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const { dragging, dropProps } = useFileDrop(setFile, Boolean(activeId) && !composing);
+  const { dragging, dropProps } = useFileDrop(
+    setFile,
+    Boolean(activeId) && !composing && !feedMode,
+  );
   // Renders nothing until data loads client-side, so reading storage here is hydration-safe.
   const [muted, setMuted] = useState(() => typeof window !== "undefined" && readMuted());
 
@@ -324,6 +336,7 @@ export function ChatWidget() {
   const openChat = useCallback(async (conversationId: string) => {
     setActiveId(conversationId);
     setComposing(false);
+    setFeedMode(false);
     setFile(null);
     setMessages([]);
     setError(null);
@@ -351,6 +364,10 @@ export function ChatWidget() {
     setOpen(next);
     if (next) {
       void load();
+      if (feedMode) {
+        void loadFeed(feedGroupId);
+        return;
+      }
       // Jump straight to the chat with unread messages, or the latest one.
       const current = data?.chats.filter((c) => !c.archived) ?? [];
       const target =
@@ -373,13 +390,35 @@ export function ChatWidget() {
     await openChat(result.id);
   }
 
-  function openDirectory() {
-    startNewChat();
-    setDirectoryMode(true);
+  async function loadFeed(groupId: string | null, before: string | null = null) {
+    if (before) setFeedLoadingMore(true);
+    else setFeedLoading(true);
+    const result = await getWidgetFeed(groupId, before);
+    setFeedLoading(false);
+    setFeedLoadingMore(false);
+    if (!result.ok) {
+      setFeedError(result.error);
+      return;
+    }
+    setFeedError(null);
+    setFeed((prev) =>
+      before && prev
+        ? { ...result.data, posts: [...prev.posts, ...result.data.posts] }
+        : result.data,
+    );
+  }
+
+  function openFeed(groupId: string | null) {
+    setFeedMode(true);
+    setFeedGroupId(groupId);
+    setComposing(false);
+    setShowArchived(false);
+    if (groupId !== feedGroupId) setFeed((prev) => (prev ? { ...prev, posts: [], nextBefore: null } : prev));
+    void loadFeed(groupId);
   }
 
   function startNewChat() {
-    setDirectoryMode(false);
+    setFeedMode(false);
     setComposing(true);
     setActiveId(null);
     setPickerQuery("");
@@ -451,6 +490,8 @@ export function ChatWidget() {
         .some((v) => v!.toLowerCase().includes(pq)),
   );
   const active = data?.chats.find((c) => c.id === activeId) ?? null;
+  const feedTitle = `${venue?.name ?? "Venue"} Feed`;
+  const feedGroup = feedGroupId ? (feed?.groups.find((g) => g.id === feedGroupId) ?? null) : null;
   const nameOf = (userId: string | null) =>
     data?.people.find((p) => p.userId === userId)?.name ?? null;
 
@@ -482,22 +523,65 @@ export function ChatWidget() {
             </button>
             <button
               type="button"
-              onClick={openDirectory}
-              title={`${venue?.name ?? "Venue"} Directory`}
-              aria-label={`${venue?.name ?? "Venue"} Directory`}
+              onClick={() => openFeed(null)}
+              title={feedTitle}
+              aria-label={feedTitle}
+              aria-pressed={feedMode && !feedGroupId}
               className={cn(
                 "relative inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm transition hover:opacity-90",
-                composing && directoryMode && "ring-2 ring-[var(--venue-primary,#818a40)] ring-offset-2 ring-offset-[#F7F8F2]",
+                feedMode && !feedGroupId && "ring-2 ring-[var(--venue-primary,#818a40)] ring-offset-2 ring-offset-[#F7F8F2]",
               )}
             >
               {venueBadge ? (
                 // eslint-disable-next-line @next/next/no-img-element -- venue favicon
                 <img src={venueBadge} alt="" className="h-7 w-7 object-contain" />
               ) : (
-                <BookUser className="h-5 w-5 text-[var(--venue-primary,#818a40)]" />
+                <Newspaper className="h-5 w-5 text-[var(--venue-primary,#818a40)]" />
               )}
             </button>
             <span className="my-0.5 h-px w-8 bg-black/10" aria-hidden />
+            {feedMode ? (
+              <>
+                {(feed?.groups ?? []).map((group) => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    onClick={() => openFeed(group.id)}
+                    title={`${group.name} · ${group.memberCount} members`}
+                    aria-label={group.name}
+                    aria-pressed={feedGroupId === group.id}
+                    className={cn(
+                      "relative inline-flex shrink-0 items-center justify-center rounded-xl p-1 transition",
+                      feedGroupId === group.id ? "bg-[var(--venue-primary,#818a40)]/15" : "hover:bg-black/5",
+                    )}
+                  >
+                    {feedGroupId === group.id ? (
+                      <span
+                        aria-hidden
+                        className="absolute -left-2 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-[var(--venue-primary,#818a40)]"
+                      />
+                    ) : null}
+                    <GroupBadge icon={group.icon} color={group.color} />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedMode(false);
+                    const target = activeId ?? railChats[0]?.id ?? null;
+                    if (target) void openChat(target);
+                    else startNewChat();
+                  }}
+                  title="Back to chats"
+                  aria-label="Back to chats"
+                  className="relative mt-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-black/45 transition hover:bg-black/5 hover:text-[#2B2F16]"
+                >
+                  <MessagesSquare className="h-4 w-4" />
+                  <Badge count={totalUnread} className="absolute -right-1 -top-1" />
+                </button>
+              </>
+            ) : (
+            <>
             {showArchived ? (
               <span className="text-[9px] font-semibold uppercase tracking-wide text-black/45">
                 Archived
@@ -563,15 +647,31 @@ export function ChatWidget() {
                 ) : null}
               </button>
             ) : null}
+            </>
+            )}
           </nav>
 
           <section className="relative flex min-w-0 flex-1 flex-col" {...dropProps}>
             <DropOverlay show={dragging} />
             <header className="flex items-center gap-3 border-b border-black/5 px-4 py-2.5">
-              {composing ? (
-                <p className="flex-1 truncate font-serif text-lg text-[#2B2F16]">
-                  {directoryMode ? `${venue?.name ?? ""} Directory`.trim() : "New chat"}
-                </p>
+              {feedMode ? (
+                <>
+                  {feedGroup ? (
+                    <GroupBadge icon={feedGroup.icon} color={feedGroup.color} size="sm" />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-[#2B2F16]">
+                      {feedGroup?.name ?? feedTitle}
+                    </p>
+                    <p className="truncate text-xs text-black/45">
+                      {feedGroup
+                        ? `${feedGroup.memberCount} members`
+                        : `${feed?.groups.length ?? 0} groups`}
+                    </p>
+                  </div>
+                </>
+              ) : composing ? (
+                <p className="flex-1 truncate font-serif text-lg text-[#2B2F16]">New chat</p>
               ) : active ? (
                 <>
                   <RailAvatar
@@ -611,10 +711,16 @@ export function ChatWidget() {
                 {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
               </button>
               <ScopedLink
-                href={activeId && !composing ? `/connect/chats/${activeId}` : "/connect/chats"}
+                href={
+                  feedMode
+                    ? `/connect/chats/feed${feedGroupId ? `/${feedGroupId}` : ""}`
+                    : activeId && !composing
+                      ? `/connect/chats/${activeId}`
+                      : "/connect/chats"
+                }
                 onClick={() => setOpen(false)}
-                title="Open in Chats"
-                aria-label="Open in Chats"
+                title={feedMode ? "Open the feed" : "Open in Chats"}
+                aria-label={feedMode ? "Open the feed" : "Open in Chats"}
                 className="rounded-full p-2 text-black/50 hover:bg-black/5 hover:text-[#2B2F16]"
               >
                 <ExternalLink className="h-4 w-4" />
@@ -629,13 +735,21 @@ export function ChatWidget() {
               </button>
             </header>
 
-            {composing ? (
+            {feedMode ? (
+              <ChatWidgetFeed
+                feed={feed}
+                loading={feedLoading}
+                loadingMore={feedLoadingMore}
+                error={feedError}
+                showGroup={!feedGroupId}
+                onRefresh={() => void loadFeed(feedGroupId)}
+                onLoadMore={() => void loadFeed(feedGroupId, feed?.nextBefore ?? null)}
+              />
+            ) : composing ? (
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="border-b border-black/5 p-3">
                   <label className="flex items-center gap-2 rounded-full bg-[#F0F2E8] px-3 py-2">
-                    {directoryMode ? null : (
-                      <span className="text-xs font-semibold text-black/50">To:</span>
-                    )}
+                    <span className="text-xs font-semibold text-black/50">To:</span>
                     <Search className="h-4 w-4 text-black/40" aria-hidden />
                     <input
                       autoFocus
@@ -679,8 +793,6 @@ export function ChatWidget() {
                           </span>
                           {startingId === p.userId ? (
                             <Loader2 className="h-4 w-4 animate-spin text-black/40" />
-                          ) : directoryMode ? (
-                            <MessageCircle className="h-4 w-4 shrink-0 text-[var(--venue-primary,#818a40)]" aria-hidden />
                           ) : null}
                         </button>
                       </li>

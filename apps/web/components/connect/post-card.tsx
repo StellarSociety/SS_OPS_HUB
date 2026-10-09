@@ -1,6 +1,15 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
@@ -51,6 +60,18 @@ import {
 } from "@/lib/connect/types";
 import { cn } from "@/lib/utils";
 
+/**
+ * How a post card reloads after a change. Pages use the router; the chat
+ * widget supplies its own refetch since it lives outside the page tree.
+ */
+export const PostRefreshContext = createContext<(() => void) | null>(null);
+
+function usePostRefresh() {
+  const router = useRouter();
+  const custom = useContext(PostRefreshContext);
+  return { refresh: custom ?? (() => router.refresh()) };
+}
+
 const COLLAPSE_AT = 420;
 const COMMENTS_PREVIEW = 2;
 
@@ -63,7 +84,7 @@ export function PostCard({
   me: ConnectPerson | null;
   showGroup: boolean;
 }) {
-  const router = useRouter();
+  const router = usePostRefresh();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -813,7 +834,7 @@ function CommentBubble({
   meId: string | null;
   onReply: () => void;
 }) {
-  const router = useRouter();
+  const router = usePostRefresh();
   const [pending, startTransition] = useTransition();
   const [liked, setLiked] = useState(comment.likedByMe);
   const [likes, setLikes] = useState(comment.likeCount);
@@ -918,7 +939,7 @@ function CommentInput({
   replyTo: ConnectComment | null;
   onClearReply: () => void;
 }) {
-  const router = useRouter();
+  const router = usePostRefresh();
   const [pending, startTransition] = useTransition();
   const [value, setValue] = useState("");
 
