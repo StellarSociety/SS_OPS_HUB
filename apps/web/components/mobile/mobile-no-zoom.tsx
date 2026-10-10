@@ -34,6 +34,8 @@ function syncMobileAppHeight() {
   const open = keyboard > 120;
   root.style.setProperty("--mobile-keyboard-inset", `${open ? keyboard : 0}px`);
   root.style.setProperty("--mobile-keyboard-offset", `${open && vv ? Math.round(vv.offsetTop) : 0}px`);
+  // Lets bars drop their home-indicator padding while the keyboard is up.
+  root.classList.toggle("mobile-keyboard-open", open);
 }
 
 function isEditable(el: Element | null): boolean {
@@ -83,6 +85,7 @@ export function MobileNoZoom() {
       document.removeEventListener("focusout", onFocusChange);
       document.documentElement.style.removeProperty("--mobile-keyboard-inset");
       document.documentElement.style.removeProperty("--mobile-keyboard-offset");
+      document.documentElement.classList.remove("mobile-keyboard-open");
       document.documentElement.style.removeProperty("--mobile-app-height");
       document.documentElement.style.removeProperty("height");
       document.body.style.removeProperty("height");

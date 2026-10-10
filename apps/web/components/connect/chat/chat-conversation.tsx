@@ -1002,7 +1002,7 @@ function Composer({
     "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#2B2F16] shadow-sm ring-1 ring-black/[0.06] transition active:scale-95 hover:bg-black/[0.03]";
 
   return (
-    <div className="border-t border-black/[0.06] bg-[#F7F7F5]/90 px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl">
+    <div className="chat-composer-bar border-t border-black/[0.06] bg-[#F7F7F5]/90 px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl">
       {editing ? (
         <ComposerBanner
           mode="edit"

@@ -1,5 +1,4 @@
 import { MessageCircle } from "lucide-react";
-import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
 import { cn } from "@/lib/utils";
 
 function Bone({ className }: { className?: string }) {
@@ -203,8 +202,8 @@ export function ChatOpeningLoader({ label = "Opening chat…" }: { label?: strin
           <Bone className="h-3 w-20" />
         </div>
       </div>
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-        <ChatBackdrop />
+      {/* Plain chat background colour: no pattern while loading. */}
+      <div className="chat-wallpaper relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         <div className="relative flex flex-col items-center gap-3">
           <span className="relative flex h-20 w-20 items-center justify-center">
             <span className="absolute inset-2 rounded-full bg-white shadow-[0_6px_20px_rgba(61,66,31,0.15)]" />

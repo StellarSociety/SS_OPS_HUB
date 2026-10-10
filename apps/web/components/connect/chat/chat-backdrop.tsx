@@ -28,7 +28,9 @@ export function ChatBackdrop() {
     return (
       <div
         aria-hidden
-        className="chat-wallpaper pointer-events-none absolute inset-0 bg-cover bg-center"
+        // Fixed size anchored to the top: the pattern never rescales when the
+        // chat area changes height (keyboard opening, composer growing).
+        className="chat-wallpaper pointer-events-none absolute inset-0 bg-[length:1400px_auto] bg-top bg-repeat-y"
         style={{ backgroundImage: `url(${wallpaper})` }}
       />
     );
