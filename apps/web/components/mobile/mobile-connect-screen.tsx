@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Archive, MessageCircle, Search, Users, X } from "lucide-react";
+import { MessageCircle, Search, Users } from "lucide-react";
 import { SwipeRow } from "@/components/connect/chat/swipe-row";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
 import { toast } from "@/components/ui/toast";
@@ -15,7 +15,6 @@ import type { ConnectGroup } from "@/lib/connect/types";
 import { mobileConnectConversationHref } from "@/lib/mobile/app-path";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
 import type { Venue } from "@/lib/types/database";
-import { cn } from "@/lib/utils";
 
 type ChatFilter = "all" | "direct" | "groups" | "archived";
 
@@ -69,19 +68,6 @@ export function MobileConnectScreen({ venue, chats: initialChats, meId, onSelect
   }
 
   const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  function toggleSearch() {
-    if (searchOpen) {
-      setSearchOpen(false);
-      setQuery("");
-      return;
-    }
-    setSearchOpen(true);
-    // Focus once the bar has started opening.
-    window.setTimeout(() => searchRef.current?.focus(), 60);
-  }
   const [filter, setFilter] = useState<ChatFilter>("all");
   const unread = chats.reduce((sum, chat) => sum + chat.unreadCount, 0);
   const visibleChats = useMemo(() => {
@@ -109,63 +95,21 @@ export function MobileConnectScreen({ venue, chats: initialChats, meId, onSelect
             </p>
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-1.5">
-          <div className="grid flex-1 grid-cols-3 gap-1 rounded-xl bg-[#F0F2E8] p-1">
-            {FILTERS.filter((item) => item.id !== "archived").map((item) => (
+        <label className="mt-3 flex h-10 items-center gap-2 rounded-xl border border-black/10 bg-[#F7F8F2] px-3 focus-within:border-[var(--venue-primary,#818a40)]">
+          <Search className="h-4 w-4 shrink-0 text-black/40" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search chats"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/35"
+          />
+        </label>
+        <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-[#F0F2E8] p-1">
+            {FILTERS.map((item) => (
               <button key={item.id} type="button" onClick={() => setFilter(item.id)} className={`rounded-lg px-1 py-2 text-xs font-medium ${filter === item.id ? "bg-white text-[#3D421F] shadow-sm" : "text-black/50"}`}>
                 {item.label}
               </button>
             ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setFilter((f) => (f === "archived" ? "all" : "archived"))}
-            aria-pressed={filter === "archived"}
-            aria-label="Archived chats"
-            title="Archived chats"
-            className={cn(
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors",
-              filter === "archived" ? "bg-[var(--venue-primary,#818a40)] text-white" : "bg-[#F0F2E8] text-black/55",
-            )}
-          >
-            <Archive className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={toggleSearch}
-            aria-expanded={searchOpen}
-            aria-controls="mobile-chat-search"
-            aria-label={searchOpen ? "Close search" : "Search chats"}
-            className={cn(
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors",
-              searchOpen ? "bg-[var(--venue-primary,#818a40)] text-white" : "bg-[#F0F2E8] text-black/55",
-            )}
-          >
-            {searchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
-          </button>
-        </div>
-        {/* Slides open under the bar; grid rows animate from 0 to the content height. */}
-        <div
-          id="mobile-chat-search"
-          className={cn(
-            "grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
-            searchOpen ? "mt-3 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0",
-          )}
-          aria-hidden={!searchOpen}
-        >
-          <div className="overflow-hidden">
-            <label className="flex h-10 items-center gap-2 rounded-xl border border-black/10 bg-[#F7F8F2] px-3 focus-within:border-[var(--venue-primary,#818a40)]">
-              <Search className="h-4 w-4 shrink-0 text-black/40" />
-              <input
-                ref={searchRef}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search chats"
-                tabIndex={searchOpen ? 0 : -1}
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/35"
-              />
-            </label>
-          </div>
         </div>
       </header>
 

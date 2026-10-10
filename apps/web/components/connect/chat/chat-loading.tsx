@@ -1,4 +1,3 @@
-import { MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function Bone({ className }: { className?: string }) {
@@ -188,8 +187,8 @@ export function FeedShellSkeleton() {
 
 /**
  * Full-screen "opening chat" state for phones: the chat wallpaper behind a
- * header and composer placeholder, and a chat bubble circled by a sweeping
- * progress ring.
+ * header and composer placeholder. Keep the chat surface plain while the
+ * conversation opens so it does not flash a differently-scaled wallpaper.
  */
 export function ChatOpeningLoader({ label = "Opening chat…" }: { label?: string }) {
   return (
@@ -205,8 +204,7 @@ export function ChatOpeningLoader({ label = "Opening chat…" }: { label?: strin
       {/* Plain chat background colour: no pattern while loading. */}
       <div className="chat-wallpaper relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         <div className="relative flex flex-col items-center gap-3">
-          <span className="relative flex h-20 w-20 items-center justify-center">
-            <span className="absolute inset-2 rounded-full bg-white shadow-[0_6px_20px_rgba(61,66,31,0.15)]" />
+          <span className="relative flex h-12 w-12 items-center justify-center">
             <svg
               viewBox="0 0 48 48"
               className="absolute inset-0 h-full w-full animate-spin text-[var(--venue-primary,#818a40)] [animation-duration:1.1s]"
@@ -224,10 +222,6 @@ export function ChatOpeningLoader({ label = "Opening chat…" }: { label?: strin
                 className="chat-loader-arc"
               />
             </svg>
-            <MessageCircle
-              className="relative h-8 w-8 animate-pulse text-[var(--venue-primary,#818a40)] [animation-duration:1.6s]"
-              strokeWidth={1.9}
-            />
           </span>
           <p className="rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-[#3D421F] shadow-sm backdrop-blur">
             {label}

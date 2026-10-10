@@ -1,6 +1,18 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  Fragment,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+  type Ref,
+} from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Camera, Check, ChevronDown, ChevronUp, Download, FileText, Info, Megaphone, Paperclip, Plus, Search, SendHorizontal, Trash2, X } from "lucide-react";
 import { ChatAvatar } from "@/components/connect/chat/chat-shell";
@@ -115,6 +127,12 @@ export function ChatConversation({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conversationRootRef = useRef<HTMLDivElement>(null);
+  const [phoneComposer, setPhoneComposer] = useState(false);
+
+  useLayoutEffect(() => {
+    setPhoneComposer(Boolean(conversationRootRef.current?.closest(".mobile-app-canvas")));
+  }, []);
 
   const peopleById = useMemo(() => {
     const map = new Map<string, ConnectPerson>();
@@ -360,7 +378,7 @@ export function ChatConversation({
   return (
     // @container: the info panel goes full width when the chat itself is narrow
     // (phones, the simulator, split panes), not based on the window size.
-    <div className="@container relative flex min-h-0 flex-1" {...dropProps}>
+    <div ref={conversationRootRef} className="@container relative flex min-h-0 flex-1" {...dropProps}>
       <DropOverlay show={dragging} />
       <MessageMenu
         menu={menu}
@@ -582,6 +600,7 @@ export function ChatConversation({
             onSaveEdit={saveEdit}
             onCancelEdit={() => setEditing(null)}
             mentionPeople={mentionPeople}
+            phoneComposer={phoneComposer}
           />
         ) : (
           <p className="flex items-center justify-center gap-2 border-t border-black/5 px-4 py-4 text-sm text-black/55">
@@ -910,6 +929,7 @@ function Composer({
   onSaveEdit,
   onCancelEdit,
   mentionPeople,
+  phoneComposer,
 }: {
   /** Chat members who can be @mentioned. */
   mentionPeople: ConnectPerson[];
@@ -926,13 +946,14 @@ function Composer({
   editing: UiMessage | null;
   onSaveEdit: (body: string) => Promise<boolean>;
   onCancelEdit: () => void;
+  phoneComposer: boolean;
 }) {
   // Remounted (keyed) when editing starts, so the text starts as the message.
   const [text, setText] = useState(editing ? decodeMentions(editing.body) : "");
   const [saving, setSaving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
-  const textRef = useRef<HTMLTextAreaElement>(null);
+  const textRef = useRef<HTMLTextAreaElement | HTMLDivElement>(null);
 
   // Desktop: ready to type on open. Phone app: don't pop the keyboard up
   // until the user taps the field (or starts a reply).
@@ -999,10 +1020,26 @@ function Composer({
 
   // iOS-style bar: round buttons and a pill that grows only with its text.
   const roundButton =
-    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#2B2F16] shadow-sm ring-1 ring-black/[0.06] transition active:scale-95 hover:bg-black/[0.03]";
+    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[#2B2F16] shadow-sm ring-1 ring-black/[0.06] transition active:scale-95 hover:bg-black/[0.03]";
+
+  function handleComposerKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.nativeEvent.isComposing &&
+      !isPhoneComposer(e.currentTarget)
+    ) {
+      e.preventDefault();
+      send();
+    }
+    if (e.key === "Escape") {
+      if (editing) onCancelEdit();
+      else if (replyTo) onCancelReply();
+    }
+  }
 
   return (
-    <div className="chat-composer-bar border-t border-black/[0.06] bg-[#F7F7F5]/90 px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl">
+    <div className="chat-composer-bar border-t border-black/[0.06] bg-[#F7F7F5]/90 px-2 pb-[max(4px,env(safe-area-inset-bottom))] pt-1 backdrop-blur-xl">
       {editing ? (
         <ComposerBanner
           mode="edit"
@@ -1023,7 +1060,7 @@ function Composer({
             aria-label="Attach a photo or file"
             title="Attach a photo or file"
           >
-            <Plus className="h-5 w-5" strokeWidth={2} />
+          <Plus className="h-[18px] w-[18px]" strokeWidth={2} />
           </button>
         ) : null}
         <input
@@ -1049,43 +1086,38 @@ function Composer({
             pickFile(picked);
           }}
         />
-        <div className="flex min-h-9 min-w-0 flex-1 items-center rounded-[20px] bg-white px-3.5 ring-1 ring-black/[0.08] focus-within:ring-[var(--venue-primary,#818a40)]/40">
-          <MentionTextarea
-            ref={textRef}
-            value={text}
-            onValueChange={setText}
-            people={mentionPeople}
-            wrapperClassName="w-full"
-            onKeyDown={(e) => {
-              // Desktop: Enter sends (Shift+Enter = new line). Phones: Return is
-              // a new line, like WhatsApp — send with the button.
-              if (
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing &&
-                !isPhoneComposer(e.currentTarget)
-              ) {
-                e.preventDefault();
-                send();
-              }
-              if (e.key === "Escape") {
-                if (editing) onCancelEdit();
-                else if (replyTo) onCancelReply();
-              }
-            }}
-            enterKeyHint="enter"
-            rows={1}
-            maxLength={CHAT_MAX_MESSAGE_CHARS}
-            placeholder={editing ? "Edit message" : "Message"}
-            className="block max-h-32 resize-none bg-transparent py-[7px] text-[16px] leading-[22px] text-[#2B2F16] outline-none placeholder:text-black/35 [field-sizing:content]"
-          />
+        <div className="flex min-h-8 min-w-0 flex-1 items-center rounded-[18px] bg-white px-3 ring-1 ring-black/[0.08] focus-within:ring-[var(--venue-primary,#818a40)]/40">
+          {phoneComposer ? (
+            <MobileChatEditor
+              ref={textRef as Ref<HTMLDivElement>}
+              value={text}
+              onValueChange={setText}
+              onKeyDown={handleComposerKeyDown}
+              maxLength={CHAT_MAX_MESSAGE_CHARS}
+              placeholder={editing ? "Edit message" : "Message"}
+            />
+          ) : (
+            <MentionTextarea
+              ref={textRef as Ref<HTMLTextAreaElement>}
+              value={text}
+              onValueChange={setText}
+              people={mentionPeople}
+              wrapperClassName="w-full"
+              onKeyDown={handleComposerKeyDown}
+              enterKeyHint="enter"
+              rows={1}
+              maxLength={CHAT_MAX_MESSAGE_CHARS}
+              placeholder={editing ? "Edit message" : "Message"}
+              className="block max-h-32 resize-none bg-transparent py-[5px] text-[16px] leading-[22px] text-[#2B2F16] outline-none placeholder:text-black/35 [field-sizing:content]"
+            />
+          )}
         </div>
         {hasContent || editing ? (
           <button
             type="button"
             onClick={send}
             disabled={!hasContent}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-sm transition active:scale-95 disabled:opacity-40"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-sm transition active:scale-95 disabled:opacity-40"
             aria-label={editing ? "Save" : "Send"}
           >
             {editing ? <Check className="h-5 w-5" strokeWidth={2.5} /> : <SendHorizontal className="h-[18px] w-[18px]" />}
@@ -1098,13 +1130,52 @@ function Composer({
             aria-label="Take a photo"
             title="Take a photo"
           >
-            <Camera className="h-5 w-5" strokeWidth={1.9} />
+            <Camera className="h-[18px] w-[18px]" strokeWidth={1.9} />
           </button>
         )}
       </div>
     </div>
   );
 }
+
+const MobileChatEditor = forwardRef<HTMLDivElement, {
+  value: string;
+  onValueChange: (value: string) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
+  maxLength: number;
+  placeholder: string;
+}>(function MobileChatEditor({ value, onValueChange, onKeyDown, maxLength, placeholder }, ref) {
+  const innerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const node = innerRef.current;
+    if (node && node.textContent !== value) node.textContent = value;
+  }, [value]);
+
+  return (
+    <div
+      ref={(node) => {
+        innerRef.current = node;
+        if (typeof ref === "function") ref(node);
+        else if (ref) ref.current = node;
+      }}
+      role="textbox"
+      aria-multiline="true"
+      contentEditable
+      suppressContentEditableWarning
+      enterKeyHint="enter"
+      data-placeholder={placeholder}
+      onInput={(event) => {
+        const node = event.currentTarget;
+        const next = (node.innerText || "").replace(/\n$/, "").slice(0, maxLength);
+        if (node.innerText !== next) node.innerText = next;
+        onValueChange(next);
+      }}
+      onKeyDown={onKeyDown}
+      className="max-h-32 min-h-[32px] w-full overflow-y-auto bg-transparent py-[5px] text-[16px] leading-[22px] text-[#2B2F16] outline-none empty:before:pointer-events-none empty:before:text-black/35 empty:before:content-[attr(data-placeholder)]"
+    />
+  );
+});
 
 /** The file waiting to be sent: a thumbnail for photos, otherwise its name. */
 function AttachmentChip({ file, onRemove }: { file: File; onRemove: () => void }) {

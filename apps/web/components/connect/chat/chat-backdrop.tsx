@@ -30,8 +30,12 @@ export function ChatBackdrop() {
         aria-hidden
         // Fixed size anchored to the top: the pattern never rescales when the
         // chat area changes height (keyboard opening, composer growing).
-        className="chat-wallpaper pointer-events-none absolute inset-0 bg-[length:1400px_auto] bg-top bg-repeat-y"
-        style={{ backgroundImage: `url(${wallpaper})` }}
+        className="chat-wallpaper pointer-events-none absolute inset-0 bg-left-top bg-repeat-y"
+        style={{
+          backgroundImage: `url(${wallpaper})`,
+          backgroundSize: "1400px auto",
+          backgroundPosition: "left top",
+        }}
       />
     );
   }

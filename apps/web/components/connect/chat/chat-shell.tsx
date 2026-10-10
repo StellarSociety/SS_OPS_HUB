@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Archive,
   ArrowLeft,
   BookUser,
   MessageCircle,
@@ -124,6 +123,15 @@ export function ChatShell({
   const [dialog, setDialog] = useState<"direct" | "group" | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [menu, setMenu] = useState<ChatMenuState>(null);
+
+  // A wide two-pane messenger should open with useful content instead of a
+  // blank conversation pane. Phones keep the list-first interaction.
+  useEffect(() => {
+    if (segment || chats.length === 0) return;
+    if (!window.matchMedia("(min-width: 768px)").matches) return;
+    const first = chats.find((chat) => !chat.archived) ?? chats[0];
+    if (first) router.replace(toScopedHref(`/connect/chats/${first.id}`, scope, slug));
+  }, [chats, router, scope, segment, slug]);
 
   // Extra chat windows opened side by side (right-click → Open side by side).
   // The shell lives in the Chats layout, so these stay open while you switch chats.
@@ -256,7 +264,6 @@ export function ChatShell({
       .filter((c) => kindFilter === "all" || c.kind === kindFilter)
       .filter((c) => !q || c.title.toLowerCase().includes(q));
   }, [chats, query, kindFilter, showArchived]);
-  const archivedCount = chats.filter((c) => c.archived).length;
   const totalUnreadChats = chats.filter((c) => c.unreadCount > 0 && !c.archived).length;
   const visibleGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -349,29 +356,37 @@ export function ChatShell({
             ) : null}
           </div>
           <div className={cn("flex items-center gap-1.5", feedOpen && "hidden")}>
-          <div className="grid flex-1 grid-cols-3 gap-1 rounded-full bg-[#F0F2E8] p-1" role="tablist" aria-label="Filter chats">
+          <div className="grid flex-1 grid-cols-4 gap-1 rounded-full bg-[#F0F2E8] p-1" role="tablist" aria-label="Filter chats">
             {(
               [
                 ["all", "All"],
                 ["direct", "Direct"],
                 ["group", "Groups"],
+                ["archived", "Archived"],
               ] as const
             ).map(([key, label]) => (
               <button
                 key={key}
                 type="button"
                 role="tab"
-                aria-selected={kindFilter === key}
-                onClick={() => setKindFilter(key)}
+                aria-selected={key === "archived" ? showArchived : !showArchived && kindFilter === key}
+                onClick={() => {
+                  if (key === "archived") {
+                    setShowArchived(true);
+                    return;
+                  }
+                  setShowArchived(false);
+                  setKindFilter(key);
+                }}
                 className={cn(
                   "flex items-center justify-center gap-1.5 rounded-full py-1.5 text-[13px] font-medium",
-                  kindFilter === key
+                  (key === "archived" ? showArchived : !showArchived && kindFilter === key)
                     ? "bg-white text-[#2B2F16] shadow-sm"
                     : "text-black/55 hover:text-black/75",
                 )}
               >
                 {label}
-                {unreadByKind[key] > 0 ? (
+                {key !== "archived" && unreadByKind[key] > 0 ? (
                   <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#E5484D] px-1 text-[10px] font-semibold text-white">
                     {unreadByKind[key]}
                   </span>
@@ -379,27 +394,7 @@ export function ChatShell({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => setShowArchived((v) => !v)}
-            aria-pressed={showArchived}
-            title={showArchived ? "Back to chats" : "Archived chats"}
-            aria-label={showArchived ? "Back to chats" : `Archived chats (${archivedCount})`}
-            className={cn(
-              "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition",
-              showArchived
-                ? "bg-[var(--venue-primary,#818a40)] text-white"
-                : "bg-[#F0F2E8] text-black/55 hover:text-[#2B2F16]",
-            )}
-          >
-            <Archive className="h-4 w-4" />
-            {!showArchived && archivedCount > 0 ? (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-black/55 px-1 text-[10px] font-semibold text-white">
-                {archivedCount}
-              </span>
-            ) : null}
-          </button>
-          </div>
+        </div>
         </div>
 
         {showArchived ? (

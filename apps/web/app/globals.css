@@ -105,7 +105,7 @@ html.mobile-app-no-zoom body {
 /* With the keyboard up there is no home indicator to clear: keep the chat
    bar tight against the keyboard, like WhatsApp. */
 .mobile-keyboard-open .chat-composer-bar {
-  padding-bottom: 6px;
+  padding-bottom: 4px;
 }
 
 .mobile-app-frame {
