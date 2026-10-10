@@ -36,6 +36,11 @@ export function VenueProvider({ children, initialVenue = null }: VenueProviderPr
   );
 }
 
+/** Like useVenue, but null outside a VenueProvider (e.g. route loading screens). */
+export function useOptionalVenue() {
+  return useContext(VenueContext);
+}
+
 export function useVenue() {
   const context = useContext(VenueContext);
   if (!context) {

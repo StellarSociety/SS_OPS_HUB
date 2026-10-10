@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { useVenue } from "@/components/providers/venue-provider";
+import { useOptionalVenue } from "@/components/providers/venue-provider";
 import { getVenueBadgeUrl } from "@/lib/venue/branding";
 
 /** Pattern tweaks: tilt (degrees, negative = left), size and colour strength. */
@@ -19,7 +19,7 @@ const VENUE_WALLPAPERS: Record<string, string> = {
  * bubbles plus the venue favicon on one repeating, tilted tile. Sits behind the scrolling messages and does not move with them.
  */
 export function ChatBackdrop() {
-  const { venue } = useVenue();
+  const venue = useOptionalVenue()?.venue ?? null;
   const badge = venue ? getVenueBadgeUrl(venue) : null;
   const patternId = `chat-pattern-${useId().replace(/:/g, "")}`;
   const wallpaper = venue?.slug ? VENUE_WALLPAPERS[venue.slug] : undefined;

@@ -1,8 +1,8 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ChatConversation } from "@/components/connect/chat/chat-conversation";
+import { ChatOpeningLoader } from "@/components/connect/chat/chat-loading";
 import { loadPreviewChat } from "@/lib/actions/mobile-preview-connect";
 
 type Loaded = Awaited<ReturnType<typeof loadPreviewChat>>;
@@ -38,14 +38,7 @@ export function SimulatorChat({
 
   const result = state?.key === key ? state.result : null;
 
-  if (!result) {
-    return (
-      <div className="flex h-full items-center justify-center bg-white text-sm text-black/45">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Opening chat…
-      </div>
-    );
-  }
+  if (!result) return <ChatOpeningLoader />;
   if (!result.ok) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 bg-white px-8 text-center text-sm text-black/55">

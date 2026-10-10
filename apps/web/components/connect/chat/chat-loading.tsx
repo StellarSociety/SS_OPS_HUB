@@ -1,3 +1,5 @@
+import { MessageCircle } from "lucide-react";
+import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
 import { cn } from "@/lib/utils";
 
 function Bone({ className }: { className?: string }) {
@@ -181,6 +183,63 @@ export function FeedShellSkeleton() {
       <section className="flex min-h-0 min-w-0">
         <FeedPaneSkeleton />
       </section>
+    </div>
+  );
+}
+
+/**
+ * Full-screen "opening chat" state for phones: the chat wallpaper behind a
+ * header and composer placeholder, and a chat bubble circled by a sweeping
+ * progress ring.
+ */
+export function ChatOpeningLoader({ label = "Opening chat…" }: { label?: string }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-white" aria-busy aria-label={label}>
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-black/5 px-4">
+        <Bone className="h-6 w-6" />
+        <Bone className="h-11 w-11" />
+        <div className="space-y-2">
+          <Bone className="h-3.5 w-32" />
+          <Bone className="h-3 w-20" />
+        </div>
+      </div>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+        <ChatBackdrop />
+        <div className="relative flex flex-col items-center gap-3">
+          <span className="relative flex h-20 w-20 items-center justify-center">
+            <span className="absolute inset-2 rounded-full bg-white shadow-[0_6px_20px_rgba(61,66,31,0.15)]" />
+            <svg
+              viewBox="0 0 48 48"
+              className="absolute inset-0 h-full w-full animate-spin text-[var(--venue-primary,#818a40)] [animation-duration:1.1s]"
+              aria-hidden
+            >
+              <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" strokeOpacity="0.15" strokeWidth="3" />
+              <circle
+                cx="24"
+                cy="24"
+                r="21"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                className="chat-loader-arc"
+              />
+            </svg>
+            <MessageCircle
+              className="relative h-8 w-8 animate-pulse text-[var(--venue-primary,#818a40)] [animation-duration:1.6s]"
+              strokeWidth={1.9}
+            />
+          </span>
+          <p className="rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-[#3D421F] shadow-sm backdrop-blur">
+            {label}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 border-t border-black/[0.06] bg-[#F7F7F5] px-2 py-1.5">
+        <Bone className="h-9 w-9" />
+        <Bone className="h-9 flex-1 rounded-[20px] bg-white" />
+        <Bone className="h-9 w-9" />
+      </div>
     </div>
   );
 }

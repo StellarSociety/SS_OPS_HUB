@@ -358,7 +358,9 @@ export function ChatConversation({
   }, [currentMatchId]);
 
   return (
-    <div className="relative flex min-h-0 flex-1" {...dropProps}>
+    // @container: the info panel goes full width when the chat itself is narrow
+    // (phones, the simulator, split panes), not based on the window size.
+    <div className="@container relative flex min-h-0 flex-1" {...dropProps}>
       <DropOverlay show={dragging} />
       <MessageMenu
         menu={menu}

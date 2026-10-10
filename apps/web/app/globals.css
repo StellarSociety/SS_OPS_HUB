@@ -633,3 +633,35 @@ html.mobile-app-no-zoom *::-webkit-scrollbar {
 .liquid-glass > * {
   position: relative;
 }
+
+/* Chat info panel sliding in over a narrow chat. */
+@keyframes chat-info-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Chat loader: the arc grows and shrinks while the ring spins. */
+.chat-loader-arc {
+  stroke-dasharray: 30 132;
+  animation: chat-loader-dash 1.4s ease-in-out infinite;
+}
+@keyframes chat-loader-dash {
+  0% {
+    stroke-dasharray: 8 132;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 70 132;
+    stroke-dashoffset: -20;
+  }
+  100% {
+    stroke-dasharray: 8 132;
+    stroke-dashoffset: -132;
+  }
+}

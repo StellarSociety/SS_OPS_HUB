@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Briefcase,
@@ -14,6 +14,7 @@ import {
   ShieldOff,
   Trash2,
   UserMinus,
+  Users,
   UserPlus,
   X,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { ChatAvatar } from "@/components/connect/chat/chat-shell";
 import { ChatModal } from "@/components/connect/chat/chat-modal";
 import { GroupChatForm } from "@/components/connect/chat/group-chat-form";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { GroupBadge } from "@/components/connect/group-icon";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
 import { Button } from "@/components/ui/button";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
@@ -29,8 +31,10 @@ import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { toast } from "@/components/ui/toast";
 import {
   archiveGroupChat,
+  fetchChatInCommon,
   leaveGroupChat,
   setGroupChatMembers,
+  type ChatInCommon,
 } from "@/lib/actions/connect-chat";
 import type { ChatDetail, ChatMember } from "@/lib/connect/chat-types";
 import type { ConnectPerson } from "@/lib/connect/types";
@@ -80,7 +84,7 @@ export function ChatInfoPanel({
   const backToList = () => router.push(toScopedHref("/connect/chats", scope, slug));
 
   return (
-    <aside className="absolute inset-0 z-10 flex min-h-0 w-full flex-col border-l border-black/5 bg-white md:static md:w-80">
+    <aside className="absolute inset-0 z-20 flex min-h-0 w-full animate-[chat-info-in_260ms_cubic-bezier(0.2,0.8,0.2,1)] flex-col border-l border-black/5 bg-white @2xl:static @2xl:w-80 @2xl:animate-none">
       <header className="flex items-center justify-between border-b border-black/5 px-4 py-3">
         <h2 className="text-[15px] font-semibold text-[#2B2F16]">
           {isGroup ? "Group info" : "Chat info"}
@@ -119,6 +123,7 @@ export function ChatInfoPanel({
         </div>
 
         {other ? <ContactDetails person={other} contact={detail.contact} /> : null}
+        {other ? <InCommonSection conversationId={detail.id} firstName={other.name.split(/\s+/)[0] ?? other.name} /> : null}
 
         <ChatSharedSection
           conversationId={detail.id}
@@ -357,6 +362,86 @@ function ContactDetails({
           );
         })}
       </dl>
+    </section>
+  );
+}
+
+/** Group chats and feeds the viewer shares with the other person (1:1 chats). */
+function InCommonSection({ conversationId, firstName }: { conversationId: string; firstName: string }) {
+  const [state, setState] = useState<{ id: string; common: ChatInCommon | null } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchChatInCommon(conversationId).then((result) => {
+      if (alive) setState({ id: conversationId, common: result.ok ? result.common : null });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [conversationId]);
+
+  const common = state?.id === conversationId ? state.common : undefined;
+  if (common === null) return null;
+
+  return (
+    <section className="space-y-3 border-t border-black/5 pt-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-black/45">
+        In common with {firstName}
+      </h3>
+      {common === undefined ? (
+        <div className="space-y-2" aria-hidden>
+          {[0, 1].map((i) => (
+            <div key={i} className="h-10 animate-pulse rounded-xl bg-black/[0.04]" />
+          ))}
+        </div>
+      ) : (
+        <>
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium text-black/50">
+              Group chats · {common.groupChats.length}
+            </p>
+            {common.groupChats.length === 0 ? (
+              <p className="text-sm text-black/45">No group chats together yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {common.groupChats.map((g) => (
+                  <li key={g.id} className="flex items-center gap-2.5 rounded-xl px-1 py-1">
+                    <span
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white"
+                      style={{ backgroundColor: g.color }}
+                      aria-hidden
+                    >
+                      <Users className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-[#2B2F16]">{g.name}</span>
+                      <span className="block text-xs text-black/45">{g.memberCount} members</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium text-black/50">Feeds · {common.feeds.length}</p>
+            {common.feeds.length === 0 ? (
+              <p className="text-sm text-black/45">No feeds in common.</p>
+            ) : (
+              <ul className="flex flex-wrap gap-2">
+                {common.feeds.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex items-center gap-2 rounded-full bg-[#F0F2E8] py-1 pl-1 pr-3 text-sm text-[#2B2F16]"
+                  >
+                    <GroupBadge icon={f.icon} color={f.color} className="h-7 w-7 rounded-full" />
+                    {f.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
     </section>
   );
 }

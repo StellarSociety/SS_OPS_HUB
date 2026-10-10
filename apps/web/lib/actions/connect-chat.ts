@@ -29,7 +29,12 @@ import type { ChatReceipts } from "@/lib/connect/chat-receipts";
 import { decodeMentions, mentionedUserIds } from "@/lib/connect/mentions";
 import { canAccessConnect, canAdminConnect } from "@/lib/connect/permissions";
 import { canCreateChatGroups } from "@/lib/connect/chat-permissions";
-import { listConnectGroups, listVenueAppUsers, loadConnectPeople } from "@/lib/connect/store";
+import {
+  listConnectGroups,
+  listGroupMembers,
+  listVenueAppUsers,
+  loadConnectPeople,
+} from "@/lib/connect/store";
 import {
   type ConnectPerson,
   CONNECT_BUCKET,
@@ -931,4 +936,79 @@ export async function markChatUnread(conversationId: string): Promise<Result> {
   if (error) return fail(error.message);
   revalidateChats();
   return { ok: true };
+}
+
+export type ChatInCommon = {
+  groupChats: { id: string; name: string; color: string; memberCount: number }[];
+  feeds: { id: string; name: string; icon: string; color: string }[];
+};
+
+/**
+ * For a 1:1 chat: the group chats both people are in, and the feed groups
+ * they both belong to (explicit and automatic members).
+ */
+export async function fetchChatInCommon(
+  conversationId: string,
+): Promise<Result<{ common: ChatInCommon }>> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const membership = await getChatMembership(actor.service, conversationId, actor.userId);
+  if (!membership) return fail("Chat not found.");
+
+  const { data: members } = await actor.service
+    .from("chat_members")
+    .select("user_id")
+    .eq("conversation_id", conversationId)
+    .neq("user_id", actor.userId);
+  const otherId = (members ?? [])[0]?.user_id as string | undefined;
+  if (!otherId) return { ok: true, common: { groupChats: [], feeds: [] } };
+
+  // Group chats: conversations where both are members.
+  const [{ data: mine }, { data: theirs }] = await Promise.all([
+    actor.service.from("chat_members").select("conversation_id").eq("user_id", actor.userId).eq("venue_id", actor.venueId),
+    actor.service.from("chat_members").select("conversation_id").eq("user_id", otherId).eq("venue_id", actor.venueId),
+  ]);
+  const theirSet = new Set(((theirs ?? []) as { conversation_id: string }[]).map((r) => r.conversation_id));
+  const sharedIds = ((mine ?? []) as { conversation_id: string }[])
+    .map((r) => r.conversation_id)
+    .filter((id) => theirSet.has(id) && id !== conversationId);
+
+  let groupChats: ChatInCommon["groupChats"] = [];
+  if (sharedIds.length) {
+    const [{ data: convs }, { data: counts }] = await Promise.all([
+      actor.service
+        .from("chat_conversations")
+        .select("id, name, color, kind")
+        .in("id", sharedIds)
+        .eq("kind", "group")
+        .is("archived_at", null),
+      actor.service.from("chat_members").select("conversation_id").in("conversation_id", sharedIds),
+    ]);
+    const sizes = new Map<string, number>();
+    for (const r of (counts ?? []) as { conversation_id: string }[]) {
+      sizes.set(r.conversation_id, (sizes.get(r.conversation_id) ?? 0) + 1);
+    }
+    groupChats = ((convs ?? []) as { id: string; name: string; color: string }[])
+      .map((c) => ({ id: c.id, name: c.name, color: c.color, memberCount: sizes.get(c.id) ?? 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Feeds: groups the viewer is in where the other person is a member too.
+  const myGroups = (
+    await listConnectGroups(actor.service, actor.venueId, {
+      userId: actor.userId,
+      seesAllGroups: false,
+      isConnectAdmin: actor.isConnectAdmin,
+    })
+  ).filter((g) => g.myRole !== null);
+  const memberLists = await Promise.all(
+    myGroups.map((g) =>
+      listGroupMembers(actor.service, { id: g.id, venueId: actor.venueId, autoMemberRole: g.autoMemberRole }),
+    ),
+  );
+  const feeds = myGroups
+    .filter((_, i) => memberLists[i]!.some((m) => m.userId === otherId))
+    .map((g) => ({ id: g.id, name: g.name, icon: g.icon, color: g.color }));
+
+  return { ok: true, common: { groupChats, feeds } };
 }
