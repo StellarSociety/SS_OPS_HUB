@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dispatchPendingPushes } from "@/lib/push/send";
+import { decodeMentions, mentionedUserIds } from "./mentions";
 import { listGroupMembers, loadConnectPeople } from "./store";
 import {
   CONNECT_MODULE_KEY,
@@ -22,14 +23,14 @@ type GroupRef = {
 
 type Draft = {
   userId: string;
-  type: "connect_post_new" | "connect_comment_new" | "connect_reaction_new";
+  type: "connect_post_new" | "connect_comment_new" | "connect_reaction_new" | "connect_mention";
   title: string;
   body: string;
   dedupeKey: string;
 };
 
 function snippet(text: string, max = 120): string {
-  const flat = text.replace(/\s+/g, " ").trim();
+  const flat = decodeMentions(text).replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 }
 
@@ -73,6 +74,8 @@ export async function notifyNewPost(
   service: SupabaseClient,
   input: { group: GroupRef; postId: string; authorId: string; body: string; hasFiles: boolean },
 ) {
+  // People tagged in the post get a "mentioned you" alert instead.
+  const mentioned = new Set(mentionedUserIds(input.body));
   const [members, author] = await Promise.all([
     listGroupMembers(service, {
       id: input.group.id,
@@ -87,7 +90,7 @@ export async function notifyNewPost(
     input.group,
     input.postId,
     members
-      .filter((m) => m.userId !== input.authorId)
+      .filter((m) => m.userId !== input.authorId && !mentioned.has(m.userId))
       .map((m) => ({
         userId: m.userId,
         type: "connect_post_new",
@@ -111,6 +114,8 @@ export async function notifyNewComment(
   },
 ) {
   if (!input.postAuthorId || input.postAuthorId === input.commenterId) return;
+  // Tagged authors get the "mentioned you" alert instead.
+  if (mentionedUserIds(input.body).includes(input.postAuthorId)) return;
   const name = await personName(service, input.commenterId);
   await send(service, input.group, input.postId, [
     {
@@ -164,4 +169,47 @@ export async function markConnectNotificationsRead(
   if (input.groupId) query = query.like("entity_id", `${input.groupId}:%`);
   const { error } = await query;
   if (error) console.error("[connect] mark read failed:", error.message);
+}
+
+/**
+ * People @mentioned in a post or comment who can see the group. Safe to call
+ * again after an edit: each person is alerted once per post / comment.
+ */
+export async function notifyMentions(
+  service: SupabaseClient,
+  input: {
+    group: GroupRef;
+    postId: string;
+    /** Post or comment id, for de-duplication. */
+    sourceId: string;
+    kind: "post" | "comment";
+    authorId: string;
+    body: string;
+  },
+) {
+  const ids = mentionedUserIds(input.body).filter((id) => id !== input.authorId);
+  if (ids.length === 0) return;
+  const [members, author] = await Promise.all([
+    listGroupMembers(service, {
+      id: input.group.id,
+      venueId: input.group.venue_id,
+      autoMemberRole: input.group.auto_member_role,
+    }),
+    personName(service, input.authorId),
+  ]);
+  const canSee = new Set(members.map((m) => m.userId));
+  await send(
+    service,
+    input.group,
+    input.postId,
+    ids
+      .filter((id) => canSee.has(id))
+      .map((userId) => ({
+        userId,
+        type: "connect_mention" as const,
+        title: `${author} mentioned you`,
+        body: `${input.kind === "post" ? "In a post" : "In a comment"} on ${input.group.name}: ${snippet(input.body)}`,
+        dedupeKey: `connect-mention:${input.sourceId}:${userId}`,
+      })),
+  );
 }

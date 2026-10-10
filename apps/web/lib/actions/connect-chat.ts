@@ -17,12 +17,16 @@ import {
   CHAT_MAX_MESSAGE_CHARS,
   CHAT_NOTIFICATION_ENTITY,
   mapChatMessageRow,
+  replyPreviewOf,
   type ChatDetail,
   type ChatMessage,
+  type ReplyPreview,
   type ChatMessageRow,
   type ChatRole,
   type ChatShared,
 } from "@/lib/connect/chat-types";
+import type { ChatReceipts } from "@/lib/connect/chat-receipts";
+import { decodeMentions, mentionedUserIds } from "@/lib/connect/mentions";
 import { canAccessConnect, canAdminConnect } from "@/lib/connect/permissions";
 import { canCreateChatGroups } from "@/lib/connect/chat-permissions";
 import { listConnectGroups, listVenueAppUsers, loadConnectPeople } from "@/lib/connect/store";
@@ -54,8 +58,8 @@ type ChatActor = {
   service: ReturnType<typeof createServiceClient>;
 };
 
-const MESSAGE_SELECT =
-  "id, conversation_id, sender_id, body, kind, attachment_url, attachment_name, attachment_type, attachment_size, created_at, edited_at, deleted_at";
+// "*" so optional columns (reply_to_id) load once their migration is applied.
+const MESSAGE_SELECT = "*";
 
 function revalidateChats() {
   revalidatePath("/connect/chats", "layout");
@@ -433,6 +437,7 @@ export async function sendChatMessage(
   const conversationId = String(formData.get("conversationId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
   const blob = asUploadBlob(formData.get("file"));
+  const replyToId = String(formData.get("replyToId") ?? "").trim() || null;
 
   if (!body && !blob) return fail("Write a message first.");
   if (body.length > CHAT_MAX_MESSAGE_CHARS) {
@@ -446,6 +451,18 @@ export async function sendChatMessage(
   if (!membership) return fail("You're not in this chat.");
   if (conv.kind === "group" && conv.only_admins_can_post && membership.role !== "admin") {
     return fail("Only chat admins can send messages here.");
+  }
+
+  let replyTo: ReplyPreview | null = null;
+  if (replyToId) {
+    const { data: original } = await actor.service
+      .from("chat_messages")
+      .select(MESSAGE_SELECT)
+      .eq("id", replyToId)
+      .eq("conversation_id", conversationId)
+      .maybeSingle();
+    if (!original) return fail("The message you're replying to is no longer here.");
+    replyTo = replyPreviewOf(mapChatMessageRow(original as ChatMessageRow));
   }
 
   let attachment: Record<string, unknown> = {};
@@ -493,10 +510,17 @@ export async function sendChatMessage(
       body,
       kind: "message",
       ...attachment,
+      ...(replyToId ? { reply_to_id: replyToId } : {}),
     })
     .select(MESSAGE_SELECT)
     .single();
-  if (error) return fail(error.message);
+  if (error) {
+    return fail(
+      /reply_to_id/.test(error.message)
+        ? "Replies need a database update that hasn't been applied yet."
+        : error.message,
+    );
+  }
   const row = data as ChatMessageRow;
 
   await Promise.all([
@@ -513,7 +537,7 @@ export async function sendChatMessage(
 
   after(() => notifyChatMessage(actor, conv, row));
 
-  return { ok: true, message: mapChatMessageRow(row) };
+  return { ok: true, message: { ...mapChatMessageRow(row), replyTo } };
 }
 
 async function notifyChatMessage(
@@ -531,7 +555,8 @@ async function notifyChatMessage(
   if (recipients.length === 0) return;
 
   const sender = await nameOf(actor, actor.userId);
-  const flat = row.body.replace(/\s+/g, " ").trim();
+  const mentioned = new Set(mentionedUserIds(row.body));
+  const flat = decodeMentions(row.body).replace(/\s+/g, " ").trim();
   const text = (flat.length > 120 ? `${flat.slice(0, 119)}…` : flat) || "📎 Sent an attachment";
   const isGroup = conv.kind === "group";
   const now = new Date().toISOString();
@@ -544,7 +569,12 @@ async function notifyChatMessage(
       venue_id: actor.venueId,
       module_key: CONNECT_MODULE_KEY,
       type: "chat_message_new",
-      title: isGroup ? `New message in ${conv.name}` : `New message from ${sender}`,
+      title:
+        isGroup && mentioned.has(userId)
+          ? `${sender} mentioned you in ${conv.name}`
+          : isGroup
+            ? `New message in ${conv.name}`
+            : `New message from ${sender}`,
       body: isGroup ? `${sender}: ${text}` : text,
       entity: CHAT_NOTIFICATION_ENTITY,
       entity_id: conv.id,
@@ -641,12 +671,97 @@ export async function setChatArchived(
   return { ok: true };
 }
 
+/**
+ * Read and delivery times of the other members, for message ticks. Delivery
+ * is approximated by the member's latest app heartbeat (the chat widget runs
+ * on every page, so an open app has received the message).
+ */
+export async function fetchChatReceipts(
+  conversationId: string,
+): Promise<Result<{ receipts: ChatReceipts }>> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const membership = await getChatMembership(actor.service, conversationId, actor.userId);
+  if (!membership) return fail("Chat not found.");
+
+  const { data: members } = await actor.service
+    .from("chat_members")
+    .select("user_id, last_read_at")
+    .eq("conversation_id", conversationId)
+    .neq("user_id", actor.userId);
+  const rows = (members ?? []) as { user_id: string; last_read_at: string | null }[];
+  if (rows.length === 0) return { ok: true, receipts: [] };
+
+  // Latest heartbeat per member (one small query each; chats are small).
+  const latest = await Promise.all(
+    rows.map((r) =>
+      actor.service
+        .from("user_online_sessions")
+        .select("last_seen_at")
+        .eq("user_id", r.user_id)
+        .order("last_seen_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+        .then(({ data }) => [r.user_id, (data?.last_seen_at as string | undefined) ?? null] as const),
+    ),
+  );
+  const seen = new Map(latest);
+
+  return {
+    ok: true,
+    receipts: rows.map((r) => ({
+      userId: r.user_id,
+      readAt: r.last_read_at,
+      seenAt: seen.get(r.user_id) ?? null,
+    })),
+  };
+}
+
+/**
+ * Per-message read times for "Read by": every message from others since the
+ * last read marker. Skipped quietly until the reads migration is applied.
+ */
+async function recordMessageReads(
+  actor: ChatActor,
+  conversationId: string,
+  since: string | null,
+  now: string,
+) {
+  let query = actor.service
+    .from("chat_messages")
+    .select("id")
+    .eq("conversation_id", conversationId)
+    .eq("kind", "message")
+    .neq("sender_id", actor.userId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (since) query = query.gt("created_at", since);
+  const { data } = await query;
+  const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+  if (ids.length === 0) return;
+  const { error } = await actor.service.from("chat_message_reads").upsert(
+    ids.map((id) => ({
+      message_id: id,
+      conversation_id: conversationId,
+      user_id: actor.userId,
+      read_at: now,
+    })),
+    { onConflict: "message_id,user_id", ignoreDuplicates: true },
+  );
+  if (error && !/chat_message_reads/.test(error.message)) {
+    console.error("[chat] recordMessageReads:", error.message);
+  }
+}
+
 /** The viewer has seen everything in this chat: clear unread and its notification. */
 export async function markChatRead(conversationId: string): Promise<Result> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
   const now = new Date().toISOString();
+  const membership = await getChatMembership(actor.service, conversationId, actor.userId);
+  if (!membership) return fail("Chat not found.");
   await Promise.all([
+    recordMessageReads(actor, conversationId, membership.last_read_at, now),
     actor.service
       .from("chat_members")
       .update({ last_read_at: now })
@@ -702,4 +817,118 @@ export async function fetchChatPane(conversationId: string): Promise<
     me: people.get(actor.userId) ?? null,
     venuePeople,
   };
+}
+
+/** Change the text of one of the viewer's own messages. */
+export async function editChatMessage(
+  messageId: string,
+  body: string,
+): Promise<Result<{ message: ChatMessage }>> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const text = body.trim();
+  if (!text) return fail("A message can't be empty — delete it instead.");
+  if (text.length > CHAT_MAX_MESSAGE_CHARS) {
+    return fail(`Messages can be up to ${CHAT_MAX_MESSAGE_CHARS} characters.`);
+  }
+
+  const { data: existing } = await actor.service
+    .from("chat_messages")
+    .select(MESSAGE_SELECT)
+    .eq("id", messageId)
+    .eq("venue_id", actor.venueId)
+    .maybeSingle();
+  const row = existing as ChatMessageRow | null;
+  if (!row || row.kind !== "message") return fail("Message not found.");
+  if (row.sender_id !== actor.userId) return fail("You can only edit your own messages.");
+  if (row.deleted_at) return fail("This message was deleted.");
+  if (row.body === text) return { ok: true, message: mapChatMessageRow(row) };
+
+  const { data, error } = await actor.service
+    .from("chat_messages")
+    .update({ body: text, edited_at: new Date().toISOString() })
+    .eq("id", messageId)
+    .select(MESSAGE_SELECT)
+    .single();
+  if (error) return fail(error.message);
+  return { ok: true, message: mapChatMessageRow(data as ChatMessageRow) };
+}
+
+export type MessageReader = {
+  userId: string;
+  status: "read" | "delivered" | "sent";
+  /** Exact read time when known (needs the reads migration); otherwise null. */
+  readAt: string | null;
+};
+
+/** Who has read (or received) one of the viewer's messages, for "Read by". */
+export async function fetchMessageReadBy(
+  messageId: string,
+): Promise<Result<{ readers: MessageReader[]; exactTimes: boolean }>> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const { data: existing } = await actor.service
+    .from("chat_messages")
+    .select("id, conversation_id, sender_id, created_at")
+    .eq("id", messageId)
+    .eq("venue_id", actor.venueId)
+    .maybeSingle();
+  if (!existing) return fail("Message not found.");
+
+  const receipts = await fetchChatReceipts(existing.conversation_id as string);
+  if (!receipts.ok) return receipts;
+  const others = receipts.receipts.filter((r) => r.userId !== existing.sender_id);
+
+  const reads = await actor.service
+    .from("chat_message_reads")
+    .select("user_id, read_at")
+    .eq("message_id", messageId);
+  const exactTimes = !reads.error;
+  const readAt = new Map(
+    ((reads.data ?? []) as { user_id: string; read_at: string }[]).map((r) => [r.user_id, r.read_at]),
+  );
+
+  const at = new Date(existing.created_at as string).getTime();
+  const after = (iso: string | null) => iso != null && new Date(iso).getTime() >= at;
+  const readers: MessageReader[] = others.map((r) => {
+    const exact = readAt.get(r.userId) ?? null;
+    const read = exact != null || after(r.readAt);
+    return {
+      userId: r.userId,
+      status: read ? "read" : after(r.seenAt) ? "delivered" : "sent",
+      readAt: exact,
+    };
+  });
+  return { ok: true, readers, exactTimes };
+}
+
+/**
+ * Mark a chat unread for the viewer: move their read marker back to just
+ * before the newest message from someone else.
+ */
+export async function markChatUnread(conversationId: string): Promise<Result> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const membership = await getChatMembership(actor.service, conversationId, actor.userId);
+  if (!membership) return fail("Chat not found.");
+  const { data: last } = await actor.service
+    .from("chat_messages")
+    .select("created_at")
+    .eq("conversation_id", conversationId)
+    .eq("kind", "message")
+    .neq("sender_id", actor.userId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!last) return fail("There's nothing from others in this chat to mark unread.");
+  const before = new Date(new Date(last.created_at as string).getTime() - 1).toISOString();
+  const { error } = await actor.service
+    .from("chat_members")
+    .update({ last_read_at: before })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", actor.userId);
+  if (error) return fail(error.message);
+  revalidateChats();
+  return { ok: true };
 }

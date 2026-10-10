@@ -1,10 +1,10 @@
 import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileConnectFeed } from "@/components/mobile/mobile-connect-feed";
 import { listConnectPosts } from "@/lib/connect/store";
-import { isAnnouncementsGroup } from "@/lib/connect/types";
 import { getMobileConnectContext } from "@/lib/mobile/connect-context";
 
-export default async function MobileConnectFeedPage({
+/** My threads: posts the viewer wrote or commented on, newest first. */
+export default async function MobileConnectThreadsPage({
   params,
   searchParams,
 }: {
@@ -16,13 +16,23 @@ export default async function MobileConnectFeedPage({
   const { service, venue, user, me, groups, canAccess } = await getMobileConnectContext(venueSlug);
   if (!canAccess) return <MobileAccessDenied />;
   const visibleGroups = groups.filter((group) => group.myRole !== null);
-  // Team feed: every group except Announcements, which has its own tab.
   const { posts, nextBefore } = await listConnectPosts(service, {
     venueId: venue.id,
-    groups: visibleGroups.filter((group) => !isAnnouncementsGroup(group)),
+    groups: visibleGroups,
     viewerId: user.id,
     before: query.before ?? null,
+    involvingUserId: user.id,
   });
 
-  return <MobileConnectFeed tab="feed" venue={venue} me={me} groups={visibleGroups} selectedGroup={null} posts={posts} nextBefore={nextBefore} />;
+  return (
+    <MobileConnectFeed
+      tab="threads"
+      venue={venue}
+      me={me}
+      groups={visibleGroups}
+      selectedGroup={null}
+      posts={posts}
+      nextBefore={nextBefore}
+    />
+  );
 }

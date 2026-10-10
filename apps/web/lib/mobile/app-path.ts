@@ -44,8 +44,22 @@ export const APP_PATH: AppPathPage[] = [
   },
   {
     id: "connect-feed",
-    label: "Connecteam Feed",
+    label: "Connecteam Team Feed",
     href: `${MOBILE_APP_BASE}/connect/feed`,
+    venueScoped: true,
+    from: "connect",
+  },
+  {
+    id: "connect-announcements",
+    label: "Connecteam Announcements",
+    href: `${MOBILE_APP_BASE}/connect/announcements`,
+    venueScoped: true,
+    from: "connect",
+  },
+  {
+    id: "connect-threads",
+    label: "Connecteam My Threads",
+    href: `${MOBILE_APP_BASE}/connect/threads`,
     venueScoped: true,
     from: "connect",
   },
@@ -235,6 +249,14 @@ export function mobileConnectFeedHref(
 ): string {
   const base = `${mobileConnectHref(venueSlug)}/feed${groupId ? `/${groupId}` : ""}`;
   return postId ? `${base}#post-${postId}` : base;
+}
+
+export function mobileConnectAnnouncementsHref(venueSlug: string): string {
+  return `${mobileConnectHref(venueSlug)}/announcements`;
+}
+
+export function mobileConnectThreadsHref(venueSlug: string): string {
+  return `${mobileConnectHref(venueSlug)}/threads`;
 }
 
 export function mobileNotificationSettingsHref(venueSlug: string): string {

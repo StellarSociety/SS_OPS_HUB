@@ -60,6 +60,10 @@ import {
   type ConnectReaction,
 } from "@/lib/connect/types";
 import { cn } from "@/lib/utils";
+import { encodeTypedMentions } from "@/components/connect/mention-people";
+import { MentionText } from "@/components/connect/mention-text";
+import { MentionTextarea } from "@/components/connect/mention-textarea";
+import { cutPreservingMentions, decodeMentions } from "@/lib/connect/mentions";
 
 /**
  * How a post card reloads after a change. Pages use the router; the chat
@@ -252,11 +256,11 @@ export function PostCard({
       <div className="px-4 pt-3">
         {editing ? (
           <EditBody
-            initial={post.body}
+            initial={decodeMentions(post.body)}
             onCancel={() => setEditing(false)}
             onSave={(text) =>
               startTransition(async () => {
-                const result = await updateConnectPost(post.id, text);
+                const result = await updateConnectPost(post.id, encodeTypedMentions(text));
                 if (!result.ok) {
                   toast.error(result.error);
                   return;
@@ -452,7 +456,7 @@ function Linkified({ text }: { text: string }) {
 function PostBody({ text }: { text: string }) {
   const long = text.length > COLLAPSE_AT;
   const [open, setOpen] = useState(!long);
-  const shown = open ? text : `${text.slice(0, COLLAPSE_AT).trimEnd()}…`;
+  const shown = open ? text : `${cutPreservingMentions(text, COLLAPSE_AT).trimEnd()}…`;
   // Short, emoji-heavy posts read bigger, like on social feeds.
   const big = text.length <= 80 && !text.includes("\n");
   return (
@@ -462,7 +466,7 @@ function PostBody({ text }: { text: string }) {
         big ? "text-lg" : "text-[15px] leading-relaxed",
       )}
     >
-      <Linkified text={shown} />
+      <MentionText text={shown} renderText={(run) => <Linkified text={run} />} />
       {long ? (
         <button
           type="button"
@@ -490,9 +494,10 @@ function EditBody({
   const [value, setValue] = useState(initial);
   return (
     <div className="space-y-2">
-      <textarea
+      <MentionTextarea
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onValueChange={setValue}
+        wrapperClassName="w-full"
         rows={4}
         maxLength={5000}
         autoFocus
@@ -897,7 +902,7 @@ function CommentBubble({
         <div className="relative inline-block max-w-full rounded-2xl bg-[#F0F2E8] px-3 py-2">
           <p className="text-[13px] font-semibold text-[#2B2F16]">{name}</p>
           <p className="whitespace-pre-wrap break-words text-sm text-[#2B2F16]">
-            <Linkified text={comment.body} />
+            <MentionText text={comment.body} renderText={(run) => <Linkified text={run} />} />
           </p>
           {likes > 0 ? (
             <span className="absolute -bottom-2.5 -right-2 inline-flex items-center gap-0.5 rounded-full bg-white px-1.5 py-0.5 text-[11px] text-black/60 shadow">
@@ -960,7 +965,7 @@ function CommentInput({
     const text = value.trim();
     if (!text) return;
     startTransition(async () => {
-      const result = await addConnectComment(postId, text, replyTo?.id ?? null);
+      const result = await addConnectComment(postId, encodeTypedMentions(text), replyTo?.id ?? null);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -984,10 +989,10 @@ function CommentInput({
       <div className="flex items-start gap-2">
         <ConnectAvatar name={me?.name ?? "You"} photoUrl={me?.photoUrl} size="sm" />
         <div className="flex flex-1 items-end rounded-2xl bg-[#F0F2E8] pr-1.5 focus-within:ring-2 focus-within:ring-[var(--venue-primary,#818a40)]/30">
-          <textarea
+          <MentionTextarea
             ref={inputRef}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onValueChange={setValue}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

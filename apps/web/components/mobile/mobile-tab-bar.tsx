@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import {
   tabBarHref,
   tabBarItems,
+  tabBarShowsLabels,
   type MobileTabBarApp,
   type MobileTabItem,
 } from "@/lib/mobile/tab-bars";
@@ -137,6 +138,7 @@ export function MobileTabBar({
                 key={tab.id}
                 tab={tab}
                 active={tab.id === activeId}
+                showLabel={tabBarShowsLabels(app)}
                 href={tab.pageId ? tabBarHref(venueSlug, tab.path) : null}
                 onSelectTab={onSelectTab}
                 beginNav={beginNav}
@@ -156,12 +158,14 @@ export function MobileTabBar({
 function TabBarItem({
   tab,
   active,
+  showLabel,
   href,
   onSelectTab,
   beginNav,
 }: {
   tab: MobileTabItem;
   active: boolean;
+  showLabel: boolean;
   href: string | null;
   onSelectTab?: (tab: MobileTabItem) => void;
   beginNav: () => void;
@@ -178,12 +182,14 @@ function TabBarItem({
     <>
       <tab.icon
         aria-hidden
-        className="h-5 w-5"
+        className={showLabel ? "h-5 w-5" : "h-6 w-6"}
         strokeWidth={active ? 2.25 : 1.85}
       />
-      <span className="max-w-full truncate text-[10px] font-medium leading-none tracking-wide">
-        {tab.label}
-      </span>
+      {showLabel ? (
+        <span className="max-w-full truncate text-[10px] font-medium leading-none tracking-wide">
+          {tab.label}
+        </span>
+      ) : null}
     </>
   );
 
@@ -193,6 +199,7 @@ function TabBarItem({
         type="button"
         aria-current={active ? "page" : undefined}
         aria-label={tab.label}
+        title={showLabel ? undefined : tab.label}
         disabled={!available}
         onClick={() => {
           if (!tab.pageId || active) return;
@@ -213,6 +220,7 @@ function TabBarItem({
         <Link
           href={href}
           aria-label={tab.label}
+        title={showLabel ? undefined : tab.label}
           className={className}
           onClick={() => beginNav()}
         >

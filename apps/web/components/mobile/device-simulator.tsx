@@ -22,6 +22,10 @@ import { MobileDirectoryScreen } from "@/components/mobile/mobile-directory-scre
 import { MobileHiringScreen } from "@/components/mobile/mobile-hiring-screen";
 import { MobileConnectScreen } from "@/components/mobile/mobile-connect-screen";
 import { MobileConnectFeed } from "@/components/mobile/mobile-connect-feed";
+import { EdgeSwipeBack } from "@/components/mobile/edge-swipe-back";
+import { SimulatedKeyboardFrame } from "@/components/mobile/simulated-keyboard";
+import { SimulatorChat } from "@/components/mobile/simulator-chat";
+import { loadPreviewConnect, type PreviewConnectData } from "@/lib/actions/mobile-preview-connect";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import { MobileChromeHostProvider } from "@/components/mobile/mobile-chrome-host";
 import {
@@ -57,7 +61,12 @@ import type { SelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 import type { SalesOverviewResult } from "@/lib/sales/sales-overview-data";
 import type { Venue } from "@/lib/types/database";
 import type { ChatSummary } from "@/lib/connect/chat-types";
-import type { ConnectGroup, ConnectPerson, ConnectPost } from "@/lib/connect/types";
+import {
+  isAnnouncementsGroup,
+  type ConnectGroup,
+  type ConnectPerson,
+  type ConnectPost,
+} from "@/lib/connect/types";
 import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
 import { DevicePreviewDensity, COMPACT_PREVIEW_DENSITY } from "@/components/simulators/device-preview-density";
 import { DevicePreviewStage } from "@/components/simulators/device-preview-stage";
@@ -160,7 +169,23 @@ export function DeviceSimulator({
   };
 }) {
   const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE_ID);
-  const [pageId, setPageId] = useState(APP_PATH[0].id);
+  const [pageId, setPageIdState] = useState(APP_PATH[0].id);
+  // Screens visited, for the edge swipe "back" gesture.
+  const [history, setHistory] = useState<string[]>([]);
+  const setPageId = useCallback(
+    (next: string) => {
+      if (next === pageId) return;
+      setHistory((h) => [...h.slice(-30), pageId]);
+      setPageIdState(next);
+    },
+    [pageId],
+  );
+  const goBack = useCallback(() => {
+    const previous = history.at(-1);
+    if (!previous) return;
+    setHistory((h) => h.slice(0, -1));
+    setPageIdState(previous);
+  }, [history]);
   const [previewVenue, setPreviewVenue] = useState(welcome.venue);
   const device = getDevicePreset(deviceId);
   const brand = device.brand;
@@ -213,6 +238,7 @@ export function DeviceSimulator({
         connect={connect}
         pageId={pageId}
         setPageId={setPageId}
+        onBack={goBack}
         previewVenue={previewVenue}
         setPreviewVenue={setPreviewVenue}
       />
@@ -221,6 +247,7 @@ export function DeviceSimulator({
 }
 
 function PhoneStage({
+  onBack,
   device,
   loginLogoUrl,
   selectVenue,
@@ -265,6 +292,8 @@ function PhoneStage({
   };
   pageId: string;
   setPageId: (id: string) => void;
+  /** Edge swipe: return to the previous screen. */
+  onBack: () => void;
   previewVenue: Venue;
   setPreviewVenue: (venue: Venue) => void;
 }) {
@@ -280,6 +309,11 @@ function PhoneStage({
     docs: MobileDocsPage;
     userName: string | null;
   } | null>(null);
+  // Connecteam as the previewed employee (null = yourself), and the chat open in-frame.
+  const [connectPreview, setConnectPreview] = useState<PreviewConnectData | null>(null);
+  const [connectNote, setConnectNote] = useState<string | null>(null);
+  const [openChatId, setOpenChatId] = useState<string | null>(null);
+  const conn: PreviewConnectData = connectPreview ?? { ...connect, impersonating: false };
   const frame = frameSize(device);
   const page = getAppPathPage(pageId);
   const previewWelcome = previewOverride
@@ -303,19 +337,41 @@ function PhoneStage({
 
   const handlePreviewStaffChange = useCallback(
     (staffId: string) => {
+      setOpenChatId(null);
       if (!staffId) {
         setPreviewStaffId("");
         setPreviewOverride(null);
+        setConnectPreview(null);
+        setConnectNote(null);
         setPreviewNonce((current) => current + 1);
         return;
       }
       setPreviewStaffId(staffId);
       startStaffPreview(async () => {
-        const bundle = await loadMobilePreviewEmployeeAction({
-          venueId: previewVenue.id,
-          staffId,
-          monthKey: previewAttendance.monthKey,
-        });
+        const [bundle, connectResult] = await Promise.all([
+          loadMobilePreviewEmployeeAction({
+            venueId: previewVenue.id,
+            staffId,
+            monthKey: previewAttendance.monthKey,
+          }),
+          loadPreviewConnect({ venueId: previewVenue.id, staffId }),
+        ]);
+        if (connectResult.ok) {
+          setConnectPreview(connectResult.data);
+          setConnectNote(null);
+        } else {
+          // Not allowed / no Hub login: show an empty Connecteam, with why.
+          setConnectPreview({
+            meId: "",
+            me: null,
+            chats: [],
+            groups: [],
+            posts: [],
+            nextBefore: null,
+            impersonating: true,
+          });
+          setConnectNote(connectResult.error);
+        }
         if (!bundle) {
           setPreviewStaffId("");
           setPreviewOverride(null);
@@ -365,7 +421,12 @@ function PhoneStage({
         refreshing={refreshing}
         onRefresh={handleRefreshPreview}
         screen={
-          <div key={previewNonce} className="h-full min-h-0">
+          <EdgeSwipeBack
+            key={previewNonce}
+            onBack={() => (openChatId ? setOpenChatId(null) : onBack())}
+            className="h-full min-h-0"
+          >
+          <SimulatedKeyboardFrame>
             {page.id === "login" ? (
               <LoginScreen
                 logoUrl={loginLogoUrl}
@@ -414,28 +475,72 @@ function PhoneStage({
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
               />
+            ) : page.id === "connect" && openChatId ? (
+              <SimulatorChat
+                venueId={previewVenue.id}
+                staffId={connectPreview?.impersonating ? previewStaffId || null : null}
+                conversationId={openChatId}
+                onBack={() => setOpenChatId(null)}
+              />
             ) : page.id === "connect" ? (
-              <MobileConnectScreen
-                venue={previewVenue}
-                chats={connect.chats}
-                groups={connect.groups}
-                meId={connect.meId}
-                onSelectTab={(tab) => {
-                  if (tab.pageId) setPageId(tab.pageId);
-                }}
-              />
-            ) : page.id === "connect-feed" ? (
-              <MobileConnectFeed
-                venue={previewVenue}
-                me={connect.me}
-                groups={connect.groups}
-                selectedGroup={null}
-                posts={connect.posts}
-                nextBefore={connect.nextBefore}
-                onSelectTab={(tab) => {
-                  if (tab.pageId) setPageId(tab.pageId);
-                }}
-              />
+              <div className="flex h-full min-h-0 flex-col">
+                {connectNote ? (
+                  <p className="shrink-0 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900">
+                    {connectNote}
+                  </p>
+                ) : null}
+                <div className="min-h-0 flex-1">
+                  <MobileConnectScreen
+                    key={conn.meId}
+                    venue={previewVenue}
+                    chats={conn.chats}
+                    groups={conn.groups}
+                    meId={conn.meId}
+                    readOnly={conn.impersonating}
+                    onOpenChat={setOpenChatId}
+                    onSelectTab={(tab) => {
+                      setOpenChatId(null);
+                      if (tab.pageId) setPageId(tab.pageId);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : page.id === "connect-feed" ||
+              page.id === "connect-announcements" ||
+              page.id === "connect-threads" ? (
+              (() => {
+                // Preview only: filter the preloaded posts for each tab.
+                const announcements = conn.groups.find(isAnnouncementsGroup) ?? null;
+                const tab =
+                  page.id === "connect-announcements"
+                    ? "announcements"
+                    : page.id === "connect-threads"
+                      ? "threads"
+                      : "feed";
+                const meId = conn.me?.userId;
+                const posts = conn.posts.filter((post) =>
+                  tab === "announcements"
+                    ? post.groupId === announcements?.id
+                    : tab === "threads"
+                      ? post.author?.userId === meId ||
+                        post.comments.some((c) => c.author?.userId === meId)
+                      : post.groupId !== announcements?.id,
+                );
+                return (
+                  <MobileConnectFeed
+                    tab={tab}
+                    venue={previewVenue}
+                    me={conn.me}
+                    groups={conn.groups}
+                    selectedGroup={tab === "announcements" ? announcements : null}
+                    posts={posts}
+                    nextBefore={null}
+                    onSelectTab={(t) => {
+                      if (t.pageId) setPageId(t.pageId);
+                    }}
+                  />
+                );
+              })()
             ) : page.id === "notification-settings" ? (
               <MobileNotificationSettingsScreen
                 venue={previewVenue}
@@ -532,7 +637,8 @@ function PhoneStage({
                 onAccepted={() => setPageId("welcome")}
               />
             ) : null}
-          </div>
+          </SimulatedKeyboardFrame>
+          </EdgeSwipeBack>
         }
       />
     </DevicePreviewStage>

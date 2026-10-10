@@ -25,13 +25,20 @@ import { ChatWidgetFeed } from "@/components/connect/chat/chat-widget-feed";
 import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { encodeTypedMentions } from "@/components/connect/mention-people";
+import { MentionText } from "@/components/connect/mention-text";
+import { MentionTextarea } from "@/components/connect/mention-textarea";
+import { decodeMentions } from "@/lib/connect/mentions";
 import { GroupBadge } from "@/components/connect/group-icon";
 import { toast } from "@/components/ui/toast";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { useRelativePathname } from "@/components/providers/venue-scope-provider";
 import {
+  deleteChatMessage,
+  editChatMessage,
   fetchChatMessages,
   markChatRead,
+  markChatUnread,
   sendChatMessage,
   setChatArchived,
   startDirectChat,
@@ -46,17 +53,30 @@ import {
 import { PRESENCE_LABELS, type PresenceStatus } from "@/lib/connect/presence";
 import { PresenceLabel, PresenceRing } from "@/components/connect/presence";
 import { useVenue } from "@/components/providers/venue-provider";
-import { getVenueBadgeUrl } from "@/lib/venue/branding";
 import { formatFileSize, formatPostTime } from "@/lib/connect/format";
 import { CONNECT_MAX_FILE_BYTES } from "@/lib/connect/types";
 import {
   CHAT_MAX_MESSAGE_CHARS,
   chatPreviewText,
   mapChatMessageRow,
+  replyPreviewOf,
   type ChatMessage,
   type ChatMessageRow,
   type ChatSummary,
+  type ReplyPreview,
 } from "@/lib/connect/chat-types";
+import {
+  ComposerBanner,
+  GestureBubble,
+  MessageMenu,
+  ReplyQuote,
+  type MessageMenuAction,
+  type MessageMenuState,
+} from "@/components/connect/chat/message-actions";
+import type { ConnectPerson } from "@/lib/connect/types";
+import { MessageTicks } from "@/components/connect/chat/message-ticks";
+import { useChatReceipts } from "@/components/connect/chat/use-chat-receipts";
+import { receiptStatus } from "@/lib/connect/chat-receipts";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -180,6 +200,10 @@ export function ChatWidget() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [draft, setDraft] = useState("");
+  const [msgMenu, setMsgMenu] = useState<MessageMenuState>(null);
+  const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
+  const [editing, setEditing] = useState<ChatMessage | null>(null);
+
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -192,7 +216,6 @@ export function ChatWidget() {
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const { venue } = useVenue();
-  const venueBadge = venue ? getVenueBadgeUrl(venue) : null;
   const [pickerQuery, setPickerQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [menu, setMenu] = useState<ChatMenuState>(null);
@@ -267,6 +290,18 @@ export function ChatWidget() {
       .channel("chat-widget")
       .on(
         "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "chat_messages" },
+        (payload) => {
+          const msg = mapChatMessageRow(payload.new as ChatMessageRow);
+          if (!live.current.open || live.current.activeId !== msg.conversationId) return;
+          // Edits and deletions; keep the reply snippet the server filled in.
+          setMessages((prev) =>
+            prev.map((m) => (m.id === msg.id ? { ...msg, replyTo: m.replyTo } : m)),
+          );
+        },
+      )
+      .on(
+        "postgres_changes",
         { event: "INSERT", schema: "public", table: "chat_messages" },
         (payload) => {
           const row = payload.new as ChatMessageRow;
@@ -334,6 +369,8 @@ export function ChatWidget() {
   }, [open]);
 
   const openChat = useCallback(async (conversationId: string) => {
+    setReplyTo(null);
+    setEditing(null);
     setActiveId(conversationId);
     setComposing(false);
     setFeedMode(false);
@@ -417,6 +454,13 @@ export function ChatWidget() {
     void loadFeed(groupId);
   }
 
+  function backToChats() {
+    setFeedMode(false);
+    const target = activeId ?? data?.chats.find((c) => !c.archived)?.id ?? null;
+    if (target) void openChat(target);
+    else startNewChat();
+  }
+
   function startNewChat() {
     setFeedMode(false);
     setComposing(true);
@@ -424,6 +468,25 @@ export function ChatWidget() {
     setPickerQuery("");
     setError(null);
     setShowArchived(false);
+  }
+
+  async function markUnread(conversationId: string) {
+    const result = await markChatUnread(conversationId);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    if (conversationId === activeId) setActiveId(null);
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            chats: prev.chats.map((c) =>
+              c.id === conversationId ? { ...c, unreadCount: Math.max(1, c.unreadCount) } : c,
+            ),
+          }
+        : prev,
+    );
   }
 
   async function archive(conversationId: string, archived: boolean) {
@@ -441,8 +504,29 @@ export function ChatWidget() {
     toast.saved(archived ? "Chat archived." : "Chat moved back to your chats.");
   }
 
+  // Ticks only matter (and only poll) while a conversation is open in the popup.
+  const { receipts, refresh: refreshReceipts } = useChatReceipts(
+    open && !composing ? activeId : null,
+  );
+
   async function send() {
-    const body = draft.trim();
+    const body = encodeTypedMentions(draft.trim());
+    if (editing) {
+      if (!body || sending) return;
+      setSending(true);
+      const edited = await editChatMessage(editing.id, body);
+      setSending(false);
+      if (!edited.ok) {
+        setError(edited.error);
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m.id === edited.message.id ? { ...edited.message, replyTo: m.replyTo } : m)),
+      );
+      setEditing(null);
+      setDraft("");
+      return;
+    }
     if ((!body && !file) || !activeId || sending) return;
     setSending(true);
     setError(null);
@@ -450,6 +534,7 @@ export function ChatWidget() {
     form.set("conversationId", activeId);
     form.set("body", body);
     if (file) form.set("file", file);
+    if (replyTo) form.set("replyToId", replyTo.id);
     const result = await sendChatMessage(form);
     setSending(false);
     if (!result.ok) {
@@ -458,6 +543,8 @@ export function ChatWidget() {
     }
     setDraft("");
     setFile(null);
+    setReplyTo(null);
+    refreshReceipts();
     setMessages((prev) =>
       prev.some((m) => m.id === result.message.id) ? prev : [...prev, result.message],
     );
@@ -467,6 +554,54 @@ export function ChatWidget() {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();
+    }
+    if (e.key === "Escape" && (editing || replyTo)) {
+      e.stopPropagation();
+      cancelComposeMode();
+    }
+  }
+
+  function cancelComposeMode() {
+    if (editing) setDraft("");
+    setEditing(null);
+    setReplyTo(null);
+  }
+
+  function messageActions(m: ChatMessage): MessageMenuAction[] {
+    if (m.kind !== "message" || m.deletedAt || !data) return [];
+    const mine = m.senderId === data.meId;
+    const actions: MessageMenuAction[] = [];
+    if (!mine) actions.push("reply");
+    if (mine && m.body.trim()) actions.push("edit");
+    if (mine) actions.push("delete");
+    return actions;
+  }
+
+  function onMessageAction(action: MessageMenuAction, messageId: string) {
+    const m = messages.find((x) => x.id === messageId);
+    if (!m) return;
+    if (action === "reply") {
+      setEditing(null);
+      setReplyTo(replyPreviewOf(m));
+    }
+    if (action === "edit") {
+      setReplyTo(null);
+      setEditing(m);
+      setDraft(decodeMentions(m.body));
+    }
+    if (action === "delete") {
+      if (!window.confirm("Delete this message for everyone?")) return;
+      void deleteChatMessage(m.id).then((result) => {
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setMessages((prev) =>
+          prev.map((x) =>
+            x.id === m.id ? { ...x, body: "", attachment: null, deletedAt: new Date().toISOString() } : x,
+          ),
+        );
+      });
     }
   }
 
@@ -494,6 +629,9 @@ export function ChatWidget() {
   const feedGroup = feedGroupId ? (feed?.groups.find((g) => g.id === feedGroupId) ?? null) : null;
   const nameOf = (userId: string | null) =>
     data?.people.find((p) => p.userId === userId)?.name ?? null;
+  const senderLabel = (userId: string | null) =>
+    userId && userId === data?.meId ? "You" : (nameOf(userId) ?? "Former user");
+  const peopleById = new Map<string, ConnectPerson>((data?.people ?? []).map((p) => [p.userId, p]));
 
   if (!data) return null;
 
@@ -521,23 +659,16 @@ export function ChatWidget() {
             >
               <Plus className="h-5 w-5" />
             </button>
+            {/* One spot, two destinations: Feed while chatting, Chats while in the feed. */}
             <button
               type="button"
-              onClick={() => openFeed(null)}
-              title={feedTitle}
-              aria-label={feedTitle}
-              aria-pressed={feedMode && !feedGroupId}
-              className={cn(
-                "relative inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm transition hover:opacity-90",
-                feedMode && !feedGroupId && "ring-2 ring-[var(--venue-primary,#818a40)] ring-offset-2 ring-offset-[#F7F8F2]",
-              )}
+              onClick={() => (feedMode ? backToChats() : openFeed(null))}
+              title={feedMode ? "Back to chats" : feedTitle}
+              aria-label={feedMode ? "Back to chats" : feedTitle}
+              className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[var(--venue-primary,#818a40)] shadow-sm transition hover:opacity-90"
             >
-              {venueBadge ? (
-                // eslint-disable-next-line @next/next/no-img-element -- venue favicon
-                <img src={venueBadge} alt="" className="h-7 w-7 object-contain" />
-              ) : (
-                <Newspaper className="h-5 w-5 text-[var(--venue-primary,#818a40)]" />
-              )}
+              {feedMode ? <MessagesSquare className="h-5 w-5" /> : <Newspaper className="h-5 w-5" />}
+              {feedMode ? <Badge count={totalUnread} className="absolute -right-1 -top-1" /> : null}
             </button>
             <span className="my-0.5 h-px w-8 bg-black/10" aria-hidden />
             {feedMode ? (
@@ -564,21 +695,6 @@ export function ChatWidget() {
                     <GroupBadge icon={group.icon} color={group.color} />
                   </button>
                 ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFeedMode(false);
-                    const target = activeId ?? railChats[0]?.id ?? null;
-                    if (target) void openChat(target);
-                    else startNewChat();
-                  }}
-                  title="Back to chats"
-                  aria-label="Back to chats"
-                  className="relative mt-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-black/45 transition hover:bg-black/5 hover:text-[#2B2F16]"
-                >
-                  <MessagesSquare className="h-4 w-4" />
-                  <Badge count={totalUnread} className="absolute -right-1 -top-1" />
-                </button>
               </>
             ) : (
             <>
@@ -839,6 +955,28 @@ export function ChatWidget() {
                                   {nameOf(m.senderId) ?? "Someone"}
                                 </p>
                               ) : null}
+                              <GestureBubble
+                                onMenu={(x, y) => {
+                                  const actions = messageActions(m);
+                                  if (actions.length || (mine && !m.deletedAt)) {
+                                    setMsgMenu({
+                                      x,
+                                      y,
+                                      messageId: m.id,
+                                      actions,
+                                      readBy: mine && !m.deletedAt ? { sentAt: m.createdAt } : undefined,
+                                    });
+                                  }
+                                }}
+                                onSwipeReply={
+                                  !mine && !m.deletedAt
+                                    ? () => {
+                                        setEditing(null);
+                                        setReplyTo(replyPreviewOf(m));
+                                      }
+                                    : undefined
+                                }
+                              >
                               <div
                                 className={cn(
                                   "whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm",
@@ -851,6 +989,20 @@ export function ChatWidget() {
                                   <span className="italic opacity-70">Message deleted</span>
                                 ) : (
                                   <>
+                                    {m.replyToId ? (
+                                      (() => {
+                                        const original = messages.find((x) => x.id === m.replyToId);
+                                        const preview =
+                                          m.replyTo ?? (original ? replyPreviewOf(original) : null);
+                                        return (
+                                          <ReplyQuote
+                                            preview={preview}
+                                            senderName={preview ? senderLabel(preview.senderId) : ""}
+                                            mine={mine}
+                                          />
+                                        );
+                                      })()
+                                    ) : null}
                                     {m.attachment ? (
                                       m.attachment.type.startsWith("image/") ? (
                                         <AttachmentTrigger file={m.attachment} className="block">
@@ -871,10 +1023,21 @@ export function ChatWidget() {
                                         </AttachmentTrigger>
                                       )
                                     ) : null}
-                                    {m.body}
+                                    <MentionText text={m.body} onDark={mine} />
+                                    {m.editedAt ? (
+                                      <span className={cn("ml-1.5 text-[10px]", mine ? "text-white/70" : "text-black/40")}>
+                                        edited
+                                      </span>
+                                    ) : null}
+                                    {mine ? (
+                                      <span className="ml-1.5 inline-flex align-[-2px]">
+                                        <MessageTicks status={receiptStatus(m.createdAt, receipts)} />
+                                      </span>
+                                    ) : null}
                                   </>
                                 )}
                               </div>
+                              </GestureBubble>
                               <p
                                 className={cn("mt-0.5 px-1 text-[10px] text-black/40", mine && "text-right")}
                                 suppressHydrationWarning
@@ -894,6 +1057,21 @@ export function ChatWidget() {
                 {active ? (
                   <footer className="border-t border-black/5 bg-white p-3">
                     {error ? <p className="mb-2 text-xs text-red-700">{error}</p> : null}
+                    {editing ? (
+                      <ComposerBanner
+                        mode="edit"
+                        title="Editing message"
+                        preview={replyPreviewOf(editing)}
+                        onCancel={cancelComposeMode}
+                      />
+                    ) : replyTo ? (
+                      <ComposerBanner
+                        mode="reply"
+                        title={`Replying to ${senderLabel(replyTo.senderId)}`}
+                        preview={replyTo}
+                        onCancel={cancelComposeMode}
+                      />
+                    ) : null}
                     {file ? (
                       <div className="mb-2 flex items-center gap-2 rounded-xl bg-[#F0F2E8] px-3 py-1.5 text-xs">
                         <Paperclip className="h-3.5 w-3.5 text-black/50" aria-hidden />
@@ -933,9 +1111,9 @@ export function ChatWidget() {
                           setFile(picked);
                         }}
                       />
-                      <textarea
+                      <MentionTextarea
                         value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
+                        onValueChange={setDraft}
                         onKeyDown={onComposerKey}
                         rows={1}
                         maxLength={CHAT_MAX_MESSAGE_CHARS}
@@ -961,10 +1139,18 @@ export function ChatWidget() {
         </div>
       ) : null}
 
+      <MessageMenu
+        menu={msgMenu}
+        onClose={() => setMsgMenu(null)}
+        onAction={onMessageAction}
+        peopleById={peopleById}
+      />
+
       <ChatContextMenu
         menu={menu}
         onClose={() => setMenu(null)}
         onArchive={(id, archived) => void archive(id, archived)}
+        onMarkUnread={(id) => void markUnread(id)}
       />
 
       {!onChatsPage || open ? (

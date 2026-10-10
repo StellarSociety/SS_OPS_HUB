@@ -3,7 +3,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Bell, ChevronDown, Lock, LogOut } from "lucide-react";
+import { Bell, ChevronDown, Lock, LogOut, MessageCircleMore, type LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { ModuleTile } from "@/components/modules/module-tile";
@@ -102,6 +102,14 @@ export function MobileWelcomeScreen({
     ? "All Venues Operational HUB"
     : `${venue.name} Operational HUB`;
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const connectModule =
+    modules.find(
+      (mod) =>
+        mod.key === "team_connect" &&
+        mod.status === "live" &&
+        mod.clickable &&
+        mod.blockedReason !== "access",
+    ) ?? null;
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const sections = useMemo(() => {
     const categoryByKey = new Map(
@@ -113,7 +121,8 @@ export function MobileWelcomeScreen({
       )
       .map((category) => {
         const sectionModules = modules.filter(
-          (mod) => mod.category === category.key,
+          // Connecteam lives next to the notifications bell when it's open to the user.
+          (mod) => mod.category === category.key && !(connectModule && mod.key === "team_connect"),
         );
         if (category.key === "people") {
           sectionModules.sort((a, b) => {
@@ -132,7 +141,7 @@ export function MobileWelcomeScreen({
         return { category, modules: sectionModules };
       })
       .filter((section) => section.modules.length > 0);
-  }, [modules]);
+  }, [modules, connectModule]);
 
   function toggleApp(key: string) {
     setSelectedKeys((current) =>
@@ -207,6 +216,15 @@ export function MobileWelcomeScreen({
             href={onOpenNotifications ? undefined : notificationsHref}
             onOpen={onOpenNotifications}
           />
+          {connectModule ? (
+            <WelcomeNotificationsCard
+              icon={MessageCircleMore}
+              noun="unread chat"
+              totalCount={connectModule.badgeCount ?? 0}
+              href={onOpenConnect ? undefined : connectHref}
+              onOpen={onOpenConnect}
+            />
+          ) : null}
         </div>
 
         <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
@@ -420,16 +438,20 @@ function WelcomeNotificationsCard({
   totalCount,
   href,
   onOpen,
+  icon: Icon = Bell,
+  noun = "notification",
 }: {
   totalCount: number;
   href?: string;
   onOpen?: () => void;
+  /** Same card is reused for the Connecteam shortcut. */
+  icon?: LucideIcon;
+  noun?: string;
 }) {
   const { pressed, pressProps } = useMobilePress();
   const { beginNav } = useMobileNavBusy();
   const count = totalCount > 99 ? "99+" : String(totalCount);
-  const label =
-    totalCount === 1 ? "1 notification" : `${totalCount} notifications`;
+  const label = totalCount === 1 ? `1 ${noun}` : `${totalCount} ${noun}s`;
 
   const row = (
     <motion.span
@@ -437,7 +459,7 @@ function WelcomeNotificationsCard({
         animate={{ scale: pressed ? MOBILE_PRESS_SCALE : 1 }}
         transition={MOBILE_PRESS_TRANSITION}
     >
-      <Bell className="h-5 w-5 text-[#3D421F]" strokeWidth={1.75} aria-hidden />
+      <Icon className="h-5 w-5 text-[#3D421F]" strokeWidth={1.75} aria-hidden />
       {totalCount > 0 ? (
         <span className="absolute -left-1 -top-1 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[10px] font-semibold tabular-nums leading-none text-white shadow-[0_1px_2px_rgba(80,0,20,0.35)] ring-2 ring-white">
           {count}

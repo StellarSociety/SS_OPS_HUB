@@ -2,19 +2,34 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronDown, ChevronUp, Download, FileText, Info, Megaphone, Paperclip, Search, SendHorizontal, Trash2, X } from "lucide-react";
+import { ArrowLeft, Camera, Check, ChevronDown, ChevronUp, Download, FileText, Info, Megaphone, Paperclip, Plus, Search, SendHorizontal, Trash2, X } from "lucide-react";
 import { ChatAvatar } from "@/components/connect/chat/chat-shell";
 import { PresenceLabel, usePresence } from "@/components/connect/presence";
 import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
 import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
+import { MessageTicks } from "@/components/connect/chat/message-ticks";
+import {
+  ComposerBanner,
+  GestureBubble,
+  MessageMenu,
+  ReplyQuote,
+  type MessageMenuAction,
+  type MessageMenuState,
+} from "@/components/connect/chat/message-actions";
+import { useChatReceipts } from "@/components/connect/chat/use-chat-receipts";
 import { ChatInfoPanel } from "@/components/connect/chat/chat-info-panel";
 import { useChatPanes } from "@/components/connect/chat/chat-panes-context";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { encodeTypedMentions } from "@/components/connect/mention-people";
+import { MentionText } from "@/components/connect/mention-text";
+import { MentionTextarea } from "@/components/connect/mention-textarea";
+import { decodeMentions } from "@/lib/connect/mentions";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { toast } from "@/components/ui/toast";
 import {
   deleteChatMessage,
+  editChatMessage,
   fetchChatMessages,
   markChatRead,
   sendChatMessage,
@@ -23,11 +38,14 @@ import { formatFileSize, isImageAttachment } from "@/lib/connect/format";
 import {
   CHAT_MAX_MESSAGE_CHARS,
   mapChatMessageRow,
+  replyPreviewOf,
   type ChatDetail,
   type ChatMessage,
   type ChatMessageRow,
+  type ReplyPreview,
 } from "@/lib/connect/chat-types";
 import { CONNECT_MAX_FILE_BYTES, type ConnectPerson } from "@/lib/connect/types";
+import { receiptStatus, type ChatReceipts } from "@/lib/connect/chat-receipts";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +87,8 @@ export function ChatConversation({
   me,
   venuePeople,
   backHref = "/connect/chats",
+  onBack,
+  readOnly = false,
 }: {
   detail: ChatDetail;
   initialMessages: ChatMessage[];
@@ -76,6 +96,10 @@ export function ChatConversation({
   me: ConnectPerson | null;
   venuePeople: ConnectPerson[];
   backHref?: string;
+  /** Simulator: back as a callback instead of a link, always shown. */
+  onBack?: () => void;
+  /** Previewing someone else's chat: no sending, no read marking. */
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const panes = useChatPanes();
@@ -87,7 +111,7 @@ export function ChatConversation({
   const [infoOpen, setInfoOpen] = useState(false);
   // Lifted from the composer so a file dropped anywhere on the chat attaches.
   const [file, setFile] = useState<File | null>(null);
-  const { dragging, dropProps } = useFileDrop(setFile, detail.canPost);
+  const { dragging, dropProps } = useFileDrop(setFile, detail.canPost && !readOnly);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -100,20 +124,22 @@ export function ChatConversation({
   }, [venuePeople, detail.members]);
 
   const scheduleRead = useCallback(() => {
+    if (readOnly) return;
     if (readTimer.current) clearTimeout(readTimer.current);
     readTimer.current = setTimeout(() => {
       if (document.visibilityState === "visible") void markChatRead(detail.id);
     }, 600);
-  }, [detail.id]);
+  }, [detail.id, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     void markChatRead(detail.id);
     const onVisible = () => {
       if (document.visibilityState === "visible") void markChatRead(detail.id);
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [detail.id]);
+  }, [detail.id, readOnly]);
 
   // Real-time: new and updated (deleted) messages in this chat.
   useEffect(() => {
@@ -133,7 +159,7 @@ export function ChatConversation({
           const msg = mapChatMessageRow(payload.new as ChatMessageRow);
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) {
-              return prev.map((m) => (m.id === msg.id ? msg : m));
+              return prev.map((m) => (m.id === msg.id ? { ...msg, replyTo: m.replyTo } : m));
             }
             let next = prev;
             if (msg.senderId === meId) {
@@ -181,7 +207,10 @@ export function ChatConversation({
     });
   }
 
+  const { receipts, refresh: refreshReceipts } = useChatReceipts(readOnly ? null : detail.id);
+
   function onSent(tempId: string, message: ChatMessage | null) {
+    if (message) refreshReceipts();
     setMessages((prev) => {
       const withoutTemp = prev.filter((m) => m.id !== tempId);
       if (!message || withoutTemp.some((m) => m.id === message.id)) return withoutTemp;
@@ -193,6 +222,82 @@ export function ChatConversation({
     stickToBottom.current = true;
     setMessages((prev) => [...prev, message]);
   }
+
+  // ---- Message menu: reply, edit, read by, delete ------------------------
+  const [menu, setMenu] = useState<MessageMenuState>(null);
+  const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
+  const [editing, setEditing] = useState<UiMessage | null>(null);
+  const canModerate = detail.myRole === "admin" && detail.kind === "group";
+
+  function actionsFor(m: UiMessage): MessageMenuAction[] {
+    if (m.pending || m.kind !== "message" || m.deletedAt) return [];
+    const mine = m.senderId === meId;
+    const actions: MessageMenuAction[] = [];
+    if (!mine && detail.canPost) actions.push("reply");
+    if (mine && m.body.trim()) actions.push("edit");
+    if (mine || canModerate) actions.push("delete");
+    return actions;
+  }
+
+  function openMenu(m: UiMessage, x: number, y: number) {
+    if (readOnly) return;
+    const actions = actionsFor(m);
+    const showReadBy = m.senderId === meId && !m.deletedAt && !m.pending && m.kind === "message";
+    if (actions.length || showReadBy) {
+      setMenu({ x, y, messageId: m.id, actions, readBy: showReadBy ? { sentAt: m.createdAt } : undefined });
+    }
+  }
+
+  function startReply(m: UiMessage) {
+    setEditing(null);
+    setReplyTo(replyPreviewOf(m));
+  }
+
+  function onMenuAction(action: MessageMenuAction, messageId: string) {
+    const m = messages.find((x) => x.id === messageId);
+    if (!m) return;
+    if (action === "reply") startReply(m);
+    if (action === "edit") {
+      setReplyTo(null);
+      setEditing(m);
+    }
+    if (action === "delete") {
+      if (!window.confirm("Delete this message for everyone?")) return;
+      void deleteChatMessage(m.id).then((result) => {
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        setMessages((prev) =>
+          prev.map((x) =>
+            x.id === m.id ? { ...x, body: "", attachment: null, deletedAt: new Date().toISOString() } : x,
+          ),
+        );
+      });
+    }
+  }
+
+  async function saveEdit(body: string): Promise<boolean> {
+    if (!editing) return false;
+    const result = await editChatMessage(editing.id, body);
+    if (!result.ok) {
+      toast.error(result.error);
+      return false;
+    }
+    setMessages((prev) =>
+      prev.map((m) => (m.id === result.message.id ? { ...result.message, replyTo: m.replyTo } : m)),
+    );
+    setEditing(null);
+    return true;
+  }
+
+  const mentionPeople = useMemo(
+    () => detail.members.filter((m) => m.userId !== meId).map((m) => m.person),
+    [detail.members, meId],
+  );
+
+  const senderName = (id: string | null) =>
+    id === meId ? "You" : ((id ? peopleById.get(id)?.name : null) ?? "Former user");
 
   // ---- Search within this chat ------------------------------------------
   const [searchOpen, setSearchOpen] = useState(false);
@@ -207,7 +312,7 @@ export function ChatConversation({
         (m) =>
           m.kind === "message" &&
           !m.deletedAt &&
-          (m.body.toLowerCase().includes(needle) ||
+          (decodeMentions(m.body).toLowerCase().includes(needle) ||
             (m.attachment?.name.toLowerCase().includes(needle) ?? false)),
       )
       .map((m) => m.id);
@@ -255,15 +360,32 @@ export function ChatConversation({
   return (
     <div className="relative flex min-h-0 flex-1" {...dropProps}>
       <DropOverlay show={dragging} />
+      <MessageMenu
+        menu={menu}
+        onClose={() => setMenu(null)}
+        onAction={onMenuAction}
+        peopleById={peopleById}
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-black/5 px-4 py-3">
-          <ScopedLink
-            href={backHref}
-            className="rounded-full p-1.5 text-black/55 hover:bg-black/5 md:hidden"
-            aria-label="Back to chats"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </ScopedLink>
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="rounded-full p-1.5 text-black/55 hover:bg-black/5"
+              aria-label="Back to chats"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          ) : (
+            <ScopedLink
+              href={backHref}
+              className="rounded-full p-1.5 text-black/55 hover:bg-black/5 md:hidden"
+              aria-label="Back to chats"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </ScopedLink>
+          )}
           <button
             type="button"
             onClick={() => setInfoOpen((v) => !v)}
@@ -423,6 +545,10 @@ export function ChatConversation({
             peopleById={peopleById}
             highlight={needle}
             currentMatchId={currentMatchId}
+            receipts={receipts}
+            onOpenMenu={openMenu}
+            onSwipeReply={detail.canPost && !readOnly ? startReply : undefined}
+            senderName={senderName}
             onDeleted={(id) =>
               setMessages((prev) =>
                 prev.map((m) =>
@@ -434,14 +560,26 @@ export function ChatConversation({
         </div>
         </div>
 
-        {detail.canPost ? (
+        {readOnly ? (
+          <p className="border-t border-black/5 bg-amber-50 px-4 py-3 text-center text-xs text-amber-900">
+            Preview of {me?.name ?? "this employee"}&apos;s chat — read only.
+          </p>
+        ) : detail.canPost ? (
           <Composer
+            key={editing ? `edit-${editing.id}` : "compose"}
             conversationId={detail.id}
             meId={meId}
             file={file}
             setFile={setFile}
             onPending={addPending}
             onSent={onSent}
+            replyTo={replyTo}
+            replyTitle={replyTo ? `Replying to ${senderName(replyTo.senderId)}` : ""}
+            onCancelReply={() => setReplyTo(null)}
+            editing={editing}
+            onSaveEdit={saveEdit}
+            onCancelEdit={() => setEditing(null)}
+            mentionPeople={mentionPeople}
           />
         ) : (
           <p className="flex items-center justify-center gap-2 border-t border-black/5 px-4 py-4 text-sm text-black/55">
@@ -486,8 +624,16 @@ function MessageList({
   peopleById,
   highlight,
   currentMatchId,
+  receipts,
+  onOpenMenu,
+  onSwipeReply,
+  senderName,
   onDeleted,
 }: {
+  receipts: ChatReceipts | null;
+  onOpenMenu: (m: UiMessage, x: number, y: number) => void;
+  onSwipeReply?: (m: UiMessage) => void;
+  senderName: (id: string | null) => string;
   messages: UiMessage[];
   meId: string;
   isGroup: boolean;
@@ -537,6 +683,10 @@ function MessageList({
         const sender = m.senderId ? peopleById.get(m.senderId) : null;
         const deleted = Boolean(m.deletedAt);
         const canDelete = !deleted && !m.pending && (mine || canModerate);
+        const ticks =
+          mine && !deleted && !m.pending ? (
+            <MessageTicks status={receiptStatus(m.createdAt, receipts)} />
+          ) : null;
 
         return (
           <Fragment key={m.id}>
@@ -572,6 +722,13 @@ function MessageList({
                     {sender?.name ?? "Former user"}
                   </span>
                 ) : null}
+                <GestureBubble
+                  onMenu={(x, y) => onOpenMenu(m, x, y)}
+                  onSwipeReply={
+                    !mine && !deleted && !m.pending && onSwipeReply ? () => onSwipeReply(m) : undefined
+                  }
+                  className="max-w-full"
+                >
                 <div
                   className={cn(
                     "rounded-2xl px-3 py-2 text-[15px] leading-snug shadow-sm",
@@ -589,15 +746,49 @@ function MessageList({
                     "Message deleted"
                   ) : (
                     <>
+                      {m.replyToId ? (
+                        (() => {
+                          const original = messages.find((x) => x.id === m.replyToId);
+                          const preview = m.replyTo ?? (original ? replyPreviewOf(original) : null);
+                          return (
+                            <ReplyQuote
+                              preview={preview}
+                              senderName={preview ? senderName(preview.senderId) : ""}
+                              mine={mine}
+                              onJump={
+                                original
+                                  ? () =>
+                                      document
+                                        .getElementById(`msg-${original.id}`)
+                                        ?.scrollIntoView({ block: "center", behavior: "smooth" })
+                                  : undefined
+                              }
+                            />
+                          );
+                        })()
+                      ) : null}
                       {m.attachment ? <MessageAttachment attachment={m.attachment} mine={mine} /> : null}
                       {m.body ? (
                         <p className="whitespace-pre-wrap break-words">
-                          <Highlighted text={m.body} needle={highlight} />
+                          <MentionText
+                            text={m.body}
+                            onDark={mine}
+                            renderText={(run) => <Highlighted text={run} needle={highlight} />}
+                          />
+                          {m.editedAt ? (
+                            <span className={cn("ml-1.5 text-[10px]", mine ? "text-white/70" : "text-black/40")}>
+                              edited
+                            </span>
+                          ) : null}
+                          {ticks ? <span className="ml-1.5 inline-flex align-[-2px]">{ticks}</span> : null}
                         </p>
+                      ) : ticks ? (
+                        <span className="-mb-0.5 mt-0.5 flex justify-end">{ticks}</span>
                       ) : null}
                     </>
                   )}
                 </div>
+                </GestureBubble>
                 {!sameAsNext ? (
                   <span className="mt-0.5 px-1 text-[10px] text-black/40" suppressHydrationWarning>
                     {m.pending ? "Sending…" : timeLabel(m.createdAt)}
@@ -710,24 +901,53 @@ function Composer({
   setFile,
   onPending,
   onSent,
+  replyTo,
+  replyTitle,
+  onCancelReply,
+  editing,
+  onSaveEdit,
+  onCancelEdit,
+  mentionPeople,
 }: {
+  /** Chat members who can be @mentioned. */
+  mentionPeople: ConnectPerson[];
   conversationId: string;
   meId: string;
   file: File | null;
   setFile: (file: File | null) => void;
   onPending: (m: UiMessage) => void;
   onSent: (tempId: string, message: ChatMessage | null) => void;
+  replyTo: ReplyPreview | null;
+  replyTitle: string;
+  onCancelReply: () => void;
+  /** When set, the composer edits this message instead of sending a new one. */
+  editing: UiMessage | null;
+  onSaveEdit: (body: string) => Promise<boolean>;
+  onCancelEdit: () => void;
 }) {
-  const [text, setText] = useState("");
+  // Remounted (keyed) when editing starts, so the text starts as the message.
+  const [text, setText] = useState(editing ? decodeMentions(editing.body) : "");
+  const [saving, setSaving] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
+  // Desktop: ready to type on open. Phone app: don't pop the keyboard up
+  // until the user taps the field (or starts a reply).
   useEffect(() => {
-    textRef.current?.focus();
-  }, [conversationId]);
+    const el = textRef.current;
+    if (!el) return;
+    if (replyTo || !el.closest(".mobile-app-canvas")) el.focus();
+  }, [conversationId, replyTo]);
 
   function send() {
-    const body = text.trim();
+    const body = encodeTypedMentions(text.trim(), mentionPeople);
+    if (editing) {
+      if (!body || saving) return;
+      setSaving(true);
+      void onSaveEdit(body).then(() => setSaving(false));
+      return;
+    }
     if (!body && !file) return;
     const tempId = `pending-${++tempCounter}`;
     onPending({
@@ -742,14 +962,18 @@ function Composer({
       createdAt: new Date().toISOString(),
       editedAt: null,
       deletedAt: null,
+      replyToId: replyTo?.id ?? null,
+      replyTo,
       pending: true,
     });
     const formData = new FormData();
     formData.set("conversationId", conversationId);
     formData.set("body", body);
     if (file) formData.set("file", file);
+    if (replyTo) formData.set("replyToId", replyTo.id);
     setText("");
     setFile(null);
+    onCancelReply();
     void sendChatMessage(formData).then((result) => {
       if (!result.ok) {
         toast.error(result.error);
@@ -760,27 +984,46 @@ function Composer({
     });
   }
 
+  const hasContent = Boolean(text.trim()) || Boolean(file);
+
+  function pickFile(picked: File | null) {
+    if (picked && picked.size > CONNECT_MAX_FILE_BYTES) {
+      toast.alert("Files must be 25 MB or smaller.");
+      return;
+    }
+    setFile(picked);
+    textRef.current?.focus();
+  }
+
+  // iOS-style bar: round buttons and a pill that grows only with its text.
+  const roundButton =
+    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-[#2B2F16] shadow-sm ring-1 ring-black/[0.06] transition active:scale-95 hover:bg-black/[0.03]";
+
   return (
-    <div className="border-t border-black/5 bg-white px-3 py-3">
-      {file ? (
-        <div className="mb-2 flex items-center gap-2 rounded-xl bg-[#F0F2E8] px-3 py-2 text-sm">
-          <Paperclip className="h-4 w-4 text-black/50" aria-hidden />
-          <span className="min-w-0 flex-1 truncate">{file.name}</span>
-          <span className="text-xs text-black/45">{formatFileSize(file.size)}</span>
-          <button type="button" onClick={() => setFile(null)} className="rounded-full p-0.5 hover:bg-black/10" aria-label="Remove attachment">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <div className="border-t border-black/[0.06] bg-[#F7F7F5]/90 px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl">
+      {editing ? (
+        <ComposerBanner
+          mode="edit"
+          title="Editing message"
+          preview={replyPreviewOf(editing)}
+          onCancel={onCancelEdit}
+        />
+      ) : replyTo ? (
+        <ComposerBanner mode="reply" title={replyTitle} preview={replyTo} onCancel={onCancelReply} />
       ) : null}
-      <div className="flex items-end gap-2">
-        <button
-          type="button"
-          onClick={() => fileInput.current?.click()}
-          className="rounded-full p-2.5 text-black/50 hover:bg-black/5"
-          aria-label="Attach a photo or file"
-        >
-          <Paperclip className="h-5 w-5" />
-        </button>
+      {file && !editing ? <AttachmentChip file={file} onRemove={() => setFile(null)} /> : null}
+      <div className="flex items-end gap-1.5">
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            className={roundButton}
+            aria-label="Attach a photo or file"
+            title="Attach a photo or file"
+          >
+            <Plus className="h-5 w-5" strokeWidth={2} />
+          </button>
+        ) : null}
         <input
           ref={fileInput}
           type="file"
@@ -788,39 +1031,95 @@ function Composer({
           onChange={(e) => {
             const picked = e.target.files?.[0] ?? null;
             e.target.value = "";
-            if (picked && picked.size > CONNECT_MAX_FILE_BYTES) {
-              toast.alert("Files must be 25 MB or smaller.");
-              return;
-            }
-            setFile(picked);
-            textRef.current?.focus();
+            pickFile(picked);
           }}
         />
-        <textarea
-          ref={textRef}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              send();
-            }
+        {/* On phones this opens the camera straight away; on computers, a file picker. */}
+        <input
+          ref={cameraInput}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+          onChange={(e) => {
+            const picked = e.target.files?.[0] ?? null;
+            e.target.value = "";
+            pickFile(picked);
           }}
-          rows={1}
-          maxLength={CHAT_MAX_MESSAGE_CHARS}
-          placeholder="Type a message"
-          className="max-h-40 min-h-11 flex-1 resize-none rounded-3xl bg-[#F0F2E8] px-4 py-2.5 text-[15px] outline-none placeholder:text-black/40 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/30 [field-sizing:content]"
         />
-        <button
-          type="button"
-          onClick={send}
-          disabled={!text.trim() && !file}
-          className="rounded-full bg-[var(--venue-primary,#818a40)] p-2.5 text-white hover:opacity-90 disabled:opacity-40"
-          aria-label="Send"
-        >
-          <SendHorizontal className="h-5 w-5" />
-        </button>
+        <div className="flex min-h-9 min-w-0 flex-1 items-center rounded-[20px] bg-white px-3.5 ring-1 ring-black/[0.08] focus-within:ring-[var(--venue-primary,#818a40)]/40">
+          <MentionTextarea
+            ref={textRef}
+            value={text}
+            onValueChange={setText}
+            people={mentionPeople}
+            wrapperClassName="w-full"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                send();
+              }
+              if (e.key === "Escape") {
+                if (editing) onCancelEdit();
+                else if (replyTo) onCancelReply();
+              }
+            }}
+            rows={1}
+            maxLength={CHAT_MAX_MESSAGE_CHARS}
+            placeholder={editing ? "Edit message" : "Message"}
+            className="block max-h-32 resize-none bg-transparent py-[7px] text-[16px] leading-[22px] text-[#2B2F16] outline-none placeholder:text-black/35 [field-sizing:content]"
+          />
+        </div>
+        {hasContent || editing ? (
+          <button
+            type="button"
+            onClick={send}
+            disabled={!hasContent}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-sm transition active:scale-95 disabled:opacity-40"
+            aria-label={editing ? "Save" : "Send"}
+          >
+            {editing ? <Check className="h-5 w-5" strokeWidth={2.5} /> : <SendHorizontal className="h-[18px] w-[18px]" />}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => cameraInput.current?.click()}
+            className={roundButton}
+            aria-label="Take a photo"
+            title="Take a photo"
+          >
+            <Camera className="h-5 w-5" strokeWidth={1.9} />
+          </button>
+        )}
       </div>
+    </div>
+  );
+}
+
+/** The file waiting to be sent: a thumbnail for photos, otherwise its name. */
+function AttachmentChip({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const isImage = file.type.startsWith("image/");
+  const url = useMemo(() => (isImage ? URL.createObjectURL(file) : null), [file, isImage]);
+  useEffect(() => () => {
+    if (url) URL.revokeObjectURL(url);
+  }, [url]);
+  return (
+    <div className="mb-1.5 flex items-center gap-2.5 rounded-2xl bg-white px-2 py-1.5 text-sm shadow-sm ring-1 ring-black/[0.06]">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element -- local preview
+        <img src={url} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" />
+      ) : (
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#F0F2E8]">
+          <Paperclip className="h-4 w-4 text-black/50" aria-hidden />
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[#2B2F16]">{file.name}</span>
+        <span className="text-xs text-black/45">{formatFileSize(file.size)}</span>
+      </span>
+      <button type="button" onClick={onRemove} className="rounded-full p-1 hover:bg-black/10" aria-label="Remove attachment">
+        <X className="h-4 w-4" />
+      </button>
     </div>
   );
 }

@@ -23,6 +23,7 @@ import {
 import type { PresenceStatus } from "@/lib/connect/presence";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
 import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
+import { SwipeRow } from "@/components/connect/chat/swipe-row";
 import { ChatExtraPane } from "@/components/connect/chat/chat-extra-pane";
 import { ChatModal } from "@/components/connect/chat/chat-modal";
 import { ChatPanesContext } from "@/components/connect/chat/chat-panes-context";
@@ -33,7 +34,7 @@ import {
   useVenueScope,
 } from "@/components/providers/venue-scope-provider";
 import { toast } from "@/components/ui/toast";
-import { setChatArchived, startDirectChat } from "@/lib/actions/connect-chat";
+import { markChatUnread, setChatArchived, startDirectChat } from "@/lib/actions/connect-chat";
 import { formatPostTime } from "@/lib/connect/format";
 import {
   chatPreviewText,
@@ -175,6 +176,19 @@ export function ChatShell({
       return;
     }
     toast.saved(archived ? "Chat archived." : "Chat moved back to your chats.");
+  }
+
+  async function markUnread(conversationId: string) {
+    const result = await markChatUnread(conversationId);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setChats((prev) =>
+      prev.map((c) => (c.id === conversationId ? { ...c, unreadCount: Math.max(1, c.unreadCount) } : c)),
+    );
+    // Leave the chat so opening it doesn't mark it read straight away.
+    if (conversationId === activeId) router.push(toScopedHref("/connect/chats", scope, slug));
   }
   const [pending, startTransition] = useTransition();
 
@@ -550,6 +564,12 @@ export function ChatShell({
           ) : (
             filtered.map((c) => (
               <li key={c.id}>
+                <SwipeRow
+                  archived={c.archived}
+                  onMarkUnread={c.lastMessage ? () => void markUnread(c.id) : undefined}
+                  onArchive={() => void archive(c.id, !c.archived)}
+                  className="rounded-xl bg-white"
+                >
                 <ScopedLink
                   href={`/connect/chats/${c.id}`}
                   onContextMenu={(e) => {
@@ -599,6 +619,7 @@ export function ChatShell({
                     </span>
                   </span>
                 </ScopedLink>
+                </SwipeRow>
               </li>
             ))
           )}
@@ -633,6 +654,7 @@ export function ChatShell({
         onClose={() => setMenu(null)}
         onArchive={(id, archived) => void archive(id, archived)}
         onOpenSide={openSide}
+        onMarkUnread={(id) => void markUnread(id)}
       />
 
       {dialog === "direct" ? (

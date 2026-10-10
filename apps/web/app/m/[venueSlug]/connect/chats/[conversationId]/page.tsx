@@ -25,7 +25,8 @@ export default async function MobileConnectConversationPage({
 
   return (
     <VenueProvider initialVenue={venue}>
-      <div className="mobile-app-canvas h-full min-h-0 bg-white">
+      {/* Column so the message box stays pinned to the bottom of the screen. */}
+      <div className="mobile-app-canvas flex h-full min-h-0 flex-col bg-white">
         <ChatConversation
           detail={detail}
           initialMessages={messages}

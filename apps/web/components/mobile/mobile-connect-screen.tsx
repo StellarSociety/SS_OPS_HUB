@@ -1,16 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { MessageCircle, Search, Users } from "lucide-react";
+import { Archive, MessageCircle, Search, Users, X } from "lucide-react";
+import { SwipeRow } from "@/components/connect/chat/swipe-row";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { toast } from "@/components/ui/toast";
+import { markChatUnread, setChatArchived } from "@/lib/actions/connect-chat";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
+import { ModuleIcon } from "@/components/modules/module-icon";
 import { chatPreviewText, type ChatSummary } from "@/lib/connect/chat-types";
 import { formatPostTime } from "@/lib/connect/format";
 import type { ConnectGroup } from "@/lib/connect/types";
 import { mobileConnectConversationHref } from "@/lib/mobile/app-path";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
 import type { Venue } from "@/lib/types/database";
+import { cn } from "@/lib/utils";
 
 type ChatFilter = "all" | "direct" | "groups" | "archived";
 
@@ -21,14 +26,62 @@ const FILTERS: Array<{ id: ChatFilter; label: string }> = [
   { id: "archived", label: "Archived" },
 ];
 
-export function MobileConnectScreen({ venue, chats, meId, onSelectTab }: {
+export function MobileConnectScreen({ venue, chats: initialChats, meId, onSelectTab, onOpenChat, readOnly = false }: {
+  /** Simulator: open the chat in-frame instead of navigating. */
+  onOpenChat?: (conversationId: string) => void;
+  /** Previewing another employee: no archive / unread swipes. */
+  readOnly?: boolean;
   venue: Venue;
   chats: ChatSummary[];
   groups: ConnectGroup[];
   meId: string;
   onSelectTab?: (tab: MobileTabItem) => void;
 }) {
+  // Local copy so swipes (unread / archive) update the list straight away.
+  const [chats, setChats] = useState(initialChats);
+  const [synced, setSynced] = useState(initialChats);
+  if (synced !== initialChats) {
+    setSynced(initialChats);
+    setChats(initialChats);
+  }
+
+  async function archive(chat: ChatSummary) {
+    const archived = !chat.archived;
+    setChats((prev) => prev.map((c) => (c.id === chat.id ? { ...c, archived } : c)));
+    const result = await setChatArchived(chat.id, archived);
+    if (!result.ok) {
+      setChats((prev) => prev.map((c) => (c.id === chat.id ? { ...c, archived: !archived } : c)));
+      toast.error(result.error);
+      return;
+    }
+    toast.saved(archived ? "Chat archived." : "Chat moved back to your chats.");
+  }
+
+  async function markUnread(chat: ChatSummary) {
+    const result = await markChatUnread(chat.id);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    setChats((prev) =>
+      prev.map((c) => (c.id === chat.id ? { ...c, unreadCount: Math.max(1, c.unreadCount) } : c)),
+    );
+  }
+
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  function toggleSearch() {
+    if (searchOpen) {
+      setSearchOpen(false);
+      setQuery("");
+      return;
+    }
+    setSearchOpen(true);
+    // Focus once the bar has started opening.
+    window.setTimeout(() => searchRef.current?.focus(), 60);
+  }
   const [filter, setFilter] = useState<ChatFilter>("all");
   const unread = chats.reduce((sum, chat) => sum + chat.unreadCount, 0);
   const visibleChats = useMemo(() => {
@@ -45,20 +98,74 @@ export function MobileConnectScreen({ venue, chats, meId, onSelectTab }: {
   return (
     <div className="mobile-app-canvas relative flex h-full min-h-0 flex-col bg-[#F7F8F2]">
       <header className="shrink-0 border-b border-black/10 bg-white px-4 pb-3 pt-4">
-        <h1 className="font-serif text-2xl font-semibold text-[#3D421F]">Connecteam</h1>
-        <p className="text-xs text-black/50">
-          {unread ? `${unread} unread message${unread === 1 ? "" : "s"}` : "Messages and team feeds"}
-        </p>
-        <label className="mt-3 flex h-10 items-center gap-2 rounded-xl border border-black/10 bg-[#F7F8F2] px-3 focus-within:border-[var(--venue-primary,#818a40)]">
-          <Search className="h-4 w-4 shrink-0 text-black/40" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search chats" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/35" />
-        </label>
-        <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-[#F0F2E8] p-1">
-          {FILTERS.map((item) => (
-            <button key={item.id} type="button" onClick={() => setFilter(item.id)} className={`rounded-lg px-1 py-2 text-xs font-medium ${filter === item.id ? "bg-white text-[#3D421F] shadow-sm" : "text-black/50"}`}>
-              {item.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--venue-secondary,#F0F3DD)]">
+            <ModuleIcon iconKey="messages-square" className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="font-serif text-2xl font-semibold leading-tight text-[#3D421F]">Connecteam</h1>
+            <p className="text-xs text-black/50">
+              {unread ? `${unread} unread message${unread === 1 ? "" : "s"}` : "Messages and team feeds"}
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-1.5">
+          <div className="grid flex-1 grid-cols-3 gap-1 rounded-xl bg-[#F0F2E8] p-1">
+            {FILTERS.filter((item) => item.id !== "archived").map((item) => (
+              <button key={item.id} type="button" onClick={() => setFilter(item.id)} className={`rounded-lg px-1 py-2 text-xs font-medium ${filter === item.id ? "bg-white text-[#3D421F] shadow-sm" : "text-black/50"}`}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilter((f) => (f === "archived" ? "all" : "archived"))}
+            aria-pressed={filter === "archived"}
+            aria-label="Archived chats"
+            title="Archived chats"
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors",
+              filter === "archived" ? "bg-[var(--venue-primary,#818a40)] text-white" : "bg-[#F0F2E8] text-black/55",
+            )}
+          >
+            <Archive className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={toggleSearch}
+            aria-expanded={searchOpen}
+            aria-controls="mobile-chat-search"
+            aria-label={searchOpen ? "Close search" : "Search chats"}
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors",
+              searchOpen ? "bg-[var(--venue-primary,#818a40)] text-white" : "bg-[#F0F2E8] text-black/55",
+            )}
+          >
+            {searchOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+          </button>
+        </div>
+        {/* Slides open under the bar; grid rows animate from 0 to the content height. */}
+        <div
+          id="mobile-chat-search"
+          className={cn(
+            "grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
+            searchOpen ? "mt-3 grid-rows-[1fr] opacity-100" : "mt-0 grid-rows-[0fr] opacity-0",
+          )}
+          aria-hidden={!searchOpen}
+        >
+          <div className="overflow-hidden">
+            <label className="flex h-10 items-center gap-2 rounded-xl border border-black/10 bg-[#F7F8F2] px-3 focus-within:border-[var(--venue-primary,#818a40)]">
+              <Search className="h-4 w-4 shrink-0 text-black/40" />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search chats"
+                tabIndex={searchOpen ? 0 : -1}
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/35"
+              />
+            </label>
+          </div>
         </div>
       </header>
 
@@ -71,7 +178,23 @@ export function MobileConnectScreen({ venue, chats, meId, onSelectTab }: {
             </li>
           ) : visibleChats.map((chat) => (
             <li key={chat.id}>
-              <Link href={mobileConnectConversationHref(venue.slug, chat.id)} className="flex items-center gap-3 px-4 py-3">
+              <SwipeRow
+                archived={chat.archived}
+                onMarkUnread={chat.lastMessage && !readOnly ? () => void markUnread(chat) : undefined}
+                onArchive={() => {
+                  if (!readOnly) void archive(chat);
+                }}
+                className="bg-white"
+              >
+              <Link
+                href={mobileConnectConversationHref(venue.slug, chat.id)}
+                onClick={(e) => {
+                  if (!onOpenChat) return;
+                  e.preventDefault();
+                  onOpenChat(chat.id);
+                }}
+                className="flex items-center gap-3 bg-white px-4 py-3"
+              >
                 {chat.kind === "direct" ? <ConnectAvatar name={chat.title} photoUrl={chat.photoUrl} /> : (
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: chat.color }}><Users className="h-5 w-5" /></span>
                 )}
@@ -86,6 +209,7 @@ export function MobileConnectScreen({ venue, chats, meId, onSelectTab }: {
                   </span>
                 </span>
               </Link>
+              </SwipeRow>
             </li>
           ))}
         </ul>

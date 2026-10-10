@@ -1,3 +1,4 @@
+import { decodeMentions } from "./mentions";
 import type { ConnectPerson } from "./types";
 
 export type ChatKind = "direct" | "group";
@@ -26,7 +27,29 @@ export type ChatMessage = {
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
+  /** The message this one replies to. */
+  replyToId: string | null;
+  /** Snippet of the replied-to message, filled by the server when loading. */
+  replyTo?: ReplyPreview | null;
 };
+
+export type ReplyPreview = {
+  id: string;
+  senderId: string | null;
+  body: string;
+  hasAttachment: boolean;
+  deleted: boolean;
+};
+
+export function replyPreviewOf(m: ChatMessage): ReplyPreview {
+  return {
+    id: m.id,
+    senderId: m.senderId,
+    body: m.body,
+    hasAttachment: Boolean(m.attachment),
+    deleted: Boolean(m.deletedAt),
+  };
+}
 
 /** Row shape of public.chat_messages (also what Realtime delivers). */
 export type ChatMessageRow = {
@@ -42,6 +65,8 @@ export type ChatMessageRow = {
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
+  /** Present once the replies migration is applied. */
+  reply_to_id?: string | null;
 };
 
 export function mapChatMessageRow(row: ChatMessageRow): ChatMessage {
@@ -62,6 +87,7 @@ export function mapChatMessageRow(row: ChatMessageRow): ChatMessage {
     createdAt: row.created_at,
     editedAt: row.edited_at,
     deletedAt: row.deleted_at,
+    replyToId: row.reply_to_id ?? null,
   };
 }
 
@@ -146,7 +172,7 @@ export function chatPreviewText(summary: ChatSummary, meId: string): string {
   const last = summary.lastMessage;
   if (!last) return summary.kind === "group" ? "Group created" : "Say hello 👋";
   if (last.deleted) return "Message deleted";
-  const text = last.body.trim() || (last.hasAttachment ? "📎 Attachment" : "");
+  const text = decodeMentions(last.body).trim() || (last.hasAttachment ? "📎 Attachment" : "");
   if (last.kind === "system") return text;
   if (last.senderId === meId) return `You: ${text}`;
   if (summary.kind === "group" && last.senderName) {

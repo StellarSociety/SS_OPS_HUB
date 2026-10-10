@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { EdgeSwipeBack } from "@/components/mobile/edge-swipe-back";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
 import { DeviceNotificationsManager } from "@/components/pwa/device-notifications";
 import { MobileAppInstallReporter } from "@/components/pwa/mobile-app-install-reporter";
@@ -21,6 +22,16 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
   const selectVenue = pathname.includes("/select-venue");
   const login = pathname.includes("/login");
 
+  // Edge swipe: back through history, or Home when there is nothing to go back to.
+  function goBack() {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    const slug = /^\/m\/([^/]+)/.exec(pathname)?.[1];
+    if (slug && !pathname.endsWith("/welcome")) router.push(`/m/${slug}/welcome`);
+  }
+
   return (
     <div
       className={cn(
@@ -32,7 +43,11 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
       <MobileChromeHostProvider host={chromeHost}>
         <MobileNavBusyProvider resetKey={pathname}>
           <div className="relative h-full min-h-0" data-mobile-shell="">
-            <div className="mobile-shell-inset h-full min-h-0">
+            <EdgeSwipeBack
+              onBack={goBack}
+              disabled={login || selectVenue}
+              className="mobile-shell-inset h-full min-h-0"
+            >
               <PullToRefresh
                 refreshing={refreshing}
                 onRefresh={() => startRefresh(() => router.refresh())}
@@ -42,7 +57,7 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
               >
                 {children}
               </PullToRefresh>
-            </div>
+            </EdgeSwipeBack>
             <div
               ref={setChromeHost}
               className="pointer-events-none absolute inset-x-0 bottom-0 z-50"

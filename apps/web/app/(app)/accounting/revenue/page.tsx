@@ -18,29 +18,23 @@ export default async function AccountingRevenuePage() {
     return <AccessDeniedBounce />;
   }
 
+  // Load first, render after: JSX built inside try/catch would not catch
+  // render errors anyway.
+  let loaded:
+    | { days: ReturnType<typeof revenueDaysFromSales>; taxSettings: Awaited<ReturnType<typeof getVenueSalesTaxSettings>> }
+    | { error: unknown };
   try {
     const [records, taxSettings] = await Promise.all([
       listVenueDailySales(supabase, venue.id),
       getVenueSalesTaxSettings(supabase, venue.id),
     ]);
-    const days = revenueDaysFromSales(records, taxSettings);
-
-    return (
-      <div className="mx-auto w-full max-w-none space-y-5">
-        <div className="space-y-1">
-          <h1 className="font-serif text-2xl font-semibold tracking-tight text-[#3D421F] md:text-3xl">
-            Revenue
-          </h1>
-          <p className="text-sm text-black/55">
-            Daily gross sales by revenue center, with tax, service charge and
-            net revenue.
-          </p>
-        </div>
-        <RevenueTable days={days} taxSettings={taxSettings} />
-      </div>
-    );
+    loaded = { days: revenueDaysFromSales(records, taxSettings), taxSettings };
   } catch (error) {
-    if (getSalesDataLoadErrorMessage(error) === "schema_missing") {
+    loaded = { error };
+  }
+
+  if ("error" in loaded) {
+    if (getSalesDataLoadErrorMessage(loaded.error) === "schema_missing") {
       return (
         <Card className="p-6">
           <h2 className="font-serif text-xl text-[#3D421F]">
@@ -54,7 +48,7 @@ export default async function AccountingRevenuePage() {
       );
     }
 
-    console.error("[accounting/revenue]", error);
+    console.error("[accounting/revenue]", loaded.error);
 
     return (
       <Card className="p-6">
@@ -68,4 +62,19 @@ export default async function AccountingRevenuePage() {
       </Card>
     );
   }
+
+  return (
+    <div className="mx-auto w-full max-w-none space-y-5">
+      <div className="space-y-1">
+        <h1 className="font-serif text-2xl font-semibold tracking-tight text-[#3D421F] md:text-3xl">
+          Revenue
+        </h1>
+        <p className="text-sm text-black/55">
+          Daily gross sales by revenue center, with tax, service charge and
+          net revenue.
+        </p>
+      </div>
+      <RevenueTable days={loaded.days} taxSettings={loaded.taxSettings} />
+    </div>
+  );
 }

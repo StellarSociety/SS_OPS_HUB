@@ -4,7 +4,7 @@ import { listConnectPosts } from "@/lib/connect/store";
 import { isAnnouncementsGroup } from "@/lib/connect/types";
 import { getMobileConnectContext } from "@/lib/mobile/connect-context";
 
-export default async function MobileConnectFeedPage({
+export default async function MobileConnectAnnouncementsPage({
   params,
   searchParams,
 }: {
@@ -16,13 +16,31 @@ export default async function MobileConnectFeedPage({
   const { service, venue, user, me, groups, canAccess } = await getMobileConnectContext(venueSlug);
   if (!canAccess) return <MobileAccessDenied />;
   const visibleGroups = groups.filter((group) => group.myRole !== null);
-  // Team feed: every group except Announcements, which has its own tab.
+  const announcements = visibleGroups.find(isAnnouncementsGroup) ?? null;
+  if (!announcements) {
+    return (
+      <div className="flex h-full items-center justify-center px-8 text-center text-sm text-black/50">
+        This venue has no Announcements group yet.
+      </div>
+    );
+  }
   const { posts, nextBefore } = await listConnectPosts(service, {
     venueId: venue.id,
-    groups: visibleGroups.filter((group) => !isAnnouncementsGroup(group)),
+    groups: [announcements],
     viewerId: user.id,
     before: query.before ?? null,
+    pinnedFirst: true,
   });
 
-  return <MobileConnectFeed tab="feed" venue={venue} me={me} groups={visibleGroups} selectedGroup={null} posts={posts} nextBefore={nextBefore} />;
+  return (
+    <MobileConnectFeed
+      tab="announcements"
+      venue={venue}
+      me={me}
+      groups={visibleGroups}
+      selectedGroup={announcements}
+      posts={posts}
+      nextBefore={nextBefore}
+    />
+  );
 }

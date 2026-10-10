@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArchiveRestore, Columns2 } from "lucide-react";
+import { Archive, ArchiveRestore, Columns2, MailOpen } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
@@ -17,10 +17,13 @@ export function ChatContextMenu({
   onClose,
   onArchive,
   onOpenSide,
+  onMarkUnread,
 }: {
   menu: ChatMenuState;
   onClose: () => void;
   onArchive: (conversationId: string, archived: boolean) => void;
+  /** When set, offers marking the chat unread again. */
+  onMarkUnread?: (conversationId: string) => void;
   /** When set, offers opening the chat in another window next to the current one. */
   onOpenSide?: (conversationId: string) => void;
 }) {
@@ -51,7 +54,8 @@ export function ChatContextMenu({
 
   // Keep the menu on screen near the cursor.
   const left = Math.min(menu.x, window.innerWidth - 190);
-  const top = Math.min(menu.y, window.innerHeight - (onOpenSide ? 100 : 60));
+  const items = 1 + (onOpenSide ? 1 : 0) + (onMarkUnread ? 1 : 0);
+  const top = Math.min(menu.y, window.innerHeight - (items * 40 + 20));
 
   return createPortal(
     <div
@@ -75,10 +79,24 @@ export function ChatContextMenu({
           Open side by side
         </button>
       ) : null}
+      {onMarkUnread ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onMarkUnread(menu.conversationId);
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#2B2F16] hover:bg-[var(--venue-primary,#818a40)] hover:text-white"
+        >
+          <MailOpen className="h-4 w-4" />
+          Mark as unread
+        </button>
+      ) : null}
       <button
         type="button"
         role="menuitem"
-        autoFocus={!onOpenSide}
+        autoFocus={!onOpenSide && !onMarkUnread}
         onClick={() => {
           onArchive(menu.conversationId, !menu.archived);
           onClose();

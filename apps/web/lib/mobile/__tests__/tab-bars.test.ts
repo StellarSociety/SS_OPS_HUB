@@ -26,17 +26,22 @@ describe("tab bars", () => {
 });
 
 describe("Connecteam tab bar", () => {
-  it("keeps Chats, Feed, and Home together on the right", () => {
+  it("reads Home, Chats, Announcements, Team feed, My threads from the right", () => {
     const items = tabBarItems("connect");
     expect(items.map((tab) => tab.id)).toEqual([
-      "reserved-connect-1",
-      "reserved-connect-2",
-      "chats",
+      "threads",
       "feed",
+      "announcements",
+      "chats",
       MOBILE_HOME_TAB_ID,
     ]);
-    expect(items[2]?.pageId).toBe("connect");
-    expect(items[3]?.pageId).toBe("connect-feed");
+    expect(items.map((tab) => tab.pageId)).toEqual([
+      "connect-threads",
+      "connect-feed",
+      "connect-announcements",
+      "connect",
+      "welcome",
+    ]);
   });
 });
 

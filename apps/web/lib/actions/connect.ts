@@ -16,6 +16,7 @@ import {
 } from "@/lib/connect/permissions";
 import {
   markConnectNotificationsRead,
+  notifyMentions,
   notifyNewComment,
   notifyNewPost,
   notifyNewReaction,
@@ -268,13 +269,23 @@ export async function createConnectPost(
 
   const group = resolved.group;
   after(() =>
-    notifyNewPost(actor.service, {
-      group,
-      postId,
-      authorId: actor.userId,
-      body,
-      hasFiles: attachmentRows.length > 0,
-    }),
+    Promise.all([
+      notifyNewPost(actor.service, {
+        group,
+        postId,
+        authorId: actor.userId,
+        body,
+        hasFiles: attachmentRows.length > 0,
+      }),
+      notifyMentions(actor.service, {
+        group,
+        postId,
+        sourceId: postId,
+        kind: "post",
+        authorId: actor.userId,
+        body,
+      }),
+    ]),
   );
 
   revalidateConnect();
@@ -304,6 +315,18 @@ export async function updateConnectPost(
     .update({ body: text, edited_at: new Date().toISOString() })
     .eq("id", postId);
   if (error) return fail(error.message);
+
+  // Anyone newly tagged in the edit gets told (each person only once).
+  after(() =>
+    notifyMentions(actor.service, {
+      group: loaded.group,
+      postId,
+      sourceId: postId,
+      kind: "post",
+      authorId: actor.userId,
+      body: text,
+    }),
+  );
 
   revalidateConnect();
   return { ok: true };
@@ -463,14 +486,24 @@ export async function addConnectComment(
 
   const commentId = data.id as string;
   after(() =>
-    notifyNewComment(actor.service, {
-      group: loaded.group,
-      postId,
-      postAuthorId: loaded.post.author_id,
-      commentId,
-      commenterId: actor.userId,
-      body: text,
-    }),
+    Promise.all([
+      notifyNewComment(actor.service, {
+        group: loaded.group,
+        postId,
+        postAuthorId: loaded.post.author_id,
+        commentId,
+        commenterId: actor.userId,
+        body: text,
+      }),
+      notifyMentions(actor.service, {
+        group: loaded.group,
+        postId,
+        sourceId: commentId,
+        kind: "comment",
+        authorId: actor.userId,
+        body: text,
+      }),
+    ]),
   );
 
   revalidateConnect();

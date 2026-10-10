@@ -7,6 +7,8 @@ import { ConnectAvatar } from "@/components/connect/connect-avatar";
 import { useScopedHref } from "@/components/providers/venue-scope-provider";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import { encodeTypedMentions } from "@/components/connect/mention-people";
+import { MentionTextarea } from "@/components/connect/mention-textarea";
 import { createConnectPost } from "@/lib/actions/connect";
 import { celebrationHeadline, formatFileSize } from "@/lib/connect/format";
 import {
@@ -141,7 +143,7 @@ export function PostComposer({
     }
     const formData = new FormData();
     formData.set("groupId", groupId);
-    formData.set("body", body);
+    formData.set("body", encodeTypedMentions(body));
     for (const d of drafts) formData.append("files", d.file);
     if (celebration) {
       formData.set("celebrationStaffId", celebration.staffId);
@@ -185,10 +187,10 @@ export function PostComposer({
 
       <div className="flex items-start gap-3">
         <ConnectAvatar name={me?.name ?? "You"} photoUrl={me?.photoUrl} size="md" />
-        <textarea
+        <MentionTextarea
           ref={textRef}
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onValueChange={setBody}
           onFocus={() => setExpanded(true)}
           placeholder={
             celebration

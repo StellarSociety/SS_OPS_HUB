@@ -9,14 +9,30 @@ const PATTERN_ANGLE = -45;
 const PATTERN_SCALE = 0.62;
 const LINE_COLOR = "#8b8d7d"; // muted olive-grey (low saturation)
 
+/** Venues with their own wallpaper image (by slug); others use the drawn pattern. */
+const VENUE_WALLPAPERS: Record<string, string> = {
+  orilla: "/venues/orilla-chat-pattern.webp",
+};
+
 /**
- * Fixed chat wallpaper: chat bubbles plus the venue favicon on one repeating,
- * tilted tile. Sits behind the scrolling messages and does not move with them.
+ * Fixed chat wallpaper: the venue's own image when it has one, otherwise chat
+ * bubbles plus the venue favicon on one repeating, tilted tile. Sits behind the scrolling messages and does not move with them.
  */
 export function ChatBackdrop() {
   const { venue } = useVenue();
   const badge = venue ? getVenueBadgeUrl(venue) : null;
   const patternId = `chat-pattern-${useId().replace(/:/g, "")}`;
+  const wallpaper = venue?.slug ? VENUE_WALLPAPERS[venue.slug] : undefined;
+
+  if (wallpaper) {
+    return (
+      <div
+        aria-hidden
+        className="chat-wallpaper pointer-events-none absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: `url(${wallpaper})` }}
+      />
+    );
+  }
 
   return (
     <div aria-hidden className="chat-wallpaper pointer-events-none absolute inset-0 overflow-hidden">

@@ -5,6 +5,7 @@ import {
   CHAT_MESSAGES_PAGE_SIZE,
   isChatArchived,
   mapChatMessageRow,
+  replyPreviewOf,
   type ChatDetail,
   type ChatKind,
   type ChatMember,
@@ -36,8 +37,9 @@ export type ChatConversationRow = {
 const CONVERSATION_SELECT =
   "id, venue_id, kind, direct_key, name, description, color, only_admins_can_post, members_can_add, last_message_at, archived_at, created_at";
 
-const MESSAGE_SELECT =
-  "id, conversation_id, sender_id, body, kind, attachment_url, attachment_name, attachment_type, attachment_size, created_at, edited_at, deleted_at";
+// "*" so columns added by later migrations (reply_to_id) load when present
+// without breaking before they are applied.
+const MESSAGE_SELECT = "*";
 
 export function directKey(a: string, b: string): string {
   return [a, b].sort().join(":");
@@ -292,10 +294,28 @@ export async function listChatMessages(
     return { messages: [], hasMore: false };
   }
   const rows = (data ?? []) as ChatMessageRow[];
+  const messages = rows.slice(0, CHAT_MESSAGES_PAGE_SIZE).reverse().map(mapChatMessageRow);
   return {
-    messages: rows.slice(0, CHAT_MESSAGES_PAGE_SIZE).reverse().map(mapChatMessageRow),
+    messages: await attachReplyPreviews(service, messages),
     hasMore: rows.length > CHAT_MESSAGES_PAGE_SIZE,
   };
+}
+
+/** Fill `replyTo` snippets for replies (also when the original is on an older page). */
+export async function attachReplyPreviews(
+  service: SupabaseClient,
+  messages: ChatMessage[],
+): Promise<ChatMessage[]> {
+  const ids = [...new Set(messages.map((m) => m.replyToId).filter((id): id is string => Boolean(id)))];
+  if (ids.length === 0) return messages;
+  const { data } = await service.from("chat_messages").select(MESSAGE_SELECT).in("id", ids);
+  const byId = new Map(
+    ((data ?? []) as ChatMessageRow[]).map((row) => {
+      const m = mapChatMessageRow(row);
+      return [m.id, replyPreviewOf(m)] as const;
+    }),
+  );
+  return messages.map((m) => (m.replyToId ? { ...m, replyTo: byId.get(m.replyToId) ?? null } : m));
 }
 
 type ContactStaff = {

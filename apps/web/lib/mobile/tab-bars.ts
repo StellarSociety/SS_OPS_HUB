@@ -11,7 +11,9 @@ import {
   FileBarChart,
   FolderOpen,
   House,
+  AtSign,
   LayoutDashboard,
+  Megaphone,
   MessageSquare,
   Network,
   Newspaper,
@@ -25,6 +27,13 @@ import {
 import { MOBILE_APP_BASE } from "@/lib/mobile/app-path";
 
 export const MOBILE_HOME_TAB_ID = "home" as const;
+
+/** Bars that show icons only (labels stay as accessible names / tooltips). */
+const ICON_ONLY_APPS: ReadonlySet<string> = new Set(["connect"]);
+
+export function tabBarShowsLabels(app: string): boolean {
+  return !ICON_ONLY_APPS.has(app);
+}
 
 export type MobileTabItem = {
   id: string;
@@ -66,18 +75,28 @@ const APP_TABS: Record<
   MobileTabBarApp,
   readonly [MobileTabItem, MobileTabItem, MobileTabItem, MobileTabItem]
 > = {
+  // Right to left from Home: Chats, Announcements, Team feed, My threads.
   connect: [
     {
-      id: "reserved-connect-1",
-      label: " ",
-      icon: CircleDashed,
-      path: "/connect/reserved-1",
+      id: "threads",
+      label: "My threads",
+      icon: AtSign,
+      pageId: "connect-threads",
+      path: "/connect/threads",
     },
     {
-      id: "reserved-connect-2",
-      label: " ",
-      icon: CircleDashed,
-      path: "/connect/reserved-2",
+      id: "feed",
+      label: "Team feed",
+      icon: Newspaper,
+      pageId: "connect-feed",
+      path: "/connect/feed",
+    },
+    {
+      id: "announcements",
+      label: "Announcements",
+      icon: Megaphone,
+      pageId: "connect-announcements",
+      path: "/connect/announcements",
     },
     {
       id: "chats",
@@ -85,13 +104,6 @@ const APP_TABS: Record<
       icon: MessageSquare,
       pageId: "connect",
       path: "/connect",
-    },
-    {
-      id: "feed",
-      label: "Feed",
-      icon: Newspaper,
-      pageId: "connect-feed",
-      path: "/connect/feed",
     },
   ],
   profile: [

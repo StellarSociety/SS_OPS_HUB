@@ -1,6 +1,7 @@
 import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileConnectFeed } from "@/components/mobile/mobile-connect-feed";
 import { listConnectPosts } from "@/lib/connect/store";
+import { isAnnouncementsGroup } from "@/lib/connect/types";
 import { getMobileConnectContext } from "@/lib/mobile/connect-context";
 
 export default async function MobileConnectGroupFeedPage({
@@ -27,5 +28,15 @@ export default async function MobileConnectGroupFeedPage({
     pinnedFirst: true,
   });
 
-  return <MobileConnectFeed venue={venue} me={me} groups={visibleGroups} selectedGroup={selectedGroup} posts={posts} nextBefore={nextBefore} />;
+  return (
+    <MobileConnectFeed
+      tab={isAnnouncementsGroup(selectedGroup) ? "announcements" : "feed"}
+      venue={venue}
+      me={me}
+      groups={visibleGroups}
+      selectedGroup={selectedGroup}
+      posts={posts}
+      nextBefore={nextBefore}
+    />
+  );
 }

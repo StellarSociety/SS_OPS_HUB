@@ -197,3 +197,8 @@ export function isConnectGroupRole(value: string): value is ConnectGroupRole {
 export function isConnectReaction(value: string): value is ConnectReaction {
   return (CONNECT_REACTIONS as readonly string[]).includes(value);
 }
+
+/** The venue's Announcements group (seeded by name), shown as its own phone tab. */
+export function isAnnouncementsGroup(group: { name: string }): boolean {
+  return group.name.trim().toLowerCase() === "announcements";
+}

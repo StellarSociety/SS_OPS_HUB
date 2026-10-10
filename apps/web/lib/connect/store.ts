@@ -487,6 +487,8 @@ export type ListPostsOptions = {
   limit?: number;
   /** Only posts whose text contains this (case-insensitive). */
   search?: string | null;
+  /** Only posts this person wrote or commented on ("My threads"). */
+  involvingUserId?: string | null;
 };
 
 export async function listConnectPosts(
@@ -513,6 +515,18 @@ export async function listConnectPosts(
   // While searching, pinned posts are just results like any other.
   if (options.pinnedFirst && !pattern) query = query.is("pinned_at", null);
   if (options.before) query = query.lt("created_at", options.before);
+  if (options.involvingUserId) {
+    const { data: commented } = await service
+      .from("connect_comments")
+      .select("post_id")
+      .eq("author_id", options.involvingUserId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    const ids = [...new Set(((commented ?? []) as { post_id: string }[]).map((r) => r.post_id))];
+    query = ids.length
+      ? query.or(`author_id.eq.${options.involvingUserId},id.in.(${ids.join(",")})`)
+      : query.eq("author_id", options.involvingUserId);
+  }
   if (pattern) {
     // Match the post text, the author's name, or the person a celebration is for.
     const [{ data: authors }, { data: celebrated }] = await Promise.all([
