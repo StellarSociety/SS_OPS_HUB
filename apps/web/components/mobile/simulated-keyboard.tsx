@@ -50,9 +50,14 @@ export function SimulatedKeyboardFrame({ children }: { children: ReactNode }) {
       return;
     }
     if (key === "enter") {
-      // Let the field decide (chat composers send on Enter).
-      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-      // After a send the field is empty again: capitalise the next message.
+      // Like a real keyboard: the field may handle Return itself; otherwise a
+      // text area gets a new line.
+      const handled = !el.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+      if (!handled && el instanceof HTMLTextAreaElement) {
+        setNativeValue(el, el.value.slice(0, start) + "\n" + el.value.slice(end), start + 1);
+      }
       window.setTimeout(() => setShift(!el.value), 0);
       return;
     }

@@ -1057,7 +1057,14 @@ function Composer({
             people={mentionPeople}
             wrapperClassName="w-full"
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              // Desktop: Enter sends (Shift+Enter = new line). Phones: Return is
+              // a new line, like WhatsApp — send with the button.
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing &&
+                !isPhoneComposer(e.currentTarget)
+              ) {
                 e.preventDefault();
                 send();
               }
@@ -1066,6 +1073,7 @@ function Composer({
                 else if (replyTo) onCancelReply();
               }
             }}
+            enterKeyHint="enter"
             rows={1}
             maxLength={CHAT_MAX_MESSAGE_CHARS}
             placeholder={editing ? "Edit message" : "Message"}
@@ -1124,4 +1132,10 @@ function AttachmentChip({ file, onRemove }: { file: File; onRemove: () => void }
       </button>
     </div>
   );
+}
+
+/** The phone app (or simulator) and touch devices: Return inserts a new line. */
+function isPhoneComposer(el: HTMLElement): boolean {
+  if (el.closest(".mobile-app-canvas")) return true;
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
 }

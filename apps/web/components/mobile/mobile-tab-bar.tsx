@@ -173,7 +173,9 @@ function TabBarItem({
   const available = Boolean(href) || active;
   const { motionProps } = useMobilePressMotion(available);
   const className = cn(
-    "mobile-ig-tab flex min-h-[3.25rem] flex-col items-center justify-center gap-0.5 rounded-full px-1 py-1",
+    "mobile-ig-tab flex flex-col items-center justify-center gap-0.5 rounded-full px-1",
+    // Icon-only bars don't need room for a label line.
+    showLabel ? "min-h-[3.25rem] py-1" : "min-h-11 py-0.5",
     "transition-[background-color,color] duration-200",
     active && "mobile-ig-tab-active",
     !available && "opacity-40",

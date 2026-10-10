@@ -26,11 +26,14 @@ function syncMobileAppHeight() {
   root.style.height = px;
   document.body.style.height = px;
 
-  // On-screen keyboard: the frame keeps its full height, so pad the shell by
-  // the part the keyboard covers. Inputs (like the chat box) then sit above it.
-  const visible = vv ? Math.round(vv.height + vv.offsetTop) : height;
-  const covered = isEditable(document.activeElement) ? height - visible : 0;
-  root.style.setProperty("--mobile-keyboard-inset", `${covered > 120 ? covered : 0}px`);
+  // On-screen keyboard. iOS shrinks the *visual* viewport and also scrolls it
+  // (offsetTop) to reveal the focused field, so pin the app to what is
+  // actually visible: shift the frame down by the scroll and pad the shell by
+  // the keyboard's full height (including the QuickType / accessory bar).
+  const keyboard = vv && isEditable(document.activeElement) ? Math.round(height - vv.height) : 0;
+  const open = keyboard > 120;
+  root.style.setProperty("--mobile-keyboard-inset", `${open ? keyboard : 0}px`);
+  root.style.setProperty("--mobile-keyboard-offset", `${open && vv ? Math.round(vv.offsetTop) : 0}px`);
 }
 
 function isEditable(el: Element | null): boolean {
@@ -79,6 +82,7 @@ export function MobileNoZoom() {
       document.removeEventListener("focusin", onFocusChange);
       document.removeEventListener("focusout", onFocusChange);
       document.documentElement.style.removeProperty("--mobile-keyboard-inset");
+      document.documentElement.style.removeProperty("--mobile-keyboard-offset");
       document.documentElement.style.removeProperty("--mobile-app-height");
       document.documentElement.style.removeProperty("height");
       document.body.style.removeProperty("height");

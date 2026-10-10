@@ -93,10 +93,13 @@ html.mobile-app-no-zoom body {
  * short layout viewport and ignores a larger min-height, which leaves a
  * dead strip above the home indicator.
  */
-/* Keep focused inputs (e.g. the chat box) above the on-screen keyboard. */
+/* Keep focused inputs (e.g. the chat box) above the on-screen keyboard:
+   follow iOS's visual-viewport scroll and leave room for the keyboard. */
+.mobile-app-frame {
+  transform: translateY(var(--mobile-keyboard-offset, 0px));
+}
 .mobile-app-frame [data-mobile-shell] {
   padding-bottom: var(--mobile-keyboard-inset, 0px);
-  transition: padding-bottom 160ms ease-out;
 }
 
 .mobile-app-frame {
