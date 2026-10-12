@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationFolder } from "./folder";
 import type { NotificationRow } from "./types";
+import { CONNECT_MODULE_KEY } from "@/lib/connect/types";
 
 type VenueScope = {
   venueId: string;
@@ -12,6 +13,18 @@ function applyVenueScope<Q>(query: Q, options: VenueScope): Q {
   return (query as { eq: (column: string, value: string) => Q }).eq(
     "venue_id",
     options.venueId,
+  );
+}
+
+/**
+ * Chat and feed alerts live on the Connecteam app icon only (see
+ * `loadAppBadgeCounts`), never in the bell or the notifications page. Bulk
+ * actions skip them too, so "mark all read" there can't clear the app badge.
+ */
+function excludeAppBadgedModules<Q>(query: Q): Q {
+  return (query as { neq: (column: string, value: string) => Q }).neq(
+    "module_key",
+    CONNECT_MODULE_KEY,
   );
 }
 
@@ -47,6 +60,7 @@ export async function listNotificationsForUser(
     .eq("user_id", userId);
   query = applyFolder(query, folder);
   query = applyVenueScope(query, options);
+  query = excludeAppBadgedModules(query);
   query = query
     .order("due_date", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
@@ -69,6 +83,7 @@ export async function countUnreadNotifications(
     .is("read_at", null)
     .is("archived_at", null);
   query = applyVenueScope(query, options);
+  query = excludeAppBadgedModules(query);
 
   const { count, error } = await query;
   if (error) throw error;
@@ -87,6 +102,7 @@ export async function countNotifications(
     .eq("user_id", userId);
   query = applyFolder(query, folder);
   query = applyVenueScope(query, options);
+  query = excludeAppBadgedModules(query);
 
   const { count, error } = await query;
   if (error) throw error;
@@ -120,6 +136,7 @@ export async function markAllNotificationsRead(
     .is("read_at", null)
     .is("archived_at", null);
   query = applyVenueScope(query, options);
+  query = excludeAppBadgedModules(query);
 
   const { error } = await query;
   if (error) throw error;
@@ -151,6 +168,7 @@ export async function archiveAllNotifications(
     .eq("user_id", userId)
     .is("archived_at", null);
   query = applyVenueScope(query, options);
+  query = excludeAppBadgedModules(query);
 
   const { error } = await query;
   if (error) throw error;
@@ -196,6 +214,7 @@ export async function deleteAllNotifications(
     .eq("user_id", userId)
     .not("archived_at", "is", null);
   query = applyVenueScope(query, options);
+  query = excludeAppBadgedModules(query);
 
   const { error } = await query;
   if (error) throw error;

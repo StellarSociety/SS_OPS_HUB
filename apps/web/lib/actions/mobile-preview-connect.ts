@@ -24,6 +24,8 @@ export type PreviewConnectData = {
   groups: ConnectGroup[];
   posts: ConnectPost[];
   nextBefore: string | null;
+  /** Everyone on the Hub at this venue (the chat directory). */
+  people: ConnectPerson[];
   /** True when showing someone other than the signed-in user (read-only). */
   impersonating: boolean;
 };
@@ -114,7 +116,7 @@ export async function loadPreviewConnect(input: {
     .eq("user_id", who.userId);
   const permissions = (permissionRows ?? []) as UserPermission[];
 
-  const [chats, groups, people] = await Promise.all([
+  const [chats, groups, people, venuePeople] = await Promise.all([
     listMyChats(service, who.venueId, who.userId),
     listConnectGroups(service, who.venueId, {
       userId: who.userId,
@@ -122,6 +124,7 @@ export async function loadPreviewConnect(input: {
       isConnectAdmin: canAdminConnect(permissions, who.venueId),
     }),
     loadConnectPeople(service, [who.userId]),
+    listVenueAppUsers(service, who.venueId),
   ]);
   const visible = groups.filter((group) => group.myRole !== null);
   const { posts, nextBefore } = await listConnectPosts(service, {
@@ -139,6 +142,7 @@ export async function loadPreviewConnect(input: {
       groups: visible,
       posts,
       nextBefore,
+      people: venuePeople,
       impersonating: who.impersonating,
     },
   };

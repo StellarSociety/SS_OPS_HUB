@@ -16,10 +16,11 @@ export const MOBILE_PRESS_SCALE = 0.86;
 /** Gentle press-in for wide rows (profile hub, full-width cards). */
 export const MOBILE_PRESS_SCALE_SOFT = 0.97;
 
+/** Critically damped (ratio ≈ 1): a tap has no momentum, so no overshoot. */
 export const MOBILE_PRESS_TRANSITION = {
   type: "spring" as const,
   stiffness: 640,
-  damping: 22,
+  damping: 35,
   mass: 0.5,
 };
 

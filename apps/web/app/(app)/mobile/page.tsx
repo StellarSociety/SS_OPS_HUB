@@ -26,9 +26,11 @@ import {
 import { loadSelectVenuePageData } from "@/lib/venue/select-venue-page-data";
 import { listMyChats } from "@/lib/connect/chat-store";
 import { canAccessConnectSettings, canAdminConnect } from "@/lib/connect/permissions";
+import { canCreateChatGroups } from "@/lib/connect/chat-permissions";
 import {
   listConnectGroups,
   listConnectPosts,
+  listVenueAppUsers,
   loadConnectPeople,
 } from "@/lib/connect/store";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -92,13 +94,14 @@ export default async function MobilePage() {
     }),
   ]);
   const visibleConnectGroups = connectGroups.filter((group) => group.myRole !== null);
-  const [connectPeople, connectFeed] = await Promise.all([
+  const [connectPeople, connectFeed, venuePeople] = await Promise.all([
     loadConnectPeople(service, [user.id]),
     listConnectPosts(service, {
       venueId: venue.id,
       groups: visibleConnectGroups,
       viewerId: user.id,
     }),
+    listVenueAppUsers(service, venue.id),
   ]);
   const sentimentFlags = sentimentEditFlags(permissions, venue.id);
 
@@ -145,6 +148,11 @@ export default async function MobilePage() {
         me: connectPeople.get(user.id) ?? null,
         posts: connectFeed.posts,
         nextBefore: connectFeed.nextBefore,
+        people: venuePeople,
+        canCreateGroups: canCreateChatGroups(
+          visibleConnectGroups,
+          canAdminConnect(permissions, venue.id),
+        ),
       }}
     />
   );

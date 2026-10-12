@@ -533,7 +533,8 @@ export function ChatConversation({
           </div>
         ) : null}
 
-        <div className="relative min-h-0 flex-1">
+        {/* Phone pull-to-refresh moves only this part; the header stays. */}
+        <div data-ptr-body="" className="relative min-h-0 flex-1">
         <ChatBackdrop />
         <div
           ref={scrollRef}

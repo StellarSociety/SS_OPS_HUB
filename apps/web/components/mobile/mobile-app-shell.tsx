@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { EdgeSwipeBack } from "@/components/mobile/edge-swipe-back";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
@@ -21,6 +21,22 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
   const [chromeHost, setChromeHost] = useState<HTMLDivElement | null>(null);
   const selectVenue = pathname.includes("/select-venue");
   const login = pathname.includes("/login");
+
+  // Tapping a push (chat, feed post, …) when the service worker can't navigate
+  // this window itself (some iOS builds): it posts the target here instead.
+  useEffect(() => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; url?: string } | null;
+      if (data?.type !== "ss:navigate" || typeof data.url !== "string") return;
+      const target = new URL(data.url, window.location.origin);
+      if (target.origin !== window.location.origin) return;
+      router.push(`${target.pathname}${target.search}${target.hash}`);
+    };
+    sw.addEventListener("message", onMessage);
+    return () => sw.removeEventListener("message", onMessage);
+  }, [router]);
 
   // Edge swipe: back through history, or Home when there is nothing to go back to.
   function goBack() {

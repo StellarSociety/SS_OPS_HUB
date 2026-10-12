@@ -14,6 +14,7 @@ import {
   LogIn,
   MapPinned,
   MessageSquare,
+  Moon,
   Network,
   OctagonAlert,
   ScanFace,
@@ -22,6 +23,7 @@ import {
   UserRound,
   UserRoundSearch,
   Users,
+  Sun,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -72,6 +74,9 @@ type AppPathPanelProps = {
   previewStaffId?: string;
   onPreviewStaffChange?: (staffId: string) => void;
   previewStaffBusy?: boolean;
+  /** Preview the phone screen in dark appearance. */
+  darkMode?: boolean;
+  onDarkModeChange?: (dark: boolean) => void;
 };
 
 export function AppPathPanel({
@@ -84,6 +89,8 @@ export function AppPathPanel({
   previewStaffId = "",
   onPreviewStaffChange,
   previewStaffBusy = false,
+  darkMode = false,
+  onDarkModeChange,
 }: AppPathPanelProps) {
   const current = getAppPathPage(selectedId);
   const currentHref = appPathPublicHref(current, venue);
@@ -132,6 +139,24 @@ export function AppPathPanel({
             aria-label="Preview as employee"
             disabled={previewStaffBusy}
           />
+        ) : null}
+        {onDarkModeChange ? (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={darkMode}
+            aria-label="Dark mode"
+            title={darkMode ? "Switch the phone to Light appearance" : "Switch the phone to Dark appearance"}
+            onClick={() => onDarkModeChange(!darkMode)}
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors",
+              darkMode
+                ? "border-[#1C1C1E] bg-[#1C1C1E] text-white"
+                : "border-black/10 bg-white text-[#3D421F] hover:bg-black/[0.04]",
+            )}
+          >
+            {darkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+          </button>
         ) : null}
       </div>
       <hr className="mt-3 border-black/10" />

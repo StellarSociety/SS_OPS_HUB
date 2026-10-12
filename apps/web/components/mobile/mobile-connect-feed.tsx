@@ -4,6 +4,7 @@ import { ConnectSeenMarker } from "@/components/connect/connect-seen-marker";
 import { FeedList } from "@/components/connect/feed-list";
 import { GroupBadge } from "@/components/connect/group-icon";
 import { PostComposer } from "@/components/connect/post-composer";
+import { ScrollToPost } from "@/components/connect/scroll-to-post";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
 import { roleCanPost } from "@/lib/connect/permissions";
 import {
@@ -55,16 +56,16 @@ export function MobileConnectFeed({
 
   return (
     <div className="mobile-app-canvas relative flex h-full min-h-0 flex-col bg-[#F7F8F2]">
-      <header className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-white px-4 pb-3 pt-4">
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-black/10 bg-white px-4 pb-2.5 pt-3">
         {selectedGroup ? (
-          <GroupBadge icon={selectedGroup.icon} color={selectedGroup.color} className="h-10 w-10 rounded-full" />
+          <GroupBadge icon={selectedGroup.icon} color={selectedGroup.color} className="h-9 w-9 rounded-full" />
         ) : (
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white">
-            {tab === "threads" ? <MessagesSquare className="h-5 w-5" /> : <Newspaper className="h-5 w-5" />}
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white">
+            {tab === "threads" ? <MessagesSquare className="h-[18px] w-[18px]" /> : <Newspaper className="h-[18px] w-[18px]" />}
           </span>
         )}
         <div className="min-w-0">
-          <h1 className="truncate font-serif text-xl font-semibold text-[#3D421F]">
+          <h1 className="truncate font-serif text-lg font-semibold leading-tight tracking-tight text-[#3D421F]">
             {selectedGroup?.name ?? (tab === "threads" ? "My threads" : "Team feed")}
           </h1>
           <p className="truncate text-xs text-black/45">
@@ -78,12 +79,12 @@ export function MobileConnectFeed({
       </header>
 
       {tab === "feed" && !selectedGroup && stripGroups.length > 0 ? (
-        <nav className="shrink-0 border-b border-black/5 bg-white px-4 py-3">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-black/40">Group feeds</p>
+        <nav className="shrink-0 border-b border-black/5 bg-white px-4 py-2.5">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-black/40">Group feeds</p>
           <div className="flex gap-3 overflow-x-auto pb-1">
             {stripGroups.map((group) => (
-              <Link key={group.id} href={mobileConnectFeedHref(venue.slug, group.id)} className="w-16 shrink-0 text-center">
-                <GroupBadge icon={group.icon} color={group.color} className="mx-auto h-11 w-11 rounded-full" />
+              <Link key={group.id} href={mobileConnectFeedHref(venue.slug, group.id)} className="w-14 shrink-0 text-center">
+                <GroupBadge icon={group.icon} color={group.color} className="mx-auto h-10 w-10 rounded-full" />
                 <span className="mt-1 block truncate text-[11px] text-[#2B2F16]">{group.name}</span>
               </Link>
             ))}
@@ -91,8 +92,9 @@ export function MobileConnectFeed({
         </nav>
       ) : null}
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-28 pt-3">
+      <main data-ptr-body="" className="min-h-0 flex-1 overflow-y-auto px-3 pb-28 pt-3">
         <ConnectSeenMarker groupId={selectedGroup?.id ?? null} />
+        <ScrollToPost />
         {postable.length > 0 ? (
           <div className="mb-3">
             <PostComposer
@@ -100,6 +102,9 @@ export function MobileConnectFeed({
               groups={postable.map((group) => ({ id: group.id, name: group.name, color: group.color }))}
               defaultGroupId={defaultGroup?.id ?? null}
               basePath={basePath}
+              compact
+              // The header already names the group being viewed.
+              showDestination={!selectedGroup}
             />
           </div>
         ) : null}
@@ -115,6 +120,7 @@ export function MobileConnectFeed({
               : "Nothing has been posted here yet."
           }
           groupBasePath={mobileConnectFeedHref(venue.slug)}
+          compact
         />
       </main>
       <MobileTabBar app="connect" activeId={tab} venueSlug={venue.slug} onSelectTab={onSelectTab} />

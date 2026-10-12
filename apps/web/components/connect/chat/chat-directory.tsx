@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, MessageCircle, Search } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
+import { PersonInfoCard, PersonTile, PersonTileGrid } from "@/components/connect/person-tile";
 import { PresenceAvatar } from "@/components/connect/presence";
 import { ScopedLink } from "@/components/layout/scoped-link";
 import { useVenueScope } from "@/components/providers/venue-scope-provider";
@@ -24,6 +25,8 @@ export function ChatDirectory({
   const [pending, startTransition] = useTransition();
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [infoId, setInfoId] = useState<string | null>(null);
+  const infoPerson = infoId ? (people.find((p) => p.userId === infoId) ?? null) : null;
 
   const q = query.trim().toLowerCase();
   const shown = q
@@ -79,34 +82,30 @@ export function ChatDirectory({
         {shown.length === 0 ? (
           <p className="py-10 text-center text-sm text-black/50">Nobody found.</p>
         ) : (
-          <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <PersonTileGrid>
             {shown.map((p) => (
-              <li
+              <PersonTile
                 key={p.userId}
-                className="flex items-center gap-3 rounded-2xl border border-black/5 bg-white px-3 py-2.5 shadow-sm"
-              >
-                <PresenceAvatar userId={p.userId} name={p.name} photoUrl={p.photoUrl} size="md" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-[#2B2F16]">{p.name}</p>
-                  <p className="truncate text-xs text-black/55">
-                    {p.positionName ?? p.departmentName ?? "—"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() => message(p.userId)}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-sm hover:opacity-90 disabled:opacity-50"
-                  aria-label={`Message ${p.name}`}
-                  title={`Message ${p.name}`}
-                >
-                  <MessageCircle className={openingId === p.userId ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                </button>
-              </li>
+                person={p}
+                avatar={<PresenceAvatar userId={p.userId} name={p.name} photoUrl={p.photoUrl} size="lg" className="h-[72px] w-[72px] text-lg" />}
+                opening={openingId === p.userId}
+                disabled={pending}
+                onInfo={() => setInfoId(p.userId)}
+                onMessage={() => message(p.userId)}
+              />
             ))}
-          </ul>
+          </PersonTileGrid>
         )}
       </div>
+      {infoPerson ? (
+        <PersonInfoCard
+          person={infoPerson}
+          avatar={<PresenceAvatar userId={infoPerson.userId} name={infoPerson.name} photoUrl={infoPerson.photoUrl} size="lg" className="h-24 w-24 text-2xl" />}
+          opening={openingId === infoPerson.userId}
+          onMessage={() => message(infoPerson.userId)}
+          onClose={() => setInfoId(null)}
+        />
+      ) : null}
     </div>
   );
 }

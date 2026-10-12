@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -51,6 +52,17 @@ function nearestScroller(start: EventTarget | null, root: HTMLElement): HTMLElem
   return root;
 }
 
+/**
+ * Screens with a fixed header mark their scrolling part with `data-ptr-body`:
+ * only that part moves down, and the spinner appears under the header.
+ * Prefer the body the finger is on; otherwise the screen's first one.
+ */
+function pinnedBody(start: EventTarget | null, content: HTMLElement): HTMLElement | null {
+  const own = start instanceof Element ? start.closest<HTMLElement>("[data-ptr-body]") : null;
+  if (own && content.contains(own)) return own;
+  return content.querySelector<HTMLElement>("[data-ptr-body]");
+}
+
 function isAtTop(scroller: HTMLElement) {
   return scroller.scrollTop <= AT_TOP_PX;
 }
@@ -81,10 +93,13 @@ export function PullToRefresh({
   const pointerIdRef = useRef<number | null>(null);
   const onRefreshRef = useRef(onRefresh);
   const busyRef = useRef(false);
+  const bodyRef = useRef<HTMLElement | null>(null);
 
   const [pull, setPull] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [localBusy, setLocalBusy] = useState(false);
+  /** Spinner top when a fixed header stays put (px inside the root), else null. */
+  const [pinnedTop, setPinnedTop] = useState<number | null>(null);
 
   const busy = localBusy || refreshing;
   busyRef.current = busy;
@@ -134,6 +149,12 @@ export function PullToRefresh({
     const root: HTMLDivElement = rootEl;
     const content: HTMLDivElement = contentEl;
 
+    function clearBodyStyle(el: HTMLElement) {
+      el.style.transform = "";
+      el.style.transition = "";
+      el.style.willChange = "";
+    }
+
     function releaseCapture() {
       const id = pointerIdRef.current;
       pointerIdRef.current = null;
@@ -147,6 +168,17 @@ export function PullToRefresh({
       if (busyRef.current) return false;
       const scroller = nearestScroller(target, content);
       if (!isAtTop(scroller)) return false;
+      const body = pinnedBody(target, content);
+      if (body !== bodyRef.current && bodyRef.current) clearBodyStyle(bodyRef.current);
+      bodyRef.current = body;
+      // Resting position: ignore any shift left over from a previous pull.
+      if (body) body.style.transform = "";
+      setPinnedTop(
+        body
+          ? (body.getBoundingClientRect().top - root.getBoundingClientRect().top) /
+              (visualScale(root) || 1)
+          : null,
+      );
       trackingRef.current = true;
       pullingRef.current = false;
       startYRef.current = y;
@@ -291,6 +323,20 @@ export function PullToRefresh({
     };
   }, [beginRefresh, setPullBoth]);
 
+  // A pinned body moves on its own (outside React's render of the content).
+  const pinned = pinnedTop != null;
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    if (!pinned) {
+      body.style.transform = "";
+      return;
+    }
+    body.style.transform = reveal ? `translate3d(0, ${reveal}px, 0)` : "";
+    body.style.transition = dragging ? "none" : "transform 520ms cubic-bezier(0.22, 1, 0.36, 1)";
+    body.style.willChange = dragging || busy ? "transform" : "";
+  }, [pinned, reveal, dragging, busy]);
+
   return (
     <div
       ref={rootRef}
@@ -311,7 +357,7 @@ export function PullToRefresh({
       <div
         className="pointer-events-none absolute inset-x-0 z-20 flex justify-center"
         style={{
-          top: indicatorInsetTop,
+          top: pinned ? pinnedTop + 12 : indicatorInsetTop,
           opacity: busy ? 1 : Math.min(1, reveal / 22),
           transform: `translateY(${busy ? 0 : Math.max(0, reveal * 0.12)}px) scale(${
             busy || armed ? 1 : 0.46 + progress * 0.54
@@ -341,7 +387,7 @@ export function PullToRefresh({
         data-ptr-content=""
         className={cn("h-full min-h-0 overscroll-none", contentClassName)}
         style={{
-          transform: `translate3d(0, ${reveal}px, 0)`,
+          transform: pinned ? undefined : `translate3d(0, ${reveal}px, 0)`,
           transition: dragging
             ? "none"
             : "transform 520ms cubic-bezier(0.22, 1, 0.36, 1)",

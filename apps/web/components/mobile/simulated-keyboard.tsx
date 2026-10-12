@@ -6,10 +6,12 @@ import { cn } from "@/lib/utils";
 
 const ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
 
-type Editable = HTMLTextAreaElement | HTMLInputElement;
+type Editable = HTMLTextAreaElement | HTMLInputElement | HTMLElement;
 
 function editableTarget(el: Element | null): Editable | null {
   if (el instanceof HTMLTextAreaElement) return el;
+  // Rich composers (e.g. the chat box) are contenteditable.
+  if (el instanceof HTMLElement && el.isContentEditable) return el;
   if (
     el instanceof HTMLInputElement &&
     !["button", "checkbox", "radio", "range", "submit", "file", "color"].includes(el.type)
@@ -19,8 +21,16 @@ function editableTarget(el: Element | null): Editable | null {
   return null;
 }
 
+function isField(el: Editable): el is HTMLTextAreaElement | HTMLInputElement {
+  return el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement;
+}
+
+function fieldText(el: Editable): string {
+  return isField(el) ? el.value : (el.innerText ?? "").replace(/\n$/, "");
+}
+
 /** Set a React-controlled field's value the way typing would. */
-function setNativeValue(el: Editable, value: string, caret: number) {
+function setNativeValue(el: HTMLTextAreaElement | HTMLInputElement, value: string, caret: number) {
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, value);
   el.setSelectionRange(caret, caret);
@@ -41,6 +51,10 @@ export function SimulatedKeyboardFrame({ children }: { children: ReactNode }) {
   function press(key: string) {
     const el = field.current;
     if (!el) return;
+    if (!isField(el)) {
+      pressRich(el, key);
+      return;
+    }
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? start;
     if (key === "backspace") {
@@ -66,6 +80,26 @@ export function SimulatedKeyboardFrame({ children }: { children: ReactNode }) {
     if (shift) setShift(false);
   }
 
+  // contenteditable: edit at the caret with the browser's own editing
+  // commands, which fire the same input events as real typing.
+  function pressRich(el: HTMLElement, key: string) {
+    if (document.activeElement !== el) el.focus();
+    if (key === "backspace") {
+      document.execCommand("delete");
+    } else if (key === "enter") {
+      const handled = !el.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+      if (!handled) document.execCommand("insertLineBreak");
+    } else {
+      const text = key === "space" ? " " : shift ? key.toUpperCase() : key;
+      document.execCommand("insertText", false, text);
+      if (shift) setShift(false);
+      return;
+    }
+    window.setTimeout(() => setShift(!fieldText(el)), 0);
+  }
+
   // Keys must not take focus away from the field.
   function onKey(e: MouseEvent, key: string) {
     e.preventDefault();
@@ -81,7 +115,7 @@ export function SimulatedKeyboardFrame({ children }: { children: ReactNode }) {
           field.current = el;
           setOpen(true);
           // Like iOS: start a message with a capital letter.
-          setShift(!el.value);
+          setShift(!fieldText(el));
         }
       }}
       onBlurCapture={() => {
@@ -104,7 +138,7 @@ export function SimulatedKeyboardFrame({ children }: { children: ReactNode }) {
         )}
       >
         {/* iOS-style keyboard: frosted panel, rounded top, big keys. */}
-        <div className="flex h-full flex-col rounded-t-[22px] bg-[#D5D8DE]/95 px-[1.2%] pt-[3%] shadow-[0_-1px_0_rgba(0,0,0,0.06)] backdrop-blur-xl">
+        <div className="sim-keyboard flex h-full flex-col rounded-t-[22px] bg-[#D5D8DE]/95 px-[1.2%] pt-[3%] shadow-[0_-1px_0_rgba(0,0,0,0.06)] backdrop-blur-xl">
           <div className="flex flex-1 flex-col justify-start gap-[2.6%]">
             {ROWS.map((row, i) => (
               <div key={row} className={cn("flex justify-center gap-[1.4%]", i === 1 && "px-[5%]")}>

@@ -3,7 +3,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Bell, ChevronDown, Lock, LogOut, MessageCircleMore, type LucideIcon } from "lucide-react";
+import { Bell, Lock, LogOut, MessageCircleMore, type LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
 import { ModuleTile } from "@/components/modules/module-tile";
@@ -26,10 +26,9 @@ import type { MobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
 import { getUserInitials } from "@/lib/user/display";
 import type { Venue } from "@/lib/types/database";
 import { useMobileNavBusy } from "@/components/mobile/mobile-nav-busy";
-import { cn } from "@/lib/utils";
 
 const LOGOUT_BUTTON_CLASS =
-  "flex w-full items-center justify-center gap-1.5 rounded-xl border border-black/10 bg-black/[0.03] py-2 text-[15px] font-medium text-[#3D421F] dark:border-white/12 dark:bg-white/[0.08] dark:text-[CanvasText]";
+  "flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-black/10 bg-black/[0.03] text-[15px] font-medium text-[#3D421F] dark:border-white/12 dark:bg-white/[0.08] dark:text-[CanvasText]";
 
 const WELCOME_CATEGORY_ORDER: ModuleCategoryKey[] = [
   "people",
@@ -39,10 +38,6 @@ const WELCOME_CATEGORY_ORDER: ModuleCategoryKey[] = [
 ];
 
 const PEOPLE_MODULE_ORDER = ["directory", "learning", "hr"] as const;
-
-const WELCOME_SHORTCUTS = [
-  { key: "hiring", label: "Hiring Forms", iconKey: "hiring" },
-] as const;
 
 type MobileWelcomeScreenProps = {
   venue: Venue;
@@ -110,7 +105,8 @@ export function MobileWelcomeScreen({
         mod.clickable &&
         mod.blockedReason !== "access",
     ) ?? null;
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Hiring Forms sits at the end of the People row (it is not a module tile).
+  const showHiring = Boolean(onOpenHiring || hiringHref);
   const sections = useMemo(() => {
     const categoryByKey = new Map(
       moduleCategories.map((category) => [category.key, category]),
@@ -140,8 +136,12 @@ export function MobileWelcomeScreen({
         }
         return { category, modules: sectionModules };
       })
-      .filter((section) => section.modules.length > 0);
-  }, [modules, connectModule]);
+      .filter(
+        (section) =>
+          section.modules.length > 0 ||
+          (section.category.key === "people" && showHiring),
+      );
+  }, [modules, connectModule, showHiring]);
 
   function toggleApp(key: string) {
     setSelectedKeys((current) =>
@@ -150,13 +150,6 @@ export function MobileWelcomeScreen({
         : [...current, key],
     );
   }
-
-  const visibleShortcuts = WELCOME_SHORTCUTS.filter((shortcut) => {
-    if (shortcut.key === "hiring") {
-      return Boolean(onOpenHiring || hiringHref);
-    }
-    return true;
-  });
 
   return (
     <div
@@ -188,8 +181,6 @@ export function MobileWelcomeScreen({
           {hubTitle}
         </p>
         <p className="mx-auto mt-3 max-w-[20rem] text-[13px] leading-tight text-black/55 dark:text-white/55">
-          Your operations command center for {venue.name}.
-          <br />
           Choose the apps you want to start with.
         </p>
       </header>
@@ -307,66 +298,27 @@ export function MobileWelcomeScreen({
                       />
                     );
                   })}
+                  {section.category.key === "people" && showHiring ? (
+                    <ModuleTile
+                      label="Hiring Forms"
+                      iconKey="hiring"
+                      status="live"
+                      href={onOpenHiring ? undefined : hiringHref}
+                      clickable
+                      onSelect={onOpenHiring}
+                      comingSoonStyle="none"
+                      selectNoun="Hiring Forms"
+                      iconWell
+                      density="compact"
+                      navigates
+                    />
+                  ) : null}
                 </div>
               </section>
             ))}
           </div>
         </div>
 
-        {visibleShortcuts.length > 0 ? (
-        <div className="overflow-hidden rounded-xl border border-black/10 bg-black/[0.03] dark:border-white/12 dark:bg-white/[0.08]">
-          <MobilePressTarget
-            type="button"
-            aria-expanded={shortcutsOpen}
-            onClick={() => setShortcutsOpen((open) => !open)}
-            className="flex w-full items-center gap-2 px-3 py-2.5"
-          >
-            <span
-              aria-hidden
-              className="h-px min-w-0 flex-1 bg-[#3D421F]/25 dark:bg-white/25"
-            />
-            <span className="flex shrink-0 items-center gap-1 font-serif text-xs font-bold leading-none text-[#3D421F] dark:text-[CanvasText]">
-              Shortcuts
-              <ChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 text-black/40 transition-transform dark:text-white/40",
-                  shortcutsOpen && "rotate-180",
-                )}
-                aria-hidden
-              />
-            </span>
-            <span
-              aria-hidden
-              className="h-px min-w-0 flex-1 bg-[#3D421F]/25 dark:bg-white/25"
-            />
-          </MobilePressTarget>
-          {shortcutsOpen ? (
-            <div className="grid grid-cols-4 items-start justify-items-center gap-x-1 gap-y-1.5 border-t border-black/10 px-3 py-3 dark:border-white/12">
-              {visibleShortcuts.map((shortcut) => {
-                const opensHiring =
-                  shortcut.key === "hiring" &&
-                  (Boolean(onOpenHiring) || Boolean(hiringHref));
-                return (
-                  <ModuleTile
-                    key={shortcut.key}
-                    label={shortcut.label}
-                    iconKey={shortcut.iconKey}
-                    status="live"
-                    href={onOpenHiring ? undefined : hiringHref}
-                    clickable={opensHiring}
-                    onSelect={onOpenHiring}
-                    comingSoonStyle="none"
-                    selectNoun="Hiring Forms"
-                    iconWell
-                    density="compact"
-                    navigates={opensHiring}
-                  />
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-        ) : null}
 
         <div className="mt-auto space-y-2 pb-1">
           {onLogout ? (
@@ -387,7 +339,7 @@ export function MobileWelcomeScreen({
               </MobilePressTarget>
             </form>
           )}
-          <p className="text-center text-[11px] leading-tight text-black/50 dark:text-white/50">
+          <p className="text-center text-[11px] leading-[14px] text-black/60 dark:text-white/60">
             By using this hub you agree to follow Stellar Society policies for
             data, records, and workplace conduct. Misuse may result in access
             being revoked and disciplinary action, including dismissal.{" "}
@@ -461,7 +413,7 @@ function WelcomeNotificationsCard({
     >
       <Icon className="h-5 w-5 text-[#3D421F]" strokeWidth={1.75} aria-hidden />
       {totalCount > 0 ? (
-        <span className="absolute -left-1 -top-1 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[10px] font-semibold tabular-nums leading-none text-white shadow-[0_1px_2px_rgba(80,0,20,0.35)] ring-2 ring-white">
+        <span className="absolute -right-1 -top-1 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-[#E11D48] px-1 text-[10px] font-semibold tabular-nums leading-none text-white shadow-[0_1px_2px_rgba(80,0,20,0.35)] ring-2 ring-white">
           {count}
         </span>
       ) : null}
@@ -542,7 +494,7 @@ function WelcomeProfileCard({
         <p className="truncate font-serif text-base leading-tight text-[#3D421F] dark:text-[CanvasText]">
           {displayName}
         </p>
-        <p className="mt-0.5 truncate text-[11px] leading-snug text-black/50 dark:text-white/50">
+        <p className="mt-0.5 truncate text-[11px] leading-snug text-black/60 dark:text-white/60">
           {locked ? "No access" : "Personal Employee Hub"}
         </p>
       </div>

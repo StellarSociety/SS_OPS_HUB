@@ -20,6 +20,7 @@ import {
   markAllNotificationsAsRead,
   markNotificationAsRead,
 } from "@/lib/actions/notifications";
+import { CONNECT_MODULE_KEY } from "@/lib/connect/types";
 import { isArchivedNotification } from "@/lib/notifications/folder";
 import { DeviceNotificationEnableRow } from "@/components/pwa/device-notifications";
 import { formatDateOnly } from "@/lib/hr/derived";
@@ -204,6 +205,8 @@ export function NotificationCenter({
       }
 
       if (!row || !matchesVenue(row, venueId, isGlobalVenue)) return;
+      // Chat / feed alerts belong to the Connecteam app icon, not the bell.
+      if (row.module_key === CONNECT_MODULE_KEY) return;
 
       if (isArchivedNotification(row)) {
         knownIdsRef.current.delete(row.id);

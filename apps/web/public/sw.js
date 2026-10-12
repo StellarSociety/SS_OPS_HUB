@@ -3,7 +3,7 @@
  * Purpose: satisfy installability and keep icons/static shell available.
  * Does not cache HTML documents, auth responses, or API data.
  */
-const CACHE_NAME = "ss-ops-hub-pwa-v11";
+const CACHE_NAME = "ss-ops-hub-pwa-v12";
 const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
@@ -126,24 +126,52 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(openNotificationUrl(target));
 });
 
+/** Message type the app listens for when the worker can't navigate a window itself. */
+const NAVIGATE_MESSAGE = "ss:navigate";
+
 async function openNotificationUrl(target) {
-  const url = new URL(target, self.location.origin).href;
-  const windows = await self.clients.matchAll({
-    type: "window",
-    includeUncontrolled: true,
-  });
-  for (const client of windows) {
-    if (client.url.startsWith(self.location.origin) && "focus" in client) {
+  // Keep only path + query + hash, on this worker's own origin. The payload is
+  // built from NEXT_PUBLIC_APP_URL, which can differ from the host the app was
+  // installed from (www vs apex, preview domains); a cross-origin navigate fails.
+  const parsed = new URL(target, self.location.origin);
+  const url = new URL(
+    parsed.pathname + parsed.search + parsed.hash,
+    self.location.origin,
+  ).href;
+  const wantsPhoneApp = parsed.pathname.startsWith("/m/");
+
+  const windows = (
+    await self.clients.matchAll({ type: "window", includeUncontrolled: true })
+  ).filter((client) => client.url.startsWith(self.location.origin));
+
+  // Prefer the installed phone app's window over a desktop hub tab.
+  const client =
+    (wantsPhoneApp &&
+      windows.find((c) => new URL(c.url).pathname.startsWith("/m/"))) ||
+    windows[0];
+
+  if (!client) {
+    await self.clients.openWindow(url);
+    return;
+  }
+
+  if ("focus" in client) {
+    try {
       await client.focus();
-      if ("navigate" in client) {
-        try {
-          await client.navigate(url);
-        } catch {
-          // Older clients may reject navigate; the focused app is still useful.
-        }
-      }
-      return;
+    } catch {
+      // Focus can be refused; navigation below still lands the user correctly.
     }
   }
-  await self.clients.openWindow(url);
+
+  // `navigate` is missing on some WebKit builds and rejects for uncontrolled
+  // clients; in both cases ask the page to route itself.
+  if ("navigate" in client) {
+    try {
+      await client.navigate(url);
+      return;
+    } catch {
+      // Fall through to the message.
+    }
+  }
+  client.postMessage({ type: NAVIGATE_MESSAGE, url });
 }

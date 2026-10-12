@@ -23,6 +23,7 @@ import { MobileHiringScreen } from "@/components/mobile/mobile-hiring-screen";
 import { MobileConnectScreen } from "@/components/mobile/mobile-connect-screen";
 import { MobileConnectFeed } from "@/components/mobile/mobile-connect-feed";
 import { EdgeSwipeBack } from "@/components/mobile/edge-swipe-back";
+import { cn } from "@/lib/utils";
 import { SimulatedKeyboardFrame } from "@/components/mobile/simulated-keyboard";
 import { SimulatorChat } from "@/components/mobile/simulator-chat";
 import { loadPreviewConnect, type PreviewConnectData } from "@/lib/actions/mobile-preview-connect";
@@ -166,6 +167,9 @@ export function DeviceSimulator({
     me: ConnectPerson | null;
     posts: ConnectPost[];
     nextBefore: string | null;
+    people: ConnectPerson[];
+    /** Signed-in user may create group chats (admin / moderator). */
+    canCreateGroups: boolean;
   };
 }) {
   const [deviceId, setDeviceId] = useState(DEFAULT_DEVICE_ID);
@@ -289,6 +293,9 @@ function PhoneStage({
     me: ConnectPerson | null;
     posts: ConnectPost[];
     nextBefore: string | null;
+    people: ConnectPerson[];
+    /** Signed-in user may create group chats (admin / moderator). */
+    canCreateGroups: boolean;
   };
   pageId: string;
   setPageId: (id: string) => void;
@@ -313,6 +320,8 @@ function PhoneStage({
   const [connectPreview, setConnectPreview] = useState<PreviewConnectData | null>(null);
   const [connectNote, setConnectNote] = useState<string | null>(null);
   const [openChatId, setOpenChatId] = useState<string | null>(null);
+  // Phone appearance in the preview (iOS Light / Dark).
+  const [previewDark, setPreviewDark] = useState(false);
   const conn: PreviewConnectData = connectPreview ?? { ...connect, impersonating: false };
   const frame = frameSize(device);
   const page = getAppPathPage(pageId);
@@ -368,6 +377,7 @@ function PhoneStage({
             groups: [],
             posts: [],
             nextBefore: null,
+            people: [],
             impersonating: true,
           });
           setConnectNote(connectResult.error);
@@ -412,19 +422,23 @@ function PhoneStage({
           previewStaffId={previewStaffId}
           onPreviewStaffChange={handlePreviewStaffChange}
           previewStaffBusy={staffBusy}
+          darkMode={previewDark}
+          onDarkModeChange={setPreviewDark}
         />
       }
     >
       <PhoneChrome
         device={device}
         page={page}
+        dark={previewDark}
         refreshing={refreshing}
         onRefresh={handleRefreshPreview}
         screen={
           <EdgeSwipeBack
             key={previewNonce}
             onBack={() => (openChatId ? setOpenChatId(null) : onBack())}
-            className="h-full min-h-0"
+            // Force the phone's appearance, independent of this computer's.
+            className={cn("h-full min-h-0", previewDark ? "scheme-dark bg-black" : "scheme-light")}
           >
           <SimulatedKeyboardFrame>
             {page.id === "login" ? (
@@ -496,7 +510,9 @@ function PhoneStage({
                     chats={conn.chats}
                     groups={conn.groups}
                     meId={conn.meId}
+                    people={conn.people}
                     readOnly={conn.impersonating}
+                    canCreateGroups={connect.canCreateGroups}
                     onOpenChat={setOpenChatId}
                     onSelectTab={(tab) => {
                       setOpenChatId(null);
@@ -618,6 +634,10 @@ function PhoneStage({
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
+                onOpenChat={(conversationId) => {
+                  setOpenChatId(conversationId);
+                  setPageId("connect");
+                }}
               />
             ) : page.id.startsWith("hiring") ? (
               <MobileHiringScreen
@@ -648,12 +668,15 @@ function PhoneStage({
 function PhoneChrome({
   device,
   page,
+  dark,
   screen,
   refreshing,
   onRefresh,
 }: {
   device: DevicePreset;
   page: AppPathPage;
+  /** Simulated phone appearance (the computer's own setting is ignored). */
+  dark: boolean;
   screen: ReactNode;
   refreshing: boolean;
   onRefresh: () => void;
@@ -683,7 +706,10 @@ function PhoneChrome({
       {isIphone ? <IphoneButtons /> : <SamsungButtons />}
 
       <div
-        className="device-preview-screen relative h-full w-full overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]"
+        className={cn(
+          "device-preview-screen relative h-full w-full overflow-hidden",
+          dark ? "scheme-dark bg-black" : "scheme-light bg-[var(--venue-secondary,#F0F3DD)]",
+        )}
         style={
           {
             borderRadius: screenRadius,
@@ -718,7 +744,9 @@ function PhoneChrome({
             className={`pointer-events-none absolute bottom-2 left-1/2 z-10 h-[5px] w-[134px] -translate-x-1/2 rounded-full ${
               page.id === "login"
                 ? "bg-white/40"
-                : "bg-black/35 dark:bg-white/40"
+                : dark
+                  ? "bg-white/40"
+                  : "bg-black/35"
             }`}
           />
         ) : null}
@@ -757,7 +785,7 @@ function PhoneScreen({
         page.id === "login"
           ? "bg-black"
           : page.id === "select-venue"
-            ? "bg-[#E9E3D6]"
+            ? "bg-[#E9E3D6] dark:bg-black"
             : "bg-[Canvas]"
       }`}
     >

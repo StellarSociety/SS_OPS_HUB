@@ -239,7 +239,7 @@ const APP_TABS: Record<
     },
     {
       id: "celebrations",
-      label: "Celebrations",
+      label: "Occasions",
       icon: Cake,
       pageId: "directory-celebrations",
       path: "/directory/celebrations",

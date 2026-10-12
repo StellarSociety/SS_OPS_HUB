@@ -99,7 +99,8 @@ export function MobilePageLoadingOverlay() {
       role="status"
       aria-live="polite"
       aria-label="Loading page"
-      className="absolute inset-0 z-[60] flex items-center justify-center"
+      // Below the tab bar (z-50) so a tab can still be tapped while a page loads.
+      className="absolute inset-0 z-[45] flex items-center justify-center"
     >
       <LiquidGlassScrimBackdrop />
       <RefreshSpinner spinning size={38} className="relative z-10 text-[#3D421F]" />

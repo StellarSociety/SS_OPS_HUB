@@ -43,7 +43,7 @@ export function ChatWidgetFeed({
 
   return (
     <PostRefreshContext.Provider value={onRefresh}>
-      <div className="feed-backdrop min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Post cards are sized for the full feed; scale them to the popup. */}
         <div className="space-y-3 p-3" style={{ zoom: 0.85 }}>
           {feed.posts.map((post) => (

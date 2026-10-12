@@ -1,5 +1,28 @@
 @import "tailwindcss";
 
+/*
+ * `dark:` follows the device setting, unless an ancestor forces a scheme:
+ * `.scheme-dark` (always dark) or `.scheme-light` (never dark). The mobile
+ * simulator uses these to preview the phone screen in either mode.
+ */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:not(.scheme-light, .scheme-light *)) {
+      @slot;
+    }
+  }
+  &:where(.scheme-dark, .scheme-dark *) {
+    @slot;
+  }
+}
+
+.scheme-dark {
+  color-scheme: dark;
+}
+.scheme-light {
+  color-scheme: light;
+}
+
 :root {
   --background: #faf9f6;
   --foreground: #3d421f;
@@ -71,8 +94,8 @@ html.mobile-app-no-zoom {
   height: var(--mobile-app-height, 100lvh);
   min-height: -webkit-fill-available;
   overflow: hidden;
-  color-scheme: light dark;
-  background-color: Canvas;
+  color-scheme: light;
+  background-color: #fff;
 }
 
 html.mobile-app-no-zoom body {
@@ -83,8 +106,8 @@ html.mobile-app-no-zoom body {
   min-height: 100%;
   max-height: none;
   overflow: hidden;
-  background-color: Canvas;
-  color: CanvasText;
+  background-color: #fff;
+  color: #3d421f;
 }
 
 /*
@@ -384,24 +407,53 @@ body {
 }
 
 /* —— Mobile tab bar (Instagram-style pill) —— */
+/*
+ * A floating glass layer content scrolls under (apple-motion §12): translucent
+ * fill + blur, a bright inner top edge where light catches the material.
+ */
 .mobile-ig-bar {
   border-radius: 999px;
   border: 1px solid rgb(0 0 0 / 0.06);
-  background: rgb(255 255 255 / 0.94);
+  background: rgb(255 255 255 / 0.72);
   box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.65),
     0 8px 28px rgb(0 0 0 / 0.1),
     0 1px 3px rgb(0 0 0 / 0.05);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 
+/* Over glass, labels need more contrast than flat grey. */
 .mobile-ig-tab {
-  color: rgb(28 28 30 / 0.78);
+  color: rgb(28 28 30 / 0.84);
 }
 
+/* Selected tab: tinted glyph + label on the neutral pill (HIG Tab bars, iOS 26). */
 .mobile-ig-tab-active {
-  color: rgb(0 0 0 / 0.92);
+  color: var(--mobile-tint);
+}
+
+/* The selection pill is its own element so it can slide between tabs. */
+.mobile-ig-pill {
   background: rgb(120 120 128 / 0.16);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-ig-bar {
+    background: #fff;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .mobile-ig-bar {
+    background: #fff;
+    border-color: rgb(0 0 0 / 0.45);
+  }
+  .mobile-ig-tab {
+    color: #000;
+  }
 }
 
 /* Simulated device screens — query this container, not the desktop viewport. */
@@ -431,11 +483,36 @@ html.mobile-app-no-zoom *::-webkit-scrollbar {
   height: 0;
 }
 
-/* Safari / iOS canvas — same page fill the browser uses in light and dark. */
+/* Mobile Hub is deliberately light. A system Canvas here turned only the
+   uncovered areas black in iOS dark mode while cards stayed white. */
 .mobile-app-canvas {
-  color-scheme: light dark;
-  background-color: Canvas;
-  color: CanvasText;
+  color-scheme: light;
+  background-color: #fff;
+  color: #3d421f;
+}
+
+/*
+ * Phone typography + tint. UI text uses the platform face (SF Pro on Apple
+ * devices); Playfair stays for large titles via `font-serif`.
+ * Tint #646b2c: 5.7:1 on white, 4.8:1 on the selected-tab pill. The brand
+ * olive #818a40 is 3.7:1, so it is kept for fills, not small text.
+ */
+:root {
+  --mobile-tint: #646b2c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.scheme-light) {
+    --mobile-tint: #b5bd73;
+  }
+}
+.scheme-dark {
+  --mobile-tint: #b5bd73;
+}
+
+html.mobile-app-no-zoom body,
+.device-preview-screen {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Live display — parchment atmosphere (Chef's Cookbook landing layers) */
@@ -574,35 +651,11 @@ html.mobile-app-no-zoom *::-webkit-scrollbar {
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .mobile-app-canvas .font-google-sans {
-    color: CanvasText;
-  }
-
-  .mobile-ig-bar {
-    border-color: rgb(255 255 255 / 0.1);
-    background: rgb(28 28 30 / 0.92);
-    box-shadow:
-      0 10px 32px rgb(0 0 0 / 0.45),
-      0 1px 3px rgb(0 0 0 / 0.3);
-  }
-
-  .mobile-ig-tab {
-    color: rgb(235 235 245 / 0.62);
-  }
-
-  .mobile-ig-tab-active {
-    color: rgb(255 255 255 / 0.96);
-    background: rgb(235 235 245 / 0.16);
-  }
-}
-
-
 /* ---------------------------------------------------------------------------
  * Connecteam backgrounds
  * ------------------------------------------------------------------------- */
 
-/* Chat area base colour (the tilted bubble + favicon pattern is drawn by ChatBackdrop). */
+/* Chat area background (plain, no pattern; see ChatBackdrop). */
 .chat-wallpaper {
   background-color: #f6f7f2;
 }
@@ -672,5 +725,1231 @@ html.mobile-app-no-zoom *::-webkit-scrollbar {
   100% {
     stroke-dasharray: 8 132;
     stroke-dashoffset: -132;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Phone app dark appearance (iOS Dark). Applies inside the simulator when its
+ * Dark toggle is on (.scheme-dark), and in the real phone app when the device
+ * is set to Dark (unless an ancestor forces .scheme-light). Remaps the light
+ * colours the phone screens use to iOS dark system colours. Generated list —
+ * add a class here when a new light colour is introduced on phone screens.
+ * ------------------------------------------------------------------------- */
+.scheme-dark .mobile-app-canvas,
+.scheme-dark.mobile-app-canvas {
+  background-color: #000; color: #f2f2f7;
+}
+.scheme-dark .bg-white {
+  background-color: #1c1c1e;
+}
+.scheme-dark .bg-white\/75,
+.scheme-dark .bg-white\/70,
+.scheme-dark .bg-white\/60,
+.scheme-dark .bg-white\/80,
+.scheme-dark .bg-white\/85,
+.scheme-dark .bg-white\/90,
+.scheme-dark .bg-white\/95 {
+  background-color: rgb(28 28 30 / 0.88);
+}
+.scheme-dark .bg-\[\#F0F2E8\],
+.scheme-dark .bg-\[\#F4F5EE\],
+.scheme-dark .bg-\[\#F0F3DD\],
+.scheme-dark .bg-\[\#F0F2E8\]\/80 {
+  background-color: #2c2c2e;
+}
+.scheme-dark .bg-\[\#F7F8F2\],
+.scheme-dark .bg-\[\#fbfaf6\],
+.scheme-dark .bg-\[\#F7F7F5\]\/90,
+.scheme-dark .bg-\[\#faf9f6\],
+.scheme-dark .bg-\[\#f6f7f0\] {
+  background-color: #000;
+}
+.scheme-dark .bg-black\/5,
+.scheme-dark .bg-black\/\[0\.03\],
+.scheme-dark .bg-black\/\[0\.04\],
+.scheme-dark .bg-black\/\[0\.06\],
+.scheme-dark .bg-black\/10 {
+  background-color: rgb(255 255 255 / 0.08);
+}
+.scheme-dark .text-\[\#3D421F\],
+.scheme-dark .text-\[\#2B2F16\],
+.scheme-dark .text-black,
+.scheme-dark .text-\[\#1C1C1E\] {
+  color: #f2f2f7;
+}
+.scheme-dark .text-\[\#3D421F\]\/70,
+.scheme-dark .text-black\/75,
+.scheme-dark .text-black\/70,
+.scheme-dark .text-black\/65,
+.scheme-dark .text-black\/60,
+.scheme-dark .text-black\/55,
+.scheme-dark .text-black\/50,
+.scheme-dark .text-black\/45 {
+  color: rgb(235 235 245 / 0.62);
+}
+.scheme-dark .text-\[\#3D421F\]\/30,
+.scheme-dark .text-black\/40,
+.scheme-dark .text-black\/35,
+.scheme-dark .text-black\/30,
+.scheme-dark .text-black\/25 {
+  color: rgb(235 235 245 / 0.38);
+}
+.scheme-dark .placeholder\:text-black\/40::placeholder,
+.scheme-dark .placeholder\:text-black\/35::placeholder {
+  color: rgb(235 235 245 / 0.38);
+}
+.scheme-dark .border-black\/5,
+.scheme-dark .border-black\/10,
+.scheme-dark .border-black\/15,
+.scheme-dark .border-black\/20,
+.scheme-dark .border-black\/\[0\.06\],
+.scheme-dark .border-black\/\[0\.08\] {
+  border-color: rgb(255 255 255 / 0.12);
+}
+.scheme-dark .divide-black\/5 > :not(:last-child) {
+  border-color: rgb(255 255 255 / 0.12);
+}
+.scheme-dark .ring-black\/5,
+.scheme-dark .ring-black\/10,
+.scheme-dark .ring-black\/\[0\.06\],
+.scheme-dark .ring-black\/\[0\.08\] {
+  --tw-ring-color: rgb(255 255 255 / 0.12);
+}
+.scheme-dark .ring-white {
+  --tw-ring-color: #1c1c1e;
+}
+.scheme-dark .chat-wallpaper {
+  background-color: #0b0b0c;
+}
+.scheme-dark .chat-wallpaper[style*='background-image'] {
+  filter: invert(1) hue-rotate(180deg) brightness(1.35) contrast(0.92);
+}
+/* Plain iOS lists (chat list): one continuous black surface, no grey cards. */
+.scheme-dark .ios-plain .bg-white {
+  background-color: #000;
+}
+.scheme-dark .ios-plain .ring-white {
+  --tw-ring-color: #000;
+}
+/* Cards (directory tiles, info card) stay raised on the plain black list. */
+.scheme-dark .ios-plain .ios-card.bg-white {
+  background-color: #1c1c1e;
+}
+.scheme-dark .seg-pill.bg-white {
+  background-color: #636366; box-shadow: none;
+}
+.scheme-dark .feed-backdrop {
+  background-color: #0b0b0c;
+}
+.scheme-dark .mobile-ig-bar {
+  border-color: rgb(255 255 255 / 0.1); background: rgb(28 28 30 / 0.78); box-shadow: 0 10px 32px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
+}
+.scheme-dark .mobile-ig-tab {
+  color: rgb(235 235 245 / 0.62);
+}
+.scheme-dark .mobile-ig-tab-active {
+  color: rgb(255 255 255 / 0.96);
+}
+.scheme-dark .mobile-ig-pill {
+  background: rgb(235 235 245 / 0.16);
+}
+.scheme-dark .sim-keyboard {
+  background-color: rgb(43 43 45 / 0.96);
+}
+.scheme-dark .sim-keyboard .bg-white {
+  background-color: #6b6b6e; color: #fff;
+}
+.scheme-dark .sim-keyboard .bg-\[\#ADB3BC\] {
+  background-color: #48484a; color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+html.mobile-app-no-zoom,
+html.mobile-app-no-zoom body {
+  background-color: #000;
+  color: #f2f2f7;
+}
+.mobile-app-frame:not(.scheme-light) .mobile-app-canvas,
+.mobile-app-frame:not(.scheme-light).mobile-app-canvas {
+  background-color: #000; color: #f2f2f7;
+}
+.mobile-app-frame:not(.scheme-light) .bg-white {
+  background-color: #1c1c1e;
+}
+.mobile-app-frame:not(.scheme-light) .bg-white\/75,
+.mobile-app-frame:not(.scheme-light) .bg-white\/70,
+.mobile-app-frame:not(.scheme-light) .bg-white\/60,
+.mobile-app-frame:not(.scheme-light) .bg-white\/80,
+.mobile-app-frame:not(.scheme-light) .bg-white\/85,
+.mobile-app-frame:not(.scheme-light) .bg-white\/90,
+.mobile-app-frame:not(.scheme-light) .bg-white\/95 {
+  background-color: rgb(28 28 30 / 0.88);
+}
+.mobile-app-frame:not(.scheme-light) .bg-\[\#F0F2E8\],
+.mobile-app-frame:not(.scheme-light) .bg-\[\#F4F5EE\],
+.mobile-app-frame:not(.scheme-light) .bg-\[\#F0F3DD\],
+.mobile-app-frame:not(.scheme-light) .bg-\[\#F0F2E8\]\/80 {
+  background-color: #2c2c2e;
+}
+.mobile-app-frame:not(.scheme-light) .bg-\[\#F7F8F2\],
+.mobile-app-frame:not(.scheme-light) .bg-\[\#fbfaf6\],
+.mobile-app-frame:not(.scheme-light) .bg-\[\#F7F7F5\]\/90,
+.mobile-app-frame:not(.scheme-light) .bg-\[\#faf9f6\],
+.mobile-app-frame:not(.scheme-light) .bg-\[\#f6f7f0\] {
+  background-color: #000;
+}
+.mobile-app-frame:not(.scheme-light) .bg-black\/5,
+.mobile-app-frame:not(.scheme-light) .bg-black\/\[0\.03\],
+.mobile-app-frame:not(.scheme-light) .bg-black\/\[0\.04\],
+.mobile-app-frame:not(.scheme-light) .bg-black\/\[0\.06\],
+.mobile-app-frame:not(.scheme-light) .bg-black\/10 {
+  background-color: rgb(255 255 255 / 0.08);
+}
+.mobile-app-frame:not(.scheme-light) .text-\[\#3D421F\],
+.mobile-app-frame:not(.scheme-light) .text-\[\#2B2F16\],
+.mobile-app-frame:not(.scheme-light) .text-black,
+.mobile-app-frame:not(.scheme-light) .text-\[\#1C1C1E\] {
+  color: #f2f2f7;
+}
+.mobile-app-frame:not(.scheme-light) .text-\[\#3D421F\]\/70,
+.mobile-app-frame:not(.scheme-light) .text-black\/75,
+.mobile-app-frame:not(.scheme-light) .text-black\/70,
+.mobile-app-frame:not(.scheme-light) .text-black\/65,
+.mobile-app-frame:not(.scheme-light) .text-black\/60,
+.mobile-app-frame:not(.scheme-light) .text-black\/55,
+.mobile-app-frame:not(.scheme-light) .text-black\/50,
+.mobile-app-frame:not(.scheme-light) .text-black\/45 {
+  color: rgb(235 235 245 / 0.62);
+}
+.mobile-app-frame:not(.scheme-light) .text-\[\#3D421F\]\/30,
+.mobile-app-frame:not(.scheme-light) .text-black\/40,
+.mobile-app-frame:not(.scheme-light) .text-black\/35,
+.mobile-app-frame:not(.scheme-light) .text-black\/30,
+.mobile-app-frame:not(.scheme-light) .text-black\/25 {
+  color: rgb(235 235 245 / 0.38);
+}
+.mobile-app-frame:not(.scheme-light) .placeholder\:text-black\/40::placeholder,
+.mobile-app-frame:not(.scheme-light) .placeholder\:text-black\/35::placeholder {
+  color: rgb(235 235 245 / 0.38);
+}
+.mobile-app-frame:not(.scheme-light) .border-black\/5,
+.mobile-app-frame:not(.scheme-light) .border-black\/10,
+.mobile-app-frame:not(.scheme-light) .border-black\/15,
+.mobile-app-frame:not(.scheme-light) .border-black\/20,
+.mobile-app-frame:not(.scheme-light) .border-black\/\[0\.06\],
+.mobile-app-frame:not(.scheme-light) .border-black\/\[0\.08\] {
+  border-color: rgb(255 255 255 / 0.12);
+}
+.mobile-app-frame:not(.scheme-light) .divide-black\/5 > :not(:last-child) {
+  border-color: rgb(255 255 255 / 0.12);
+}
+.mobile-app-frame:not(.scheme-light) .ring-black\/5,
+.mobile-app-frame:not(.scheme-light) .ring-black\/10,
+.mobile-app-frame:not(.scheme-light) .ring-black\/\[0\.06\],
+.mobile-app-frame:not(.scheme-light) .ring-black\/\[0\.08\] {
+  --tw-ring-color: rgb(255 255 255 / 0.12);
+}
+.mobile-app-frame:not(.scheme-light) .ring-white {
+  --tw-ring-color: #1c1c1e;
+}
+.mobile-app-frame:not(.scheme-light) .chat-wallpaper {
+  background-color: #0b0b0c;
+}
+.mobile-app-frame:not(.scheme-light) .chat-wallpaper[style*='background-image'] {
+  filter: invert(1) hue-rotate(180deg) brightness(1.35) contrast(0.92);
+}
+/* Plain iOS lists (chat list): one continuous black surface, no grey cards. */
+.mobile-app-frame:not(.scheme-light) .ios-plain .bg-white {
+  background-color: #000;
+}
+.mobile-app-frame:not(.scheme-light) .ios-plain .ring-white {
+  --tw-ring-color: #000;
+}
+/* Cards (directory tiles, info card) stay raised on the plain black list. */
+.mobile-app-frame:not(.scheme-light) .ios-plain .ios-card.bg-white {
+  background-color: #1c1c1e;
+}
+.mobile-app-frame:not(.scheme-light) .seg-pill.bg-white {
+  background-color: #636366; box-shadow: none;
+}
+.mobile-app-frame:not(.scheme-light) .feed-backdrop {
+  background-color: #0b0b0c;
+}
+.mobile-app-frame:not(.scheme-light) .mobile-ig-bar {
+  border-color: rgb(255 255 255 / 0.1); background: rgb(28 28 30 / 0.78); box-shadow: 0 10px 32px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.3);
+}
+.mobile-app-frame:not(.scheme-light) .mobile-ig-tab {
+  color: rgb(235 235 245 / 0.62);
+}
+.mobile-app-frame:not(.scheme-light) .mobile-ig-tab-active {
+  color: rgb(255 255 255 / 0.96);
+}
+.mobile-app-frame:not(.scheme-light) .mobile-ig-pill {
+  background: rgb(235 235 245 / 0.16);
+}
+.mobile-app-frame:not(.scheme-light) .sim-keyboard {
+  background-color: rgb(43 43 45 / 0.96);
+}
+.mobile-app-frame:not(.scheme-light) .sim-keyboard .bg-white {
+  background-color: #6b6b6e; color: #fff;
+}
+.mobile-app-frame:not(.scheme-light) .sim-keyboard .bg-\[\#ADB3BC\] {
+  background-color: #48484a; color: #fff;
+}
+}
+
+/* Phone dark appearance, part 2: palette tints (red/amber/… -50 chips and
+ * cards), venue secondary colour, venue selection and the org chart. */
+/* Text set in the venue's light colour sits on the venue's dark colour: keep it light. */
+.scheme-dark [class*="text-[var(--venue-secondary"],
+.scheme-dark .dir-org-label-badge {
+  color: #f2f2f7;
+}
+/* Revenue charts: the dark olive "Dinner" accent is set inline. */
+.scheme-dark [style^="color: rgb(61, 66, 31)"],
+.scheme-dark [style*="; color: rgb(61, 66, 31)"] {
+  color: #d9dcc4 !important;
+}
+.scheme-dark [style*="background-color: rgba(61, 66, 31"],
+.scheme-dark .bg-\[\#3D421F\]\/80 {
+  background-color: rgb(201 207 166 / 0.75) !important;
+}
+.scheme-dark .fill-\[\#3D421F\] {
+  fill: #f2f2f7;
+}
+.scheme-dark * {
+  --venue-secondary: color-mix(in srgb, var(--venue-primary, #818a40) 26%, #1c1c1e);
+}
+.scheme-dark [class~="bg-red-50"],
+.scheme-dark [class^="bg-red-50/"],
+.scheme-dark [class*=" bg-red-50/"],
+.scheme-dark [class~="bg-red-100"],
+.scheme-dark [class^="bg-red-100/"],
+.scheme-dark [class*=" bg-red-100/"] {
+  background-color: color-mix(in srgb, #ef4444 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-red-100"],
+.scheme-dark [class^="border-red-100/"],
+.scheme-dark [class*=" border-red-100/"],
+.scheme-dark [class~="border-red-200"],
+.scheme-dark [class^="border-red-200/"],
+.scheme-dark [class*=" border-red-200/"],
+.scheme-dark [class~="border-red-300"],
+.scheme-dark [class^="border-red-300/"],
+.scheme-dark [class*=" border-red-300/"] {
+  border-color: color-mix(in srgb, #ef4444 45%, transparent);
+}
+.scheme-dark [class~="text-red-600"],
+.scheme-dark [class^="text-red-600/"],
+.scheme-dark [class*=" text-red-600/"],
+.scheme-dark [class~="text-red-700"],
+.scheme-dark [class^="text-red-700/"],
+.scheme-dark [class*=" text-red-700/"],
+.scheme-dark [class~="text-red-800"],
+.scheme-dark [class^="text-red-800/"],
+.scheme-dark [class*=" text-red-800/"],
+.scheme-dark [class~="text-red-900"],
+.scheme-dark [class^="text-red-900/"],
+.scheme-dark [class*=" text-red-900/"],
+.scheme-dark [class~="text-red-950"],
+.scheme-dark [class^="text-red-950/"],
+.scheme-dark [class*=" text-red-950/"] {
+  color: #fca5a5;
+}
+.scheme-dark [class~="bg-rose-50"],
+.scheme-dark [class^="bg-rose-50/"],
+.scheme-dark [class*=" bg-rose-50/"],
+.scheme-dark [class~="bg-rose-100"],
+.scheme-dark [class^="bg-rose-100/"],
+.scheme-dark [class*=" bg-rose-100/"] {
+  background-color: color-mix(in srgb, #f43f5e 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-rose-100"],
+.scheme-dark [class^="border-rose-100/"],
+.scheme-dark [class*=" border-rose-100/"],
+.scheme-dark [class~="border-rose-200"],
+.scheme-dark [class^="border-rose-200/"],
+.scheme-dark [class*=" border-rose-200/"],
+.scheme-dark [class~="border-rose-300"],
+.scheme-dark [class^="border-rose-300/"],
+.scheme-dark [class*=" border-rose-300/"] {
+  border-color: color-mix(in srgb, #f43f5e 45%, transparent);
+}
+.scheme-dark [class~="text-rose-600"],
+.scheme-dark [class^="text-rose-600/"],
+.scheme-dark [class*=" text-rose-600/"],
+.scheme-dark [class~="text-rose-700"],
+.scheme-dark [class^="text-rose-700/"],
+.scheme-dark [class*=" text-rose-700/"],
+.scheme-dark [class~="text-rose-800"],
+.scheme-dark [class^="text-rose-800/"],
+.scheme-dark [class*=" text-rose-800/"],
+.scheme-dark [class~="text-rose-900"],
+.scheme-dark [class^="text-rose-900/"],
+.scheme-dark [class*=" text-rose-900/"],
+.scheme-dark [class~="text-rose-950"],
+.scheme-dark [class^="text-rose-950/"],
+.scheme-dark [class*=" text-rose-950/"] {
+  color: #fda4af;
+}
+.scheme-dark [class~="bg-amber-50"],
+.scheme-dark [class^="bg-amber-50/"],
+.scheme-dark [class*=" bg-amber-50/"],
+.scheme-dark [class~="bg-amber-100"],
+.scheme-dark [class^="bg-amber-100/"],
+.scheme-dark [class*=" bg-amber-100/"] {
+  background-color: color-mix(in srgb, #f59e0b 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-amber-100"],
+.scheme-dark [class^="border-amber-100/"],
+.scheme-dark [class*=" border-amber-100/"],
+.scheme-dark [class~="border-amber-200"],
+.scheme-dark [class^="border-amber-200/"],
+.scheme-dark [class*=" border-amber-200/"],
+.scheme-dark [class~="border-amber-300"],
+.scheme-dark [class^="border-amber-300/"],
+.scheme-dark [class*=" border-amber-300/"] {
+  border-color: color-mix(in srgb, #f59e0b 45%, transparent);
+}
+.scheme-dark [class~="text-amber-600"],
+.scheme-dark [class^="text-amber-600/"],
+.scheme-dark [class*=" text-amber-600/"],
+.scheme-dark [class~="text-amber-700"],
+.scheme-dark [class^="text-amber-700/"],
+.scheme-dark [class*=" text-amber-700/"],
+.scheme-dark [class~="text-amber-800"],
+.scheme-dark [class^="text-amber-800/"],
+.scheme-dark [class*=" text-amber-800/"],
+.scheme-dark [class~="text-amber-900"],
+.scheme-dark [class^="text-amber-900/"],
+.scheme-dark [class*=" text-amber-900/"],
+.scheme-dark [class~="text-amber-950"],
+.scheme-dark [class^="text-amber-950/"],
+.scheme-dark [class*=" text-amber-950/"] {
+  color: #fcd34d;
+}
+.scheme-dark [class~="bg-orange-50"],
+.scheme-dark [class^="bg-orange-50/"],
+.scheme-dark [class*=" bg-orange-50/"],
+.scheme-dark [class~="bg-orange-100"],
+.scheme-dark [class^="bg-orange-100/"],
+.scheme-dark [class*=" bg-orange-100/"] {
+  background-color: color-mix(in srgb, #f97316 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-orange-100"],
+.scheme-dark [class^="border-orange-100/"],
+.scheme-dark [class*=" border-orange-100/"],
+.scheme-dark [class~="border-orange-200"],
+.scheme-dark [class^="border-orange-200/"],
+.scheme-dark [class*=" border-orange-200/"],
+.scheme-dark [class~="border-orange-300"],
+.scheme-dark [class^="border-orange-300/"],
+.scheme-dark [class*=" border-orange-300/"] {
+  border-color: color-mix(in srgb, #f97316 45%, transparent);
+}
+.scheme-dark [class~="text-orange-600"],
+.scheme-dark [class^="text-orange-600/"],
+.scheme-dark [class*=" text-orange-600/"],
+.scheme-dark [class~="text-orange-700"],
+.scheme-dark [class^="text-orange-700/"],
+.scheme-dark [class*=" text-orange-700/"],
+.scheme-dark [class~="text-orange-800"],
+.scheme-dark [class^="text-orange-800/"],
+.scheme-dark [class*=" text-orange-800/"],
+.scheme-dark [class~="text-orange-900"],
+.scheme-dark [class^="text-orange-900/"],
+.scheme-dark [class*=" text-orange-900/"],
+.scheme-dark [class~="text-orange-950"],
+.scheme-dark [class^="text-orange-950/"],
+.scheme-dark [class*=" text-orange-950/"] {
+  color: #fdba74;
+}
+.scheme-dark [class~="bg-yellow-50"],
+.scheme-dark [class^="bg-yellow-50/"],
+.scheme-dark [class*=" bg-yellow-50/"],
+.scheme-dark [class~="bg-yellow-100"],
+.scheme-dark [class^="bg-yellow-100/"],
+.scheme-dark [class*=" bg-yellow-100/"] {
+  background-color: color-mix(in srgb, #eab308 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-yellow-100"],
+.scheme-dark [class^="border-yellow-100/"],
+.scheme-dark [class*=" border-yellow-100/"],
+.scheme-dark [class~="border-yellow-200"],
+.scheme-dark [class^="border-yellow-200/"],
+.scheme-dark [class*=" border-yellow-200/"],
+.scheme-dark [class~="border-yellow-300"],
+.scheme-dark [class^="border-yellow-300/"],
+.scheme-dark [class*=" border-yellow-300/"] {
+  border-color: color-mix(in srgb, #eab308 45%, transparent);
+}
+.scheme-dark [class~="text-yellow-600"],
+.scheme-dark [class^="text-yellow-600/"],
+.scheme-dark [class*=" text-yellow-600/"],
+.scheme-dark [class~="text-yellow-700"],
+.scheme-dark [class^="text-yellow-700/"],
+.scheme-dark [class*=" text-yellow-700/"],
+.scheme-dark [class~="text-yellow-800"],
+.scheme-dark [class^="text-yellow-800/"],
+.scheme-dark [class*=" text-yellow-800/"],
+.scheme-dark [class~="text-yellow-900"],
+.scheme-dark [class^="text-yellow-900/"],
+.scheme-dark [class*=" text-yellow-900/"],
+.scheme-dark [class~="text-yellow-950"],
+.scheme-dark [class^="text-yellow-950/"],
+.scheme-dark [class*=" text-yellow-950/"] {
+  color: #fde047;
+}
+.scheme-dark [class~="bg-emerald-50"],
+.scheme-dark [class^="bg-emerald-50/"],
+.scheme-dark [class*=" bg-emerald-50/"],
+.scheme-dark [class~="bg-emerald-100"],
+.scheme-dark [class^="bg-emerald-100/"],
+.scheme-dark [class*=" bg-emerald-100/"] {
+  background-color: color-mix(in srgb, #10b981 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-emerald-100"],
+.scheme-dark [class^="border-emerald-100/"],
+.scheme-dark [class*=" border-emerald-100/"],
+.scheme-dark [class~="border-emerald-200"],
+.scheme-dark [class^="border-emerald-200/"],
+.scheme-dark [class*=" border-emerald-200/"],
+.scheme-dark [class~="border-emerald-300"],
+.scheme-dark [class^="border-emerald-300/"],
+.scheme-dark [class*=" border-emerald-300/"] {
+  border-color: color-mix(in srgb, #10b981 45%, transparent);
+}
+.scheme-dark [class~="text-emerald-600"],
+.scheme-dark [class^="text-emerald-600/"],
+.scheme-dark [class*=" text-emerald-600/"],
+.scheme-dark [class~="text-emerald-700"],
+.scheme-dark [class^="text-emerald-700/"],
+.scheme-dark [class*=" text-emerald-700/"],
+.scheme-dark [class~="text-emerald-800"],
+.scheme-dark [class^="text-emerald-800/"],
+.scheme-dark [class*=" text-emerald-800/"],
+.scheme-dark [class~="text-emerald-900"],
+.scheme-dark [class^="text-emerald-900/"],
+.scheme-dark [class*=" text-emerald-900/"],
+.scheme-dark [class~="text-emerald-950"],
+.scheme-dark [class^="text-emerald-950/"],
+.scheme-dark [class*=" text-emerald-950/"] {
+  color: #6ee7b7;
+}
+.scheme-dark [class~="bg-green-50"],
+.scheme-dark [class^="bg-green-50/"],
+.scheme-dark [class*=" bg-green-50/"],
+.scheme-dark [class~="bg-green-100"],
+.scheme-dark [class^="bg-green-100/"],
+.scheme-dark [class*=" bg-green-100/"] {
+  background-color: color-mix(in srgb, #22c55e 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-green-100"],
+.scheme-dark [class^="border-green-100/"],
+.scheme-dark [class*=" border-green-100/"],
+.scheme-dark [class~="border-green-200"],
+.scheme-dark [class^="border-green-200/"],
+.scheme-dark [class*=" border-green-200/"],
+.scheme-dark [class~="border-green-300"],
+.scheme-dark [class^="border-green-300/"],
+.scheme-dark [class*=" border-green-300/"] {
+  border-color: color-mix(in srgb, #22c55e 45%, transparent);
+}
+.scheme-dark [class~="text-green-600"],
+.scheme-dark [class^="text-green-600/"],
+.scheme-dark [class*=" text-green-600/"],
+.scheme-dark [class~="text-green-700"],
+.scheme-dark [class^="text-green-700/"],
+.scheme-dark [class*=" text-green-700/"],
+.scheme-dark [class~="text-green-800"],
+.scheme-dark [class^="text-green-800/"],
+.scheme-dark [class*=" text-green-800/"],
+.scheme-dark [class~="text-green-900"],
+.scheme-dark [class^="text-green-900/"],
+.scheme-dark [class*=" text-green-900/"],
+.scheme-dark [class~="text-green-950"],
+.scheme-dark [class^="text-green-950/"],
+.scheme-dark [class*=" text-green-950/"] {
+  color: #86efac;
+}
+.scheme-dark [class~="bg-sky-50"],
+.scheme-dark [class^="bg-sky-50/"],
+.scheme-dark [class*=" bg-sky-50/"],
+.scheme-dark [class~="bg-sky-100"],
+.scheme-dark [class^="bg-sky-100/"],
+.scheme-dark [class*=" bg-sky-100/"] {
+  background-color: color-mix(in srgb, #0ea5e9 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-sky-100"],
+.scheme-dark [class^="border-sky-100/"],
+.scheme-dark [class*=" border-sky-100/"],
+.scheme-dark [class~="border-sky-200"],
+.scheme-dark [class^="border-sky-200/"],
+.scheme-dark [class*=" border-sky-200/"],
+.scheme-dark [class~="border-sky-300"],
+.scheme-dark [class^="border-sky-300/"],
+.scheme-dark [class*=" border-sky-300/"] {
+  border-color: color-mix(in srgb, #0ea5e9 45%, transparent);
+}
+.scheme-dark [class~="text-sky-600"],
+.scheme-dark [class^="text-sky-600/"],
+.scheme-dark [class*=" text-sky-600/"],
+.scheme-dark [class~="text-sky-700"],
+.scheme-dark [class^="text-sky-700/"],
+.scheme-dark [class*=" text-sky-700/"],
+.scheme-dark [class~="text-sky-800"],
+.scheme-dark [class^="text-sky-800/"],
+.scheme-dark [class*=" text-sky-800/"],
+.scheme-dark [class~="text-sky-900"],
+.scheme-dark [class^="text-sky-900/"],
+.scheme-dark [class*=" text-sky-900/"],
+.scheme-dark [class~="text-sky-950"],
+.scheme-dark [class^="text-sky-950/"],
+.scheme-dark [class*=" text-sky-950/"] {
+  color: #7dd3fc;
+}
+.scheme-dark [class~="bg-blue-50"],
+.scheme-dark [class^="bg-blue-50/"],
+.scheme-dark [class*=" bg-blue-50/"],
+.scheme-dark [class~="bg-blue-100"],
+.scheme-dark [class^="bg-blue-100/"],
+.scheme-dark [class*=" bg-blue-100/"] {
+  background-color: color-mix(in srgb, #3b82f6 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-blue-100"],
+.scheme-dark [class^="border-blue-100/"],
+.scheme-dark [class*=" border-blue-100/"],
+.scheme-dark [class~="border-blue-200"],
+.scheme-dark [class^="border-blue-200/"],
+.scheme-dark [class*=" border-blue-200/"],
+.scheme-dark [class~="border-blue-300"],
+.scheme-dark [class^="border-blue-300/"],
+.scheme-dark [class*=" border-blue-300/"] {
+  border-color: color-mix(in srgb, #3b82f6 45%, transparent);
+}
+.scheme-dark [class~="text-blue-600"],
+.scheme-dark [class^="text-blue-600/"],
+.scheme-dark [class*=" text-blue-600/"],
+.scheme-dark [class~="text-blue-700"],
+.scheme-dark [class^="text-blue-700/"],
+.scheme-dark [class*=" text-blue-700/"],
+.scheme-dark [class~="text-blue-800"],
+.scheme-dark [class^="text-blue-800/"],
+.scheme-dark [class*=" text-blue-800/"],
+.scheme-dark [class~="text-blue-900"],
+.scheme-dark [class^="text-blue-900/"],
+.scheme-dark [class*=" text-blue-900/"],
+.scheme-dark [class~="text-blue-950"],
+.scheme-dark [class^="text-blue-950/"],
+.scheme-dark [class*=" text-blue-950/"] {
+  color: #93c5fd;
+}
+.scheme-dark [class~="bg-violet-50"],
+.scheme-dark [class^="bg-violet-50/"],
+.scheme-dark [class*=" bg-violet-50/"],
+.scheme-dark [class~="bg-violet-100"],
+.scheme-dark [class^="bg-violet-100/"],
+.scheme-dark [class*=" bg-violet-100/"] {
+  background-color: color-mix(in srgb, #8b5cf6 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-violet-100"],
+.scheme-dark [class^="border-violet-100/"],
+.scheme-dark [class*=" border-violet-100/"],
+.scheme-dark [class~="border-violet-200"],
+.scheme-dark [class^="border-violet-200/"],
+.scheme-dark [class*=" border-violet-200/"],
+.scheme-dark [class~="border-violet-300"],
+.scheme-dark [class^="border-violet-300/"],
+.scheme-dark [class*=" border-violet-300/"] {
+  border-color: color-mix(in srgb, #8b5cf6 45%, transparent);
+}
+.scheme-dark [class~="text-violet-600"],
+.scheme-dark [class^="text-violet-600/"],
+.scheme-dark [class*=" text-violet-600/"],
+.scheme-dark [class~="text-violet-700"],
+.scheme-dark [class^="text-violet-700/"],
+.scheme-dark [class*=" text-violet-700/"],
+.scheme-dark [class~="text-violet-800"],
+.scheme-dark [class^="text-violet-800/"],
+.scheme-dark [class*=" text-violet-800/"],
+.scheme-dark [class~="text-violet-900"],
+.scheme-dark [class^="text-violet-900/"],
+.scheme-dark [class*=" text-violet-900/"],
+.scheme-dark [class~="text-violet-950"],
+.scheme-dark [class^="text-violet-950/"],
+.scheme-dark [class*=" text-violet-950/"] {
+  color: #c4b5fd;
+}
+.scheme-dark [class~="bg-neutral-50"],
+.scheme-dark [class^="bg-neutral-50/"],
+.scheme-dark [class*=" bg-neutral-50/"],
+.scheme-dark [class~="bg-neutral-100"],
+.scheme-dark [class^="bg-neutral-100/"],
+.scheme-dark [class*=" bg-neutral-100/"] {
+  background-color: color-mix(in srgb, #737373 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-neutral-100"],
+.scheme-dark [class^="border-neutral-100/"],
+.scheme-dark [class*=" border-neutral-100/"],
+.scheme-dark [class~="border-neutral-200"],
+.scheme-dark [class^="border-neutral-200/"],
+.scheme-dark [class*=" border-neutral-200/"],
+.scheme-dark [class~="border-neutral-300"],
+.scheme-dark [class^="border-neutral-300/"],
+.scheme-dark [class*=" border-neutral-300/"] {
+  border-color: color-mix(in srgb, #737373 45%, transparent);
+}
+.scheme-dark [class~="text-neutral-600"],
+.scheme-dark [class^="text-neutral-600/"],
+.scheme-dark [class*=" text-neutral-600/"],
+.scheme-dark [class~="text-neutral-700"],
+.scheme-dark [class^="text-neutral-700/"],
+.scheme-dark [class*=" text-neutral-700/"],
+.scheme-dark [class~="text-neutral-800"],
+.scheme-dark [class^="text-neutral-800/"],
+.scheme-dark [class*=" text-neutral-800/"],
+.scheme-dark [class~="text-neutral-900"],
+.scheme-dark [class^="text-neutral-900/"],
+.scheme-dark [class*=" text-neutral-900/"],
+.scheme-dark [class~="text-neutral-950"],
+.scheme-dark [class^="text-neutral-950/"],
+.scheme-dark [class*=" text-neutral-950/"] {
+  color: #d4d4d4;
+}
+.scheme-dark [class~="bg-stone-50"],
+.scheme-dark [class^="bg-stone-50/"],
+.scheme-dark [class*=" bg-stone-50/"],
+.scheme-dark [class~="bg-stone-100"],
+.scheme-dark [class^="bg-stone-100/"],
+.scheme-dark [class*=" bg-stone-100/"] {
+  background-color: color-mix(in srgb, #78716c 18%, #1c1c1e);
+}
+.scheme-dark [class~="border-stone-100"],
+.scheme-dark [class^="border-stone-100/"],
+.scheme-dark [class*=" border-stone-100/"],
+.scheme-dark [class~="border-stone-200"],
+.scheme-dark [class^="border-stone-200/"],
+.scheme-dark [class*=" border-stone-200/"],
+.scheme-dark [class~="border-stone-300"],
+.scheme-dark [class^="border-stone-300/"],
+.scheme-dark [class*=" border-stone-300/"] {
+  border-color: color-mix(in srgb, #78716c 45%, transparent);
+}
+.scheme-dark [class~="text-stone-600"],
+.scheme-dark [class^="text-stone-600/"],
+.scheme-dark [class*=" text-stone-600/"],
+.scheme-dark [class~="text-stone-700"],
+.scheme-dark [class^="text-stone-700/"],
+.scheme-dark [class*=" text-stone-700/"],
+.scheme-dark [class~="text-stone-800"],
+.scheme-dark [class^="text-stone-800/"],
+.scheme-dark [class*=" text-stone-800/"],
+.scheme-dark [class~="text-stone-900"],
+.scheme-dark [class^="text-stone-900/"],
+.scheme-dark [class*=" text-stone-900/"],
+.scheme-dark [class~="text-stone-950"],
+.scheme-dark [class^="text-stone-950/"],
+.scheme-dark [class*=" text-stone-950/"] {
+  color: #d6d3d1;
+}
+.scheme-dark .bg-\[\#E9E3D6\] {
+  background-color: #000;
+}
+.scheme-dark .bg-white\/30 {
+  background-color: rgb(255 255 255 / 0.08);
+}
+.scheme-dark .border-white\/70 {
+  border-color: rgb(255 255 255 / 0.18);
+}
+.scheme-dark .bg-\[\#3D421F\]\/15 {
+  background-color: rgb(255 255 255 / 0.12);
+}
+.scheme-dark .text-\[\#3D421F\]\/80,
+.scheme-dark .text-\[\#3D421F\]\/60 {
+  color: rgb(235 235 245 / 0.62);
+}
+.scheme-dark .dir-org-node-emphasis {
+  background: #2c2c2e; border-color: #48484a;
+}
+.scheme-dark .dir-org-node-emphasis .dir-org-photo {
+  border-color: rgb(255 255 255 / 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  .mobile-app-frame.bg-\[\#E9E3D6\]:not(.scheme-light) {
+    background-color: #000;
+  }
+  /* Text set in the venue's light colour sits on the venue's dark colour: keep it light. */
+  .mobile-app-frame:not(.scheme-light) [class*="text-[var(--venue-secondary"],
+  .mobile-app-frame:not(.scheme-light) .dir-org-label-badge {
+    color: #f2f2f7;
+  }
+  /* Revenue charts: the dark olive "Dinner" accent is set inline. */
+  .mobile-app-frame:not(.scheme-light) [style^="color: rgb(61, 66, 31)"],
+  .mobile-app-frame:not(.scheme-light) [style*="; color: rgb(61, 66, 31)"] {
+    color: #d9dcc4 !important;
+  }
+  .mobile-app-frame:not(.scheme-light) [style*="background-color: rgba(61, 66, 31"],
+  .mobile-app-frame:not(.scheme-light) .bg-\[\#3D421F\]\/80 {
+    background-color: rgb(201 207 166 / 0.75) !important;
+  }
+  .mobile-app-frame:not(.scheme-light) .fill-\[\#3D421F\] {
+    fill: #f2f2f7;
+  }
+  .mobile-app-frame:not(.scheme-light) * {
+    --venue-secondary: color-mix(in srgb, var(--venue-primary, #818a40) 26%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-red-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-red-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-red-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-red-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-red-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-red-100/"] {
+    background-color: color-mix(in srgb, #ef4444 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-red-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-red-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-red-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-red-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-red-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-red-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-red-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-red-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-red-300/"] {
+    border-color: color-mix(in srgb, #ef4444 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-red-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-red-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-red-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-red-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-red-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-red-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-red-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-red-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-red-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-red-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-red-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-red-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-red-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-red-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-red-950/"] {
+    color: #fca5a5;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-rose-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-rose-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-rose-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-rose-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-rose-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-rose-100/"] {
+    background-color: color-mix(in srgb, #f43f5e 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-rose-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-rose-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-rose-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-rose-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-rose-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-rose-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-rose-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-rose-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-rose-300/"] {
+    border-color: color-mix(in srgb, #f43f5e 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-rose-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-rose-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-rose-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-rose-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-rose-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-rose-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-rose-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-rose-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-rose-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-rose-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-rose-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-rose-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-rose-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-rose-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-rose-950/"] {
+    color: #fda4af;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-amber-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-amber-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-amber-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-amber-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-amber-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-amber-100/"] {
+    background-color: color-mix(in srgb, #f59e0b 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-amber-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-amber-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-amber-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-amber-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-amber-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-amber-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-amber-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-amber-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-amber-300/"] {
+    border-color: color-mix(in srgb, #f59e0b 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-amber-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-amber-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-amber-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-amber-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-amber-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-amber-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-amber-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-amber-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-amber-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-amber-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-amber-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-amber-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-amber-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-amber-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-amber-950/"] {
+    color: #fcd34d;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-orange-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-orange-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-orange-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-orange-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-orange-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-orange-100/"] {
+    background-color: color-mix(in srgb, #f97316 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-orange-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-orange-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-orange-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-orange-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-orange-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-orange-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-orange-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-orange-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-orange-300/"] {
+    border-color: color-mix(in srgb, #f97316 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-orange-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-orange-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-orange-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-orange-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-orange-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-orange-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-orange-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-orange-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-orange-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-orange-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-orange-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-orange-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-orange-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-orange-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-orange-950/"] {
+    color: #fdba74;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-yellow-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-yellow-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-yellow-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-yellow-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-yellow-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-yellow-100/"] {
+    background-color: color-mix(in srgb, #eab308 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-yellow-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-yellow-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-yellow-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-yellow-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-yellow-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-yellow-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-yellow-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-yellow-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-yellow-300/"] {
+    border-color: color-mix(in srgb, #eab308 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-yellow-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-yellow-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-yellow-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-yellow-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-yellow-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-yellow-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-yellow-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-yellow-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-yellow-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-yellow-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-yellow-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-yellow-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-yellow-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-yellow-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-yellow-950/"] {
+    color: #fde047;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-emerald-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-emerald-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-emerald-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-emerald-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-emerald-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-emerald-100/"] {
+    background-color: color-mix(in srgb, #10b981 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-emerald-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-emerald-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-emerald-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-emerald-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-emerald-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-emerald-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-emerald-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-emerald-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-emerald-300/"] {
+    border-color: color-mix(in srgb, #10b981 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-emerald-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-emerald-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-emerald-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-emerald-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-emerald-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-emerald-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-emerald-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-emerald-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-emerald-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-emerald-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-emerald-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-emerald-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-emerald-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-emerald-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-emerald-950/"] {
+    color: #6ee7b7;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-green-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-green-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-green-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-green-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-green-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-green-100/"] {
+    background-color: color-mix(in srgb, #22c55e 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-green-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-green-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-green-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-green-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-green-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-green-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-green-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-green-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-green-300/"] {
+    border-color: color-mix(in srgb, #22c55e 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-green-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-green-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-green-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-green-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-green-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-green-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-green-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-green-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-green-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-green-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-green-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-green-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-green-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-green-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-green-950/"] {
+    color: #86efac;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-sky-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-sky-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-sky-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-sky-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-sky-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-sky-100/"] {
+    background-color: color-mix(in srgb, #0ea5e9 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-sky-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-sky-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-sky-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-sky-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-sky-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-sky-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-sky-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-sky-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-sky-300/"] {
+    border-color: color-mix(in srgb, #0ea5e9 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-sky-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-sky-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-sky-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-sky-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-sky-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-sky-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-sky-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-sky-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-sky-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-sky-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-sky-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-sky-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-sky-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-sky-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-sky-950/"] {
+    color: #7dd3fc;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-blue-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-blue-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-blue-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-blue-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-blue-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-blue-100/"] {
+    background-color: color-mix(in srgb, #3b82f6 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-blue-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-blue-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-blue-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-blue-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-blue-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-blue-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-blue-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-blue-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-blue-300/"] {
+    border-color: color-mix(in srgb, #3b82f6 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-blue-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-blue-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-blue-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-blue-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-blue-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-blue-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-blue-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-blue-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-blue-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-blue-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-blue-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-blue-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-blue-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-blue-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-blue-950/"] {
+    color: #93c5fd;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-violet-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-violet-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-violet-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-violet-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-violet-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-violet-100/"] {
+    background-color: color-mix(in srgb, #8b5cf6 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-violet-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-violet-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-violet-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-violet-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-violet-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-violet-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-violet-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-violet-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-violet-300/"] {
+    border-color: color-mix(in srgb, #8b5cf6 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-violet-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-violet-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-violet-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-violet-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-violet-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-violet-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-violet-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-violet-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-violet-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-violet-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-violet-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-violet-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-violet-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-violet-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-violet-950/"] {
+    color: #c4b5fd;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-neutral-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-neutral-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-neutral-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-neutral-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-neutral-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-neutral-100/"] {
+    background-color: color-mix(in srgb, #737373 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-neutral-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-neutral-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-neutral-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-neutral-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-neutral-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-neutral-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-neutral-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-neutral-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-neutral-300/"] {
+    border-color: color-mix(in srgb, #737373 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-neutral-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-neutral-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-neutral-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-neutral-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-neutral-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-neutral-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-neutral-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-neutral-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-neutral-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-neutral-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-neutral-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-neutral-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-neutral-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-neutral-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-neutral-950/"] {
+    color: #d4d4d4;
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="bg-stone-50"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-stone-50/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-stone-50/"],
+  .mobile-app-frame:not(.scheme-light) [class~="bg-stone-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="bg-stone-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" bg-stone-100/"] {
+    background-color: color-mix(in srgb, #78716c 18%, #1c1c1e);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="border-stone-100"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-stone-100/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-stone-100/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-stone-200"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-stone-200/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-stone-200/"],
+  .mobile-app-frame:not(.scheme-light) [class~="border-stone-300"],
+  .mobile-app-frame:not(.scheme-light) [class^="border-stone-300/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" border-stone-300/"] {
+    border-color: color-mix(in srgb, #78716c 45%, transparent);
+  }
+  .mobile-app-frame:not(.scheme-light) [class~="text-stone-600"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-stone-600/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-stone-600/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-stone-700"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-stone-700/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-stone-700/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-stone-800"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-stone-800/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-stone-800/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-stone-900"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-stone-900/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-stone-900/"],
+  .mobile-app-frame:not(.scheme-light) [class~="text-stone-950"],
+  .mobile-app-frame:not(.scheme-light) [class^="text-stone-950/"],
+  .mobile-app-frame:not(.scheme-light) [class*=" text-stone-950/"] {
+    color: #d6d3d1;
+  }
+  .mobile-app-frame:not(.scheme-light) .bg-\[\#E9E3D6\] {
+    background-color: #000;
+  }
+  .mobile-app-frame:not(.scheme-light) .bg-white\/30 {
+    background-color: rgb(255 255 255 / 0.08);
+  }
+  .mobile-app-frame:not(.scheme-light) .border-white\/70 {
+    border-color: rgb(255 255 255 / 0.18);
+  }
+  .mobile-app-frame:not(.scheme-light) .bg-\[\#3D421F\]\/15 {
+    background-color: rgb(255 255 255 / 0.12);
+  }
+  .mobile-app-frame:not(.scheme-light) .text-\[\#3D421F\]\/80,
+  .mobile-app-frame:not(.scheme-light) .text-\[\#3D421F\]\/60 {
+    color: rgb(235 235 245 / 0.62);
+  }
+  .mobile-app-frame:not(.scheme-light) .dir-org-node-emphasis {
+    background: #2c2c2e; border-color: #48484a;
+  }
+  .mobile-app-frame:not(.scheme-light) .dir-org-node-emphasis .dir-org-photo {
+    border-color: rgb(255 255 255 / 0.25);
   }
 }

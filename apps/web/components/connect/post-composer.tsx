@@ -30,12 +30,18 @@ export type ComposerCelebration = {
 
 type Draft = { file: File; previewUrl: string | null };
 
+const attachClass =
+  "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-black/65 hover:bg-black/5";
+const attachCompactClass = "h-8 gap-1.5 rounded-full px-2.5 py-0 text-[13px]";
+
 export function PostComposer({
   me,
   groups,
   defaultGroupId,
   celebration: initialCelebration,
   basePath,
+  compact = false,
+  showDestination = true,
 }: {
   me: ConnectPerson | null;
   groups: ComposerGroup[];
@@ -43,6 +49,10 @@ export function PostComposer({
   celebration?: ComposerCelebration | null;
   /** Canonical path to return to once a celebration post is published. */
   basePath: string;
+  /** Phone layout: tighter card, smaller controls, actions kept on one line. */
+  compact?: boolean;
+  /** Hide "Posting to …" when the screen title already names the group. */
+  showDestination?: boolean;
 }) {
   const router = useRouter();
   const scopedBase = useScopedHref(basePath);
@@ -163,8 +173,12 @@ export function PostComposer({
     });
   }
 
+  // Phone, while writing: Cancel joins the row, so attachments go icon-only
+  // to keep everything on one line.
+  const iconOnly = compact && expanded;
+
   return (
-    <section className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm">
+    <section className={cn("rounded-2xl border border-black/5 bg-white shadow-sm", compact ? "p-3" : "p-4")}>
       {celebration ? (
         <div className="mb-3 flex items-start justify-between gap-3 rounded-xl bg-gradient-to-r from-amber-50 to-rose-50 px-3 py-2.5 text-sm text-[#3D421F]">
           <span className="flex items-center gap-2">
@@ -185,8 +199,8 @@ export function PostComposer({
         </div>
       ) : null}
 
-      <div className="flex items-start gap-3">
-        <ConnectAvatar name={me?.name ?? "You"} photoUrl={me?.photoUrl} size="md" />
+      <div className={cn("flex items-start", compact ? "gap-2.5" : "gap-3")}>
+        <ConnectAvatar name={me?.name ?? "You"} photoUrl={me?.photoUrl} size={compact ? "sm" : "md"} />
         <MentionTextarea
           ref={textRef}
           value={body}
@@ -200,7 +214,8 @@ export function PostComposer({
           rows={expanded ? 4 : 1}
           maxLength={5000}
           className={cn(
-            "min-h-11 flex-1 resize-none rounded-2xl bg-[#F4F5EE] px-4 py-2.5 text-[15px] text-[#2B2F16] outline-none transition-[height] placeholder:text-black/40 focus:bg-white focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/30",
+            "flex-1 resize-none bg-[#F4F5EE] text-[15px] text-[#2B2F16] outline-none transition-[height] placeholder:text-black/40 focus:bg-white focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/30",
+            compact ? "min-h-9 rounded-[18px] px-3.5 py-[7px] leading-[22px]" : "min-h-11 rounded-2xl px-4 py-2.5",
           )}
         />
       </div>
@@ -237,22 +252,29 @@ export function PostComposer({
         </ul>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-black/5 pt-3">
+      <div
+        className={cn(
+          "flex items-center border-t border-black/5",
+          compact ? "mt-2.5 flex-nowrap gap-1 pt-2.5" : "mt-3 flex-wrap gap-2 pt-3",
+        )}
+      >
         <button
           type="button"
           onClick={() => photoInput.current?.click()}
-          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-black/65 hover:bg-black/5"
+          aria-label={iconOnly ? "Add photo" : undefined}
+          className={cn(attachClass, compact && attachCompactClass, iconOnly && "w-8 justify-center px-0")}
         >
-          <ImagePlus className="h-5 w-5 text-emerald-600" aria-hidden />
-          Photo
+          <ImagePlus className={cn("text-emerald-600", compact ? "h-[18px] w-[18px]" : "h-5 w-5")} aria-hidden />
+          {iconOnly ? null : "Photo"}
         </button>
         <button
           type="button"
           onClick={() => fileInput.current?.click()}
-          className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-black/65 hover:bg-black/5"
+          aria-label={iconOnly ? "Add file" : undefined}
+          className={cn(attachClass, compact && attachCompactClass, iconOnly && "w-8 justify-center px-0")}
         >
-          <Paperclip className="h-5 w-5 text-sky-600" aria-hidden />
-          File
+          <Paperclip className={cn("text-sky-600", compact ? "h-[18px] w-[18px]" : "h-5 w-5")} aria-hidden />
+          {iconOnly ? null : "File"}
         </button>
         <input
           ref={photoInput}
@@ -276,14 +298,18 @@ export function PostComposer({
           }}
         />
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className={cn("ml-auto flex min-w-0 items-center", compact ? "gap-1.5" : "gap-2")}>
           {groups.length > 1 ? (
-            <label className="flex items-center gap-1.5 text-sm text-black/55">
-              <span className="hidden sm:inline">Post to</span>
+            <label className={cn("flex min-w-0 items-center gap-1.5 text-black/55", compact ? "text-[13px]" : "text-sm")}>
+              {compact ? null : <span className="hidden sm:inline">Post to</span>}
               <select
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
-                className="h-9 rounded-lg border border-black/10 bg-white px-2 text-sm text-[#3D421F]"
+                aria-label="Post to"
+                className={cn(
+                  "min-w-0 rounded-lg border border-black/10 bg-white px-2 text-[#3D421F]",
+                  compact ? "h-8 w-full max-w-[9rem] truncate rounded-full text-[13px]" : "h-9 text-sm",
+                )}
               >
                 {groups.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -292,15 +318,30 @@ export function PostComposer({
                 ))}
               </select>
             </label>
-          ) : (
-            <span className="text-sm text-black/50">Posting to {selectedGroup?.name}</span>
-          )}
+          ) : showDestination ? (
+            <span className={cn("min-w-0 truncate text-black/55", compact ? "text-[13px]" : "text-sm")}>
+              Posting to {selectedGroup?.name}
+            </span>
+          ) : null}
           {expanded ? (
-            <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={reset}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={pending}
+              onClick={reset}
+              className={cn(compact && "h-8 shrink-0 px-2.5 text-[13px]")}
+            >
               Cancel
             </Button>
           ) : null}
-          <Button type="button" size="sm" disabled={pending} onClick={submit}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={pending}
+            onClick={submit}
+            className={cn(compact && "h-8 shrink-0 rounded-full px-4 text-[13px] font-semibold")}
+          >
             {pending ? "Posting…" : "Post"}
           </Button>
         </div>

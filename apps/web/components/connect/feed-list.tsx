@@ -11,6 +11,7 @@ export function FeedList({
   basePath,
   emptyMessage,
   groupBasePath = "/connect/chats/feed",
+  compact = false,
 }: {
   posts: ConnectPost[];
   me: ConnectPerson | null;
@@ -19,10 +20,12 @@ export function FeedList({
   basePath: string;
   emptyMessage: string;
   groupBasePath?: string;
+  /** Phone layout: tighter cards. */
+  compact?: boolean;
 }) {
   if (posts.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-black/10 bg-white/60 px-6 py-12 text-center">
+      <div className={`rounded-2xl border border-dashed border-black/10 bg-white/60 text-center ${compact ? "px-5 py-9" : "px-6 py-12"}`}>
         <Newspaper className="mx-auto h-8 w-8 text-black/25" aria-hidden />
         <p className="mt-2 text-sm text-black/55">{emptyMessage}</p>
       </div>
@@ -30,9 +33,9 @@ export function FeedList({
   }
 
   return (
-    <div className="space-y-4">
+    <div className={compact ? "space-y-3" : "space-y-4"}>
       {posts.map((post) => (
-        <PostCard key={post.id} post={post} me={me} showGroup={showGroup} groupBasePath={groupBasePath} />
+        <PostCard key={post.id} post={post} me={me} showGroup={showGroup} groupBasePath={groupBasePath} compact={compact} />
       ))}
       {nextBefore ? (
         <div className="flex justify-center pt-2">

@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Archive,
   ArrowLeft,
   BookUser,
   MessageCircle,
-  MessageCirclePlus,
   Newspaper,
+  Plus,
   Search,
   Settings,
   Users,
@@ -102,6 +103,8 @@ export function ChatShell({
       };
   // On phones the list and the open pane (a chat or the Directory) swap places.
   const paneOpen = Boolean(segment);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const [chats, setChats] = useState(initialChats);
   const [synced, setSynced] = useState(initialChats);
@@ -119,6 +122,18 @@ export function ChatShell({
   }, [activeId, chats]);
 
   const [query, setQuery] = useState("");
+
+  function toggleSearch() {
+    if (searchOpen) {
+      setSearchOpen(false);
+      setQuery("");
+      searchRef.current?.blur();
+      return;
+    }
+    setSearchOpen(true);
+    // Focus once the field is no longer inert (next frame, after the render).
+    requestAnimationFrame(() => searchRef.current?.focus({ preventScroll: true }));
+  }
   const [kindFilter, setKindFilter] = useState<"all" | "direct" | "group">("all");
   const [dialog, setDialog] = useState<"direct" | "group" | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -297,7 +312,7 @@ export function ChatShell({
     <PresenceProvider initial={presence}>
     <div
       className={cn(
-        "grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 shadow-sm md:grid-cols-[20rem_1fr]",
+        "grid h-full min-h-[520px] w-full overflow-hidden rounded-2xl border border-black/5 shadow-sm md:grid-cols-[21rem_1fr]",
         // Feed view: one continuous colour backdrop under the glass list and the posts.
         feedOpen ? "feed-backdrop" : "bg-white",
       )}
@@ -311,91 +326,120 @@ export function ChatShell({
           paneOpen ? "hidden md:flex" : "flex",
         )}
       >
-        <div
-          className={cn(
-            "border-b px-4",
-            ui.divider,
-            // Feed view: same frosted bar as the feed header beside it.
-            feedOpen
-              ? "flex h-16 shrink-0 flex-col justify-center bg-[#fbfaf6]"
-              : "space-y-3 py-4",
-          )}
-        >
-          {/* Search, with the new-chat buttons beside it (chats view only). */}
-          <div className="flex items-center gap-1.5">
-            <label className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-2", ui.field)}>
+        {feedOpen ? (
+          // Feed view: search only, in the same frosted bar as the feed header beside it.
+          <div className={cn("flex h-16 shrink-0 flex-col justify-center border-b bg-[#fbfaf6] px-4", ui.divider)}>
+            <label className={cn("flex min-w-0 items-center gap-2 rounded-full px-3 py-2", ui.field)}>
               <Search className="h-4 w-4 text-black/40" aria-hidden />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={feedOpen ? "Search feeds" : "Search chats and feeds"}
+                placeholder="Search feeds"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/40"
               />
             </label>
-            {!feedOpen && canCreateGroups ? (
-              <button
-                type="button"
-                onClick={() => setDialog("group")}
-                className="shrink-0 rounded-full p-2 text-[#3D421F] hover:bg-black/5"
-                title="New group chat"
-                aria-label="New group chat"
-              >
-                <Users className="h-5 w-5" />
-              </button>
-            ) : null}
-            {!feedOpen ? (
-              <button
-                type="button"
-                onClick={() => setDialog("direct")}
-                className="shrink-0 rounded-full bg-[var(--venue-primary,#818a40)] p-2 text-white hover:opacity-90"
-                title="New message"
-                aria-label="New message"
-              >
-                <MessageCirclePlus className="h-5 w-5" />
-              </button>
-            ) : null}
           </div>
-          <div className={cn("flex items-center gap-1.5", feedOpen && "hidden")}>
-          <div className="grid flex-1 grid-cols-4 gap-1 rounded-full bg-[#F0F2E8] p-1" role="tablist" aria-label="Filter chats">
-            {(
-              [
-                ["all", "All"],
-                ["direct", "Direct"],
-                ["group", "Groups"],
-                ["archived", "Archived"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={key === "archived" ? showArchived : !showArchived && kindFilter === key}
-                onClick={() => {
-                  if (key === "archived") {
-                    setShowArchived(true);
-                    return;
-                  }
-                  setShowArchived(false);
-                  setKindFilter(key);
-                }}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 rounded-full py-1.5 text-[13px] font-medium",
-                  (key === "archived" ? showArchived : !showArchived && kindFilter === key)
-                    ? "bg-white text-[#2B2F16] shadow-sm"
-                    : "text-black/55 hover:text-black/75",
-                )}
+        ) : (
+          <div className={cn("shrink-0 border-b px-4", ui.divider)}>
+            {/* One row, as tall as the chat header beside it:
+                All | Direct | Groups · Archived · New group · Search */}
+            <div className="flex h-[54px] items-center gap-1">
+              <div className="relative grid min-w-0 flex-1 grid-cols-3 rounded-full bg-[#F0F2E8] p-[3px]" role="tablist" aria-label="Filter chats">
+                <span
+                  aria-hidden
+                  className={cn(
+                    "seg-pill pointer-events-none absolute bottom-[3px] left-[3px] top-[3px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)] transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none",
+                    showArchived && "opacity-0",
+                  )}
+                  style={{
+                    width: "calc((100% - 6px) / 3)",
+                    transform: `translateX(${["all", "direct", "group"].indexOf(kindFilter) * 100}%)`,
+                  }}
+                />
+                {(
+                  [
+                    ["all", "All"],
+                    ["direct", "Direct"],
+                    ["group", "Groups"],
+                  ] as const
+                ).map(([key, label]) => {
+                  const selected = !showArchived && kindFilter === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => {
+                        setShowArchived(false);
+                        setKindFilter(key);
+                      }}
+                      className={cn(
+                        "relative z-10 flex h-[30px] min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-1 text-[12.5px] font-medium transition-colors",
+                        selected ? "text-[#2B2F16]" : "text-black/55 hover:text-black/75",
+                      )}
+                    >
+                      {label}
+                      {unreadByKind[key] > 0 ? (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#E5484D] px-1 text-[10px] font-semibold text-white">
+                          {unreadByKind[key]}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <HeaderIconButton
+                label={showArchived ? "Back to chats" : "Archived chats"}
+                active={showArchived}
+                onClick={() => setShowArchived((v) => !v)}
               >
-                {label}
-                {key !== "archived" && unreadByKind[key] > 0 ? (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#E5484D] px-1 text-[10px] font-semibold text-white">
-                    {unreadByKind[key]}
+                <Archive className="h-[17px] w-[17px]" />
+              </HeaderIconButton>
+              {canCreateGroups ? (
+                <HeaderIconButton label="New group chat" onClick={() => setDialog("group")}>
+                  <span className="relative">
+                    <Users className="h-[18px] w-[18px]" />
+                    <span className="absolute -right-1.5 -top-1.5 flex h-3 w-3 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white ring-2 ring-[#F0F2E8]">
+                      <Plus className="h-2 w-2" strokeWidth={4} />
+                    </span>
                   </span>
-                ) : null}
-              </button>
-            ))}
+                </HeaderIconButton>
+              ) : null}
+              <HeaderIconButton
+                label={searchOpen ? "Close search" : "Search"}
+                active={searchOpen}
+                onClick={toggleSearch}
+              >
+                <Search className="h-[17px] w-[17px]" />
+              </HeaderIconButton>
+            </div>
+            {/* Search drops in under the row only when asked for. */}
+            <div
+              className={cn(
+                "grid transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none",
+                searchOpen ? "-mt-1 mb-3 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}
+              inert={!searchOpen}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <label className={cn("flex min-w-0 items-center gap-2 rounded-full px-3 py-2", ui.field)}>
+                  <Search className="h-4 w-4 text-black/40" aria-hidden />
+                  <input
+                    ref={searchRef}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") toggleSearch();
+                    }}
+                    placeholder="Search chats and feeds"
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-black/40"
+                  />
+                </label>
+              </div>
+            </div>
           </div>
-        </div>
-        </div>
+        )}
 
         {showArchived ? (
           <div className="flex items-center gap-2 border-b border-black/5 bg-[#F7F8F2] px-4 py-2 text-xs text-black/55">
@@ -771,5 +815,36 @@ function PeoplePicker({
         </ul>
       )}
     </ChatModal>
+  );
+}
+
+/** Round icon button in the chat list header; filled while its mode is on. */
+function HeaderIconButton({
+  label,
+  active = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-[background-color,color,transform] duration-200 active:scale-[0.92]",
+        active
+          ? "bg-[var(--venue-primary,#818a40)] text-white"
+          : "bg-[#F0F2E8] text-[#3D421F] hover:bg-[#E6E9D8]",
+      )}
+    >
+      {children}
+    </button>
   );
 }

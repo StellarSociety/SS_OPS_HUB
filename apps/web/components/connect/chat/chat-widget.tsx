@@ -641,11 +641,19 @@ export function ChatWidget() {
         <div
           role="dialog"
           aria-label="Chats"
-          className="fixed inset-x-2 bottom-20 z-[150] flex h-[min(580px,calc(100dvh-7rem))] overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl sm:inset-x-auto sm:right-5 sm:w-[min(400px,calc(100vw-2.5rem))]"
+          className={cn(
+            "fixed inset-x-2 bottom-20 z-[150] flex h-[min(580px,calc(100dvh-7rem))] overflow-hidden rounded-2xl border border-black/10 shadow-2xl sm:inset-x-auto sm:right-5 sm:w-[min(400px,calc(100vw-2.5rem))]",
+            // Feed: one colour backdrop under the glass rail and the posts,
+            // as on the Connecteam page.
+            feedMode ? "feed-backdrop" : "bg-white",
+          )}
         >
           <nav
             aria-label="Conversations"
-            className="flex w-[64px] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-black/5 bg-[#F7F8F2] py-3"
+            className={cn(
+              "flex w-[64px] shrink-0 flex-col items-center gap-2 overflow-y-auto py-3",
+              feedMode ? "liquid-glass" : "border-r border-black/5 bg-[#F7F8F2]",
+            )}
           >
             <button
               type="button"
@@ -769,7 +777,13 @@ export function ChatWidget() {
 
           <section className="relative flex min-w-0 flex-1 flex-col" {...dropProps}>
             <DropOverlay show={dragging} />
-            <header className="flex items-center gap-3 border-b border-black/5 px-4 py-2.5">
+            <header
+              className={cn(
+                "flex items-center gap-3 border-b border-black/5 px-4 py-2.5",
+                // Feed: frosted bar over the backdrop.
+                feedMode && "border-white/60 bg-[#fbfaf6]/80 backdrop-blur-md",
+              )}
+            >
               {feedMode ? (
                 <>
                   {feedGroup ? (

@@ -85,11 +85,14 @@ export function PostCard({
   me,
   showGroup,
   groupBasePath = "/connect/chats/feed",
+  compact = false,
 }: {
   post: ConnectPost;
   me: ConnectPerson | null;
   showGroup: boolean;
   groupBasePath?: string;
+  /** Phone layout: tighter padding, smaller avatar, headline and actions. */
+  compact?: boolean;
 }) {
   const router = usePostRefresh();
   const [pending, startTransition] = useTransition();
@@ -162,16 +165,19 @@ export function PostCard({
   }
 
   const author = post.author;
+  // Horizontal inset shared by every row of the card.
+  const inset = compact ? "mx-3.5" : "mx-4";
+  const pad = compact ? "px-3.5" : "px-4";
 
   return (
     <article
       id={`post-${post.id}`}
       className="scroll-mt-20 rounded-2xl border border-black/5 bg-white shadow-sm target:ring-2 target:ring-[var(--venue-primary,#818a40)]/40"
     >
-      <header className="flex items-start gap-3 px-4 pt-4">
-        <ConnectAvatar name={author?.name ?? "Former user"} photoUrl={author?.photoUrl} size="md" />
+      <header className={cn("flex items-start", pad, compact ? "gap-2.5 pt-3.5" : "gap-3 pt-4")}>
+        <ConnectAvatar name={author?.name ?? "Former user"} photoUrl={author?.photoUrl} size={compact ? "sm" : "md"} />
         <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-x-1.5 text-[15px] leading-tight">
+          <p className={cn("flex flex-wrap items-center gap-x-1.5 leading-tight", compact ? "text-[14px]" : "text-[15px]")}>
             <span className="font-semibold text-[#2B2F16]">{author?.name ?? "Former user"}</span>
             {showGroup ? (
               <>
@@ -228,11 +234,17 @@ export function PostCard({
       </header>
 
       {post.celebration ? (
-        <div className="mx-4 mt-3 flex items-center gap-4 rounded-2xl bg-gradient-to-br from-amber-100 via-rose-100 to-fuchsia-100 p-4">
+        <div
+          className={cn(
+            "mt-3 flex items-center rounded-2xl bg-gradient-to-br from-amber-100 via-rose-100 to-fuchsia-100",
+            inset,
+            compact ? "gap-3 p-3" : "gap-4 p-4",
+          )}
+        >
           <ConnectAvatar
             name={post.celebration.staffName}
             photoUrl={post.celebration.staffPhotoUrl}
-            size="lg"
+            size={compact ? "md" : "lg"}
           />
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-rose-700/80">
@@ -242,7 +254,7 @@ export function PostCard({
                   ? "Work anniversary"
                   : "Shout-out"}
             </p>
-            <p className="font-serif text-xl leading-snug text-[#3D2A1F]">
+            <p className={cn("font-serif leading-snug text-[#3D2A1F]", compact ? "text-[17px]" : "text-xl")}>
               {celebrationHeadline(
                 post.celebration.kind,
                 post.celebration.staffName,
@@ -253,7 +265,7 @@ export function PostCard({
         </div>
       ) : null}
 
-      <div className="px-4 pt-3">
+      <div className={cn(pad, "pt-3")}>
         {editing ? (
           <EditBody
             initial={decodeMentions(post.body)}
@@ -280,7 +292,7 @@ export function PostCard({
       {post.attachments.length > 0 ? <Attachments items={post.attachments} /> : null}
 
       {reactionTotal > 0 || post.comments.length > 0 ? (
-        <div className="mx-4 mt-3 flex items-center justify-between text-sm text-black/55">
+        <div className={cn("mt-3 flex items-center justify-between text-black/55", inset, compact ? "text-[13px]" : "text-sm")}>
           <span className="flex items-center gap-1.5">
             {topReactions.length ? (
               <span className="flex -space-x-1">
@@ -310,17 +322,20 @@ export function PostCard({
       ) : null}
 
       {post.canComment ? (
-        <div className="mx-4 mt-2 grid grid-cols-2 gap-1 border-y border-black/5 py-1">
-          <ReactionButton current={myReaction} disabled={pending} onReact={react} />
+        <div className={cn("mt-2 grid grid-cols-2 gap-1 border-y border-black/5", inset, compact ? "py-0.5" : "py-1")}>
+          <ReactionButton current={myReaction} disabled={pending} onReact={react} compact={compact} />
           <button
             type="button"
             onClick={() => {
               setShowComments(true);
               setTimeout(() => commentInputRef.current?.focus(), 0);
             }}
-            className="flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium text-black/60 hover:bg-black/5"
+            className={cn(
+              "flex items-center justify-center rounded-lg font-medium text-black/60 hover:bg-black/5",
+              compact ? "h-9 gap-1.5 text-[13px]" : "gap-2 py-2 text-sm",
+            )}
           >
-            <MessageCircle className="h-5 w-5" aria-hidden />
+            <MessageCircle className={compact ? "h-[18px] w-[18px]" : "h-5 w-5"} aria-hidden />
             Comment
           </button>
         </div>
@@ -682,10 +697,12 @@ function ReactionButton({
   current,
   disabled,
   onReact,
+  compact = false,
 }: {
   current: ConnectReaction | null;
   disabled: boolean;
   onReact: (r: ConnectReaction | null) => void;
+  compact?: boolean;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -733,14 +750,15 @@ function ReactionButton({
           show();
         }}
         className={cn(
-          "flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium hover:bg-black/5",
+          "flex w-full items-center justify-center rounded-lg font-medium hover:bg-black/5",
+          compact ? "h-9 gap-1.5 text-[13px]" : "gap-2 py-2 text-sm",
           current ? "text-[var(--venue-primary,#818a40)]" : "text-black/60",
         )}
       >
         {current && current !== "like" ? (
           <span className="text-lg leading-none">{CONNECT_REACTION_EMOJI[current]}</span>
         ) : (
-          <ThumbsUp className={cn("h-5 w-5", current === "like" && "fill-current")} aria-hidden />
+          <ThumbsUp className={cn(compact ? "h-[18px] w-[18px]" : "h-5 w-5", current === "like" && "fill-current")} aria-hidden />
         )}
         {current ? CONNECT_REACTION_LABELS[current] : "Like"}
       </button>

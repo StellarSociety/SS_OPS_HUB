@@ -10,7 +10,6 @@ import {
   ClipboardCheck,
   Inbox,
   Layers,
-  MessagesSquare,
   Search,
   Trash2,
   UserSearch,
@@ -46,7 +45,7 @@ const TABS: { value: NotificationsTab; label: string; icon: LucideIcon }[] = [
   { value: "people", label: "People", icon: Users },
   { value: "approvals", label: "Approvals", icon: ClipboardCheck },
   { value: "candidates", label: "Candidates", icon: UserSearch },
-  { value: "social", label: "Feed & Chats", icon: MessagesSquare },
+  // No "Feed & Chats" tab: Connecteam alerts show on its app icon only.
   { value: "others", label: "Others", icon: Layers },
   { value: "archive", label: "Archive", icon: Archive },
 ];

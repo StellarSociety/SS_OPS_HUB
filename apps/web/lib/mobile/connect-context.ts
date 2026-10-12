@@ -25,6 +25,7 @@ export async function getMobileConnectContext(venueSlug: string) {
     ...base,
     service,
     groups,
+    isConnectAdmin,
     me: people.get(base.user.id) ?? null,
     canAccess: canAccessConnect(permissions, base.venue.id),
   };

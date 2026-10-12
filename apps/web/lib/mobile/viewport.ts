@@ -12,6 +12,8 @@ export const MOBILE_APP_VIEWPORT: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
+  // Light and Dark are both supported: the phone app has a full dark
+  // appearance (globals.css), so iOS can follow the device setting.
   colorScheme: "light dark",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },

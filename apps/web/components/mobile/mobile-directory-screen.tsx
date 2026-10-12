@@ -1,23 +1,33 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import {
-  ArrowLeft,
   Cake,
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  Loader2,
   Mail,
+  MessageCircle,
   PartyPopper,
-  Search,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "@/components/ui/toast";
+import { startDirectChat } from "@/lib/actions/connect-chat";
+import { loadDirectoryChatUsers } from "@/lib/actions/directory-chat";
+import { mobileConnectConversationHref } from "@/lib/mobile/app-path";
 import { MobileTabBar } from "@/components/mobile/mobile-tab-bar";
-import { MobilePressTarget } from "@/components/mobile/mobile-press";
+import {
+  IosBackButton,
+  IosLargeTitle,
+  IosListRow,
+  IosListSection,
+  IosSearchField,
+} from "@/components/mobile/ios-list";
 import {
   celebrationCaption,
   celebrationWindow,
-  formatDayMonth,
   formatOrdinalDayMonth,
   listAnniversaryCelebrations,
   listBirthdayCelebrations,
@@ -33,7 +43,7 @@ import {
   stripHireNodes,
   type HierarchyNode,
 } from "@/lib/directory/hierarchy-tree";
-import { formatDisplayDate } from "@/lib/dates/display";
+import { formatDateDmy } from "@/lib/accounting/money";
 import {
   PhotoPlaceholderMark,
   StaffPhotoPreview,
@@ -62,6 +72,8 @@ type MobileDirectoryScreenProps = {
   staff: DirectoryStaffMember[];
   hierarchy?: HierarchyNode[];
   onSelectTab?: (tab: MobileTabItem) => void;
+  /** Simulator: open the chat in-frame instead of navigating. */
+  onOpenChat?: (conversationId: string) => void;
 };
 
 function dash(value: string | null | undefined): string {
@@ -71,7 +83,7 @@ function dash(value: string | null | undefined): string {
 function formatIsoDate(value: string | null | undefined): string {
   const iso = value?.trim().slice(0, 10) ?? "";
   if (!iso) return "—";
-  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? formatDisplayDate(iso) : iso;
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? formatDateDmy(iso) : iso;
 }
 
 export function MobileDirectoryScreen({
@@ -80,7 +92,43 @@ export function MobileDirectoryScreen({
   staff,
   hierarchy = [],
   onSelectTab,
+  onOpenChat,
 }: MobileDirectoryScreenProps) {
+  const router = useRouter();
+  // Staff id → Hub login, for staff enrolled in the app (who can be messaged).
+  const [chat, setChat] = useState<{ key: string; meId: string; byStaff: Record<string, string> } | null>(null);
+  const [openingStaffId, setOpeningStaffId] = useState<string | null>(null);
+  const chatKey = `${venue.id}:${staff.length}`;
+  useEffect(() => {
+    let alive = true;
+    void loadDirectoryChatUsers({ venueId: venue.id, staffIds: staff.map((m) => m.id) }).then((result) => {
+      if (alive && result.ok) setChat({ key: chatKey, meId: result.meId, byStaff: result.byStaff });
+    });
+    return () => {
+      alive = false;
+    };
+    // Re-check when the venue or the staff list changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatKey]);
+  const chatUsers = chat?.key === chatKey ? chat : null;
+
+  async function messageStaff(member: DirectoryStaffMember) {
+    const userId = chatUsers?.byStaff[member.id];
+    if (!userId) {
+      toast.error(`${firstLastName(member.fullName)} isn't on the app yet, so they can't be messaged.`);
+      return;
+    }
+    setOpeningStaffId(member.id);
+    const result = await startDirectChat(userId);
+    setOpeningStaffId(null);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    if (onOpenChat) onOpenChat(result.id);
+    else router.push(mobileConnectConversationHref(venue.slug, result.id));
+  }
+
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hierarchyFocusId, setHierarchyFocusId] = useState<string | null>(null);
@@ -159,6 +207,13 @@ export function MobileDirectoryScreen({
           query={query}
           onQueryChange={setQuery}
           onOpen={setSelectedId}
+          message={{
+            // null until enrolment is known: the button waits, unseen.
+            enrolled: (member) => (chatUsers ? Boolean(chatUsers.byStaff[member.id]) : null),
+            isMe: (member) => Boolean(chatUsers && chatUsers.byStaff[member.id] === chatUsers.meId),
+            openingId: openingStaffId,
+            onMessage: (member) => void messageStaff(member),
+          }}
         />
       )}
 
@@ -174,26 +229,20 @@ export function MobileDirectoryScreen({
   );
 }
 
-function ScreenTitle({ children }: { children: ReactNode }) {
-  return (
-    <h1 className="text-center font-serif text-2xl font-semibold text-[#3D421F] dark:text-[CanvasText]">
-      {children}
-    </h1>
-  );
-}
-
 function StaffPane({
   venueName,
   staff,
   query,
   onQueryChange,
   onOpen,
+  message,
 }: {
   venueName: string;
   staff: DirectoryStaffMember[];
   query: string;
   onQueryChange: (value: string) => void;
   onOpen: (id: string) => void;
+  message: StaffMessageControls;
 }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -209,67 +258,97 @@ function StaffPane({
   }, [query, staff]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-32 pt-4">
-      <ScreenTitle>{venueName} Directory</ScreenTitle>
-      <p className="mt-1 text-center text-sm text-black/50 dark:text-white/50">
-        {staff.length} people
-      </p>
-      <hr className="mt-3 border-black/10 dark:border-white/12" />
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-4">
+      <IosLargeTitle subtitle={`${staff.length} people`}>
+        {venueName} Directory
+      </IosLargeTitle>
 
-      <label className="relative mt-3 block">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35 dark:text-white/40" />
-        <input
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search name, department…"
-          className="h-10 w-full rounded-xl border border-black/10 bg-white/70 pl-9 pr-3 text-sm text-[#3D421F] outline-none placeholder:text-black/35 focus:border-[var(--venue-primary,#6B7B3A)] dark:border-white/12 dark:bg-white/10 dark:text-[CanvasText] dark:placeholder:text-white/40"
-        />
-      </label>
+      <IosSearchField
+        value={query}
+        onChange={onQueryChange}
+        placeholder="Search name, department…"
+        className="mt-3"
+      />
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-4">
         {filtered.length === 0 ? (
-          <p className="px-1 py-8 text-center text-sm text-black/45 dark:text-white/45">
+          <p className="px-1 py-8 text-center text-sm text-black/60 dark:text-white/60">
             No staff match that search.
           </p>
         ) : (
-          filtered.map((member) => (
-            <StaffCard
-              key={member.id}
-              member={member}
-              onOpen={() => onOpen(member.id)}
-            />
-          ))
+          <IosListSection>
+            {filtered.map((member) => (
+              <IosListRow
+                key={member.id}
+                leading={<StaffAvatar member={member} size="sm" />}
+                title={member.fullName}
+                subtitle={dash(member.positionName)}
+                detail={dash(member.departmentName)}
+                onClick={() => onOpen(member.id)}
+                action={
+                  message.isMe(member) ? undefined : (
+                    <MessageStaffButton
+                      name={member.fullName}
+                      enrolled={message.enrolled(member)}
+                      opening={message.openingId === member.id}
+                      onPress={() => message.onMessage(member)}
+                    />
+                  )
+                }
+              />
+            ))}
+          </IosListSection>
         )}
       </div>
     </div>
   );
 }
 
-function StaffCard({
-  member,
-  onOpen,
+type StaffMessageControls = {
+  enrolled: (member: DirectoryStaffMember) => boolean | null;
+  isMe: (member: DirectoryStaffMember) => boolean;
+  openingId: string | null;
+  onMessage: (member: DirectoryStaffMember) => void;
+};
+
+/**
+ * Direct message: opens (or starts) the 1:1 chat. Faded for staff without the
+ * app; tapping it then says why instead of doing nothing.
+ */
+function MessageStaffButton({
+  name,
+  enrolled,
+  opening,
+  onPress,
 }: {
-  member: DirectoryStaffMember;
-  onOpen: () => void;
+  name: string;
+  enrolled: boolean | null;
+  opening: boolean;
+  onPress: () => void;
 }) {
   return (
-    <MobilePressTarget
-      onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-2xl border border-black/10 bg-white/75 px-3 py-2.5 text-left dark:border-white/12 dark:bg-white/10"
+    <button
+      type="button"
+      onClick={onPress}
+      disabled={opening || enrolled === null}
+      aria-hidden={enrolled === null || undefined}
+      aria-disabled={!enrolled}
+      aria-label={enrolled ? `Message ${name}` : `${name} isn't on the app yet`}
+      className={cn(
+        "flex h-9 w-9 items-center justify-center rounded-full transition-[opacity,transform] duration-200 active:scale-90",
+        enrolled === null
+          ? "opacity-0"
+          : enrolled
+            ? "bg-[var(--venue-primary,#818a40)]/12 text-[var(--mobile-tint)]"
+            : "bg-black/[0.04] text-black/60 opacity-35 dark:bg-white/[0.06] dark:text-white/60",
+      )}
     >
-      <StaffAvatar member={member} size="md" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-[#3D421F] dark:text-[CanvasText]">
-          {member.fullName}
-        </p>
-        <p className="mt-0.5 truncate text-xs text-black/50 dark:text-white/50">
-          {dash(member.departmentName)}
-        </p>
-        <p className="truncate text-xs text-black/45 dark:text-white/45">
-          {dash(member.positionName)}
-        </p>
-      </div>
-    </MobilePressTarget>
+      {opening ? (
+        <Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden />
+      ) : (
+        <MessageCircle className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
+      )}
+    </button>
   );
 }
 
@@ -290,32 +369,25 @@ function StaffDetail({
   const workMailto = mailtoUrl(member.workEmail);
 
   return (
-    <div ref={rootRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 pt-3">
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex items-center gap-1 rounded-full px-1 py-1 text-sm font-medium text-[#3D421F] dark:text-[CanvasText]"
-      >
-        <ArrowLeft className="h-4 w-4" strokeWidth={2} />
-        {backLabel}
-      </button>
+    <div ref={rootRef} className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-1">
+      <IosBackButton label={backLabel} onClick={onBack} />
 
-      <div className="mt-3 flex flex-col items-center gap-3">
+      <div className="mt-2 flex flex-col items-center gap-3">
         <StaffAvatar member={member} size="lg" />
         <div className="text-center">
-          <p className="font-serif text-xl text-[#3D421F] dark:text-[CanvasText]">
+          <p className="font-serif text-[1.5rem] font-semibold leading-tight text-[#3D421F] dark:text-[CanvasText]">
             {member.fullName}
           </p>
-          <p className="mt-0.5 text-sm text-black/50 dark:text-white/50">
+          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
             {dash(member.positionName)}
           </p>
-          <p className="text-xs text-black/40 dark:text-white/40">
+          <p className="text-xs text-black/60 dark:text-white/60">
             {dash(member.departmentName)}
           </p>
         </div>
       </div>
 
-      <div className="mt-5 space-y-2 rounded-2xl border border-black/10 bg-white/75 p-3 dark:border-white/12 dark:bg-white/10">
+      <IosListSection className="mt-6">
         <DetailRow
           label="Nationality"
           value={
@@ -349,7 +421,7 @@ function StaffDetail({
           href={workMailto}
           icon="mail"
         />
-      </div>
+      </IosListSection>
     </div>
   );
 }
@@ -368,33 +440,26 @@ function DetailRow({
   icon?: "mail";
 }) {
   const linked = Boolean(href);
-  const content = (
-    <>
-      <p className="text-[11px] uppercase tracking-wide text-black/40 dark:text-white/40">
-        {label}
-      </p>
-      <p className="mt-0.5 flex items-center gap-1.5 text-sm text-[#3D421F] dark:text-[CanvasText]">
-        {icon === "mail" && linked ? (
-          <Mail className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
-        ) : null}
-        <span className="min-w-0 break-all">{value}</span>
-      </p>
-    </>
-  );
-
-  if (!href) {
-    return <div className="rounded-xl px-1 py-1.5">{content}</div>;
-  }
-
   return (
-    <a
-      href={href}
-      target={external ? "_blank" : undefined}
-      rel={external ? "noreferrer" : undefined}
-      className="block rounded-xl px-1 py-1.5 underline-offset-2 hover:bg-black/[0.04] hover:underline dark:hover:bg-white/[0.06]"
-    >
-      {content}
-    </a>
+    <IosListRow
+      overline={label}
+      title={
+        <span
+          className={cn(
+            "flex items-center gap-1.5",
+            linked && "text-[var(--mobile-tint)]",
+          )}
+        >
+          {icon === "mail" && linked ? (
+            <Mail className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+          ) : null}
+          <span className="min-w-0 truncate">{value}</span>
+        </span>
+      }
+      href={href ?? undefined}
+      external={external}
+      chevron={false}
+    />
   );
 }
 
@@ -408,30 +473,28 @@ function CelebrationsPane({
   const window = celebrationWindow();
   const birthdays = listBirthdayCelebrations(staff);
   const anniversaries = listAnniversaryCelebrations(staff);
-  const rangeLabel = `${formatDisplayDate(window.startIso)} – ${formatDisplayDate(window.endIso)}`;
+  const rangeLabel = `${formatDateDmy(window.startIso)} – ${formatDateDmy(window.endIso)}`;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-32 pt-4">
-      <ScreenTitle>Celebrations</ScreenTitle>
-      <p className="mt-1 text-center text-sm text-black/50 dark:text-white/50">
-        {rangeLabel}
-      </p>
-      <hr className="mt-3 border-black/10 dark:border-white/12" />
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-4">
+      <IosLargeTitle subtitle={rangeLabel}>Celebrations</IosLargeTitle>
 
-      <CelebrationSection
-        title="Birthdays"
-        icon={Cake}
-        empty="No birthdays in this window."
-        items={birthdays}
-        onOpen={onOpen}
-      />
-      <CelebrationSection
-        title="Work anniversaries"
-        icon={PartyPopper}
-        empty="No work anniversaries in this window."
-        items={anniversaries}
-        onOpen={onOpen}
-      />
+      <div className="mt-5">
+        <CelebrationSection
+          title="Birthdays"
+          icon={Cake}
+          empty="No birthdays in this window."
+          items={birthdays}
+          onOpen={onOpen}
+        />
+        <CelebrationSection
+          title="Work anniversaries"
+          icon={PartyPopper}
+          empty="No work anniversaries in this window."
+          items={anniversaries}
+          onOpen={onOpen}
+        />
+      </div>
     </div>
   );
 }
@@ -450,48 +513,44 @@ function CelebrationSection({
   onOpen: (id: string) => void;
 }) {
   return (
-    <section className="mt-4">
-      <h2 className="flex items-center gap-1.5 px-1 font-serif text-sm font-semibold text-[#3D421F] dark:text-[CanvasText]">
-        <Icon className="h-4 w-4" strokeWidth={2} />
-        {title}
-        <span className="ml-auto text-[11px] font-normal text-black/40 dark:text-white/40">
-          {items.length}
-        </span>
-      </h2>
+    <IosListSection
+      header={
+        <>
+          <Icon className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
+          {title}
+        </>
+      }
+      headerTrailing={items.length}
+    >
       {items.length === 0 ? (
-        <p className="mt-2 px-1 text-sm text-black/45 dark:text-white/45">{empty}</p>
+        <IosListRow title={<span className="text-black/60 dark:text-white/60">{empty}</span>} />
       ) : (
-        <div className="mt-2 space-y-2">
-          {items.map((item) => (
-            <MobilePressTarget
-              key={`${item.kind}-${item.staffId}`}
-              onClick={() => onOpen(item.staffId)}
-              className={cn(
-                "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left",
-                item.daysFromToday === 0
-                  ? "border-[var(--venue-primary,#6B7B3A)]/35 bg-[var(--venue-primary,#6B7B3A)]/12"
-                  : "border-black/10 bg-white/75 dark:border-white/12 dark:bg-white/10",
-              )}
-            >
-              <StaffAvatar member={item.member} size="md" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-[#3D421F] dark:text-[CanvasText]">
-                  {item.member.fullName}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-black/50 dark:text-white/50">
-                  {item.kind === "anniversary" && item.years
-                    ? `${item.years} year${item.years === 1 ? "" : "s"} · ${formatDayMonth(item.occurrenceDate)}`
-                    : formatOrdinalDayMonth(item.occurrenceDate)}
-                </p>
-              </div>
-              <span className="shrink-0 text-right text-[11px] font-medium text-black/45 dark:text-white/45">
-                {celebrationCaption(item.daysFromToday)}
-              </span>
-            </MobilePressTarget>
-          ))}
-        </div>
+        items.map((item) => (
+          <IosListRow
+            key={`${item.kind}-${item.staffId}`}
+            leading={<StaffAvatar member={item.member} size="sm" />}
+            title={item.member.fullName}
+            subtitle={
+              <>
+                {item.kind === "anniversary" && item.years
+                  ? `${item.years} year${item.years === 1 ? "" : "s"} · ${formatOrdinalDayMonth(item.occurrenceDate)}`
+                  : formatOrdinalDayMonth(item.occurrenceDate)}
+                {" · "}
+                <span
+                  className={cn(
+                    item.daysFromToday === 0 && "font-semibold text-[var(--mobile-tint)]",
+                  )}
+                >
+                  {celebrationCaption(item.daysFromToday)}
+                </span>
+              </>
+            }
+            highlighted={item.daysFromToday === 0}
+            onClick={() => onOpen(item.staffId)}
+          />
+        ))
       )}
-    </section>
+    </IosListSection>
   );
 }
 
@@ -755,22 +814,15 @@ function HierarchyPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 px-3 pt-4">
-        <ScreenTitle>{venueName} Hierarchy</ScreenTitle>
-        <p className="mt-1 text-center text-sm text-black/50 dark:text-white/50">
-          Who reports to whom
-        </p>
-        <hr className="mt-3 border-black/10 dark:border-white/12" />
+      <div className="shrink-0 px-4 pt-4">
+        <IosLargeTitle subtitle="Who reports to whom">{venueName} Hierarchy</IosLargeTitle>
         {reportingRoots.length > 0 ? (
-          <div className="relative mt-3">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35 dark:text-white/40" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Find someone on the chart…"
-              aria-label="Find someone on the chart"
-              className="h-10 w-full rounded-xl border border-black/10 bg-white/70 pl-9 pr-10 text-sm text-[#3D421F] outline-none placeholder:text-black/35 focus:border-[var(--venue-primary,#6B7B3A)] dark:border-white/12 dark:bg-white/10 dark:text-[CanvasText] dark:placeholder:text-white/40"
-            />
+          <IosSearchField
+            value={search}
+            onChange={setSearch}
+            placeholder="Find someone on the chart…"
+            className="mt-3"
+            trailing={
             <button
               type="button"
               onClick={toggleLabeledBranches}
@@ -787,9 +839,9 @@ function HierarchyPane({
                   : "Collapse labeled departments"
               }
               className={cn(
-                "absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-black/45 transition-colors dark:text-white/50",
+                "flex h-8 w-8 items-center justify-center rounded-full text-black/50 transition-colors dark:text-white/50",
                 labeledBranchesCollapsed
-                  ? "text-[var(--venue-primary,#6B7B3A)]"
+                  ? "text-[var(--mobile-tint)]"
                   : "hover:bg-black/5 hover:text-[#3D421F] dark:hover:bg-white/10 dark:hover:text-[CanvasText]",
                 "disabled:cursor-not-allowed disabled:opacity-40",
               )}
@@ -800,7 +852,8 @@ function HierarchyPane({
                 <ChevronsDownUp className="h-4 w-4" aria-hidden />
               )}
             </button>
-          </div>
+            }
+          />
         ) : null}
       </div>
 
@@ -809,45 +862,39 @@ function HierarchyPane({
           The reporting tree has not been built yet.
         </p>
       ) : searching ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-32 pt-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-32 pt-3">
           {matches.length === 0 ? (
-            <p className="px-1 py-8 text-center text-sm text-black/45 dark:text-white/45">
+            <p className="px-1 py-8 text-center text-sm text-black/60 dark:text-white/60">
               No one on the chart matches that search.
             </p>
           ) : (
-            <div className="space-y-2">
+            <IosListSection>
               {matches.map((node) => {
                 const member = byId.get(node.staffId);
                 return (
-                  <MobilePressTarget
+                  <IosListRow
                     key={node.staffId}
+                    leading={
+                      member ? (
+                        <StaffAvatar member={member} size="sm" />
+                      ) : (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/10 text-xs text-black/50">
+                          ?
+                        </div>
+                      )
+                    }
+                    title={member ? firstLastName(member.fullName) : "Unknown"}
+                    subtitle={dash(member?.positionName)}
+                    detail={
+                      node.label?.trim() ? (
+                        <span className="font-semibold text-[var(--mobile-tint)]">{node.label}</span>
+                      ) : undefined
+                    }
                     onClick={() => jumpTo(node.staffId)}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-black/10 bg-white/75 px-3 py-2.5 text-left dark:border-white/12 dark:bg-white/10"
-                  >
-                    {member ? (
-                      <StaffAvatar member={member} size="md" />
-                    ) : (
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-black/10 text-xs text-black/40">
-                        ?
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-[#3D421F] dark:text-[CanvasText]">
-                        {member ? firstLastName(member.fullName) : "Unknown"}
-                      </p>
-                      <p className="mt-0.5 truncate text-xs text-black/50 dark:text-white/50">
-                        {dash(member?.positionName)}
-                      </p>
-                      {node.label?.trim() ? (
-                        <p className="mt-0.5 truncate text-[11px] font-semibold text-[var(--venue-primary,#6B7B3A)]">
-                          {node.label}
-                        </p>
-                      ) : null}
-                    </div>
-                  </MobilePressTarget>
+                  />
                 );
               })}
-            </div>
+            </IosListSection>
           )}
         </div>
       ) : (
@@ -1090,11 +1137,13 @@ function StaffAvatar({
   emphasized = false,
 }: {
   member: DirectoryStaffMember;
-  size: "md" | "lg";
+  size: "sm" | "md" | "lg";
   preview?: boolean;
   emphasized?: boolean;
 }) {
-  const box = size === "lg" ? "h-24 w-24" : "h-12 w-12";
+  const box = size === "lg" ? "h-24 w-24" : size === "sm" ? "h-10 w-10" : "h-12 w-12";
+  // List rows use Contacts-style circles; cards and the org chart keep rounded squares.
+  const shape = size === "sm" ? "rounded-full" : "rounded-2xl";
   const frame = emphasized
     ? "border-[1.5px] border-white"
     : "border border-black/10";
@@ -1102,7 +1151,8 @@ function StaffAvatar({
   const media = member.photoUrl ? (
     <div
       className={cn(
-        "dir-org-photo relative shrink-0 overflow-hidden rounded-2xl bg-black/5",
+        "dir-org-photo relative shrink-0 overflow-hidden bg-black/5",
+        shape,
         frame,
         box,
       )}
@@ -1118,7 +1168,8 @@ function StaffAvatar({
   ) : (
     <div
       className={cn(
-        "dir-org-photo flex shrink-0 items-center justify-center rounded-2xl bg-[#3D421F] font-medium text-white",
+        "dir-org-photo flex shrink-0 items-center justify-center bg-[#3D421F] font-medium text-white",
+        shape,
         frame,
         box,
       )}
