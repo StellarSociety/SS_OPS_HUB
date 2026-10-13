@@ -5,7 +5,9 @@ import { useEffect, useRef, useState, type ReactNode, type TouchEvent } from "re
 import { createPortal } from "react-dom";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
 import { MessageTicks } from "@/components/connect/chat/message-ticks";
+import { MenuReactionRow } from "@/components/connect/chat/message-reactions";
 import { fetchMessageReadBy, type MessageReader } from "@/lib/actions/connect-chat";
+import type { ChatReactionKey } from "@/lib/connect/chat-reactions";
 import type { ReplyPreview } from "@/lib/connect/chat-types";
 import { decodeMentions } from "@/lib/connect/mentions";
 import type { ConnectPerson } from "@/lib/connect/types";
@@ -21,6 +23,8 @@ export type MessageMenuState = {
   actions: MessageMenuAction[];
   /** Own messages: show who has read it (and when) under the actions. */
   readBy?: { sentAt: string };
+  /** Received messages: a row of emoji reactions above the actions. */
+  react?: { current: ChatReactionKey | null; onPick: (key: ChatReactionKey) => void };
 } | null;
 
 const ACTION_META: Record<MessageMenuAction, { label: string; icon: typeof Reply; danger?: boolean }> = {
@@ -67,13 +71,13 @@ export function MessageMenu({
     };
   }, [menu, onClose]);
 
-  if (!menu || (menu.actions.length === 0 && !menu.readBy) || typeof document === "undefined") {
+  if (!menu || (menu.actions.length === 0 && !menu.readBy && !menu.react) || typeof document === "undefined") {
     return null;
   }
 
   // Open downwards from the pointer, or upwards in the lower half of the screen
   // (the read-by list makes the height vary, so anchor instead of measuring).
-  const width = menu.readBy ? 248 : 176;
+  const width = menu.react ? 280 : menu.readBy ? 248 : 176;
   const left = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8));
   const openUp = menu.y > window.innerHeight / 2;
   const position = openUp
@@ -88,6 +92,15 @@ export function MessageMenu({
       style={{ ...position, width }}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {menu.react ? (
+        <MenuReactionRow
+          current={menu.react.current}
+          onPick={(key) => {
+            menu.react?.onPick(key);
+            onClose();
+          }}
+        />
+      ) : null}
       {menu.actions.map((action, i) => {
         const meta = ACTION_META[action];
         const Icon = meta.icon;

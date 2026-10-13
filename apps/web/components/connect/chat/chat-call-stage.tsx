@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   isTrackReference,
+  useAudioPlayback,
   VideoTrack,
   useLocalParticipant,
   useMediaDeviceSelect,
@@ -24,10 +25,12 @@ import {
   SwitchCamera,
   Video,
   VideoOff,
+  Volume2,
 } from "lucide-react";
 import type { CallBusy } from "@/components/connect/chat/chat-call";
 import { CallSettingsSheet } from "@/components/connect/chat/chat-call-settings";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
+import { describeMediaError } from "@/lib/connect/call-media";
 import { toast } from "@/components/ui/toast";
 import type { ChatCallPeer } from "@/lib/actions/connect-call";
 import { updateCallPreferences, useCallPreferences } from "@/lib/connect/call-preferences";
@@ -253,8 +256,8 @@ function useCallRoom(call: ChatCall) {
     setDeviceBusy("mic");
     try {
       await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
-    } catch {
-      toast.error("Could not change the microphone.");
+    } catch (error) {
+      toast.error(describeMediaError(error, "audioinput"));
     } finally {
       setDeviceBusy(null);
     }
@@ -264,8 +267,8 @@ function useCallRoom(call: ChatCall) {
     setDeviceBusy("camera");
     try {
       await localParticipant.setCameraEnabled(!isCameraEnabled);
-    } catch {
-      toast.error("Could not change the camera.");
+    } catch (error) {
+      toast.error(describeMediaError(error, "videoinput"));
     } finally {
       setDeviceBusy(null);
     }
@@ -280,8 +283,8 @@ function useCallRoom(call: ChatCall) {
     try {
       await cameras.setActiveMediaDevice(next.deviceId);
       updateCallPreferences({ videoInputId: next.deviceId });
-    } catch {
-      toast.error("Could not switch the camera.");
+    } catch (error) {
+      toast.error(describeMediaError(error, "videoinput"));
     } finally {
       setDeviceBusy(null);
     }
@@ -386,7 +389,27 @@ export function CallStage({
         </FullScreenCall>
       )}
       {settingsOpen ? <CallSettingsSheet mode={call.mode} onClose={() => setSettingsOpen(false)} /> : null}
+      <AudioUnlock />
     </>
+  );
+}
+
+/**
+ * Browsers (Safari and installed apps especially) can refuse to play the other
+ * person's audio until you click on the page. Offer that click.
+ */
+function AudioUnlock() {
+  const { canPlayAudio, startAudio } = useAudioPlayback();
+  if (canPlayAudio) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => void startAudio()}
+      className="fixed left-1/2 top-[max(1rem,env(safe-area-inset-top))] z-[305] flex -translate-x-1/2 items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-[#2B2F16] shadow-2xl"
+    >
+      <Volume2 className="h-4 w-4" />
+      Click to hear the call
+    </button>
   );
 }
 
@@ -520,7 +543,7 @@ function SelfView({ room, className }: { room: CallRoom; className: string }) {
         participant={room.local}
         track={room.localTrack}
         mirror={room.preferences.mirrorSelf}
-        fit="cover"
+        fit={room.preferences.videoFit}
       />
     </div>
   );

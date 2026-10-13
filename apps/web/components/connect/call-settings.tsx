@@ -184,7 +184,7 @@ function CameraPreview({
     let stream: MediaStream | null = null;
     let alive = true;
     navigator.mediaDevices
-      .getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : true })
+      .getUserMedia({ video: deviceId ? { deviceId: { ideal: deviceId } } : true })
       .then((next) => {
         if (!alive) {
           next.getTracks().forEach((t) => t.stop());

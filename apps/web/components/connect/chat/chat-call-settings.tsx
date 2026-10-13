@@ -151,6 +151,8 @@ function FitRow({
   );
 }
 
+function ignoreDeviceError() {}
+
 /** Switches the device in the running call and remembers it for next time. */
 function LiveDeviceRow({
   kind,
@@ -165,7 +167,10 @@ function LiveDeviceRow({
     kind,
     // Already granted for the call, so this only fills in the device names.
     requestPermissions: true,
-    onError: () => toast.error(`Could not switch the ${label.toLowerCase()}.`),
+    // Must be a stable function: LiveKit rebuilds its device watcher whenever
+    // onError changes, and a new one each render loops forever. Failed
+    // switches are reported by pick(); "None found" covers blocked access.
+    onError: ignoreDeviceError,
   });
   const options = devices.filter((device) => device.deviceId);
 
@@ -182,7 +187,10 @@ function LiveDeviceRow({
     <label className="flex items-center justify-between gap-4 py-3">
       <span className="shrink-0 text-sm">{label}</span>
       {options.length === 0 ? (
-        <span className="text-sm text-white/45">None found</span>
+        <span className="text-right text-sm text-white/45">
+          {/* Devices without ids means the browser hasn't allowed access yet. */}
+          {devices.length > 0 ? "Access blocked — allow it in site settings" : "None found"}
+        </span>
       ) : (
         <select
           value={activeDeviceId}

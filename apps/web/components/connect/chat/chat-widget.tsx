@@ -32,6 +32,11 @@ import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
 import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
 import { ChatCallButtons, useChatCall } from "@/components/connect/chat/chat-call";
 import { ChatWidgetFeed } from "@/components/connect/chat/chat-widget-feed";
+import {
+  ReactionChips,
+  ReactionPicker,
+  useChatReactions,
+} from "@/components/connect/chat/message-reactions";
 import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
@@ -183,6 +188,10 @@ export function ChatWidget() {
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const { venue } = useVenue();
+  const reactions = useChatReactions(
+    open && activeId && !composing && !feedMode ? activeId : null,
+    data?.meId ?? "",
+  );
   const [pickerQuery, setPickerQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [menu, setMenu] = useState<ChatMenuState>(null);
@@ -798,54 +807,56 @@ export function ChatWidget() {
               ) : (
                 <p className="flex-1 font-serif text-lg text-[#2B2F16]">Chats</p>
               )}
-              {active && !feedMode && !composing ? (
-                <ChatCallButtons
-                  conversationId={active.id}
-                  kind={active.kind}
-                  peer={{ name: active.title, photoUrl: active.photoUrl }}
-                  className="hover:text-[#2B2F16]"
-                  iconClassName="h-4 w-4"
-                />
-              ) : null}
-              <button
-                type="button"
-                onClick={() => {
-                  const settings = readSoundSettings();
-                  writeSoundSettings({ ...settings, enabled: muted });
-                  if (muted) {
-                    unlockAudio();
-                    playSound(settings.chatSound, settings.volume);
+              <div className="-mr-2 flex shrink-0 items-center">
+                {active && !feedMode && !composing ? (
+                  <ChatCallButtons
+                    conversationId={active.id}
+                    kind={active.kind}
+                    peer={{ name: active.title, photoUrl: active.photoUrl }}
+                    className="p-1.5 hover:text-[#2B2F16]"
+                    iconClassName="h-4 w-4"
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const settings = readSoundSettings();
+                    writeSoundSettings({ ...settings, enabled: muted });
+                    if (muted) {
+                      unlockAudio();
+                      playSound(settings.chatSound, settings.volume);
+                    }
+                  }}
+                  title={muted ? "Turn message sound on" : "Mute message sound"}
+                  aria-label={muted ? "Turn message sound on" : "Mute message sound"}
+                  className="rounded-full p-1.5 text-black/50 hover:bg-black/5 hover:text-[#2B2F16]"
+                >
+                  {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                </button>
+                <ScopedLink
+                  href={
+                    feedMode
+                      ? `/connect/chats/feed${feedGroupId ? `/${feedGroupId}` : ""}`
+                      : activeId && !composing
+                        ? `/connect/chats/${activeId}`
+                        : "/connect/chats"
                   }
-                }}
-                title={muted ? "Turn message sound on" : "Mute message sound"}
-                aria-label={muted ? "Turn message sound on" : "Mute message sound"}
-                className="rounded-full p-2 text-black/50 hover:bg-black/5 hover:text-[#2B2F16]"
-              >
-                {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-              </button>
-              <ScopedLink
-                href={
-                  feedMode
-                    ? `/connect/chats/feed${feedGroupId ? `/${feedGroupId}` : ""}`
-                    : activeId && !composing
-                      ? `/connect/chats/${activeId}`
-                      : "/connect/chats"
-                }
-                onClick={() => setOpen(false)}
-                title={feedMode ? "Open the feed" : "Open in Chats"}
-                aria-label={feedMode ? "Open the feed" : "Open in Chats"}
-                className="rounded-full p-2 text-black/50 hover:bg-black/5 hover:text-[#2B2F16]"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </ScopedLink>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close chats"
-                className="rounded-full p-2 text-black/50 hover:bg-black/5 hover:text-[#2B2F16]"
-              >
-                <X className="h-4 w-4" />
-              </button>
+                  onClick={() => setOpen(false)}
+                  title={feedMode ? "Open the feed" : "Open in Chats"}
+                  aria-label={feedMode ? "Open the feed" : "Open in Chats"}
+                  className="rounded-full p-1.5 text-black/50 hover:bg-black/5 hover:text-[#2B2F16]"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </ScopedLink>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label="Close chats"
+                  className="rounded-full p-1.5 text-black/50 hover:bg-black/5 hover:text-[#2B2F16]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </header>
 
             {feedMode ? (
@@ -946,7 +957,13 @@ export function ChatWidget() {
                           active.kind === "group" && !mine && prev?.senderId !== m.senderId;
                         return (
                           <li key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
-                            <div className="max-w-[80%]">
+                            <div className="group/msg relative max-w-[80%]">
+                              {!mine && !m.deletedAt ? (
+                                <ReactionPicker
+                                  current={reactions.mine(m.id)}
+                                  onPick={(key) => reactions.toggle(m.id, key)}
+                                />
+                              ) : null}
                               {showName ? (
                                 <p className="mb-0.5 px-1 text-[11px] font-medium text-black/50">
                                   {nameOf(m.senderId) ?? "Someone"}
@@ -955,13 +972,20 @@ export function ChatWidget() {
                               <GestureBubble
                                 onMenu={(x, y) => {
                                   const actions = messageActions(m);
-                                  if (actions.length || (mine && !m.deletedAt)) {
+                                  if (actions.length || !m.deletedAt) {
                                     setMsgMenu({
                                       x,
                                       y,
                                       messageId: m.id,
                                       actions,
                                       readBy: mine && !m.deletedAt ? { sentAt: m.createdAt } : undefined,
+                                      react:
+                                        !mine && !m.deletedAt
+                                          ? {
+                                              current: reactions.mine(m.id),
+                                              onPick: (key) => reactions.toggle(m.id, key),
+                                            }
+                                          : undefined,
                                     });
                                   }
                                 }}
@@ -1035,6 +1059,13 @@ export function ChatWidget() {
                                 )}
                               </div>
                               </GestureBubble>
+                              <ReactionChips
+                                users={reactions.byMessage.get(m.id)}
+                                meId={data.meId}
+                                nameOf={(id) => nameOf(id) ?? "Someone"}
+                                onToggle={(key) => reactions.toggle(m.id, key)}
+                                align={mine ? "right" : "left"}
+                              />
                               <p
                                 className={cn("mt-0.5 px-1 text-[10px] text-black/40", mine && "text-right")}
                                 suppressHydrationWarning
@@ -1115,8 +1146,9 @@ export function ChatWidget() {
                         rows={1}
                         maxLength={CHAT_MAX_MESSAGE_CHARS}
                         placeholder={`Message ${active.title}`}
-                        className="max-h-32 min-h-10 flex-1 resize-none rounded-2xl bg-[#F0F2E8] px-3.5 py-2.5 text-sm text-[#2B2F16] outline-none placeholder:text-black/40 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/25"
-                        style={{ height: `${Math.min(128, 40 + Math.max(0, draft.split("\n").length - 1) * 20)}px` }}
+                        className="block max-h-32 min-h-10 flex-1 resize-none rounded-2xl bg-[#F0F2E8] px-3.5 py-2.5 text-sm text-[#2B2F16] outline-none placeholder:text-black/40 focus:ring-2 focus:ring-[var(--venue-primary,#818a40)]/25"
+                        // In rem, like the buttons beside it, so the row lines up at every text size.
+                        style={{ height: `${Math.min(8, 2.5 + Math.max(0, draft.split("\n").length - 1) * 1.25)}rem` }}
                       />
                       <button
                         type="button"

@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
-import type { RoomOptions } from "livekit-client";
+import { MediaDeviceFailure, type RoomOptions } from "livekit-client";
 import { Loader2, Phone, Video } from "lucide-react";
 import { CallStage, IncomingCallDialog, OngoingCallPill } from "@/components/connect/chat/chat-call-stage";
 import { toast } from "@/components/ui/toast";
@@ -25,7 +25,8 @@ import {
   startChatCall,
   type ChatCallPeer,
 } from "@/lib/actions/connect-call";
-import { readCallPreferences, useCallPreferences } from "@/lib/connect/call-preferences";
+import { describeMediaFailure } from "@/lib/connect/call-media";
+import { readCallPreferences, updateCallPreferences, useCallPreferences } from "@/lib/connect/call-preferences";
 import {
   isOpenChatCall,
   mapChatCallRow,
@@ -303,13 +304,16 @@ export function CallProvider({
   }
 
   // Saved devices seed the room when it connects; later switches happen in the call.
+  // They're a preference ("ideal"), not a requirement: device ids change between
+  // browsers and sessions (Safari, installed apps), and an exact id that no
+  // longer exists would stop the camera and microphone from starting at all.
   const roomOptions = useMemo<RoomOptions>(() => {
     const prefs = readCallPreferences();
     return {
       adaptiveStream: true,
       dynacast: true,
-      videoCaptureDefaults: prefs.videoInputId ? { deviceId: prefs.videoInputId } : undefined,
-      audioCaptureDefaults: prefs.audioInputId ? { deviceId: prefs.audioInputId } : undefined,
+      videoCaptureDefaults: prefs.videoInputId ? { deviceId: { ideal: prefs.videoInputId } } : undefined,
+      audioCaptureDefaults: prefs.audioInputId ? { deviceId: { ideal: prefs.audioInputId } } : undefined,
       audioOutput: prefs.audioOutputId ? { deviceId: prefs.audioOutputId } : undefined,
     };
     // Re-read only when a new call connects.
@@ -355,7 +359,15 @@ export function CallProvider({
           video={session.withVideo && call.mode === "video" && !preferences.startCameraOff}
           options={roomOptions}
           onError={(error) => toast.error(error.message || "Call connection failed.")}
-          onMediaDeviceFailure={() => toast.error("Allow microphone and camera access to use calls.")}
+          onMediaDeviceFailure={(failure, kind) => {
+            toast.error(describeMediaFailure(failure, kind));
+            // A saved device that's gone: fall back to the system default next time.
+            if (failure === MediaDeviceFailure.NotFound) {
+              updateCallPreferences(
+                kind === "videoinput" ? { videoInputId: null } : kind === "audioinput" ? { audioInputId: null } : {},
+              );
+            }
+          }}
           onDisconnected={() => {
             if (!localHangup.current) setSession(null);
           }}

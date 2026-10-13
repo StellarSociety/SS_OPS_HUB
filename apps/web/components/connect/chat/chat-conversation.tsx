@@ -31,6 +31,12 @@ import {
 import { useChatReceipts } from "@/components/connect/chat/use-chat-receipts";
 import { ChatInfoPanel } from "@/components/connect/chat/chat-info-panel";
 import { ChatCallControls } from "@/components/connect/chat/chat-call";
+import {
+  ReactionChips,
+  ReactionPicker,
+  useChatReactions,
+  type ChatReactions,
+} from "@/components/connect/chat/message-reactions";
 import { useChatPanes } from "@/components/connect/chat/chat-panes-context";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
@@ -247,6 +253,9 @@ export function ChatConversation({
   const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
   const [editing, setEditing] = useState<UiMessage | null>(null);
   const canModerate = detail.myRole === "admin" && detail.kind === "group";
+  const reactions = useChatReactions(detail.id, meId);
+  const canReact = (m: UiMessage) =>
+    !readOnly && m.kind === "message" && !m.pending && !m.deletedAt && m.senderId !== meId;
 
   function actionsFor(m: UiMessage): MessageMenuAction[] {
     if (m.pending || m.kind !== "message" || m.deletedAt) return [];
@@ -262,8 +271,11 @@ export function ChatConversation({
     if (readOnly) return;
     const actions = actionsFor(m);
     const showReadBy = m.senderId === meId && !m.deletedAt && !m.pending && m.kind === "message";
-    if (actions.length || showReadBy) {
-      setMenu({ x, y, messageId: m.id, actions, readBy: showReadBy ? { sentAt: m.createdAt } : undefined });
+    const react = canReact(m)
+      ? { current: reactions.mine(m.id), onPick: (key: Parameters<ChatReactions["toggle"]>[1]) => reactions.toggle(m.id, key) }
+      : undefined;
+    if (actions.length || showReadBy || react) {
+      setMenu({ x, y, messageId: m.id, actions, readBy: showReadBy ? { sentAt: m.createdAt } : undefined, react });
     }
   }
 
@@ -572,6 +584,8 @@ export function ChatConversation({
             currentMatchId={currentMatchId}
             receipts={receipts}
             onOpenMenu={openMenu}
+            reactions={reactions}
+            canReact={canReact}
             onSwipeReply={detail.canPost && !readOnly ? startReply : undefined}
             senderName={senderName}
             onDeleted={(id) =>
@@ -652,10 +666,14 @@ function MessageList({
   currentMatchId,
   receipts,
   onOpenMenu,
+  reactions,
+  canReact,
   onSwipeReply,
   senderName,
   onDeleted,
 }: {
+  reactions: ChatReactions;
+  canReact: (m: UiMessage) => boolean;
   receipts: ChatReceipts | null;
   onOpenMenu: (m: UiMessage, x: number, y: number) => void;
   onSwipeReply?: (m: UiMessage) => void;
@@ -742,7 +760,13 @@ function MessageList({
                   }
                 />
               ) : null}
-              <div className={cn("flex max-w-[78%] flex-col", mine ? "items-end" : "items-start")}>
+              <div className={cn("group/msg relative flex max-w-[78%] flex-col", mine ? "items-end" : "items-start")}>
+                {canReact(m) ? (
+                  <ReactionPicker
+                    current={reactions.mine(m.id)}
+                    onPick={(key) => reactions.toggle(m.id, key)}
+                  />
+                ) : null}
                 {!mine && isGroup && !sameAsPrev ? (
                   <span className="mb-0.5 px-3 text-[11px] font-semibold text-black/55">
                     {sender?.name ?? "Former user"}
@@ -815,6 +839,13 @@ function MessageList({
                   )}
                 </div>
                 </GestureBubble>
+                <ReactionChips
+                  users={reactions.byMessage.get(m.id)}
+                  meId={meId}
+                  nameOf={(id) => senderName(id)}
+                  onToggle={(key) => reactions.toggle(m.id, key)}
+                  align={mine ? "right" : "left"}
+                />
                 {!sameAsNext ? (
                   <span className="mt-0.5 px-1 text-[10px] text-black/40" suppressHydrationWarning>
                     {m.pending ? "Sending…" : timeLabel(m.createdAt)}
