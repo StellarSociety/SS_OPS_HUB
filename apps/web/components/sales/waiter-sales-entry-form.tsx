@@ -98,6 +98,7 @@ type FormState = {
   gratuity_cash_gs: number;
   groups_service_charge_gs: number;
   total_covers: number;
+  complimentary_covers: number;
   total_discounts_gs: number;
   voucher_comments: string;
   deposit_comments: string;
@@ -122,6 +123,7 @@ const FIELD_LABELS: Record<WaiterSalesScalarField, string> = {
   gratuity_cash_gs: "Cash Gratuity",
   groups_service_charge_gs: "Groups Service Charge",
   total_covers: "Total Covers",
+  complimentary_covers: "Complimentary Covers",
   total_discounts_gs: "Total Discounts",
 };
 
@@ -170,6 +172,7 @@ function emptyForm(waiterId: string, saleDate: string, tenderIds: string[]): For
     gratuity_cash_gs: 0,
     groups_service_charge_gs: 0,
     total_covers: 0,
+    complimentary_covers: 0,
     total_discounts_gs: 0,
     voucher_comments: "",
     deposit_comments: "",
@@ -195,6 +198,7 @@ function recordToForm(
     gratuity_cash_gs: asFormMoney(record.gratuity_cash_gs),
     groups_service_charge_gs: asFormMoney(record.groups_service_charge_gs),
     total_covers: Math.max(0, Math.trunc(Number(record.total_covers) || 0)),
+    complimentary_covers: Math.max(0, Math.trunc(Number(record.complimentary_covers) || 0)),
     total_discounts_gs: asFormMoney(record.total_discounts_gs),
     voucher_comments: record.voucher_comments ?? "",
     deposit_comments: record.deposit_comments ?? "",
@@ -369,8 +373,9 @@ export function WaiterSalesEntryForm({
       computeWaiterSales({
         total_sales_gs: form.total_sales_gs,
         total_covers: form.total_covers,
+        complimentary_covers: form.complimentary_covers,
       }),
-    [form.total_sales_gs, form.total_covers],
+    [form.total_sales_gs, form.total_covers, form.complimentary_covers],
   );
 
   const tendersTotalGross = useMemo(
@@ -427,6 +432,7 @@ export function WaiterSalesEntryForm({
       String(form.groups_service_charge_gs),
     );
     formData.set("total_covers", String(form.total_covers));
+    formData.set("complimentary_covers", String(form.complimentary_covers));
     formData.set("total_discounts_gs", String(form.total_discounts_gs));
     formData.set("voucher_comments", form.voucher_comments);
     formData.set("deposit_comments", form.deposit_comments);
@@ -499,7 +505,10 @@ export function WaiterSalesEntryForm({
   function updateScalarField(field: WaiterSalesScalarField, value: number) {
     setForm((prev) => ({
       ...prev,
-      [field]: field === "total_covers" ? Math.max(0, Math.trunc(value)) : value,
+      [field]:
+        field === "total_covers" || field === "complimentary_covers"
+          ? Math.max(0, Math.trunc(value))
+          : value,
     }));
   }
 
@@ -709,6 +718,32 @@ export function WaiterSalesEntryForm({
                   }
                 />
               </SalesFormFieldRow>
+              <SalesFormFieldRow
+                label={
+                  <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-right">
+                    <span>{FIELD_LABELS.complimentary_covers}</span>
+                    <span className="text-xs text-black/45">Not in ASPH</span>
+                  </span>
+                }
+              >
+                <SalesNumericInput
+                  key={`comp-covers-${form.id}`}
+                  value={form.complimentary_covers}
+                  disabled={!fieldsEditable}
+                  isInteger
+                  onChange={(v) =>
+                    updateScalarField(
+                      "complimentary_covers",
+                      Number.parseInt(v, 10) || 0,
+                    )
+                  }
+                />
+              </SalesFormFieldRow>
+              {form.complimentary_covers > form.total_covers ? (
+                <p className="text-right text-xs text-red-600">
+                  Can&apos;t be more than Total Covers.
+                </p>
+              ) : null}
               <SalesFormFieldRow label="Total Discounts">
                 <SalesNumericInput
                   key={`discounts-${form.id}-${inputMode}`}
@@ -725,7 +760,9 @@ export function WaiterSalesEntryForm({
                   {formatMoney(computed.asph)}
                 </p>
                 <p className="mt-1 text-xs text-black/50">
-                  Sales Total ÷ Total Covers
+                  {form.complimentary_covers > 0
+                    ? "Sales Total ÷ (Total Covers − Complimentary Covers)"
+                    : "Sales Total ÷ Total Covers"}
                 </p>
               </div>
             </div>

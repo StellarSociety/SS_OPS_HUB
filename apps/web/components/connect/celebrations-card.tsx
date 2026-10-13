@@ -4,7 +4,7 @@ import { ScopedLink } from "@/components/layout/scoped-link";
 import { celebrationCaption } from "@/lib/directory/celebrations";
 import type { ConnectCelebrationItem } from "@/lib/connect/types";
 
-/** Upcoming birthdays / work anniversaries with a one-click congratulate. */
+/** Upcoming birthdays and work anniversaries, each in its own card. */
 export function CelebrationsCard({
   items,
   basePath,
@@ -16,15 +16,50 @@ export function CelebrationsCard({
   canPost: boolean;
 }) {
   return (
+    <div className="space-y-4">
+      <CelebrationList
+        title="Birthdays"
+        icon={<Cake className="h-5 w-5 text-rose-500" aria-hidden />}
+        empty="No birthdays this week."
+        items={items.filter((c) => c.kind === "birthday")}
+        basePath={basePath}
+        canPost={canPost}
+      />
+      <CelebrationList
+        title="Work anniversaries"
+        icon={<PartyPopper className="h-5 w-5 text-amber-500" aria-hidden />}
+        empty="No work anniversaries this week."
+        items={items.filter((c) => c.kind === "anniversary")}
+        basePath={basePath}
+        canPost={canPost}
+      />
+    </div>
+  );
+}
+
+function CelebrationList({
+  title,
+  icon,
+  empty,
+  items,
+  basePath,
+  canPost,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  empty: string;
+  items: ConnectCelebrationItem[];
+  basePath: string;
+  canPost: boolean;
+}) {
+  return (
     <section className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm">
       <h2 className="flex items-center gap-2 text-[15px] font-semibold text-[#2B2F16]">
-        <Cake className="h-5 w-5 text-rose-500" aria-hidden />
-        Celebrations
+        {icon}
+        {title}
       </h2>
       {items.length === 0 ? (
-        <p className="mt-2 text-sm text-black/50">
-          No birthdays or work anniversaries this week.
-        </p>
+        <p className="mt-2 text-sm text-black/50">{empty}</p>
       ) : (
         <ul className="mt-3 space-y-3">
           {items.map((c) => {

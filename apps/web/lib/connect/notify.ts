@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dispatchPendingPushes } from "@/lib/push/send";
 import { decodeMentions, mentionedUserIds } from "./mentions";
+import { filterByAlertPref, type ConnectAlertKey } from "./notification-prefs";
 import { listGroupMembers, loadConnectPeople } from "./store";
 import {
   CONNECT_MODULE_KEY,
@@ -29,6 +30,13 @@ type Draft = {
   dedupeKey: string;
 };
 
+const ALERT_KEY_BY_TYPE: Record<Draft["type"], ConnectAlertKey> = {
+  connect_post_new: "feedPosts",
+  connect_comment_new: "feedComments",
+  connect_reaction_new: "feedReactions",
+  connect_mention: "mentions",
+};
+
 function snippet(text: string, max = 120): string {
   const flat = decodeMentions(text).replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
@@ -45,6 +53,13 @@ async function send(
   postId: string,
   drafts: Draft[],
 ) {
+  // Each person's Connecteam notification settings decide who is alerted.
+  drafts = await filterByAlertPref(
+    service,
+    drafts,
+    (d) => d.userId,
+    (d) => ALERT_KEY_BY_TYPE[d.type],
+  );
   if (drafts.length === 0) return;
   const rows = drafts.map((d) => ({
     user_id: d.userId,

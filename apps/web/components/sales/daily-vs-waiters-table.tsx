@@ -56,6 +56,9 @@ const DATA_COLUMNS = [
   { key: "covers-daily", label: "Daily", width: "6.5rem", sectionStart: true },
   { key: "covers-waiters", label: "Waiters", width: "6.5rem", sectionStart: false },
   { key: "covers-diff", label: "Diff", width: "7rem", sectionStart: false },
+  { key: "comp-daily", label: "Daily", width: "6.5rem", sectionStart: true },
+  { key: "comp-waiters", label: "Waiters", width: "6.5rem", sectionStart: false },
+  { key: "comp-diff", label: "Diff", width: "7rem", sectionStart: false },
   { key: "sales-daily", label: "Daily", width: "8.5rem", sectionStart: true },
   { key: "sales-waiters", label: "Waiters", width: "8.5rem", sectionStart: false },
   { key: "sales-diff", label: "Diff", width: "9rem", sectionStart: false },
@@ -442,7 +445,7 @@ export function DailyVsWaitersTable({
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-xl border border-black/10 bg-white/80 px-4 py-3 text-center">
           <p className="text-xs font-medium uppercase tracking-wide text-black/50">
             Days with data
@@ -465,6 +468,14 @@ export function DailyVsWaitersTable({
           </p>
           <p className="mt-1 text-2xl font-serif text-amber-800">
             {summary.coversDiscrepancyDays}
+          </p>
+        </div>
+        <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-center">
+          <p className="text-xs font-medium uppercase tracking-wide text-amber-800/70">
+            Comp. covers discrepancies
+          </p>
+          <p className="mt-1 text-2xl font-serif text-amber-800">
+            {summary.complimentaryCoversDiscrepancyDays}
           </p>
         </div>
         <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-4 py-3 text-center">
@@ -507,6 +518,12 @@ export function DailyVsWaitersTable({
                 className={`border-b border-l ${SALES_TABLE_CELL_BORDER} px-3 py-2 text-center text-xs font-bold uppercase tracking-wide text-[#3D421F]`}
               >
                 Covers
+              </th>
+              <th
+                colSpan={3}
+                className={`border-b border-l ${SALES_TABLE_CELL_BORDER} px-3 py-2 text-center text-xs font-bold uppercase tracking-wide text-[#3D421F]`}
+              >
+                Complimentary Covers
               </th>
               <th
                 colSpan={3}
@@ -560,7 +577,7 @@ export function DailyVsWaitersTable({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={3 + DATA_COLUMNS.length + 1}
                   className="px-4 py-8 text-center text-sm text-black/50"
                 >
                   No days found for {formatMonthLabel(monthFilter)}.
@@ -654,6 +671,30 @@ export function DailyVsWaitersTable({
                   </td>
                   <td className={cn(BODY_CELL_CLASS, bottomBorderClass, "whitespace-nowrap border-l border-black/5 px-2")}>
                     <ValueCell
+                      value={row.dailyComplimentaryCovers}
+                      missing={!row.hasDailyRecord}
+                      formatter={formatCount}
+                    />
+                  </td>
+                  <td className={cn(BODY_CELL_CLASS, bottomBorderClass, "whitespace-nowrap px-2")}>
+                    <ValueCell
+                      value={row.waiterComplimentaryCovers}
+                      missing={!row.hasWaiterRecords}
+                      formatter={formatCount}
+                    />
+                  </td>
+                  <td className={cn(BODY_CELL_CLASS, bottomBorderClass, "whitespace-nowrap px-2")}>
+                    <span
+                      className={cn(
+                        NUMERIC_VALUE_CLASS,
+                        differenceClass(row.complimentaryCoversDifference, undefined, "count"),
+                      )}
+                    >
+                      {formatCoversDifference(row.complimentaryCoversDifference)}
+                    </span>
+                  </td>
+                  <td className={cn(BODY_CELL_CLASS, bottomBorderClass, "whitespace-nowrap border-l border-black/5 px-2")}>
+                    <ValueCell
                       value={row.dailyGrossSales}
                       missing={!row.hasDailyRecord}
                       formatter={formatMoney}
@@ -724,6 +765,21 @@ export function DailyVsWaitersTable({
                   )}
                 >
                   {formatCoversDifference(summary.coversDifference)}
+                </td>
+                <td className={cn(BODY_CELL_CLASS, "whitespace-nowrap border-l border-t border-black/10 px-2 text-right text-xs tabular-nums")}>
+                  {formatCount(summary.dailyComplimentaryCovers)}
+                </td>
+                <td className={cn(BODY_CELL_CLASS, "whitespace-nowrap border-t border-black/10 px-2 text-right text-xs tabular-nums")}>
+                  {formatCount(summary.waiterComplimentaryCovers)}
+                </td>
+                <td
+                  className={cn(
+                    BODY_CELL_CLASS,
+                    "whitespace-nowrap border-t border-black/10 px-2 text-right text-xs tabular-nums",
+                    differenceClass(summary.complimentaryCoversDifference, undefined, "count"),
+                  )}
+                >
+                  {formatCoversDifference(summary.complimentaryCoversDifference)}
                 </td>
                 <td className={cn(BODY_CELL_CLASS, "whitespace-nowrap border-l border-t border-black/10 px-2 text-right text-xs tabular-nums")}>
                   {formatMoney(summary.dailyGrossSales)}

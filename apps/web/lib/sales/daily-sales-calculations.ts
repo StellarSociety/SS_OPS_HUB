@@ -161,6 +161,12 @@ export function getSalesEntryDateBannerParts(dateStr: string): {
   };
 }
 
+/** A service's covers that count towards ASPH (total minus complimentary). */
+function serviceAsphCovers(covers: number, complimentary: number | null | undefined): number {
+  const total = Number(covers) || 0;
+  return total - Math.min(total, Math.max(0, Number(complimentary) || 0));
+}
+
 function asph(gross: number, covers: number): number | null {
   if (covers <= 0) return null;
   return gross / covers;
@@ -204,6 +210,11 @@ export function computeDailySales(
     record.lunch_service_fees_gs + record.dinner_service_fees_gs;
   const totalVenueGs = lunchTotalGs + dinnerTotalGs;
   const totalCovers = record.lunch_covers + record.dinner_covers;
+  // ASPH leaves out complimentary (free-table) covers; APS keeps all covers.
+  const lunchAsphCovers = serviceAsphCovers(record.lunch_covers, record.lunch_complimentary_covers);
+  const dinnerAsphCovers = serviceAsphCovers(record.dinner_covers, record.dinner_complimentary_covers);
+  const totalComplimentaryCovers =
+    record.lunch_covers - lunchAsphCovers + (record.dinner_covers - dinnerAsphCovers);
   const totalBookings = record.lunch_bookings + record.dinner_bookings;
   const totalWalkinTables =
     (record.lunch_walkin_tables ?? 0) + (record.dinner_walkin_tables ?? 0);
@@ -234,23 +245,24 @@ export function computeDailySales(
     totalVenueGs,
     totalVenueNet: grossToNet(totalVenueGs, totalTaxPct),
     totalCovers,
+    totalComplimentaryCovers,
     totalBookings,
     totalWalkinTables,
     totalWalkinCovers,
-    foodLunchAsph: asph(record.lunch_food_gs, record.lunch_covers),
-    foodDinnerAsph: asph(record.dinner_food_gs, record.dinner_covers),
-    beveragesLunchAsph: asph(record.lunch_beverages_gs, record.lunch_covers),
+    foodLunchAsph: asph(record.lunch_food_gs, lunchAsphCovers),
+    foodDinnerAsph: asph(record.dinner_food_gs, dinnerAsphCovers),
+    beveragesLunchAsph: asph(record.lunch_beverages_gs, lunchAsphCovers),
     beveragesDinnerAsph: asph(
       record.dinner_beverages_gs,
-      record.dinner_covers,
+      dinnerAsphCovers,
     ),
-    wineLunchAsph: asph(record.lunch_wine_gs, record.lunch_covers),
-    wineDinnerAsph: asph(record.dinner_wine_gs, record.dinner_covers),
-    shishaLunchAsph: asph(record.lunch_shisha_gs, record.lunch_covers),
-    shishaDinnerAsph: asph(record.dinner_shisha_gs, record.dinner_covers),
-    totalVenueAllDayAsph: asph(totalVenueGs, totalCovers),
-    totalVenueLunchAsph: asph(lunchTotalGs, record.lunch_covers),
-    totalVenueDinnerAsph: asph(dinnerTotalGs, record.dinner_covers),
+    wineLunchAsph: asph(record.lunch_wine_gs, lunchAsphCovers),
+    wineDinnerAsph: asph(record.dinner_wine_gs, dinnerAsphCovers),
+    shishaLunchAsph: asph(record.lunch_shisha_gs, lunchAsphCovers),
+    shishaDinnerAsph: asph(record.dinner_shisha_gs, dinnerAsphCovers),
+    totalVenueAllDayAsph: asph(totalVenueGs, lunchAsphCovers + dinnerAsphCovers),
+    totalVenueLunchAsph: asph(lunchTotalGs, lunchAsphCovers),
+    totalVenueDinnerAsph: asph(dinnerTotalGs, dinnerAsphCovers),
     apsAllDay: aps(totalCovers, totalBookings),
     apsLunch: aps(record.lunch_covers, record.lunch_bookings),
     apsDinner: aps(record.dinner_covers, record.dinner_bookings),

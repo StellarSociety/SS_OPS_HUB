@@ -92,6 +92,8 @@ export type BenefitContributor = {
   withheld?: boolean;
   asph?: number | null;
   ccTipOutPercent?: number | null;
+  /** This run only: keeps everything collected — no tip-out or runner / HK cut. */
+  tipOutExempt?: boolean;
   asphKpiMet?: boolean | null;
   /** Distinct sale dates with cash or CC gratuity > 0. */
   collectionDays?: number;

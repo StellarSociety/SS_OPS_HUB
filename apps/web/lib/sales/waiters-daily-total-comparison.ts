@@ -38,6 +38,8 @@ export function mapDailySalesToWaiterColumn(options: {
       return dailyTenderTotal;
     case "total_covers":
       return dailyComputed?.totalCovers ?? null;
+    case "complimentary_covers":
+      return dailyComputed?.totalComplimentaryCovers ?? null;
     case "asph":
       return dailyComputed?.totalVenueAllDayAsph ?? null;
     case "tendersTotalNet":

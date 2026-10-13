@@ -198,6 +198,16 @@ export function isConnectReaction(value: string): value is ConnectReaction {
   return (CONNECT_REACTIONS as readonly string[]).includes(value);
 }
 
+/**
+ * Built-in groups every venue keeps: Announcements and the all-staff venue
+ * team (seeded as "General", often renamed e.g. "Orilla Team"). They are the
+ * first two seeded groups (sort order 10 and 20 — new groups go after the last
+ * one), so they can be configured but never archived.
+ */
+export function isBuiltInConnectGroup(group: { name: string; sortOrder: number }): boolean {
+  return isAnnouncementsGroup(group) || group.sortOrder === 10 || group.sortOrder === 20;
+}
+
 /** The venue's Announcements group (seeded by name), shown as its own phone tab. */
 export function isAnnouncementsGroup(group: { name: string }): boolean {
   return group.name.trim().toLowerCase() === "announcements";

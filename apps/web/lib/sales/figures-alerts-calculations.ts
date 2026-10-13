@@ -403,14 +403,18 @@ function buildDailyVsWaitersCheck(
   waiterGrossSales: number,
   hasDailyRecord: boolean,
   hasWaiterRecords: boolean,
+  dailyComplimentaryCovers = 0,
+  waiterComplimentaryCovers = 0,
 ): FiguresAlertCheck | null {
   if (!hasDailyRecord && !hasWaiterRecords) return null;
 
   const coversDiff = dailyCovers - waiterCovers;
+  const compDiff = dailyComplimentaryCovers - waiterComplimentaryCovers;
+  const compMatched = amountsMatch(dailyComplimentaryCovers, waiterComplimentaryCovers, "count");
   const salesDiff = roundMoney(dailyGrossSales - waiterGrossSales);
   const coversMatched = amountsMatch(dailyCovers, waiterCovers, "count");
   const salesMatched = amountsMatch(dailyGrossSales, waiterGrossSales, "money");
-  const balanced = coversMatched && salesMatched;
+  const balanced = coversMatched && compMatched && salesMatched;
 
   const mismatches: string[] = [];
   if (!coversMatched) {
@@ -418,6 +422,13 @@ function buildDailyVsWaitersCheck(
       coversDiff > 0
         ? `Daily Sales covers (${dailyCovers}) are higher than Waiter Sales covers (${waiterCovers}) by ${coversDiff}.`
         : `Waiter Sales covers (${waiterCovers}) are higher than Daily Sales covers (${dailyCovers}) by ${Math.abs(coversDiff)}.`,
+    );
+  }
+  if (!compMatched) {
+    mismatches.push(
+      compDiff > 0
+        ? `Daily Sales complimentary covers (${dailyComplimentaryCovers}) are higher than Waiter Sales complimentary covers (${waiterComplimentaryCovers}) by ${compDiff}.`
+        : `Waiter Sales complimentary covers (${waiterComplimentaryCovers}) are higher than Daily Sales complimentary covers (${dailyComplimentaryCovers}) by ${Math.abs(compDiff)}.`,
     );
   }
   if (!salesMatched) {
@@ -433,10 +444,12 @@ function buildDailyVsWaitersCheck(
     label: "Daily vs Waiters",
     pageName: "Verification → Daily vs Waiters",
     balanced,
-    differenceGs: !salesMatched ? salesDiff : coversDiff,
+    differenceGs: !salesMatched ? salesDiff : !coversMatched ? coversDiff : compDiff,
     summary: balanced
-      ? "Covers and gross sales match between Daily Sales and Waiter Sales."
-      : !coversMatched && salesMatched
+      ? "Covers, complimentary covers and gross sales match between Daily Sales and Waiter Sales."
+      : coversMatched && !compMatched && salesMatched
+        ? "Complimentary covers differ between Daily Sales and Waiter Sales (covers and sales match)."
+        : !coversMatched && salesMatched
         ? "Covers differ between Daily Sales and Waiter Sales (sales match)."
         : coversMatched && !salesMatched
           ? "Gross sales differ between Daily Sales and Waiter Sales (covers match)."
@@ -453,6 +466,20 @@ function buildDailyVsWaitersCheck(
           label: "Covers (all waiters)",
           page: "Waiter Sales → Entry",
           value: waiterCovers,
+          unit: "count",
+        },
+      ),
+      makePair(
+        {
+          label: "Complimentary Covers",
+          page: "Daily Sales → Entry",
+          value: dailyComplimentaryCovers,
+          unit: "count",
+        },
+        {
+          label: "Complimentary Covers (all waiters)",
+          page: "Waiter Sales → Entry",
+          value: waiterComplimentaryCovers,
           unit: "count",
         },
       ),
@@ -620,6 +647,7 @@ export function buildFiguresAlertsDays(
   const waiterTendersByDate = new Map<string, Record<string, number>>();
   const waiterGratuityByDate = new Map<string, number>();
   const waiterCoversByDate = new Map<string, number>();
+  const waiterComplimentaryCoversByDate = new Map<string, number>();
   const waiterSalesByDate = new Map<string, number>();
   const waiterDiscountsByDate = new Map<string, number>();
 
@@ -647,6 +675,11 @@ export function buildFiguresAlertsDays(
       record.sale_date,
       (waiterCoversByDate.get(record.sale_date) ?? 0) +
         Number(record.total_covers ?? 0),
+    );
+    waiterComplimentaryCoversByDate.set(
+      record.sale_date,
+      (waiterComplimentaryCoversByDate.get(record.sale_date) ?? 0) +
+        Number(record.complimentary_covers ?? 0),
     );
     waiterSalesByDate.set(
       record.sale_date,
@@ -709,6 +742,8 @@ export function buildFiguresAlertsDays(
         waiterSalesByDate.get(saleDate) ?? 0,
         Boolean(dailyRecord),
         waiterEntries.length > 0,
+        dailyComputed?.totalComplimentaryCovers ?? 0,
+        waiterComplimentaryCoversByDate.get(saleDate) ?? 0,
       ),
       buildDiscountsCheck(
         saleDate,

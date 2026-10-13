@@ -33,6 +33,7 @@ import {
   isConnectGroupRole,
   isConnectReaction,
   type ConnectGroupRole,
+  isBuiltInConnectGroup,
 } from "@/lib/connect/types";
 import {
   asUploadBlob,
@@ -684,6 +685,9 @@ export async function setConnectGroupArchived(
 
   const group = await getConnectGroupRow(actor.service, actor.venueId, groupId);
   if (!group) return fail("Group not found.");
+  if (archived && isBuiltInConnectGroup({ name: group.name, sortOrder: group.sort_order })) {
+    return fail(`${group.name} is a built-in group and can't be archived.`);
+  }
 
   const { error } = await actor.service
     .from("connect_groups")

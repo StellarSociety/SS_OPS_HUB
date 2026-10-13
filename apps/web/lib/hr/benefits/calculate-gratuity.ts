@@ -259,6 +259,11 @@ export function calculateGratuityRun(input: {
    * pool instead of booking it to collections or paying the collector.
    */
   withheldRetainToPool?: boolean;
+  /**
+   * This run only: floor waiters who keep everything they collected — no
+   * cash / CC tip-out and no runner / HK cut.
+   */
+  tipOutExemptStaffIds?: string[];
 }): GratuityCalcResult {
   const { settings, staff, waiterSales, scheduleDays } = input;
   const equalizeDepartmentPointValue = Boolean(
@@ -267,6 +272,7 @@ export function calculateGratuityRun(input: {
   const waiveWithheldRetain = Boolean(input.waiveWithheldRetain);
   const withheldRetainToPool =
     Boolean(input.withheldRetainToPool) && !waiveWithheldRetain;
+  const tipOutExempt = new Set(input.tipOutExemptStaffIds ?? []);
   const warnings: string[] = [];
   const staffById = new Map(staff.map((s) => [s.id, s]));
 
@@ -409,17 +415,20 @@ export function calculateGratuityRun(input: {
     waiterCashCollected += cash;
     waiterCcCollected += cc;
 
-    const cashAfterTipOut = round2(
-      (cash * settings.waiterCashRetainPercent) / 100,
-    );
-    const cashPool = round2((cash * settings.waiterCashPoolPercent) / 100);
+    const exempt = Boolean(row.staff_id && tipOutExempt.has(row.staff_id));
+    const cashAfterTipOut = exempt
+      ? cash
+      : round2((cash * settings.waiterCashRetainPercent) / 100);
+    const cashPool = exempt ? 0 : round2((cash * settings.waiterCashPoolPercent) / 100);
     waiterCashTipOut += cashPool;
 
     let tipOut = 0;
     let ccTipOutPercent = 0;
     let asphKpiMet: boolean | null = null;
     const waiterAsph = asph(sales, covers);
-    if (settings.waiterCcTipOutMode === "asph_kpi") {
+    if (exempt) {
+      // Keeps the full CC collection.
+    } else if (settings.waiterCcTipOutMode === "asph_kpi") {
       const rate = (() => {
         if (!settings.asphKpiEnabled) {
           asphKpiMet = null;
@@ -447,7 +456,7 @@ export function calculateGratuityRun(input: {
     waiterCcTipOut += tipOut;
     const ccAfterTipOut = Math.max(0, round2(cc - tipOut));
     // Runner / HK fund: % of cash and CC balances remaining after tip-out.
-    const runnerPct = settings.runnerHousekeeperDeductPercent;
+    const runnerPct = exempt ? 0 : settings.runnerHousekeeperDeductPercent;
     const runnerCutCash = round2((cashAfterTipOut * runnerPct) / 100);
     const runnerCutCc = round2((ccAfterTipOut * runnerPct) / 100);
     const runnerCut = round2(runnerCutCash + runnerCutCc);
@@ -469,6 +478,7 @@ export function calculateGratuityRun(input: {
         cashPool,
         ccTipOut: tipOut,
         ccTipOutPercent,
+        tipOutExempt: exempt,
         asphKpiMet,
         asphKpiThreshold: input.asphKpiThreshold ?? null,
         runnerCut,
@@ -1036,6 +1046,7 @@ export function calculateGratuityRun(input: {
         withheld,
         asph: Number.isFinite(asphRaw) ? asphRaw : null,
         ccTipOutPercent: Number.isFinite(tipOutRaw) ? tipOutRaw : null,
+        tipOutExempt: waiterMeta?.tipOutExempt === true,
         asphKpiMet:
           typeof waiterMeta?.asphKpiMet === "boolean"
             ? waiterMeta.asphKpiMet

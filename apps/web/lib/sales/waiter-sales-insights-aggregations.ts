@@ -1,3 +1,4 @@
+import { asphCovers } from "./waiter-sales-calculations";
 import {
   formatIsoWeekLabel,
   formatMonthLabel,
@@ -107,7 +108,8 @@ function aggregateWaiterTotals(
   for (const entry of entries) {
     const current = totals.get(entry.waiter_id) ?? emptyTotals();
     current.sales += entry.total_sales_gs;
-    current.covers += entry.total_covers;
+    // ASPH covers: complimentary (free-table) covers don't count.
+    current.covers += asphCovers(entry);
     current.gratuity += entry.gratuity_cc_gs + entry.gratuity_cash_gs;
     totals.set(entry.waiter_id, current);
   }

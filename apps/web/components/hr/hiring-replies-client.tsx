@@ -1,13 +1,15 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
   ChevronUp,
+  LayoutGrid,
+  List,
   Settings2,
 } from "lucide-react";
 import { HiringDialog } from "@/components/hr/hiring-dialog";
@@ -27,7 +29,8 @@ import {
   sendHiringInterviewEmail,
   updateHiringApplicationMeta,
 } from "@/lib/actions/hr-hiring";
-import { hiringAnswerDisplay, hiringPictureUrl } from "@/lib/hr/hiring/display";
+import { hiringAnswerDisplay, hiringPictureUrl, hiringShortName } from "@/lib/hr/hiring/display";
+import { nationalityDisplay } from "@/lib/hr/nationality-flag";
 import type { HiringNotifyCandidate } from "@/lib/hr/hiring/notify";
 import {
   HIRING_CATEGORIES,
@@ -118,6 +121,15 @@ export function HiringRepliesClient({
   const { scope, slug } = useVenueScope();
   const [pending, startTransition] = useTransition();
   const [viewOpen, setViewOpen] = useState(false);
+  // Table rows or candidate thumbnails (as on the phone). Kept in the URL
+  // (?view=thumbnails) so it survives switching forms and reloads.
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const layout: "table" | "thumbnails" =
+    searchParams.get("view") === "thumbnails" ? "thumbnails" : "table";
+  function setLayout(next: "table" | "thumbnails") {
+    router.replace(next === "thumbnails" ? `${pathname}?view=thumbnails` : pathname, { scroll: false });
+  }
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [notifyByForm, setNotifyByForm] = useState<Record<string, string[]>>(
     () =>
@@ -238,7 +250,7 @@ export function HiringRepliesClient({
                   `/hr/hiring/replies/${event.target.value}`,
                   scope,
                   slug,
-                ),
+                ) + (layout === "thumbnails" ? "?view=thumbnails" : ""),
               );
             }}
           >
@@ -278,6 +290,20 @@ export function HiringRepliesClient({
                 View settings
               </Button>
             ) : null}
+            {selectedForm ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-11 w-full sm:h-10 sm:w-10 sm:px-0"
+                onClick={() => setLayout(layout === "table" ? "thumbnails" : "table")}
+                aria-pressed={layout === "thumbnails"}
+                aria-label={layout === "thumbnails" ? "Show replies as a table" : "Show candidate thumbnails"}
+                title={layout === "thumbnails" ? "Table view" : "Thumbnail view"}
+              >
+                {layout === "thumbnails" ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
+                <span className="sm:sr-only">{layout === "thumbnails" ? "Table view" : "Thumbnail view"}</span>
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -290,6 +316,18 @@ export function HiringRepliesClient({
         <Card className="px-6 py-16 text-center text-sm text-muted-foreground">
           No replies yet. Share the form link from Forms Builder.
         </Card>
+      ) : layout === "thumbnails" ? (
+        <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+          {sorted.map((application) => (
+            <li key={application.id}>
+              <CandidateThumbnail
+                application={application}
+                blocks={blocks}
+                onOpen={() => setDetail(application)}
+              />
+            </li>
+          ))}
+        </ul>
       ) : (
         <>
           <div className="space-y-2 md:hidden">
@@ -876,5 +914,61 @@ export function HiringRepliesClient({
         </div>
       </HiringDialog>
     </div>
+  );
+}
+
+/** Phone-style candidate thumbnail: photo, short name, position, nationality. */
+function CandidateThumbnail({
+  application,
+  blocks,
+  onOpen,
+}: {
+  application: HiringApplication;
+  blocks: HiringFormBlock[];
+  onOpen: () => void;
+}) {
+  const photo = hiringPictureUrl(application, blocks);
+  const name = hiringShortName(application.applicant_name || "Unnamed");
+  const answerFor = (matches: (block: HiringFormBlock) => boolean) => {
+    for (const block of blocks.filter(matches)) {
+      const text = hiringAnswerDisplay(application, block).trim();
+      if (text && text !== "—") return text;
+    }
+    return "";
+  };
+  const position = answerFor((block) => /position/i.test(block.field_label ?? ""));
+  const nationality = nationalityDisplay(
+    answerFor(
+      (block) => block.field_type === "nationality" || /nationality/i.test(block.field_label ?? ""),
+    ),
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Open ${name}`}
+      className="block w-full min-w-0 rounded-2xl border border-black/10 bg-white/80 p-1.5 text-left transition hover:shadow-sm active:scale-[0.98]"
+    >
+      {photo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={photo} alt="" className="aspect-square w-full rounded-xl object-cover" />
+      ) : (
+        <span className="flex aspect-square w-full items-center justify-center rounded-xl bg-[var(--venue-primary,#818a40)]/15 text-2xl font-medium text-[#3D421F]">
+          {name.charAt(0).toUpperCase()}
+        </span>
+      )}
+      <span className="mt-1.5 block truncate px-0.5 text-center text-xs font-medium leading-4 text-[#3D421F]">
+        {name}
+      </span>
+      <span className="block truncate px-0.5 text-center text-[11px] leading-4 text-black/55">
+        {position || "Position not provided"}
+      </span>
+      <span className="block truncate px-0.5 pb-0.5 text-center text-[11px] leading-4 text-black/50">
+        {nationality
+          ? [nationality.label, nationality.flag].filter(Boolean).join(" ")
+          : "Nationality not provided"}
+      </span>
+    </button>
   );
 }

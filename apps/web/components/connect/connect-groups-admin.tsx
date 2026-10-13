@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, Plus, Settings2 } from "lucide-react";
+import { Archive, ArchiveRestore, Lock, Plus, Settings2 } from "lucide-react";
 import { GroupBadge } from "@/components/connect/group-icon";
 import { GroupDetailsForm } from "@/components/connect/group-settings-panel";
 import { ScopedLink } from "@/components/layout/scoped-link";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { setConnectGroupArchived } from "@/lib/actions/connect";
-import type { ConnectGroup } from "@/lib/connect/types";
+import { isBuiltInConnectGroup, type ConnectGroup } from "@/lib/connect/types";
 import { cn } from "@/lib/utils";
 import { toScopedHref } from "@/lib/venue/scope-routing";
 
@@ -69,6 +69,16 @@ export function ConnectGroupsAdmin({
               Configure
             </ScopedLink>
           ) : null}
+          {isBuiltInConnectGroup(g) && !g.archivedAt ? (
+            // Built-in: configurable, never archived.
+            <span
+              className="inline-flex h-9 items-center gap-1.5 px-3 text-sm text-black/50"
+              title="Built-in group: it can be configured but not archived."
+            >
+              <Lock className="h-3.5 w-3.5" aria-hidden />
+              Built-in
+            </span>
+          ) : (
           <Button
             type="button"
             variant="ghost"
@@ -84,6 +94,7 @@ export function ConnectGroupsAdmin({
             )}
             {g.archivedAt ? "Restore" : "Archive"}
           </Button>
+          )}
         </div>
       ) : (
         <ScopedLink

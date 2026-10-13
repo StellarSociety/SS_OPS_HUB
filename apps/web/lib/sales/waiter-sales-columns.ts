@@ -92,6 +92,13 @@ const BASE_COLUMNS: WaiterSalesColumn[] = [
     section: "summary",
   },
   {
+    key: "complimentary_covers",
+    label: "Comp. Covers",
+    kind: "count",
+    field: "complimentary_covers",
+    section: "summary",
+  },
+  {
     key: "total_discounts_gs",
     label: "Total Discounts",
     kind: "input",

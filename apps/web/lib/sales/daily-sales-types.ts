@@ -27,6 +27,8 @@ export type VenueDailySalesRecord = {
   lunch_others_gs: number;
   lunch_service_fees_gs: number;
   lunch_covers: number;
+  /** Lunch covers on free (comped) tables: part of lunch_covers, left out of ASPH. */
+  lunch_complimentary_covers: number;
   lunch_bookings: number;
   lunch_walkin_tables: number;
   lunch_walkin_covers: number;
@@ -38,6 +40,8 @@ export type VenueDailySalesRecord = {
   dinner_others_gs: number;
   dinner_service_fees_gs: number;
   dinner_covers: number;
+  /** Dinner covers on free (comped) tables: part of dinner_covers, left out of ASPH. */
+  dinner_complimentary_covers: number;
   dinner_bookings: number;
   dinner_walkin_tables: number;
   dinner_walkin_covers: number;
@@ -60,6 +64,7 @@ export type VenueDailySalesInputField =
   | "lunch_others_gs"
   | "lunch_service_fees_gs"
   | "lunch_covers"
+  | "lunch_complimentary_covers"
   | "lunch_bookings"
   | "lunch_walkin_tables"
   | "lunch_walkin_covers"
@@ -71,6 +76,7 @@ export type VenueDailySalesInputField =
   | "dinner_others_gs"
   | "dinner_service_fees_gs"
   | "dinner_covers"
+  | "dinner_complimentary_covers"
   | "dinner_bookings"
   | "dinner_walkin_tables"
   | "dinner_walkin_covers"
@@ -103,6 +109,8 @@ export type ComputedDailySales = {
   totalVenueGs: number;
   totalVenueNet: number;
   totalCovers: number;
+  /** Lunch + dinner complimentary covers (included in totalCovers). */
+  totalComplimentaryCovers: number;
   totalBookings: number;
   totalWalkinTables: number;
   totalWalkinCovers: number;

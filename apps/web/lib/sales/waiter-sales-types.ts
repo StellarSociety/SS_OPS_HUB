@@ -28,6 +28,8 @@ export type VenueWaiterDailySalesRecord = {
   gratuity_cash_gs: number;
   groups_service_charge_gs: number;
   total_covers: number;
+  /** Covers on free (comped) tables: part of total_covers, left out of ASPH. */
+  complimentary_covers: number;
   total_discounts_gs: number;
   voucher_comments: string;
   deposit_comments: string;
@@ -56,6 +58,7 @@ export type WaiterSalesScalarField =
   | "gratuity_cash_gs"
   | "groups_service_charge_gs"
   | "total_covers"
+  | "complimentary_covers"
   | "total_discounts_gs";
 
 export type ComputedWaiterSales = {

@@ -1129,6 +1129,92 @@ export async function updateBenefitRunWithheldRetainDisposition(
   }
 }
 
+/** This run only: let a waiter keep everything they collected (no tip-out). */
+export async function updateBenefitRunTipOutExempt(
+  runId: string,
+  staffId: string,
+  exempt: boolean,
+): Promise<BenefitActionResult & { warnings?: string[] }> {
+  const auth = await getBenefitsAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions } = auth;
+
+  if (!canEditBenefits(permissions, venue.id)) {
+    return { ok: false, error: "No permission to edit this benefit run." };
+  }
+  if (!staffId) return { ok: false, error: "Pick a staff member." };
+
+  try {
+    const service = createServiceClient();
+    const { data: run, error } = await service
+      .from("hr_benefit_runs")
+      .select("id, status, settings_snapshot, benefit_kind")
+      .eq("id", runId)
+      .eq("venue_id", venue.id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!run) return { ok: false, error: "Benefit run not found." };
+    if (run.benefit_kind !== "gratuity") {
+      return { ok: false, error: "Tip-out exemptions apply to gratuity runs only." };
+    }
+    if (isBenefitRunLocked(String(run.status))) {
+      return {
+        ok: false,
+        error: `Cannot change tip-out on a run in status "${run.status}".`,
+      };
+    }
+
+    const baseSnapshot =
+      (run.settings_snapshot as Record<string, unknown> | null) ?? {};
+    const current = Array.isArray(baseSnapshot.tipOutExemptStaffIds)
+      ? (baseSnapshot.tipOutExemptStaffIds as unknown[]).filter(
+          (id): id is string => typeof id === "string",
+        )
+      : [];
+    const next = exempt
+      ? [...new Set([...current, staffId])]
+      : current.filter((id) => id !== staffId);
+
+    await service
+      .from("hr_benefit_runs")
+      .update({
+        settings_snapshot: { ...baseSnapshot, tipOutExemptStaffIds: next },
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", runId)
+      .eq("venue_id", venue.id);
+
+    const { warnings } = await persistCalculatedBenefitRun({
+      service,
+      venueId: venue.id,
+      runId,
+      kind: "gratuity",
+      userId: user.id,
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      venue_id: venue.id,
+      action: "benefits.tip_out_exempt_updated",
+      module_key: HR_MODULE_KEY,
+      entity: "hr_benefit_runs",
+      entity_id: runId,
+      before: { tipOutExemptStaffIds: current },
+      after: { tipOutExemptStaffIds: next },
+    });
+
+    revalidateBenefits("gratuity", runId);
+    return { ok: true, id: runId, warnings };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Could not update tip-out exemption",
+    };
+  }
+}
+
 /**
  * Persist current run settings (department shares / deductions / allocation mode)
  * and leave the run in draft for later finalization. Does not reload venue policy.

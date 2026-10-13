@@ -28,6 +28,7 @@ import { notificationCanonicalHref as notificationHref } from "@/lib/notificatio
 import type { NotificationRow } from "@/lib/notifications/types";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { playAlert } from "@/lib/connect/sounds";
 import { cn } from "@/lib/utils";
 
 type NotificationCenterProps = {
@@ -206,7 +207,13 @@ export function NotificationCenter({
 
       if (!row || !matchesVenue(row, venueId, isGlobalVenue)) return;
       // Chat / feed alerts belong to the Connecteam app icon, not the bell.
-      if (row.module_key === CONNECT_MODULE_KEY) return;
+      if (row.module_key === CONNECT_MODULE_KEY) {
+        // Chat sounds come from the chat widget; feed activity sounds here.
+        if (eventType === "INSERT" && row.type.startsWith("connect_") && !row.read_at) {
+          playAlert("feed");
+        }
+        return;
+      }
 
       if (isArchivedNotification(row)) {
         knownIdsRef.current.delete(row.id);

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { asphCovers } from "@/lib/sales/waiter-sales-calculations";
 import {
   calculateGratuityRun,
   type GratuityStaffInput,
@@ -179,7 +180,7 @@ async function loadWaiterPeriodSales(
   const { data: sales, error: salesError } = await service
     .from("venue_waiter_daily_sales")
     .select(
-      "waiter_id, sale_date, gratuity_cash_gs, gratuity_cc_gs, total_sales_gs, total_covers",
+      "waiter_id, sale_date, gratuity_cash_gs, gratuity_cc_gs, total_sales_gs, total_covers, complimentary_covers",
     )
     .eq("venue_id", venueId)
     .gte("sale_date", periodStart)
@@ -211,7 +212,12 @@ async function loadWaiterPeriodSales(
     cur.cash_gs += cash;
     cur.cc_gs += cc;
     cur.total_sales_gs += Number(row.total_sales_gs) || 0;
-    cur.total_covers += Number(row.total_covers) || 0;
+    // Covers for the ASPH KPI: complimentary (free-table) covers are left out,
+    // so a comped table doesn't lower the waiter's ASPH.
+    cur.total_covers += asphCovers({
+      total_covers: Number(row.total_covers) || 0,
+      complimentary_covers: Number(row.complimentary_covers) || 0,
+    });
     if (cash > 0 || cc > 0) {
       const date = String(row.sale_date ?? "").slice(0, 10);
       if (date) cur.collectionDates.add(date);
@@ -872,6 +878,11 @@ export async function persistCalculatedBenefitRun(args: {
       asphKpiThreshold,
       waiveWithheldRetain: snapshot.waiveWithheldRetain === true,
       withheldRetainToPool: snapshot.withheldRetainToPool === true,
+      tipOutExemptStaffIds: Array.isArray(snapshot.tipOutExemptStaffIds)
+        ? (snapshot.tipOutExemptStaffIds as unknown[]).filter(
+            (id): id is string => typeof id === "string",
+          )
+        : [],
     });
 
     warnings = [...result.warnings];

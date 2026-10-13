@@ -229,6 +229,14 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
   const createDateError = salesEntryCreateDateError(saleDate, !id);
   if (createDateError) return { error: createDateError };
 
+  const lunchCovers = parseCount(formData.get("lunch_covers"));
+  const dinnerCovers = parseCount(formData.get("dinner_covers"));
+  const lunchComplimentaryCovers = parseCount(formData.get("lunch_complimentary_covers"));
+  const dinnerComplimentaryCovers = parseCount(formData.get("dinner_complimentary_covers"));
+  if (lunchComplimentaryCovers > lunchCovers || dinnerComplimentaryCovers > dinnerCovers) {
+    return { error: "Complimentary Covers can't be more than Total Covers." };
+  }
+
   try {
     const record = await upsertVenueDailySales(supabase, venue.id, user.id, {
       id,
@@ -240,7 +248,8 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
       lunch_tobacco_gs: parseMoney(formData.get("lunch_tobacco_gs")),
       lunch_others_gs: parseMoney(formData.get("lunch_others_gs")),
       lunch_service_fees_gs: parseMoney(formData.get("lunch_service_fees_gs")),
-      lunch_covers: parseCount(formData.get("lunch_covers")),
+      lunch_covers: lunchCovers,
+      lunch_complimentary_covers: lunchComplimentaryCovers,
       lunch_bookings: parseCount(formData.get("lunch_bookings")),
       lunch_walkin_tables: parseCount(formData.get("lunch_walkin_tables")),
       lunch_walkin_covers: parseCount(formData.get("lunch_walkin_covers")),
@@ -251,7 +260,8 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
       dinner_tobacco_gs: parseMoney(formData.get("dinner_tobacco_gs")),
       dinner_others_gs: parseMoney(formData.get("dinner_others_gs")),
       dinner_service_fees_gs: parseMoney(formData.get("dinner_service_fees_gs")),
-      dinner_covers: parseCount(formData.get("dinner_covers")),
+      dinner_covers: dinnerCovers,
+      dinner_complimentary_covers: dinnerComplimentaryCovers,
       dinner_bookings: parseCount(formData.get("dinner_bookings")),
       dinner_walkin_tables: parseCount(formData.get("dinner_walkin_tables")),
       dinner_walkin_covers: parseCount(formData.get("dinner_walkin_covers")),
@@ -1103,6 +1113,12 @@ export async function saveVenueWaiterDailySalesEntry(formData: FormData) {
     }
   }
 
+  const totalCovers = parseCount(formData.get("total_covers"));
+  const complimentaryCovers = parseCount(formData.get("complimentary_covers"));
+  if (complimentaryCovers > totalCovers) {
+    return { error: "Complimentary Covers can't be more than Total Covers." };
+  }
+
   try {
     const record = await upsertVenueWaiterDailySales(supabase, venue.id, user.id, {
       id,
@@ -1115,7 +1131,8 @@ export async function saveVenueWaiterDailySalesEntry(formData: FormData) {
       groups_service_charge_gs: parseMoney(
         formData.get("groups_service_charge_gs"),
       ),
-      total_covers: parseCount(formData.get("total_covers")),
+      total_covers: totalCovers,
+      complimentary_covers: complimentaryCovers,
       total_discounts_gs: parseMoney(formData.get("total_discounts_gs")),
       voucher_comments: String(formData.get("voucher_comments") ?? "").trim(),
       deposit_comments: String(formData.get("deposit_comments") ?? "").trim(),

@@ -42,6 +42,7 @@ import {
   CONNECT_MODULE_KEY,
 } from "@/lib/connect/types";
 import { dispatchPendingPushes } from "@/lib/push/send";
+import { filterByAlertPref } from "@/lib/connect/notification-prefs";
 import {
   asUploadBlob,
   convertImageToWebp,
@@ -565,11 +566,19 @@ async function notifyChatMessage(
   const text = (flat.length > 120 ? `${flat.slice(0, 119)}…` : flat) || "📎 Sent an attachment";
   const isGroup = conv.kind === "group";
   const now = new Date().toISOString();
+  // Each person's Connecteam notification settings decide who is alerted.
+  const alerted = await filterByAlertPref(
+    actor.service,
+    recipients,
+    (userId) => userId,
+    (userId) => (!isGroup ? "chatDirect" : mentioned.has(userId) ? "mentions" : "chatGroup"),
+  );
+  if (alerted.length === 0) return;
 
   // One live notification per chat per person: each new message refreshes it
   // (and re-alerts) instead of stacking dozens of rows.
   const { error } = await actor.service.from("notifications").upsert(
-    recipients.map((userId) => ({
+    alerted.map((userId) => ({
       user_id: userId,
       venue_id: actor.venueId,
       module_key: CONNECT_MODULE_KEY,

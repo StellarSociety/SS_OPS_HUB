@@ -16,6 +16,8 @@ import {
 } from "@/lib/connect/store";
 import type { ConnectGroup, ConnectPerson, ConnectPost } from "@/lib/connect/types";
 import { loadPresence, type PresenceStatus } from "@/lib/connect/presence";
+import type { VenueSoundDefaults } from "@/lib/connect/sounds";
+import { loadVenueSoundDefaults } from "@/lib/connect/venue-sound-defaults";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export type ChatWidgetData = {
@@ -25,6 +27,8 @@ export type ChatWidgetData = {
   people: ConnectPerson[];
   /** Online status per user (direct-chat partners and people). */
   presence: Record<string, PresenceStatus>;
+  /** Venue-wide default alert sounds set by an admin. */
+  soundDefaults: VenueSoundDefaults | null;
 };
 
 /** Conversations and people for the floating chat widget. */
@@ -38,9 +42,10 @@ export async function getChatWidgetData(): Promise<
     return { ok: false, error: "No access to Connecteam." };
   }
   const service = createServiceClient();
-  const [chats, people] = await Promise.all([
+  const [chats, people, soundDefaults] = await Promise.all([
     listMyChats(service, auth.venue.id, auth.user.id),
     listVenueAppUsers(service, auth.venue.id),
+    loadVenueSoundDefaults(service, auth.venue.id),
   ]);
   const others = people.filter((p) => p.userId !== auth.user.id);
   const presence = await loadPresence(service, [
@@ -54,6 +59,7 @@ export async function getChatWidgetData(): Promise<
       chats,
       people: others,
       presence,
+      soundDefaults,
     },
   };
 }

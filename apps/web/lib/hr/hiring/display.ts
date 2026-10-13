@@ -58,3 +58,17 @@ export function hiringPictureUrl(
     null
   );
 }
+
+/** First two words of a candidate's name, in title case ("JOHN de silva x" → "John De"). */
+export function hiringShortName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) =>
+      part
+        .toLocaleLowerCase()
+        .replace(/(^|[\s'-])\p{L}/gu, (letter) => letter.toLocaleUpperCase()),
+    )
+    .join(" ");
+}

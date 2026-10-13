@@ -18,7 +18,15 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+} from "react";
 import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
 import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
 import { ChatWidgetFeed } from "@/components/connect/chat/chat-widget-feed";
@@ -77,63 +85,17 @@ import type { ConnectPerson } from "@/lib/connect/types";
 import { MessageTicks } from "@/components/connect/chat/message-ticks";
 import { useChatReceipts } from "@/components/connect/chat/use-chat-receipts";
 import { receiptStatus } from "@/lib/connect/chat-receipts";
+import {
+  playAlert,
+  playSound,
+  readSoundSettings,
+  setVenueSoundDefaults,
+  subscribeSoundSettings,
+  unlockAudio,
+  writeSoundSettings,
+} from "@/lib/connect/sounds";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-
-const MUTE_KEY = "ssops.chat.muted";
-
-// ---------------------------------------------------------------------------
-// New-message sound: a short two-note chime made with Web Audio, so there is
-// no file to load. Browsers only allow audio after the user has interacted
-// with the page, so the context is created on the first click or key press.
-// ---------------------------------------------------------------------------
-
-let audioCtx: AudioContext | null = null;
-
-function unlockAudio() {
-  if (typeof window === "undefined") return;
-  try {
-    audioCtx ??= new AudioContext();
-    if (audioCtx.state === "suspended") void audioCtx.resume();
-  } catch {
-    audioCtx = null;
-  }
-}
-
-function playChime() {
-  const ctx = audioCtx;
-  if (!ctx || ctx.state !== "running") return;
-  const start = ctx.currentTime;
-  [880, 1318.5].forEach((freq, i) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = freq;
-    const t = start + i * 0.12;
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.18, t + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(t);
-    osc.stop(t + 0.3);
-  });
-}
-
-function readMuted(): boolean {
-  try {
-    return window.localStorage.getItem(MUTE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeMuted(value: boolean) {
-  try {
-    window.localStorage.setItem(MUTE_KEY, value ? "1" : "0");
-  } catch {
-    // storage unavailable
-  }
-}
 
 function Badge({ count, className }: { count: number; className?: string }) {
   if (count <= 0) return null;
@@ -226,7 +188,11 @@ export function ChatWidget() {
     Boolean(activeId) && !composing && !feedMode,
   );
   // Renders nothing until data loads client-side, so reading storage here is hydration-safe.
-  const [muted, setMuted] = useState(() => typeof window !== "undefined" && readMuted());
+  const muted = !useSyncExternalStore(
+    subscribeSoundSettings,
+    () => readSoundSettings().enabled,
+    () => true,
+  );
 
   // Latest values for the realtime callback, which subscribes once.
   const live = useRef({ open, activeId, muted, meId: "", chatsPageConversation, known: new Set<string>() });
@@ -248,6 +214,7 @@ export function ChatWidget() {
         if (result.ok) {
           setData(result.data);
           setPresence(result.data.presence);
+          setVenueSoundDefaults(result.data.soundDefaults);
         }
       }),
     [],
@@ -314,7 +281,7 @@ export function ChatWidget() {
             ((state.open && state.activeId === row.conversation_id) ||
               state.chatsPageConversation === row.conversation_id);
 
-          if (fromOther && !readingHere && !state.muted) playChime();
+          if (fromOther && !readingHere && !state.muted) playAlert("chat");
 
           if (state.open && state.activeId === row.conversation_id) {
             setMessages((prev) =>
@@ -826,12 +793,11 @@ export function ChatWidget() {
               <button
                 type="button"
                 onClick={() => {
-                  const next = !muted;
-                  setMuted(next);
-                  writeMuted(next);
-                  if (!next) {
+                  const settings = readSoundSettings();
+                  writeSoundSettings({ ...settings, enabled: muted });
+                  if (muted) {
                     unlockAudio();
-                    playChime();
+                    playSound(settings.chatSound, settings.volume);
                   }
                 }}
                 title={muted ? "Turn message sound on" : "Mute message sound"}

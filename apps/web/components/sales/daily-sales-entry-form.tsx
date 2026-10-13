@@ -108,6 +108,7 @@ type FormState = {
   lunch_others_gs: number;
   lunch_service_fees_gs: number;
   lunch_covers: number;
+  lunch_complimentary_covers: number;
   lunch_bookings: number;
   lunch_walkin_tables: number;
   lunch_walkin_covers: number;
@@ -119,6 +120,7 @@ type FormState = {
   dinner_others_gs: number;
   dinner_service_fees_gs: number;
   dinner_covers: number;
+  dinner_complimentary_covers: number;
   dinner_bookings: number;
   dinner_walkin_tables: number;
   dinner_walkin_covers: number;
@@ -171,6 +173,7 @@ function emptyForm(date: string, tenderIds: string[]): FormState {
     lunch_others_gs: 0,
     lunch_service_fees_gs: 0,
     lunch_covers: 0,
+    lunch_complimentary_covers: 0,
     lunch_bookings: 0,
     lunch_walkin_tables: 0,
     lunch_walkin_covers: 0,
@@ -182,6 +185,7 @@ function emptyForm(date: string, tenderIds: string[]): FormState {
     dinner_others_gs: 0,
     dinner_service_fees_gs: 0,
     dinner_covers: 0,
+    dinner_complimentary_covers: 0,
     dinner_bookings: 0,
     dinner_walkin_tables: 0,
     dinner_walkin_covers: 0,
@@ -208,6 +212,7 @@ function recordToForm(
     lunch_others_gs: record.lunch_others_gs,
     lunch_service_fees_gs: record.lunch_service_fees_gs ?? 0,
     lunch_covers: record.lunch_covers,
+    lunch_complimentary_covers: record.lunch_complimentary_covers ?? 0,
     lunch_bookings: record.lunch_bookings,
     lunch_walkin_tables: record.lunch_walkin_tables ?? 0,
     lunch_walkin_covers: record.lunch_walkin_covers ?? 0,
@@ -219,6 +224,7 @@ function recordToForm(
     dinner_others_gs: record.dinner_others_gs,
     dinner_service_fees_gs: record.dinner_service_fees_gs ?? 0,
     dinner_covers: record.dinner_covers,
+    dinner_complimentary_covers: record.dinner_complimentary_covers ?? 0,
     dinner_bookings: record.dinner_bookings,
     dinner_walkin_tables: record.dinner_walkin_tables ?? 0,
     dinner_walkin_covers: record.dinner_walkin_covers ?? 0,
@@ -265,6 +271,7 @@ function ServiceColumn({
   title,
   salesFields,
   coversKey,
+  complimentaryCoversKey,
   bookingsKey,
   walkinTablesKey,
   walkinCoversKey,
@@ -278,6 +285,7 @@ function ServiceColumn({
   title: string;
   salesFields: { key: VenueDailySalesInputField; label: string }[];
   coversKey: VenueDailySalesInputField;
+  complimentaryCoversKey: VenueDailySalesInputField;
   bookingsKey: VenueDailySalesInputField;
   walkinTablesKey: VenueDailySalesInputField;
   walkinCoversKey: VenueDailySalesInputField;
@@ -331,7 +339,7 @@ function ServiceColumn({
           </SalesFormFieldRow>
         ))}
         <div className="space-y-2 border-t border-black/10 pt-2">
-          <SalesFormFieldRow label="Covers">
+          <SalesFormFieldRow label="Total Covers">
             <SalesNumericInput
               key={`${coversKey}-${form.id}-${form.sale_date}`}
               value={form[coversKey]}
@@ -340,6 +348,25 @@ function ServiceColumn({
               onChange={(v) => onChange(coversKey, v)}
             />
           </SalesFormFieldRow>
+          <SalesFormFieldRow
+            label={
+              <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-right">
+                <span>Complimentary Covers</span>
+                <span className="text-xs text-black/45">Not in ASPH</span>
+              </span>
+            }
+          >
+            <SalesNumericInput
+              key={`${complimentaryCoversKey}-${form.id}-${form.sale_date}`}
+              value={form[complimentaryCoversKey]}
+              disabled={!canEdit}
+              isInteger
+              onChange={(v) => onChange(complimentaryCoversKey, v)}
+            />
+          </SalesFormFieldRow>
+          {Number(form[complimentaryCoversKey]) > Number(form[coversKey]) ? (
+            <p className="text-right text-xs text-red-600">Can&apos;t be more than Total Covers.</p>
+          ) : null}
           <SalesFormFieldRow label="Walk-in Covers">
             <SalesNumericInput
               key={`${walkinCoversKey}-${form.id}-${form.sale_date}`}
@@ -1435,6 +1462,7 @@ export function DailySalesEntryForm({
         "lunch_others_gs",
         "lunch_service_fees_gs",
         "lunch_covers",
+        "lunch_complimentary_covers",
         "lunch_bookings",
         "lunch_walkin_tables",
         "lunch_walkin_covers",
@@ -1446,6 +1474,7 @@ export function DailySalesEntryForm({
         "dinner_others_gs",
         "dinner_service_fees_gs",
         "dinner_covers",
+        "dinner_complimentary_covers",
         "dinner_bookings",
         "dinner_walkin_tables",
         "dinner_walkin_covers",
@@ -1631,6 +1660,7 @@ export function DailySalesEntryForm({
           title="Lunch Sales"
           salesFields={LUNCH_SALES_FIELDS}
           coversKey="lunch_covers"
+          complimentaryCoversKey="lunch_complimentary_covers"
           bookingsKey="lunch_bookings"
           walkinTablesKey="lunch_walkin_tables"
           walkinCoversKey="lunch_walkin_covers"
@@ -1645,6 +1675,7 @@ export function DailySalesEntryForm({
           title="Dinner Sales"
           salesFields={DINNER_SALES_FIELDS}
           coversKey="dinner_covers"
+          complimentaryCoversKey="dinner_complimentary_covers"
           bookingsKey="dinner_bookings"
           walkinTablesKey="dinner_walkin_tables"
           walkinCoversKey="dinner_walkin_covers"

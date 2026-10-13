@@ -537,16 +537,14 @@ export function ChatShell({
           <div className={cn("border-b p-2", ui.divider)}>
             <p className="flex items-center justify-between px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-black/45">
               Feeds
-              {canManageGroups ? (
-                <ScopedLink
-                  href="/connect/settings"
-                  className="rounded-full p-1 text-black/40 hover:bg-black/5 hover:text-black/70"
-                  title="Manage groups"
-                  aria-label="Manage groups"
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                </ScopedLink>
-              ) : null}
+              <ScopedLink
+                href={canManageGroups ? "/connect/settings" : "/connect/settings?tab=notifications"}
+                className="rounded-full p-1 text-black/40 hover:bg-black/5 hover:text-black/70"
+                title={canManageGroups ? "Connecteam settings" : "Notification settings"}
+                aria-label={canManageGroups ? "Connecteam settings" : "Notification settings"}
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </ScopedLink>
             </p>
             {visibleGroups.map((g) => (
               <ScopedLink

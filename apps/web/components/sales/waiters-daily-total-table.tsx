@@ -378,7 +378,8 @@ export function WaitersDailyTotalTable({
                     className={cn(
                       salesTableNumericCellClass(
                         isSalesTableCoversOrBookingsKey(column.key) ||
-                          column.key === "total_covers",
+                          column.key === "total_covers" ||
+                          column.key === "complimentary_covers",
                       ),
                       isDifference &&
                         (Math.abs(value) <= FIGURES_ALERTS_TOLERANCE

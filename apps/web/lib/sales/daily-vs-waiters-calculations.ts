@@ -17,6 +17,10 @@ export type DailyVsWaitersDayRow = {
   dailyCovers: number;
   waiterCovers: number;
   coversDifference: number;
+  /** Complimentary (free-table) covers: Daily Sales vs the waiters' entries. */
+  dailyComplimentaryCovers: number;
+  waiterComplimentaryCovers: number;
+  complimentaryCoversDifference: number;
   dailyGrossSales: number;
   waiterGrossSales: number;
   grossSalesDifference: number;
@@ -29,23 +33,28 @@ export type DailyVsWaitersMonthSummary = {
   dailyCovers: number;
   waiterCovers: number;
   coversDifference: number;
+  dailyComplimentaryCovers: number;
+  waiterComplimentaryCovers: number;
+  complimentaryCoversDifference: number;
   dailyGrossSales: number;
   waiterGrossSales: number;
   grossSalesDifference: number;
   matchedDays: number;
   discrepancyDays: number;
   coversDiscrepancyDays: number;
+  complimentaryCoversDiscrepancyDays: number;
   revenueDiscrepancyDays: number;
 };
 
 export function aggregateWaiterSalesByDate(
   records: VenueWaiterDailySalesEntry[],
-): Map<string, { covers: number; grossSales: number }> {
-  const byDate = new Map<string, { covers: number; grossSales: number }>();
+): Map<string, { covers: number; complimentaryCovers: number; grossSales: number }> {
+  const byDate = new Map<string, { covers: number; complimentaryCovers: number; grossSales: number }>();
 
   for (const record of records) {
-    const current = byDate.get(record.sale_date) ?? { covers: 0, grossSales: 0 };
+    const current = byDate.get(record.sale_date) ?? { covers: 0, complimentaryCovers: 0, grossSales: 0 };
     current.covers += Number(record.total_covers);
+    current.complimentaryCovers += Number(record.complimentary_covers ?? 0);
     current.grossSales += Number(record.total_sales_gs);
     byDate.set(record.sale_date, current);
   }
@@ -68,6 +77,7 @@ export function buildDailyVsWaitersRows(
     const dailyRecord = dailyByDate.get(saleDate);
     const waiterTotals = waiterByDate.get(saleDate) ?? {
       covers: 0,
+      complimentaryCovers: 0,
       grossSales: 0,
     };
 
@@ -78,6 +88,9 @@ export function buildDailyVsWaitersRows(
     const dailyGrossSales = dailyComputed?.totalVenueGs ?? 0;
 
     const coversDifference = dailyCovers - waiterTotals.covers;
+    const dailyComplimentaryCovers = dailyComputed?.totalComplimentaryCovers ?? 0;
+    const complimentaryCoversDifference =
+      dailyComplimentaryCovers - waiterTotals.complimentaryCovers;
     const grossSalesDifference = dailyGrossSales - waiterTotals.grossSales;
     const grossSalesMatched =
       Math.abs(grossSalesDifference) <= FIGURES_ALERTS_TOLERANCE;
@@ -89,12 +102,16 @@ export function buildDailyVsWaitersRows(
       dailyCovers,
       waiterCovers: waiterTotals.covers,
       coversDifference,
+      dailyComplimentaryCovers,
+      waiterComplimentaryCovers: waiterTotals.complimentaryCovers,
+      complimentaryCoversDifference,
       dailyGrossSales,
       waiterGrossSales: waiterTotals.grossSales,
       grossSalesDifference,
       hasDailyRecord: Boolean(dailyRecord),
       hasWaiterRecords: waiterByDate.has(saleDate),
-      isMatched: coversDifference === 0 && grossSalesMatched,
+      isMatched:
+        coversDifference === 0 && complimentaryCoversDifference === 0 && grossSalesMatched,
     };
   });
 }
@@ -111,6 +128,10 @@ export function summarizeDailyVsWaitersRows(
       dailyCovers: acc.dailyCovers + row.dailyCovers,
       waiterCovers: acc.waiterCovers + row.waiterCovers,
       coversDifference: acc.coversDifference + row.coversDifference,
+      dailyComplimentaryCovers: acc.dailyComplimentaryCovers + row.dailyComplimentaryCovers,
+      waiterComplimentaryCovers: acc.waiterComplimentaryCovers + row.waiterComplimentaryCovers,
+      complimentaryCoversDifference:
+        acc.complimentaryCoversDifference + row.complimentaryCoversDifference,
       dailyGrossSales: acc.dailyGrossSales + row.dailyGrossSales,
       waiterGrossSales: acc.waiterGrossSales + row.waiterGrossSales,
       grossSalesDifference:
@@ -119,6 +140,9 @@ export function summarizeDailyVsWaitersRows(
       discrepancyDays: acc.discrepancyDays + (row.isMatched ? 0 : 1),
       coversDiscrepancyDays:
         acc.coversDiscrepancyDays + (row.coversDifference !== 0 ? 1 : 0),
+      complimentaryCoversDiscrepancyDays:
+        acc.complimentaryCoversDiscrepancyDays +
+        (row.complimentaryCoversDifference !== 0 ? 1 : 0),
       revenueDiscrepancyDays:
         acc.revenueDiscrepancyDays +
         (Math.abs(row.grossSalesDifference) > FIGURES_ALERTS_TOLERANCE
@@ -129,12 +153,16 @@ export function summarizeDailyVsWaitersRows(
       dailyCovers: 0,
       waiterCovers: 0,
       coversDifference: 0,
+      dailyComplimentaryCovers: 0,
+      waiterComplimentaryCovers: 0,
+      complimentaryCoversDifference: 0,
       dailyGrossSales: 0,
       waiterGrossSales: 0,
       grossSalesDifference: 0,
       matchedDays: 0,
       discrepancyDays: 0,
       coversDiscrepancyDays: 0,
+      complimentaryCoversDiscrepancyDays: 0,
       revenueDiscrepancyDays: 0,
     },
   );

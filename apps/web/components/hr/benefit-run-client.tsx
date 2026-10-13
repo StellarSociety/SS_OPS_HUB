@@ -17,6 +17,7 @@ import {
   ChevronUp,
   ChevronsUpDown,
   FileDown,
+  ImageDown,
   Search,
   X,
 } from "lucide-react";
@@ -33,6 +34,7 @@ import {
   saveBenefitRunDraft,
   updateBenefitRunAsphKpiThreshold,
   updateBenefitRunDepartmentShares,
+  updateBenefitRunTipOutExempt,
   updateBenefitRunWithheldRetainDisposition,
   type WithheldRetainDisposition,
   updateBenefitStaffOverride,
@@ -67,6 +69,8 @@ import {
   DEFAULT_GRATUITY_POINT_TIERS,
 } from "@/lib/hr/benefits";
 import { previewBenefitRunPdf } from "@/lib/hr/benefit-run-export";
+import { exportBenefitRunSnapshot } from "@/lib/hr/benefit-run-snapshot";
+import { formatDateDmy } from "@/lib/accounting/money";
 import type { PayrollDayFraction } from "@/lib/hr/payroll";
 import { cn } from "@/lib/utils";
 import {
@@ -304,6 +308,10 @@ function PolicyDisclosure({
           {children}
         </div>
       ) : null}
+      {/* Always in the DOM so table snapshots can include the policy text. */}
+      <div hidden data-policy-snapshot={label}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -770,6 +778,8 @@ function WorkedDaysLink({
   );
 }
 
+type SnapshotSection = "summary" | "contributors" | "allocations";
+
 export function BenefitRunClient({
   kind,
   run,
@@ -850,6 +860,10 @@ export function BenefitRunClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingSnapshot, setExportingSnapshot] = useState<SnapshotSection | null>(null);
+  const snapshotRef = useRef<HTMLDivElement>(null);
+  const contributorsSnapshotRef = useRef<HTMLDivElement>(null);
+  const allocationsSnapshotRef = useRef<HTMLDivElement>(null);
   const [pdfPreview, setPdfPreview] = useState<{
     url: string;
     filename: string;
@@ -1013,6 +1027,20 @@ export function BenefitRunClient({
       );
       if (!result.ok) {
         setError(result.error ?? "Could not update withheld retain.");
+        return;
+      }
+      setWarnings(result.warnings ?? []);
+      router.refresh();
+    });
+  }
+
+  function setTipOutExempt(staffId: string, exempt: boolean) {
+    if (!canEditAllocations) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await updateBenefitRunTipOutExempt(run.id, staffId, exempt);
+      if (!result.ok) {
+        setError(result.error ?? "Could not update tip-out.");
         return;
       }
       setWarnings(result.warnings ?? []);
@@ -2287,6 +2315,103 @@ export function BenefitRunClient({
     );
   }
 
+  function exportSnapshot(section: SnapshotSection) {
+    const source = {
+      summary: snapshotRef,
+      contributors: contributorsSnapshotRef,
+      allocations: allocationsSnapshotRef,
+    }[section].current;
+    if (!source) return;
+    setError(null);
+    setExportingSnapshot(section);
+    const today = new Date().toISOString().slice(0, 10);
+    const monthLabel = formatBenefitMonthLabel(run.benefit_month);
+    const sectionLabel =
+      section === "contributors" ? "Contributors" : section === "allocations" ? "Allocations" : null;
+    const sectionDetails =
+      section === "contributors"
+        ? [
+            { label: "Contributors", value: String(contributors.length) },
+            { label: "Total obtain", value: formatMoney(contributorTotals.obtain) },
+            { label: "Pool contribution", value: formatMoney(contributorTotals.contributedToPool) },
+            { label: "Retain", value: formatMoney(contributorTotals.retain) },
+            ...(asphKpiThreshold != null
+              ? [{ label: "ASPH target", value: asphKpiThreshold.toFixed(2) }]
+              : []),
+          ]
+        : section === "allocations"
+          ? [
+              { label: "Recipients", value: String(poolAllocationRows.length) },
+              {
+                label: "Allocated",
+                value: formatMoney(
+                  poolAllocationRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0),
+                ),
+              },
+              ...(kind === "gratuity"
+                ? [{ label: "View", value: allocationView === "all" ? "All staff" : "By department" }]
+                : []),
+              ...(search.trim() ? [{ label: "Filtered by", value: `"${search.trim()}"` }] : []),
+            ]
+          : [];
+    const policyLabel =
+      section === "contributors"
+        ? "Tip Out Policy"
+        : section === "allocations"
+          ? "Distribution Policy"
+          : null;
+    const policy = policyLabel
+      ? document.querySelector<HTMLElement>(`[data-policy-snapshot="${policyLabel}"]`)
+      : null;
+    void exportBenefitRunSnapshot({
+      source,
+      policy: policy && policyLabel ? { title: policyLabel, content: policy } : null,
+      title: `Employee benefits - ${kind === "gratuity" ? "Gratuity" : "Service Charge"} Month Run${
+        sectionLabel ? ` · ${sectionLabel}` : ""
+      }`,
+      details: [
+        { label: "Venue", value: venueName },
+        { label: "Month", value: monthLabel },
+        {
+          label: "Period",
+          value: `${formatDateDmy(run.period_start)} → ${formatDateDmy(run.period_end)}`,
+        },
+        ...(run.distribution_date
+          ? [{ label: "Distribution", value: formatDateDmy(run.distribution_date) }]
+          : []),
+        { label: "Status", value: status },
+        { label: "Payout", value: payoutMode === "rounded" ? "Rounded to AED 5" : "Exact amount" },
+        ...sectionDetails,
+        { label: "Exported", value: `${formatDateDmy(today)} by ${userDisplayName}` },
+      ],
+      logoUrl: venueLogoUrl,
+      filename: `${[venueName, kind, sectionLabel ?? "run", monthLabel, today]
+        .map((p) => p.trim().replace(/[^\w\- ]+/g, "").replace(/\s+/g, "-").toLowerCase())
+        .filter(Boolean)
+        .join("_")}.png`,
+    })
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : "Could not export the snapshot."),
+      )
+      .finally(() => setExportingSnapshot(null));
+  }
+
+  function snapshotButton(section: SnapshotSection) {
+    return (
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        className="border border-black/10"
+        disabled={exportingSnapshot !== null}
+        onClick={() => exportSnapshot(section)}
+      >
+        <ImageDown className="h-4 w-4" aria-hidden />
+        {exportingSnapshot === section ? "Exporting…" : "Snapshot PNG"}
+      </Button>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2372,6 +2497,17 @@ export function BenefitRunClient({
               {pending ? "Saving…" : "Save"}
             </Button>
           ) : null}
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="border border-black/10"
+            disabled={exportingSnapshot !== null}
+            onClick={() => exportSnapshot("summary")}
+          >
+            <ImageDown className="h-4 w-4" aria-hidden />
+            {exportingSnapshot === "summary" ? "Exporting…" : "Snapshot PNG"}
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -2767,6 +2903,7 @@ export function BenefitRunClient({
         </div>
       ) : null}
 
+      <div ref={snapshotRef} className="space-y-6">
       <div
         className={cn(
           "grid gap-3 sm:grid-cols-2",
@@ -3011,7 +3148,7 @@ export function BenefitRunClient({
                 tone="total"
               />
             </dl>
-            <div className="mt-auto border-t border-black/10 pt-2">
+            <div className="mt-auto border-t border-black/10 pt-2" data-snapshot-hide>
               <div className="flex h-9 justify-end">
                 <Button
                   type="button"
@@ -3238,7 +3375,7 @@ export function BenefitRunClient({
               </table>
             </div>
             {canEditAllocations ? (
-              <div className="mt-2 flex flex-wrap justify-end gap-2">
+              <div className="mt-2 flex flex-wrap justify-end gap-2" data-snapshot-hide>
                 <Button
                   type="button"
                   size="sm"
@@ -3279,12 +3416,16 @@ export function BenefitRunClient({
           </div>
         </div>
       ) : null}
+      </div>
 
       {kind === "gratuity" ? (
         <section className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h3 className="font-serif text-lg text-[#3D421F]">Contributors</h3>
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="font-serif text-lg text-[#3D421F]">Contributors</h3>
+                {snapshotButton("contributors")}
+              </div>
               <p className="text-sm text-black/55">
                 Waiters and bar staff whose tip collections feed this month&apos;s
                 distribution pool.
@@ -3398,7 +3539,10 @@ export function BenefitRunClient({
             ) : null}
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">
+          <div
+            ref={contributorsSnapshotRef}
+            className="overflow-x-auto rounded-lg border border-black/10 bg-white"
+          >
             <table className="min-w-full text-left text-sm">
               <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
                 <tr>
@@ -3652,7 +3796,28 @@ export function BenefitRunClient({
                         </>
                       ) : null}
                       <td className="px-3 py-2.5 text-right tabular-nums font-medium">
-                        {formatMoney(row.contributedToPool)}
+                        <div className="flex flex-col items-end gap-1">
+                          <span>{formatMoney(row.contributedToPool)}</span>
+                          {row.staffId && (row.tipOutExempt || row.tipOutPercent != null) ? (
+                            <label
+                              className={cn(
+                                "inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] font-normal",
+                                row.tipOutExempt ? "text-[#3D421F]" : "text-black/45",
+                                canEditAllocations ? "cursor-pointer" : "cursor-default",
+                              )}
+                              title="This run only: keeps everything collected — no tip-out and no Runner / HK cut."
+                            >
+                              <input
+                                type="checkbox"
+                                checked={row.tipOutExempt === true}
+                                disabled={!canEditAllocations || pending}
+                                onChange={(e) => setTipOutExempt(row.staffId!, e.target.checked)}
+                                className="h-3.5 w-3.5 accent-[var(--venue-primary,#818a40)]"
+                              />
+                              No tip-out
+                            </label>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         <div className="flex flex-col items-end gap-0.5">
@@ -3774,7 +3939,10 @@ export function BenefitRunClient({
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h3 className="font-serif text-lg text-[#3D421F]">Allocations</h3>
+            <div className="flex flex-wrap items-center gap-3">
+              <h3 className="font-serif text-lg text-[#3D421F]">Allocations</h3>
+              {snapshotButton("allocations")}
+            </div>
             <p className="text-sm text-black/55">
               {kind === "service_charge"
                 ? "Eligible staff share of the service charge pool for this period."
@@ -3929,7 +4097,10 @@ export function BenefitRunClient({
           />
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-black/10 bg-white">
+        <div
+          ref={allocationsSnapshotRef}
+          className="overflow-x-auto rounded-lg border border-black/10 bg-white"
+        >
           <table className="min-w-full text-left text-sm">
             <thead className="bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
               <tr>

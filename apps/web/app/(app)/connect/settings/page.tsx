@@ -1,23 +1,45 @@
-import { ArrowLeft } from "lucide-react";
-import { AccessDeniedBounce } from "@/components/access-denied-bounce";
+import { ArrowLeft, Bell, Users } from "lucide-react";
 import { ConnectGroupsAdmin } from "@/components/connect/connect-groups-admin";
+import { ConnectNotificationSettings } from "@/components/connect/notification-settings";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
 import { ScopedLink } from "@/components/layout/scoped-link";
+import { getAlertPrefs } from "@/lib/connect/notification-prefs";
 import { getConnectPageContext } from "@/lib/connect/page-context";
 import { listConnectGroups } from "@/lib/connect/store";
+import { loadVenueSoundDefaults } from "@/lib/connect/venue-sound-defaults";
+import { segmentedSubNavLinkClass, segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
-export default async function ConnectSettingsPage() {
+type Tab = "groups" | "notifications";
+
+export default async function ConnectSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const { service, venue, user, seesAllGroups, isConnectAdmin } =
     await getConnectPageContext();
+  const params = await searchParams;
 
-  if (!seesAllGroups) return <AccessDeniedBounce />;
+  // Group setup is for admins; everyone can set their own notifications.
+  const tab: Tab = !seesAllGroups || params.tab === "notifications" ? "notifications" : "groups";
 
-  const groups = await listConnectGroups(
-    service,
-    venue.id,
-    { userId: user.id, seesAllGroups: true, isConnectAdmin },
-    { includeArchived: true },
-  );
+  const [groups, prefs, soundDefaults] = await Promise.all([
+    tab === "groups"
+      ? listConnectGroups(
+          service,
+          venue.id,
+          { userId: user.id, seesAllGroups: true, isConnectAdmin },
+          { includeArchived: true },
+        )
+      : Promise.resolve([]),
+    tab === "notifications" ? getAlertPrefs(service, user.id) : Promise.resolve(null),
+    tab === "notifications" ? loadVenueSoundDefaults(service, venue.id) : Promise.resolve(null),
+  ]);
+
+  const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
+    ...(seesAllGroups ? [{ key: "groups" as const, label: "Groups", icon: Users }] : []),
+    { key: "notifications", label: "Notifications", icon: Bell },
+  ];
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -31,11 +53,39 @@ export default async function ConnectSettingsPage() {
         </ScopedLink>
         <ModulePageTitle>Connecteam Settings</ModulePageTitle>
         <p className="mt-1 text-sm text-black/60">
-          Groups for {venue.name}. Open a group to set each employee&apos;s rights.
+          {tab === "groups"
+            ? `Groups for ${venue.name}. Open a group to set each employee's rights.`
+            : "How and when Connecteam alerts you about chats and the feed."}
         </p>
         <hr className="mt-4 border-black/10" />
       </div>
-      <ConnectGroupsAdmin groups={groups} canEdit={isConnectAdmin} />
+
+      {tabs.length > 1 ? (
+        <nav className={segmentedSubNavShellClass} aria-label="Settings sections">
+          {tabs.map(({ key, label, icon: Icon }) => (
+            <ScopedLink
+              key={key}
+              href={key === "groups" ? "/connect/settings" : `/connect/settings?tab=${key}`}
+              aria-current={tab === key ? "page" : undefined}
+              className={segmentedSubNavLinkClass(tab === key)}
+            >
+              <Icon className="h-4 w-4" aria-hidden />
+              {label}
+            </ScopedLink>
+          ))}
+        </nav>
+      ) : null}
+
+      {tab === "groups" ? (
+        <ConnectGroupsAdmin groups={groups} canEdit={isConnectAdmin} />
+      ) : prefs ? (
+        <ConnectNotificationSettings
+          initialPrefs={prefs}
+          venueName={venue.name}
+          soundDefaults={soundDefaults}
+          canSetDefaults={isConnectAdmin}
+        />
+      ) : null}
     </div>
   );
 }

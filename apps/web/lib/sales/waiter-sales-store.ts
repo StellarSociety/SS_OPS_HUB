@@ -55,6 +55,7 @@ function mapWaiterSalesRow(
     gratuity_cash_gs: asMoney(row.gratuity_cash_gs),
     groups_service_charge_gs: asMoney(row.groups_service_charge_gs),
     total_covers: asCount(row.total_covers),
+    complimentary_covers: asCount(row.complimentary_covers),
     total_discounts_gs: asMoney(row.total_discounts_gs),
     voucher_comments: String(row.voucher_comments ?? ""),
     deposit_comments: String(row.deposit_comments ?? ""),
@@ -187,6 +188,7 @@ export async function upsertVenueWaiterDailySales(
     gratuity_cash_gs: number;
     groups_service_charge_gs: number;
     total_covers: number;
+    complimentary_covers: number;
     total_discounts_gs: number;
     voucher_comments: string;
     deposit_comments: string;
@@ -204,6 +206,7 @@ export async function upsertVenueWaiterDailySales(
     gratuity_cash_gs: payload.gratuity_cash_gs,
     groups_service_charge_gs: payload.groups_service_charge_gs,
     total_covers: payload.total_covers,
+    complimentary_covers: payload.complimentary_covers,
     total_discounts_gs: payload.total_discounts_gs,
     voucher_comments: payload.voucher_comments,
     deposit_comments: payload.deposit_comments,

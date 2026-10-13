@@ -21,15 +21,30 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * Covers that count towards ASPH: Total Covers minus complimentary covers
+ * (guests on tables given away for free don't pull the waiter's ASPH down).
+ */
+export function asphCovers(
+  record: Pick<VenueWaiterDailySalesRecord, "total_covers"> &
+    Partial<Pick<VenueWaiterDailySalesRecord, "complimentary_covers">>,
+): number {
+  const total = Number(record.total_covers) || 0;
+  const comp = Math.min(total, Math.max(0, Number(record.complimentary_covers) || 0));
+  return total - comp;
+}
+
 export function computeWaiterSales(
-  record: Pick<VenueWaiterDailySalesRecord, "total_sales_gs" | "total_covers">,
+  record: Pick<VenueWaiterDailySalesRecord, "total_sales_gs" | "total_covers"> &
+    Partial<Pick<VenueWaiterDailySalesRecord, "complimentary_covers">>,
 ): ComputedWaiterSales {
-  const { total_sales_gs, total_covers } = record;
+  const { total_sales_gs } = record;
+  const covers = asphCovers(record);
   return {
     asph:
-      total_covers > 0 && total_sales_gs > 0
-        ? Math.round((total_sales_gs / total_covers) * 100) / 100
-        : total_covers > 0
+      covers > 0 && total_sales_gs > 0
+        ? Math.round((total_sales_gs / covers) * 100) / 100
+        : covers > 0
           ? 0
           : null,
   };

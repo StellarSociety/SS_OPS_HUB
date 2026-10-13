@@ -186,6 +186,7 @@ function buildDailySalesFormData(draft: DraftRow): FormData {
   formData.set("lunch_others_gs", String(draft.lunch_others_gs));
   formData.set("lunch_service_fees_gs", String(draft.lunch_service_fees_gs));
   formData.set("lunch_covers", String(draft.lunch_covers));
+  formData.set("lunch_complimentary_covers", String(draft.lunch_complimentary_covers ?? 0));
   formData.set("lunch_bookings", String(draft.lunch_bookings));
   formData.set("lunch_walkin_tables", String(draft.lunch_walkin_tables ?? 0));
   formData.set("lunch_walkin_covers", String(draft.lunch_walkin_covers ?? 0));
@@ -197,6 +198,7 @@ function buildDailySalesFormData(draft: DraftRow): FormData {
   formData.set("dinner_others_gs", String(draft.dinner_others_gs));
   formData.set("dinner_service_fees_gs", String(draft.dinner_service_fees_gs));
   formData.set("dinner_covers", String(draft.dinner_covers));
+  formData.set("dinner_complimentary_covers", String(draft.dinner_complimentary_covers ?? 0));
   formData.set("dinner_bookings", String(draft.dinner_bookings));
   formData.set("dinner_walkin_tables", String(draft.dinner_walkin_tables ?? 0));
   formData.set("dinner_walkin_covers", String(draft.dinner_walkin_covers ?? 0));
