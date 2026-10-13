@@ -30,6 +30,7 @@ import {
 } from "@/components/connect/chat/message-actions";
 import { useChatReceipts } from "@/components/connect/chat/use-chat-receipts";
 import { ChatInfoPanel } from "@/components/connect/chat/chat-info-panel";
+import { ChatCallControls } from "@/components/connect/chat/chat-call";
 import { useChatPanes } from "@/components/connect/chat/chat-panes-context";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
 import { ConnectAvatar } from "@/components/connect/connect-avatar";
@@ -437,6 +438,7 @@ export function ChatConversation({
               </span>
             </span>
           </button>
+          <ChatCallControls detail={detail} me={me} readOnly={readOnly} />
           <button
             type="button"
             onClick={() => (searchOpen ? closeSearch() : void openSearch())}
