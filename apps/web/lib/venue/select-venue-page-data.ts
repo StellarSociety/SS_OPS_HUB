@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { canAccessGlobal, type UserPermission } from "@/lib/role-permissions";
 import { getRenderClient, getRenderUser } from "@/lib/auth/render-user";
-import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import { phoneVenueIds } from "@/lib/mobile/phone-access";
+import type { createServiceClient } from "@/lib/supabase/service";
 import { canManageProfileAvatar } from "@/lib/user/can-manage-profile-avatar";
 import { resolveAvatarUrl } from "@/lib/user/resolve-avatar-url";
 import { normalizeVenueRows } from "@/lib/venue/normalize";
@@ -49,6 +50,27 @@ export async function loadSelectVenuePageData(
     redirect(options?.signInHref ?? "/login");
   }
 
+  return buildSelectVenuePageData(supabase, {
+    id: user.id,
+    email: user.email ?? null,
+    metadata: user.user_metadata as Record<string, unknown> | undefined,
+    requireMobileAppAccess: options?.requireMobileAppAccess,
+  });
+}
+
+/**
+ * Venue picker for any user — the signed-in one, or (simulator "preview as
+ * employee", server client) the previewed person's phone venues.
+ */
+export async function buildSelectVenuePageData(
+  supabase: Awaited<ReturnType<typeof getRenderClient>> | ReturnType<typeof createServiceClient>,
+  user: {
+    id: string;
+    email: string | null;
+    metadata?: Record<string, unknown>;
+    requireMobileAppAccess?: boolean;
+  },
+): Promise<SelectVenuePageData> {
   const [{ data: venues }, { data: permissions }, profileResult] =
     await Promise.all([
       supabase.from("venues").select("*").order("created_at", { ascending: true }),
@@ -101,12 +123,11 @@ export async function loadSelectVenuePageData(
     staff: staff ? { emp_no: staff.emp_no } : null,
   });
 
-  const metadata = user.user_metadata as Record<string, unknown> | undefined;
   const avatarUrl = resolveAvatarUrl({
     profileAvatarUrl: profile?.avatar_url,
     staffPhotoUrl: staff?.photo_url ?? null,
     preferStaffPhoto,
-    userMetadata: metadata,
+    userMetadata: user.metadata,
   });
 
   const normalized = normalizeVenueRows(venues ?? []);
@@ -116,10 +137,10 @@ export async function loadSelectVenuePageData(
   const showGlobal = canAccessGlobal(perms);
   let displayVenues =
     showGlobal && globalVenue ? [globalVenue, ...operational] : operational;
-  if (options?.requireMobileAppAccess) {
-    displayVenues = displayVenues.filter((venue) =>
-      canAccessMobileApp(perms, venue.id),
-    );
+  if (user.requireMobileAppAccess) {
+    // Phone venues come from the Mobile App Access switches.
+    const phoneVenues = await phoneVenueIds(user.id);
+    displayVenues = displayVenues.filter((venue) => phoneVenues.has(venue.id));
   }
 
   return {

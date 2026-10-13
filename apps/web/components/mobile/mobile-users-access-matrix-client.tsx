@@ -24,11 +24,16 @@ import { StatusBadge } from "@/components/hr/status-badge";
 import { toast } from "@/components/ui/toast";
 import {
   setMobileAccessBlock,
-  setMobileMatrixAccess,
   type MobileAccessMatrixData,
   type MobileAccessMatrixRow,
 } from "@/lib/actions/mobile-user-access";
 import { ACCESS_MATRIX_LEVELS, type AccessMatrixLevel } from "@/lib/access/matrix";
+import { setPhoneAccess } from "@/lib/actions/phone-access";
+import {
+  isPhoneAppBuilt,
+  phoneLevelForDisplay,
+  phoneLevelsFor,
+} from "@/lib/access/phone-levels";
 import { ModuleIcon } from "@/components/modules/module-icon";
 import { getOverviewModuleByKey } from "@/lib/modules-registry";
 import { getUserInitials } from "@/lib/user/display";
@@ -166,7 +171,8 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
 
   const apps = data.apps;
   const hubKey = data.hubKey;
-  const colCount = 5 + apps.length;
+  const switchKey = data.switchKey;
+  const colCount = 6 + apps.length;
   const headCell =
     "border-b border-black/10 bg-[var(--venue-secondary,#F0F3DD)]";
   const stickyHead = cn(
@@ -221,13 +227,19 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
     const previous = row.levels[moduleKey];
     patchRow(row.key, { levels: { ...row.levels, [moduleKey]: level } });
     run(row.key, async () => {
-      const result = await setMobileMatrixAccess({
+      const result = await setPhoneAccess({
         userId: row.userId!,
-        moduleKey,
+        venueId: data.venueId,
+        appKey: moduleKey,
         level,
       });
       if (result.error) {
         patchRow(row.key, { levels: { ...row.levels, [moduleKey]: previous } });
+      } else if (result.switchedOn) {
+        // Granting an app also switches the mobile app on for them.
+        patchRow(row.key, {
+          levels: { ...row.levels, [moduleKey]: level, [data.switchKey]: "viewer" },
+        });
       }
       return result;
     });
@@ -273,6 +285,12 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
             onSort={toggleSort}
           />
         </th>
+        <th className={cn(headCell, "min-w-[92px] px-2 py-2 text-center")}>
+          <span className="flex flex-col items-center leading-tight">
+            <span>Mobile</span>
+            <span className="font-normal normal-case tracking-normal">app</span>
+          </span>
+        </th>
         <th
           className={cn(headCell, "min-w-[132px] px-2 py-2 text-center")}
           aria-sort={sortKey === hubKey ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
@@ -315,6 +333,11 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
                     <span className="max-w-[7.5rem] leading-tight normal-case tracking-normal">
                       {app.label}
                     </span>
+                    {isPhoneAppBuilt(app.key) ? null : (
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-700">
+                        Coming soon
+                      </span>
+                    )}
                   </span>
                 }
               />
@@ -407,6 +430,17 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
           )}
         </td>
         <td className="px-1 py-2 text-center">
+          <MobileAppSwitch
+            name={`${row.name} can use the mobile app`}
+            checked={
+              row.levels[switchKey] === "viewer" ||
+              row.levels[switchKey] === "editor"
+            }
+            disabled={!canEditRow || !row.userId}
+            onChange={(on) => onLevel(row, switchKey, on ? "viewer" : "none")}
+          />
+        </td>
+        <td className="px-1 py-2 text-center">
           <AccessLevelSwitch
             name={`${row.name} Personal Employee Hub`}
             value={row.levels[hubKey] ?? "none"}
@@ -418,7 +452,8 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
           <td key={app.key} className="px-1 py-2 text-center">
             <AccessLevelSwitch
               name={`${row.name} ${app.label}`}
-              value={row.levels[app.key] ?? "none"}
+              levels={phoneLevelsFor(app.key)}
+              value={phoneLevelForDisplay(app.key, row.levels[app.key] ?? "none")}
               disabled={!canEditRow || !row.userId}
               onChange={(level) => onLevel(row, app.key, level)}
             />
@@ -499,8 +534,9 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-3">
         <p className="max-w-3xl text-sm text-black/60">
-          All venue employees, grouped by department. Each switch is Hidden, No
-          access, Viewer, or Editor — the same grants as{" "}
+          All venue employees, grouped by department. Phone access only —
+          separate from web app access. Each switch is Hidden, No access,
+          Viewer, or Editor, and matches Mobile App Access in{" "}
           <Link href="/settings/users" className="font-medium text-[#3D421F] underline-offset-2 hover:underline">
             Users &amp; access
           </Link>
@@ -600,6 +636,39 @@ export function MobileUsersAccessMatrixClient({ data }: Props) {
         />
       ) : null}
     </div>
+  );
+}
+
+/** "Can use the mobile app" — the master phone switch for a person. */
+function MobileAppSwitch({
+  name,
+  checked,
+  disabled,
+  onChange,
+}: {
+  name: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "relative inline-flex items-center",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+      )}
+      title={checked ? "Can use the mobile app" : "No mobile app"}
+    >
+      <input
+        type="checkbox"
+        className="peer sr-only"
+        aria-label={name}
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="h-5 w-9 rounded-full bg-black/20 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:bg-[#818a40] peer-checked:after:translate-x-4" />
+    </label>
   );
 }
 

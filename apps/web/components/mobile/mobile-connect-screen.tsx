@@ -1,5 +1,6 @@
 "use client";
 
+import { useConnectCanWrite } from "@/components/connect/connect-write-context";
 import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -48,6 +49,7 @@ export function MobileConnectScreen({ venue, chats: initialChats, meId, people =
   people?: ConnectPerson[];
   onSelectTab?: (tab: MobileTabItem) => void;
 }) {
+  const canWrite = useConnectCanWrite();
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   // Local copy so swipes (unread / archive) update the list straight away.
   const [chats, setChats] = useState(initialChats);
@@ -146,6 +148,10 @@ export function MobileConnectScreen({ venue, chats: initialChats, meId, people =
       toast.error("Preview only: you can't start chats as another employee.");
       return;
     }
+    if (!canWrite) {
+      toast.error("Read only — you can't start chats. Contact your supervisor or Hub admin.");
+      return;
+    }
     setOpeningId(person.userId);
     startOpening(async () => {
       const result = await startDirectChat(person.userId);
@@ -208,7 +214,7 @@ export function MobileConnectScreen({ venue, chats: initialChats, meId, people =
           <IconToggle label="Archived chats" active={filter === "archived"} onClick={() => toggleMode("archived")}>
             <Archive className="h-[17px] w-[17px]" strokeWidth={2} />
           </IconToggle>
-          {canCreateGroups && !readOnly ? (
+          {canCreateGroups && !readOnly && canWrite ? (
             <IconToggle label="New group chat" active={newGroupOpen} onClick={() => setNewGroupOpen(true)}>
               <span className="relative flex">
                 <UsersRound className="h-[17px] w-[17px]" strokeWidth={2} />

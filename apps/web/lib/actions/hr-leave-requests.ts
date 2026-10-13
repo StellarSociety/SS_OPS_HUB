@@ -32,6 +32,8 @@ import {
   scheduleCodeForLeaveType,
   type MobileLeavePage,
 } from "@/lib/mobile/employee-leave";
+import { canEditOwnLeave } from "@/lib/mobile/employee-hub-permissions";
+import { loadPhoneAccess } from "@/lib/mobile/phone-access";
 import { requireMobileAppVenueAccess } from "@/lib/mobile/require-app-access";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -142,6 +144,8 @@ async function resolveEmployeeStaffId(input: {
   userId: string;
   venueId: string;
   requestedStaffId?: string | null;
+  /** Applying, editing or cancelling (not just viewing). */
+  forEdit?: boolean;
 }): Promise<{ staffId: string } | { error: string }> {
   const ownStaffId = await linkedStaffId(input.userId);
   const requested = input.requestedStaffId?.trim() || "";
@@ -151,6 +155,16 @@ async function resolveEmployeeStaffId(input: {
         error:
           "Your login isn’t linked to a staff record yet. Ask HR to connect your profile.",
       };
+    }
+    // Own leave on the phone: Viewer sees it, Editor applies / edits / cancels.
+    if (input.forEdit) {
+      const phone = await loadPhoneAccess(input.userId, input.venueId);
+      if (!canEditOwnLeave(phone.permissions, input.venueId)) {
+        return {
+          error:
+            "You can view your leave but not apply. Contact your supervisor or Hub admin.",
+        };
+      }
     }
     return { staffId: ownStaffId };
   }
@@ -226,6 +240,7 @@ export async function submitEmployeeLeaveRequest(input: {
     userId: access.userId,
     venueId: access.venueId,
     requestedStaffId: input.staffId,
+    forEdit: true,
   });
   if ("error" in resolved) return { error: resolved.error };
 
@@ -413,6 +428,7 @@ export async function cancelEmployeeLeaveRequest(input: {
     userId: access.userId,
     venueId: access.venueId,
     requestedStaffId: input.staffId,
+    forEdit: true,
   });
   if ("error" in resolved) return { error: resolved.error };
 

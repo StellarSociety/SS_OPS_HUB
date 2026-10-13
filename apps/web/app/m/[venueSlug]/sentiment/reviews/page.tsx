@@ -25,7 +25,7 @@ export default async function MobileSentimentReviewsPage({
 }: PageProps) {
   const { venueSlug } = await params;
   const periodParams = await searchParams;
-  const { venue, permissions, supabase } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, service } = await getMobileAppContext(venueSlug);
 
   if (
     !canAccessMobileApp(permissions, venue.id) ||
@@ -40,7 +40,7 @@ export default async function MobileSentimentReviewsPage({
       ? { fromDate: period.fromDate, toDate: period.toDate }
       : null;
   const [workspace, staffRows] = await Promise.all([
-    loadSentimentWorkspace(supabase, venue.id, { range }),
+    loadSentimentWorkspace(service, venue.id, { range }),
     loadStaffMentionRows(venue),
   ]);
   const flags = sentimentEditFlags(permissions, venue.id);

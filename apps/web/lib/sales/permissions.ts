@@ -1,7 +1,6 @@
 import {
   hasFeatureAccess,
   hasPermission,
-  isAppAdmin,
   type AccessLevel,
   type UserPermission,
 } from "@/lib/role-permissions";
@@ -19,7 +18,6 @@ function hasSalesFeatureAccess(
   featureKey: string,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
@@ -36,7 +34,6 @@ function hasSalesPermission(
   minLevel: AccessLevel,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
@@ -288,7 +285,6 @@ export function canAccessSalesModule(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return (
     canAccessOverview(permissions, venueId) ||

@@ -27,7 +27,7 @@ export default async function MobileSentimentCalendarPage({
 }: PageProps) {
   const { venueSlug } = await params;
   const query = await searchParams;
-  const { venue, permissions, supabase } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, service } = await getMobileAppContext(venueSlug);
 
   if (
     !canAccessMobileApp(permissions, venue.id) ||
@@ -50,7 +50,7 @@ export default async function MobileSentimentCalendarPage({
       : lastDayOfMonth(stripMonthKeys[stripMonthKeys.length - 1]!);
 
   const [workspace, staffRows] = await Promise.all([
-    loadSentimentWorkspace(supabase, venue.id, {
+    loadSentimentWorkspace(service, venue.id, {
       range: { fromDate, toDate },
     }),
     loadStaffMentionRows(venue),

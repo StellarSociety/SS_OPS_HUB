@@ -1,10 +1,10 @@
 "use server";
 
 import { getActionAuthContext } from "@/lib/auth/action-context";
+import { canUseConnect } from "@/lib/connect/access";
 import { listMyChats } from "@/lib/connect/chat-store";
 import type { ChatSummary } from "@/lib/connect/chat-types";
 import {
-  canAccessConnect,
   canAccessConnectSettings,
   canAdminConnect,
 } from "@/lib/connect/permissions";
@@ -38,7 +38,7 @@ export async function getChatWidgetData(): Promise<
   const auth = await getActionAuthContext();
   if ("error" in auth) return { ok: false, error: auth.error };
   if (auth.venue.is_global) return { ok: false, error: "Open a venue to chat." };
-  if (!canAccessConnect(auth.permissions, auth.venue.id)) {
+  if (!(await canUseConnect(auth))) {
     return { ok: false, error: "No access to Connecteam." };
   }
   const service = createServiceClient();
@@ -70,7 +70,7 @@ export async function getChatPresence(): Promise<
 > {
   const auth = await getActionAuthContext();
   if ("error" in auth) return { ok: false, error: auth.error };
-  if (auth.venue.is_global || !canAccessConnect(auth.permissions, auth.venue.id)) {
+  if (auth.venue.is_global || !(await canUseConnect(auth))) {
     return { ok: false, error: "No access to Connecteam." };
   }
   const service = createServiceClient();
@@ -98,7 +98,7 @@ export async function getWidgetFeed(
 ): Promise<{ ok: true; data: WidgetFeedData } | { ok: false; error: string }> {
   const auth = await getActionAuthContext();
   if ("error" in auth) return { ok: false, error: auth.error };
-  if (auth.venue.is_global || !canAccessConnect(auth.permissions, auth.venue.id)) {
+  if (auth.venue.is_global || !(await canUseConnect(auth))) {
     return { ok: false, error: "No access to Connecteam." };
   }
   const service = createServiceClient();

@@ -2,8 +2,10 @@ import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { DeviceSimulator } from "@/components/mobile/device-simulator";
 import { fetchGroupLogoState } from "@/lib/group/branding";
 import { getMobilePageContext } from "@/lib/mobile/page-context";
+import { canAccessHiring, canEditHiring } from "@/lib/hr/permissions";
+import { canWriteConnectOnPhone } from "@/lib/connect/access";
+import { canEditOwnLeave } from "@/lib/mobile/employee-hub-permissions";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
-import { MOBILE_APP_MODULE_KEY } from "@/lib/mobile/types";
 import { loadCurrentUserAttendanceMonth } from "@/lib/mobile/employee-attendance";
 import { loadMobileEmployeeDocsPage } from "@/lib/mobile/employee-docs";
 import { loadMobileEmployeeLeavePage } from "@/lib/mobile/employee-leave";
@@ -15,8 +17,7 @@ import {
   loadMobileHiringPage,
 } from "@/lib/mobile/hiring-replies";
 import { loadDirectoryHierarchy, loadDirectoryStaff } from "@/lib/directory/store";
-import { loadModulesHubContext } from "@/lib/modules-hub-data";
-import { hubModuleSortIndex } from "@/lib/modules-registry";
+import { loadMobileWelcomeModulesForUser } from "@/lib/modules-hub-data";
 import { loadSalesOverviewData } from "@/lib/sales/sales-overview-data";
 import {
   loadSentimentWorkspace,
@@ -63,8 +64,9 @@ export default async function MobilePage() {
     connectGroups,
   ] = await Promise.all([
     fetchGroupLogoState(),
-    loadSelectVenuePageData(),
-    loadModulesHubContext(),
+    // Phone venues only, as your phone's venue picker shows them.
+    loadSelectVenuePageData({ requireMobileAppAccess: true }),
+    loadMobileWelcomeModulesForUser(supabase, user.id, venue),
     loadMobileWelcomeProfile({ venueId: venue.id }),
     loadMobileNotifications(venue),
     loadSalesOverviewData(supabase, venue.id),
@@ -103,12 +105,11 @@ export default async function MobilePage() {
     }),
     listVenueAppUsers(service, venue.id),
   ]);
-  const sentimentFlags = sentimentEditFlags(permissions, venue.id);
+  // Edit rights as your phone has them (Mobile App Access switches).
+  const sentimentFlags = sentimentEditFlags(hub.permissions, venue.id);
 
-  const modules = hub.sections
-    .flatMap((section) => section.modules)
-    .filter((mod) => mod.key !== MOBILE_APP_MODULE_KEY)
-    .sort((a, b) => hubModuleSortIndex(a.key) - hubModuleSortIndex(b.key));
+  // Your own phone view: the same Mobile App Access switches a real phone uses.
+  const modules = hub.modules;
 
   return (
     <DeviceSimulator
@@ -118,10 +119,22 @@ export default async function MobilePage() {
         userName: hub.userName ?? selectVenue.fullName,
         venue,
         modules,
+        employeeHubLevel: hub.employeeHubLevel,
+        showHiring: canAccessHiring(hub.permissions, venue.id),
+        mobileAccess: hub.canUseApp,
+        hubPages: hub.hubPages,
+        hasHubLogin: true,
         profile,
         notificationCount: notices.totalCount,
         unreadCount: notices.unreadCount,
         notifications: notices.notifications,
+        selectVenue,
+        canEditHiring: canEditHiring(hub.permissions, venue.id),
+        canApplyLeave: canEditOwnLeave(hub.permissions, venue.id),
+        canWriteConnect: canWriteConnectOnPhone(hub.permissions, venue.id),
+        sentimentCanEdit: sentimentFlags.canEdit,
+        sentimentCanEditActions: sentimentFlags.canEditActions,
+        userId: user.id,
       }}
       revenueOverview={revenueOverview}
       sentiment={{

@@ -13,6 +13,7 @@ import {
 import { loadWorkDriveSettings } from "@/lib/hr/workdrive/settings";
 import { canEditStaff, canViewStaff, canAccessAssets } from "@/lib/hr/permissions";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import { loadPhoneAccess } from "@/lib/mobile/phone-access";
 import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +46,14 @@ export async function GET(_request: Request, context: RouteContext) {
     canViewStaff(permissions, venue.id) ||
     canEditStaff(permissions, venue.id) ||
     canAccessAssets(permissions, venue.id);
-  const mobileDownload = canAccessMobileApp(permissions, venue.id);
+  // Phone: own documents through the Employee Hub "Docs" page.
+  const mobileDownload =
+    canAccessMobileApp(permissions, venue.id) ||
+    (hrDownload
+      ? false
+      : await loadPhoneAccess(user.id, venue.id).then(
+          (phone) => phone.canUseApp && phone.hubPages.includes("docs"),
+        ));
 
   if (!hrDownload && !mobileDownload) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

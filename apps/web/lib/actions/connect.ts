@@ -5,8 +5,8 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
+import { connectAccess, CONNECT_READ_ONLY_ERROR } from "@/lib/connect/access";
 import {
-  canAccessConnect,
   canAdminConnect,
   effectiveGroupRole,
   roleCanInteract,
@@ -56,6 +56,8 @@ type ConnectActor = {
   userId: string;
   venueId: string;
   isConnectAdmin: boolean;
+  /** False for phone Connecteam Viewers: read only. */
+  canWrite: boolean;
   service: ReturnType<typeof createServiceClient>;
 };
 
@@ -67,13 +69,15 @@ async function requireActor(): Promise<ConnectActor | { error: string }> {
   const auth = await getActionAuthContext();
   if ("error" in auth) return { error: auth.error };
   if (auth.venue.is_global) return { error: "Open Connecteam from a venue." };
-  if (!canAccessConnect(auth.permissions, auth.venue.id)) {
+  const access = await connectAccess(auth);
+  if (!access.canOpen) {
     return { error: "You don't have access to Connecteam." };
   }
   return {
     userId: auth.user.id,
     venueId: auth.venue.id,
     isConnectAdmin: canAdminConnect(auth.permissions, auth.venue.id),
+    canWrite: access.canWrite,
     service: createServiceClient(),
   };
 }
@@ -131,6 +135,7 @@ export async function createConnectPost(
 ): Promise<Result<{ id: string }>> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
+  if (!actor.canWrite) return fail(CONNECT_READ_ONLY_ERROR);
 
   const groupId = String(formData.get("groupId") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
@@ -448,6 +453,7 @@ export async function addConnectComment(
 ): Promise<Result<{ id: string }>> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
+  if (!actor.canWrite) return fail(CONNECT_READ_ONLY_ERROR);
 
   const text = body.trim();
   if (!text) return fail("Write a comment first.");

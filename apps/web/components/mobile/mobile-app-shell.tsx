@@ -61,6 +61,7 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
           <div className="relative h-full min-h-0" data-mobile-shell="">
             <EdgeSwipeBack
               onBack={goBack}
+              resetKey={pathname}
               disabled={login || selectVenue}
               className="mobile-shell-inset h-full min-h-0"
             >

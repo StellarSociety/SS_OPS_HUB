@@ -14,6 +14,8 @@ import {
   Camera,
   ChartNoAxesCombined,
   ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   CircleCheckBig,
   ClipboardCheck,
   ClipboardList,
@@ -21,7 +23,6 @@ import {
   CookingPot,
   DoorClosed,
   DoorOpen,
-  EyeOff,
   FileBarChart,
   FileChartColumn,
   FileText,
@@ -77,11 +78,15 @@ import {
   type AppRole,
   type ModuleAccessConfig,
 } from "@/lib/access/roles";
-import { moduleOverviewRegistry } from "@/lib/modules-registry";
+import {
+  moduleOverviewRegistry,
+  type AppModuleState,
+} from "@/lib/modules-registry";
 import { getModuleSidebarByKey } from "@/lib/module-sidebar";
 import { ModuleIcon, VaultSafe, SafeLogHaccp } from "@/components/modules/module-icon";
 import {
   getAssignableModules,
+  MOBILE_EMPLOYEE_HUB_MODULE_KEY,
   featureHasEditorSwitch,
   getEditorSwitchKeysForModule,
   getFeatureDef,
@@ -103,6 +108,10 @@ type UserAccessEditorProps = {
   userId: string;
   initialState: AccessEditorState;
   venues: Venue[];
+  /** Live app states (Settings › app states); override the defaults in code. */
+  appStates?: Record<string, AppModuleState>;
+  /** Venue being worked in: default venue scope when an app is switched on. */
+  defaultVenueId?: string | null;
 };
 
 const MODULE_OVERVIEW = new Map(
@@ -402,6 +411,8 @@ export function UserAccessEditor({
   userId,
   initialState,
   venues,
+  appStates = {},
+  defaultVenueId = null,
 }: UserAccessEditorProps) {
   const [state, setState] = useState<AccessEditorState>(initialState);
   const [baseline, setBaseline] = useState(() => JSON.stringify(initialState));
@@ -427,7 +438,14 @@ export function UserAccessEditor({
     onSaveRef,
   });
 
-  const modules = useMemo(() => getAssignableModules(), []);
+  // Personal Employee Hub is phone-only; it lives in Mobile App Access.
+  const modules = useMemo(
+    () =>
+      getAssignableModules().filter(
+        (mod) => mod.key !== MOBILE_EMPLOYEE_HUB_MODULE_KEY,
+      ),
+    [],
+  );
   const realVenues = useMemo(() => venues.filter((v) => !v.is_global), [venues]);
 
   function patchModule(moduleKey: string, patch: Partial<ModuleAccessConfig>) {
@@ -437,6 +455,18 @@ export function UserAccessEditor({
         m.moduleKey === moduleKey ? { ...m, ...patch } : m,
       ),
     }));
+  }
+
+  // Apps listed in this editor that the user has switched on.
+  const enabledModuleKeys = modules
+    .filter((mod) => state.modules.some((m) => m.moduleKey === mod.key && m.enabled))
+    .map((mod) => mod.key);
+  const allEnabledExpanded =
+    enabledModuleKeys.length > 0 && enabledModuleKeys.every((key) => expanded.has(key));
+
+  /** Expand only apps with access; or collapse everything. */
+  function toggleExpandAll() {
+    setExpanded(allEnabledExpanded ? new Set() : new Set(enabledModuleKeys));
   }
 
   function toggleExpanded(moduleKey: string) {
@@ -449,7 +479,18 @@ export function UserAccessEditor({
   }
 
   function toggleModule(moduleKey: string, enabled: boolean) {
-    patchModule(moduleKey, enabled ? { enabled, hidden: false } : { enabled });
+    const wasOn = state.modules.find((m) => m.moduleKey === moduleKey)?.enabled;
+    patchModule(
+      moduleKey,
+      enabled
+        ? {
+            enabled,
+            hidden: false,
+            // Newly switched on: scope to the current venue (still changeable).
+            ...(!wasOn && defaultVenueId ? { venueId: defaultVenueId } : {}),
+          }
+        : { enabled },
+    );
     if (enabled) {
       setExpanded((prev) => new Set(prev).add(moduleKey));
     }
@@ -462,6 +503,8 @@ export function UserAccessEditor({
         ...m,
         enabled,
         hidden: enabled ? false : m.hidden,
+        venueId:
+          enabled && !m.enabled && defaultVenueId ? defaultVenueId : m.venueId,
       })),
     }));
     setExpanded(new Set());
@@ -582,7 +625,9 @@ export function UserAccessEditor({
     });
   }
 
-  const enabledCount = state.modules.filter((m) => m.enabled).length;
+  const enabledCount = state.modules.filter(
+    (m) => m.enabled && m.moduleKey !== MOBILE_EMPLOYEE_HUB_MODULE_KEY,
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -653,7 +698,7 @@ export function UserAccessEditor({
           <div className="flex items-start gap-3">
             <Layers className="mt-0.5 h-5 w-5 text-[#818a40]" />
             <div>
-              <h2 className="font-serif text-xl text-[#3D421F]">App access</h2>
+              <h2 className="font-serif text-xl text-[#3D421F]">Web App Access</h2>
               <p className="mt-1 text-sm text-black/60">
                 Enable apps, set a role, pick pages (grouped as they appear in
                 the app), and control sensitive content per app.
@@ -666,8 +711,8 @@ export function UserAccessEditor({
         </div>
 
         {modules.length > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/10 bg-black/[0.015] px-3 py-2">
-            <span className="text-xs text-black/50">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-black/10 bg-black/[0.015] px-3 py-2">
+            <span className="mr-auto text-xs text-black/50">
               Quickly turn every app on or off for this user.
             </span>
             <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-black/70">
@@ -687,6 +732,19 @@ export function UserAccessEditor({
                 ? "Deactivate all apps"
                 : "Activate all apps"}
             </label>
+            <button
+              type="button"
+              onClick={toggleExpandAll}
+              disabled={enabledModuleKeys.length === 0}
+              className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-black/70 hover:bg-black/[0.05] disabled:cursor-not-allowed disabled:opacity-40 sm:ml-0"
+            >
+              {allEnabledExpanded ? (
+                <ChevronsDownUp className="h-3.5 w-3.5" aria-hidden />
+              ) : (
+                <ChevronsUpDown className="h-3.5 w-3.5" aria-hidden />
+              )}
+              {allEnabledExpanded ? "Collapse all" : "Expand apps with access"}
+            </button>
           </div>
         ) : null}
 
@@ -700,7 +758,7 @@ export function UserAccessEditor({
             const sensitive = getSensitiveFeaturesForModule(mod.key);
             const settingsFeature = getSettingsFeatureForModule(mod.key);
             const overview = MODULE_OVERVIEW.get(mod.key);
-            const status = overview?.status;
+            const status = appStates[mod.key] ?? overview?.status;
             const comingSoon = status && status !== "live";
 
             return (
@@ -744,9 +802,19 @@ export function UserAccessEditor({
                         Coming soon
                       </span>
                     ) : null}
-                    {config.hidden ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/60">
-                        <EyeOff className="h-3 w-3" /> Hidden on mobile
+
+                    {config.enabled ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="rounded-full bg-[#818a40]/12 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#3D421F]">
+                          {APP_ROLE_OPTIONS.find((r) => r.value === config.role)?.label ??
+                            config.role}
+                        </span>
+                        <span className="rounded-full bg-black/[0.06] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-black/60">
+                          {config.venueId
+                            ? (realVenues.find((v) => v.id === config.venueId)?.name ??
+                              "One venue")
+                            : "All venues"}
+                        </span>
                       </span>
                     ) : null}
                     {config.enabled && config.suspended ? (
@@ -764,21 +832,7 @@ export function UserAccessEditor({
                   </button>
                 </div>
 
-                {!config.enabled ? (
-                  <div className="border-t border-black/5 px-3 py-2">
-                    <label className="flex cursor-pointer items-center gap-2 text-xs text-black/60">
-                      <input
-                        type="checkbox"
-                        checked={config.hidden}
-                        onChange={(e) =>
-                          patchModule(mod.key, { hidden: e.target.checked })
-                        }
-                        className="h-4 w-4 rounded border-black/20 accent-[#3D421F]"
-                      />
-                      Hide on mobile — tile is removed from the phone home
-                    </label>
-                  </div>
-                ) : null}
+
 
                 {config.enabled && isOpen ? (
                   <div className="space-y-4 border-t border-black/10 p-4">

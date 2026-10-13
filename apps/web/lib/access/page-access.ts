@@ -20,7 +20,7 @@ import {
   canAccessGl,
 } from "@/lib/accounting/permissions";
 import { canAccessModule } from "@/lib/module-access";
-import { isAppAdmin, type UserPermission } from "@/lib/role-permissions";
+import type { UserPermission } from "@/lib/role-permissions";
 import {
   canAccessCashUp,
   canAccessCash,
@@ -101,7 +101,6 @@ export function canOpenAppPath(
   venueId: string,
   pathname: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   if (startsWithPath(pathname, "/hr")) {
     if (pathname === "/hr") return canAccessHrOverview(permissions, venueId);

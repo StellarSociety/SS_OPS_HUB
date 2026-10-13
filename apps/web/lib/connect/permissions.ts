@@ -10,27 +10,16 @@ import {
   type ConnectGroupRole,
 } from "./types";
 
-/** Any grant at this venue (or a global grant) — the "everyone" audience. */
-export function hasConnectVenuePresence(
-  permissions: UserPermission[],
-  venueId: string,
-): boolean {
-  return permissions.some((p) => p.venue_id === null || p.venue_id === venueId);
-}
-
 /**
- * Everyone with Hub access at the venue can open Connecteam — what they see
- * inside is decided by group membership ("everyone" groups like Announcements
- * include them automatically).
+ * Opens Connecteam only when its access toggle is on (admins always).
+ * No other grant implies it — what they see inside is still decided by group
+ * membership ("everyone" groups like Announcements list all staff).
  */
 export function canAccessConnect(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  return (
-    canAccessModule(permissions, CONNECT_MODULE_KEY, venueId) ||
-    hasConnectVenuePresence(permissions, venueId)
-  );
+  return canAccessModule(permissions, CONNECT_MODULE_KEY, venueId);
 }
 
 /** Connecteam Settings: sees every group and opens the settings pages. */

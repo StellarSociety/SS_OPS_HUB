@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { getActionAuthContext } from "@/lib/auth/action-context";
+import { connectAccess, CONNECT_READ_ONLY_ERROR } from "@/lib/connect/access";
 import {
   directKey,
   getChatConversation,
@@ -27,7 +28,7 @@ import {
 } from "@/lib/connect/chat-types";
 import type { ChatReceipts } from "@/lib/connect/chat-receipts";
 import { decodeMentions, mentionedUserIds } from "@/lib/connect/mentions";
-import { canAccessConnect, canAdminConnect } from "@/lib/connect/permissions";
+import { canAdminConnect } from "@/lib/connect/permissions";
 import { canCreateChatGroups } from "@/lib/connect/chat-permissions";
 import {
   listConnectGroups,
@@ -61,6 +62,8 @@ type ChatActor = {
   userId: string;
   venueId: string;
   isConnectAdmin: boolean;
+  /** False for phone Connecteam Viewers: read only. */
+  canWrite: boolean;
   service: ReturnType<typeof createServiceClient>;
 };
 
@@ -75,13 +78,15 @@ async function requireActor(): Promise<ChatActor | { error: string }> {
   const auth = await getActionAuthContext();
   if ("error" in auth) return { error: auth.error };
   if (auth.venue.is_global) return { error: "Open Chats from a venue." };
-  if (!canAccessConnect(auth.permissions, auth.venue.id)) {
+  const access = await connectAccess(auth);
+  if (!access.canOpen) {
     return { error: "You don't have access to Connecteam." };
   }
   return {
     userId: auth.user.id,
     venueId: auth.venue.id,
     isConnectAdmin: canAdminConnect(auth.permissions, auth.venue.id),
+    canWrite: access.canWrite,
     service: createServiceClient(),
   };
 }
@@ -118,6 +123,7 @@ function cleanColor(color: string | undefined): string {
 export async function startDirectChat(otherUserId: string): Promise<Result<{ id: string }>> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
+  if (!actor.canWrite) return fail(CONNECT_READ_ONLY_ERROR);
   if (!otherUserId || otherUserId === actor.userId) return fail("Choose someone to message.");
 
   const audience = await venueAudienceIds(actor);
@@ -184,6 +190,7 @@ export type GroupChatInput = {
 export async function createGroupChat(input: GroupChatInput): Promise<Result<{ id: string }>> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
+  if (!actor.canWrite) return fail(CONNECT_READ_ONLY_ERROR);
 
   const groups = await listConnectGroups(actor.service, actor.venueId, {
     userId: actor.userId,
@@ -439,6 +446,7 @@ export async function sendChatMessage(
 ): Promise<Result<{ message: ChatMessage }>> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
+  if (!actor.canWrite) return fail(CONNECT_READ_ONLY_ERROR);
 
   const conversationId = String(formData.get("conversationId") ?? "");
   const body = String(formData.get("body") ?? "").trim();
@@ -840,6 +848,7 @@ export async function editChatMessage(
 ): Promise<Result<{ message: ChatMessage }>> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
+  if (!actor.canWrite) return fail(CONNECT_READ_ONLY_ERROR);
   const text = body.trim();
   if (!text) return fail("A message can't be empty — delete it instead.");
   if (text.length > CHAT_MAX_MESSAGE_CHARS) {

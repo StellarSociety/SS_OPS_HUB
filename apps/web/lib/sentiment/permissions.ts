@@ -1,7 +1,6 @@
 import {
   hasFeatureAccess,
   hasPermission,
-  isAppAdmin,
   type AccessLevel,
   type UserPermission,
 } from "@/lib/role-permissions";
@@ -19,7 +18,6 @@ function hasSentimentFeatureAccess(
   featureKey: string,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
@@ -36,7 +34,6 @@ function hasSentimentPermission(
   minLevel: AccessLevel,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>

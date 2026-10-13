@@ -1,4 +1,5 @@
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import { loadPhoneAccess } from "@/lib/mobile/phone-access";
 import { createClient } from "@/lib/supabase/server";
 
 export async function requireMobileAppVenueAccess(venueId: string): Promise<{
@@ -16,8 +17,12 @@ export async function requireMobileAppVenueAccess(venueId: string): Promise<{
     supabase.from("user_permissions").select("*").eq("user_id", user.id),
   ]);
 
-  if (!venue?.id || !canAccessMobileApp(permissions ?? [], venue.id)) {
-    return null;
+  if (!venue?.id) return null;
+  // Phone users: the "Can use the mobile app" switch. Mobile App Setup admins
+  // (web) also pass, for the simulator's preview actions.
+  if (!canAccessMobileApp(permissions ?? [], venue.id)) {
+    const phone = await loadPhoneAccess(user.id, venue.id);
+    if (!phone.canUseApp) return null;
   }
 
   return { userId: user.id, venueId: venue.id };

@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { getActionAuthContext } from "@/lib/auth/action-context";
+import { connectAccess, CONNECT_READ_ONLY_ERROR } from "@/lib/connect/access";
 import { getChatConversation, getChatMembership } from "@/lib/connect/chat-store";
 import {
   isOpenChatCall,
@@ -24,6 +25,8 @@ type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 type CallActor = {
   userId: string;
   venueId: string;
+  /** False for phone Connecteam Viewers: can answer, not start calls. */
+  canWrite: boolean;
   service: ReturnType<typeof createServiceClient>;
 };
 
@@ -47,9 +50,13 @@ async function requireActor(): Promise<CallActor | { error: string }> {
   const auth = await getActionAuthContext();
   if ("error" in auth) return { error: auth.error };
   if (auth.venue.is_global) return { error: "Open the chat from a venue to make a call." };
+  // Calls are part of Connecteam: its access toggle applies.
+  const access = await connectAccess(auth);
+  if (!access.canOpen) return { error: "You don't have access to Connecteam." };
   return {
     userId: auth.user.id,
     venueId: auth.venue.id,
+    canWrite: access.canWrite,
     service: createServiceClient(),
   };
 }
@@ -294,6 +301,7 @@ export async function startChatCall(
 ): Promise<Result<{ call: ChatCall }>> {
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
+  if (!actor.canWrite) return fail(CONNECT_READ_ONLY_ERROR);
   if (!liveKitConfigured()) {
     return fail(
       process.env.NODE_ENV === "development"

@@ -97,9 +97,11 @@ export function AppPathPanel({
   const stem = APP_PATH.filter((page) => !page.from);
   const employeeOptions = previewEmployees.map((employee) => ({
     value: employee.id,
-    label: employee.empNo
-      ? `${employee.empNo} · ${employee.fullName}`
-      : employee.fullName,
+    label: employee.external
+      ? `${employee.fullName} · External`
+      : employee.empNo
+        ? `${employee.empNo} · ${employee.fullName}`
+        : employee.fullName,
   }));
 
   return (

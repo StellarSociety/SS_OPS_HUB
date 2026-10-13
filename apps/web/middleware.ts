@@ -178,9 +178,8 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     const next = safeMobileAppPath(request.nextUrl.searchParams.get("next"));
     url.search = "";
-    url.pathname = next
-      ? new URL(next, request.url).pathname
-      : `${MOBILE_APP_BASE}/select-venue`;
+    // No target: /m opens the last (or only) venue's welcome page.
+    url.pathname = next ? new URL(next, request.url).pathname : MOBILE_APP_BASE;
     if (next) {
       const nextUrl = new URL(next, request.url);
       url.search = nextUrl.search;
@@ -195,12 +194,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (userId && (pathname === MOBILE_APP_BASE || pathname === `${MOBILE_APP_BASE}/`)) {
-    const url = request.nextUrl.clone();
-    url.pathname = `${MOBILE_APP_BASE}/select-venue`;
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
+  // Signed in at /m (the installed app's start page): app/m/page.tsx sends
+  // them straight to the last or only venue's welcome page.
 
   if (userId && pathname === "/") {
     const url = request.nextUrl.clone();

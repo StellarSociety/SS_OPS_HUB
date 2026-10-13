@@ -1,11 +1,20 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { Fragment, useMemo, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Bell, Lock, LogOut, MessageCircleMore, type LucideIcon } from "lucide-react";
-import { motion } from "framer-motion";
+import {
+  ArrowLeftRight,
+  Bell,
+  ChevronDown,
+  Lock,
+  LogOut,
+  type LucideIcon,
+} from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { VenueBrandIcon } from "@/components/brand/venue-brand-icon";
+import { cn } from "@/lib/utils";
+import { isPhoneAppBuilt } from "@/lib/access/phone-levels";
 import { ModuleTile } from "@/components/modules/module-tile";
 import {
   MOBILE_PRESS_SCALE,
@@ -17,6 +26,7 @@ import {
 } from "@/components/mobile/mobile-press";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { signOut } from "@/lib/actions/auth";
+import { MOBILE_APP_BASE } from "@/lib/mobile/app-path";
 import {
   moduleCategories,
   type ModuleCategoryKey,
@@ -38,6 +48,17 @@ const WELCOME_CATEGORY_ORDER: ModuleCategoryKey[] = [
 ];
 
 const PEOPLE_MODULE_ORDER = ["directory", "learning", "hr"] as const;
+
+type WelcomeSection = {
+  category: (typeof moduleCategories)[number];
+  modules: ModuleGridItem[];
+  showHiring: boolean;
+};
+
+/** Apps the user can't open go in the collapsed "Hidden" section. */
+function isNoAccessModule(mod: ModuleGridItem) {
+  return mod.blockedReason === "access" || mod.status === "visible_locked";
+}
 
 type MobileWelcomeScreenProps = {
   venue: Venue;
@@ -63,6 +84,9 @@ type MobileWelcomeScreenProps = {
   onOpenTerms?: () => void;
   termsHref?: string;
   onLogout?: () => void;
+  /** Simulator: open the venue picker in-frame. */
+  onSwitchVenue?: () => void;
+  switchVenueHref?: string;
   employeeHubLevel?: AccessMatrixLevel;
 };
 
@@ -89,6 +113,8 @@ export function MobileWelcomeScreen({
   onOpenTerms,
   termsHref,
   onLogout,
+  onSwitchVenue,
+  switchVenueHref = `${MOBILE_APP_BASE}/select-venue`,
   employeeHubLevel = "viewer",
 }: MobileWelcomeScreenProps) {
   const { beginNav } = useMobileNavBusy();
@@ -97,57 +123,161 @@ export function MobileWelcomeScreen({
     ? "All Venues Operational HUB"
     : `${venue.name} Operational HUB`;
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const connectModule =
-    modules.find(
-      (mod) =>
-        mod.key === "team_connect" &&
-        mod.status === "live" &&
-        mod.clickable &&
-        mod.blockedReason !== "access",
-    ) ?? null;
   // Hiring Forms sits at the end of the People row (it is not a module tile).
   const showHiring = Boolean(onOpenHiring || hiringHref);
-  const sections = useMemo(() => {
+  const { mySections, hiddenSections, hiddenCount } = useMemo(() => {
     const categoryByKey = new Map(
       moduleCategories.map((category) => [category.key, category]),
     );
-    return WELCOME_CATEGORY_ORDER.map((key) => categoryByKey.get(key))
-      .filter((category): category is NonNullable<typeof category> =>
-        Boolean(category),
-      )
-      .map((category) => {
-        const sectionModules = modules.filter(
-          // Connecteam lives next to the notifications bell when it's open to the user.
-          (mod) => mod.category === category.key && !(connectModule && mod.key === "team_connect"),
+    const categories = WELCOME_CATEGORY_ORDER.map((key) =>
+      categoryByKey.get(key),
+    ).filter((category): category is NonNullable<typeof category> =>
+      Boolean(category),
+    );
+    // Connecteam sits with the other apps (its tile shows the unread count).
+    const visibleModules = modules;
+    const hiddenModules = visibleModules.filter(isNoAccessModule);
+    const myModules = visibleModules.filter((mod) => !isNoAccessModule(mod));
+
+    function groupByCategory(list: ModuleGridItem[], withHiring: boolean) {
+      return categories
+        .map((category) => {
+          const sectionModules = list.filter(
+            (mod) => mod.category === category.key,
+          );
+          if (category.key === "people") {
+            sectionModules.sort((a, b) => {
+              const aRank = PEOPLE_MODULE_ORDER.indexOf(
+                a.key as (typeof PEOPLE_MODULE_ORDER)[number],
+              );
+              const bRank = PEOPLE_MODULE_ORDER.indexOf(
+                b.key as (typeof PEOPLE_MODULE_ORDER)[number],
+              );
+              return (
+                (aRank === -1 ? PEOPLE_MODULE_ORDER.length : aRank) -
+                (bRank === -1 ? PEOPLE_MODULE_ORDER.length : bRank)
+              );
+            });
+          }
+          return {
+            category,
+            modules: sectionModules,
+            showHiring: withHiring && category.key === "people",
+          };
+        })
+        .filter(
+          (section) => section.modules.length > 0 || section.showHiring,
         );
-        if (category.key === "people") {
-          sectionModules.sort((a, b) => {
-            const aRank = PEOPLE_MODULE_ORDER.indexOf(
-              a.key as (typeof PEOPLE_MODULE_ORDER)[number],
-            );
-            const bRank = PEOPLE_MODULE_ORDER.indexOf(
-              b.key as (typeof PEOPLE_MODULE_ORDER)[number],
-            );
-            return (
-              (aRank === -1 ? PEOPLE_MODULE_ORDER.length : aRank) -
-              (bRank === -1 ? PEOPLE_MODULE_ORDER.length : bRank)
-            );
-          });
-        }
-        return { category, modules: sectionModules };
-      })
-      .filter(
-        (section) =>
-          section.modules.length > 0 ||
-          (section.category.key === "people" && showHiring),
-      );
-  }, [modules, connectModule, showHiring]);
+    }
+
+    return {
+      mySections: groupByCategory(myModules, showHiring),
+      hiddenSections: groupByCategory(hiddenModules, false),
+      hiddenCount: hiddenModules.length,
+    };
+  }, [modules, showHiring]);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
 
   function toggleApp(key: string) {
     setSelectedKeys((current) =>
       current.includes(key)
         ? current.filter((item) => item !== key)
         : [...current, key],
+    );
+  }
+
+  function renderModuleTile(mod: ModuleGridItem) {
+    const live =
+      mod.status === "live" &&
+      mod.clickable &&
+      mod.blockedReason !== "access";
+    const opensApp =
+      live && mod.key === "sales"
+        ? {
+            href: revenueHref,
+            onOpen: onOpenRevenue,
+            noun: "Revenue",
+          }
+        : live && mod.key === "sentiment"
+          ? {
+              href: sentimentHref,
+              onOpen: onOpenSentiment,
+              noun: "Sentiment",
+            }
+        : live && mod.key === "directory"
+            ? {
+                href: directoryHref,
+                onOpen: onOpenDirectory,
+              noun: "Directory",
+            }
+          : live && mod.key === "team_connect"
+            ? {
+                href: connectHref,
+                onOpen: onOpenConnect,
+                noun: "Connecteam",
+              }
+            : null;
+    const reservedToggle =
+      mod.key === "sales" ||
+      mod.key === "sentiment" ||
+      mod.key === "directory" ||
+      mod.key === "team_connect";
+    return (
+      <ModuleTile
+        key={mod.key}
+        label={mod.label}
+        iconKey={mod.iconKey}
+        status={mod.status}
+        href={opensApp?.href}
+        clickable={mod.clickable}
+        blockedReason={mod.blockedReason}
+        badgeCount={mod.badgeCount}
+        selected={
+          opensApp ? false : selectedKeys.includes(mod.key)
+        }
+        onSelect={
+          opensApp
+            ? opensApp.onOpen
+            : reservedToggle
+              ? undefined
+              : () => toggleApp(mod.key)
+        }
+        comingSoonStyle="none"
+        selectNoun={opensApp ? opensApp.noun : "starter apps"}
+        iconWell
+        density="compact"
+        navigates={Boolean(opensApp)}
+        locked={isNoAccessModule(mod)}
+        topTag={isPhoneAppBuilt(mod.key) ? undefined : "Coming Soon"}
+      />
+    );
+  }
+
+  /** One flat grid (no category headings); order still follows the categories. */
+  function renderAppGrid(sections: WelcomeSection[]) {
+    return (
+      <div className="grid grid-cols-4 items-start justify-items-center gap-x-1 gap-y-1.5">
+        {sections.map((section) => (
+          <Fragment key={section.category.key}>
+            {section.modules.map((mod) => renderModuleTile(mod))}
+            {section.showHiring ? (
+              <ModuleTile
+                label="Hiring Forms"
+                iconKey="hiring"
+                status="live"
+                href={onOpenHiring ? undefined : hiringHref}
+                clickable
+                onSelect={onOpenHiring}
+                comingSoonStyle="none"
+                selectNoun="Hiring Forms"
+                iconWell
+                density="compact"
+                navigates
+              />
+            ) : null}
+          </Fragment>
+        ))}
+      </div>
     );
   }
 
@@ -207,138 +337,103 @@ export function MobileWelcomeScreen({
             href={onOpenNotifications ? undefined : notificationsHref}
             onOpen={onOpenNotifications}
           />
-          {connectModule ? (
-            <WelcomeNotificationsCard
-              icon={MessageCircleMore}
-              noun="unread chat"
-              totalCount={connectModule.badgeCount ?? 0}
-              href={onOpenConnect ? undefined : connectHref}
-              onOpen={onOpenConnect}
-            />
-          ) : null}
         </div>
 
-        <div className="rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
-          <div className="flex flex-col gap-y-2.5">
-            {sections.map((section) => (
-              <section key={section.category.key} className="flex flex-col gap-y-2">
-                <h2 className="flex items-center gap-2 px-1 font-serif text-xs font-bold leading-none text-[#3D421F] dark:text-[CanvasText]">
-                  <span
-                    aria-hidden
-                    className="h-px min-w-0 flex-1 bg-[#3D421F]/25 dark:bg-white/25"
-                  />
-                  <span className="shrink-0 py-0.5">{section.category.label}</span>
-                  <span
-                    aria-hidden
-                    className="h-px min-w-0 flex-1 bg-[#3D421F]/25 dark:bg-white/25"
-                  />
-                </h2>
-                <div className="grid grid-cols-4 items-start justify-items-center gap-x-1 gap-y-1.5">
-                  {section.modules.map((mod) => {
-                    const live =
-                      mod.status === "live" &&
-                      mod.clickable &&
-                      mod.blockedReason !== "access";
-                    const opensApp =
-                      live && mod.key === "sales"
-                        ? {
-                            href: revenueHref,
-                            onOpen: onOpenRevenue,
-                            noun: "Revenue",
-                          }
-                        : live && mod.key === "sentiment"
-                          ? {
-                              href: sentimentHref,
-                              onOpen: onOpenSentiment,
-                              noun: "Sentiment",
-                            }
-                        : live && mod.key === "directory"
-                            ? {
-                                href: directoryHref,
-                                onOpen: onOpenDirectory,
-                              noun: "Directory",
-                            }
-                          : live && mod.key === "team_connect"
-                            ? {
-                                href: connectHref,
-                                onOpen: onOpenConnect,
-                                noun: "Connecteam",
-                              }
-                            : null;
-                    const reservedToggle =
-                      mod.key === "sales" ||
-                      mod.key === "sentiment" ||
-                      mod.key === "directory" ||
-                      mod.key === "team_connect";
-                    return (
-                      <ModuleTile
-                        key={mod.key}
-                        label={mod.label}
-                        iconKey={mod.iconKey}
-                        status={mod.status}
-                        href={opensApp?.href}
-                        clickable={mod.clickable}
-                        blockedReason={mod.blockedReason}
-                        badgeCount={mod.badgeCount}
-                        selected={
-                          opensApp ? false : selectedKeys.includes(mod.key)
-                        }
-                        onSelect={
-                          opensApp
-                            ? opensApp.onOpen
-                            : reservedToggle
-                              ? undefined
-                              : () => toggleApp(mod.key)
-                        }
-                        comingSoonStyle="none"
-                        selectNoun={opensApp ? opensApp.noun : "starter apps"}
-                        iconWell
-                        density="compact"
-                        navigates={Boolean(opensApp)}
-                      />
-                    );
-                  })}
-                  {section.category.key === "people" && showHiring ? (
-                    <ModuleTile
-                      label="Hiring Forms"
-                      iconKey="hiring"
-                      status="live"
-                      href={onOpenHiring ? undefined : hiringHref}
-                      clickable
-                      onSelect={onOpenHiring}
-                      comingSoonStyle="none"
-                      selectNoun="Hiring Forms"
-                      iconWell
-                      density="compact"
-                      navigates
-                    />
-                  ) : null}
-                </div>
-              </section>
-            ))}
-          </div>
-        </div>
+        <section className="rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/12 dark:bg-white/[0.08]">
+          <h2 className="mb-2.5 px-1 font-serif text-sm font-semibold leading-none text-[#3D421F] dark:text-[CanvasText]">
+            My apps
+          </h2>
+          {mySections.length > 0 ? (
+            renderAppGrid(mySections)
+          ) : (
+            <p className="px-1 py-2 text-[13px] text-black/55 dark:text-white/55">
+              No apps have been opened to you yet.
+            </p>
+          )}
+        </section>
 
+        {hiddenCount > 0 ? (
+          <section className="rounded-xl border border-black/10 bg-black/[0.02] dark:border-white/12 dark:bg-white/[0.05]">
+            <button
+              type="button"
+              onClick={() => setHiddenOpen((open) => !open)}
+              aria-expanded={hiddenOpen}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left"
+            >
+              <Lock
+                className="h-3.5 w-3.5 text-black/45 dark:text-white/45"
+                aria-hidden
+              />
+              <span className="font-serif text-sm font-semibold leading-none text-[#3D421F]/70 dark:text-[CanvasText]/70">
+                Hidden
+              </span>
+              <span className="rounded-full bg-black/[0.06] px-1.5 py-0.5 text-[11px] font-medium tabular-nums leading-none text-black/55 dark:bg-white/10 dark:text-white/55">
+                {hiddenCount}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "ml-auto h-4 w-4 text-black/45 transition-transform dark:text-white/45",
+                  hiddenOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </button>
+            <AnimatePresence initial={false}>
+              {hiddenOpen ? (
+                <motion.div
+                  key="hidden-apps"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="overflow-hidden"
+                >
+                  <div className="flex flex-col gap-y-2.5 px-3 pb-3 opacity-80">
+                    <p className="px-1 text-[11px] leading-snug text-black/55 dark:text-white/55">
+                      You don&apos;t have access to these apps. Ask your manager
+                      if you need one.
+                    </p>
+                    {renderAppGrid(hiddenSections)}
+                  </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </section>
+        ) : null}
 
         <div className="mt-auto space-y-2 pb-1">
-          {onLogout ? (
-            <MobilePressTarget
-              type="button"
-              onClick={onLogout}
-              className={LOGOUT_BUTTON_CLASS}
-            >
-              <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
-              Logout
-            </MobilePressTarget>
-          ) : (
-            <form action={signOut}>
-              <input type="hidden" name="mobile_app" value="1" />
-              <MobilePressTarget type="submit" className={LOGOUT_BUTTON_CLASS}>
+          <div className="grid grid-cols-2 gap-2">
+            {onLogout ? (
+              <MobilePressTarget
+                type="button"
+                onClick={onLogout}
+                className={LOGOUT_BUTTON_CLASS}
+              >
                 <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
                 Logout
               </MobilePressTarget>
-            </form>
-          )}
+            ) : (
+              <form action={signOut}>
+                <input type="hidden" name="mobile_app" value="1" />
+                <MobilePressTarget type="submit" className={LOGOUT_BUTTON_CLASS}>
+                  <LogOut className="h-3.5 w-3.5" strokeWidth={2} />
+                  Logout
+                </MobilePressTarget>
+              </form>
+            )}
+            {onSwitchVenue ? (
+              <MobilePressTarget
+                type="button"
+                onClick={onSwitchVenue}
+                className={LOGOUT_BUTTON_CLASS}
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={2} />
+                Switch venue
+              </MobilePressTarget>
+            ) : (
+              <SwitchVenueLink href={switchVenueHref} />
+            )}
+          </div>
           <p className="text-center text-[11px] leading-[14px] text-black/60 dark:text-white/60">
             By using this hub you agree to follow Stellar Society policies for
             data, records, and workplace conduct. Misuse may result in access
@@ -362,6 +457,24 @@ export function MobileWelcomeScreen({
         </div>
       </div>
     </div>
+  );
+}
+
+function SwitchVenueLink({ href }: { href: string }) {
+  const { pressed, pressProps } = useMobilePress();
+  const { beginNav } = useMobileNavBusy();
+  return (
+    <motion.span
+      className="block"
+      animate={{ scale: pressed ? MOBILE_PRESS_SCALE : 1 }}
+      transition={MOBILE_PRESS_TRANSITION}
+      {...pressProps}
+    >
+      <Link href={href} className={LOGOUT_BUTTON_CLASS} onClick={() => beginNav()}>
+        <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={2} />
+        Switch venue
+      </Link>
+    </motion.span>
   );
 }
 

@@ -217,7 +217,9 @@ export async function suggestNextEmpNo(
   const { data, error } = await supabase
     .from("staff")
     .select("emp_no")
-    .eq("home_venue_id", homeVenueId);
+    .eq("home_venue_id", homeVenueId)
+    // External / org-chart-only people don't use up employee numbers.
+    .eq("org_chart_only", false);
   if (error) throw error;
 
   // Codes use an optional alphabetic prefix followed by a zero-padded number,

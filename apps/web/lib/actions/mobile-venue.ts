@@ -5,7 +5,8 @@ import { writeAuditLog } from "@/lib/audit";
 import { canAccessGlobal } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 import { mobileWelcomeHref, MOBILE_APP_BASE } from "@/lib/mobile/app-path";
-import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import { rememberMobileVenue } from "@/lib/mobile/home-venue";
+import { loadPhoneAccess } from "@/lib/mobile/phone-access";
 
 export async function selectMobileVenue(venueSlug: string) {
   const supabase = await createClient();
@@ -36,7 +37,7 @@ export async function selectMobileVenue(venueSlug: string) {
     return { error: "You do not have access to the Global view." };
   }
 
-  if (!canAccessMobileApp(permissions ?? [], venue.id)) {
+  if (!(await loadPhoneAccess(user.id, venue.id)).canUseApp) {
     return { error: "You do not have access to the mobile app for this venue." };
   }
 
@@ -50,5 +51,6 @@ export async function selectMobileVenue(venueSlug: string) {
     after: { slug: venue.slug, runtime: "mobile" },
   });
 
+  await rememberMobileVenue(venue.slug);
   redirect(mobileWelcomeHref(venue.slug));
 }

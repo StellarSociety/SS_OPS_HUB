@@ -7,11 +7,7 @@ import {
 } from "@/lib/access/access-block-store";
 import { isAccessBlockDue } from "@/lib/access/access-block";
 import {
-  applyMatrixLevel,
-  employeeHubLevelFromState,
-  ensureMobileAppEnabled,
   getAccessMatrixAppColumns,
-  matrixLevelFromConfig,
   webAppAccessCount,
   type AccessMatrixLevel,
   MOBILE_EMPLOYEE_HUB_MODULE_KEY,
@@ -19,9 +15,14 @@ import {
 import { buildEditorState } from "@/lib/access/roles";
 import { getUserById, listUsers, staffInviteEmail } from "@/lib/access/store";
 import { inviteStatusOf, type InviteStatus } from "@/lib/access/types";
-import { inviteUser, saveUserAccess, suspendAllAccess } from "@/lib/actions/users";
+import { inviteUser, suspendAllAccess } from "@/lib/actions/users";
 import { isOutEmploymentStatus } from "@/lib/hr/employment-status";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import {
+  loadVenuePhoneAccessRows,
+  PHONE_APP_SWITCH_KEY,
+  type PhoneAccessRow,
+} from "@/lib/mobile/phone-access";
 import { getMobilePageContext } from "@/lib/mobile/page-context";
 import { canManageHubSettings } from "@/lib/role-permissions";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -58,6 +59,9 @@ export type MobileAccessMatrixRow = {
 export type MobileAccessMatrixData = {
   apps: ReturnType<typeof getAccessMatrixAppColumns>;
   hubKey: string;
+  /** "Can use the mobile app" switch key. */
+  switchKey: string;
+  venueId: string;
   active: MobileAccessMatrixRow[];
   out: MobileAccessMatrixRow[];
   external: MobileAccessMatrixRow[];
@@ -71,22 +75,23 @@ function unwrapOne<T>(value: T | T[] | null | undefined): T | null {
 
 function emptyLevels(apps: { key: string }[]): Record<string, AccessMatrixLevel> {
   const levels: Record<string, AccessMatrixLevel> = {
+    [PHONE_APP_SWITCH_KEY]: "none",
     [MOBILE_EMPLOYEE_HUB_MODULE_KEY]: "none",
   };
   for (const app of apps) levels[app.key] = "none";
   return levels;
 }
 
+/** Phone levels come from the Mobile App Access switches; web count from web grants. */
 function levelsFromUser(
   user: UserListRow,
   apps: { key: string }[],
+  phoneRows: PhoneAccessRow[],
 ): { levels: Record<string, AccessMatrixLevel>; webAppCount: number } {
   const state = buildEditorState(user);
-  const byKey = new Map(state.modules.map((mod) => [mod.moduleKey, mod]));
   const levels = emptyLevels(apps);
-  levels[MOBILE_EMPLOYEE_HUB_MODULE_KEY] = employeeHubLevelFromState(state.modules);
-  for (const app of apps) {
-    levels[app.key] = matrixLevelFromConfig(byKey.get(app.key));
+  for (const row of phoneRows) {
+    if (row.app_key in levels) levels[row.app_key] = row.level;
   }
   return { levels, webAppCount: webAppAccessCount(state.modules) };
 }
@@ -94,6 +99,7 @@ function levelsFromUser(
 function staffRowFromUser(
   user: UserListRow,
   apps: { key: string }[],
+  phoneRows: PhoneAccessRow[],
   extra: {
     key: string;
     kind: "staff" | "external";
@@ -112,7 +118,7 @@ function staffRowFromUser(
     personalEmail: string | null;
   },
 ): MobileAccessMatrixRow {
-  const { levels, webAppCount } = levelsFromUser(user, apps);
+  const { levels, webAppCount } = levelsFromUser(user, apps, phoneRows);
   return {
     ...extra,
     userId: user.id,
@@ -135,6 +141,8 @@ export async function listMobileAccessMatrix(): Promise<MobileAccessMatrixData> 
   const empty: MobileAccessMatrixData = {
     apps,
     hubKey: MOBILE_EMPLOYEE_HUB_MODULE_KEY,
+    switchKey: PHONE_APP_SWITCH_KEY,
+    venueId: venue.id,
     active: [],
     out: [],
     external: [],
@@ -144,8 +152,9 @@ export async function listMobileAccessMatrix(): Promise<MobileAccessMatrixData> 
   if (!canAccessMobileApp(permissions, venue.id)) return empty;
 
   const service = createServiceClient();
-  const [users, staffResult] = await Promise.all([
+  const [users, phoneRowsByUser, staffResult] = await Promise.all([
     listUsers(service),
+    loadVenuePhoneAccessRows(service, venue.id),
     service
       .from("staff")
       .select(
@@ -209,7 +218,7 @@ export async function listMobileAccessMatrix(): Promise<MobileAccessMatrixData> 
     };
 
     const row: MobileAccessMatrixRow = user
-      ? staffRowFromUser(user, apps, extra)
+      ? staffRowFromUser(user, apps, phoneRowsByUser.get(user.id) ?? [], extra)
       : {
           ...extra,
           userId: null,
@@ -239,7 +248,7 @@ export async function listMobileAccessMatrix(): Promise<MobileAccessMatrixData> 
       return true;
     })
     .map((user) =>
-      staffRowFromUser(user, apps, {
+      staffRowFromUser(user, apps, phoneRowsByUser.get(user.id) ?? [], {
         key: `user:${user.id}`,
         kind: "external",
         staffId: user.staff_id,
@@ -266,6 +275,8 @@ export async function listMobileAccessMatrix(): Promise<MobileAccessMatrixData> 
   return {
     apps,
     hubKey: MOBILE_EMPLOYEE_HUB_MODULE_KEY,
+    switchKey: PHONE_APP_SWITCH_KEY,
+    venueId: venue.id,
     active,
     out,
     external,
@@ -276,31 +287,6 @@ export async function listMobileAccessMatrix(): Promise<MobileAccessMatrixData> 
 function revalidateMatrix() {
   revalidatePath("/mobile/access");
   revalidatePath("/settings/users");
-}
-
-export async function setMobileMatrixAccess(input: {
-  userId: string;
-  moduleKey: string;
-  level: AccessMatrixLevel;
-}) {
-  await requireAppAdmin();
-  const { venue } = await getMobilePageContext();
-  const service = createServiceClient();
-  const target = await getUserById(service, input.userId);
-  if (!target) return { error: "User not found." };
-
-  const state = buildEditorState(target);
-  const granted = input.level === "viewer" || input.level === "editor";
-  let modules = state.modules.map((mod) =>
-    mod.moduleKey === input.moduleKey
-      ? applyMatrixLevel(mod, input.level, venue.id)
-      : mod,
-  );
-  if (granted) modules = ensureMobileAppEnabled(modules, venue.id);
-
-  const result = await saveUserAccess(input.userId, { ...state, modules });
-  revalidateMatrix();
-  return result;
 }
 
 export async function inviteStaffFromMatrix(

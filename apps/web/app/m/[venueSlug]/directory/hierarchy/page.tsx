@@ -22,7 +22,7 @@ export default async function MobileDirectoryHierarchyPage({
   params,
 }: PageProps) {
   const { venueSlug } = await params;
-  const { venue, permissions, supabase } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, service } = await getMobileAppContext(venueSlug);
 
   if (!canAccessMobileApp(permissions, venue.id)) {
     return <MobileAccessDenied />;
@@ -39,8 +39,8 @@ export default async function MobileDirectoryHierarchyPage({
     return <MobileAccessDenied />;
   }
 
-  const staff = await loadDirectoryStaff(supabase, venue);
-  const hierarchy = await loadDirectoryHierarchy(supabase, venue, staff);
+  const staff = await loadDirectoryStaff(service, venue);
+  const hierarchy = await loadDirectoryHierarchy(service, venue, staff);
 
   return (
     <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">

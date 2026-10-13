@@ -2,7 +2,6 @@ import { getFeaturesForModule } from "@/lib/modules-catalog";
 import {
   hasFeatureAccess,
   hasPermission,
-  isAppAdmin,
   type AccessLevel,
   type UserPermission,
 } from "@/lib/role-permissions";
@@ -14,7 +13,6 @@ export function hasVenueScopedPermission(
   minLevel: AccessLevel,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some((p) => {
     if (p.module_key !== moduleKey || p.feature_key !== featureKey) return false;
@@ -29,7 +27,6 @@ export function hasVenueScopedFeatureAccess(
   featureKey: string,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some((p) => {
     if (p.module_key !== moduleKey || p.feature_key !== featureKey) return false;
@@ -45,7 +42,6 @@ export function canAccessFeature(
   featureKey: string,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
   return hasVenueScopedFeatureAccess(
     permissions,
     moduleKey,
@@ -60,7 +56,6 @@ export function canAccessModule(
   moduleKey: string,
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   const features = getFeaturesForModule(moduleKey);
   if (features.length === 0) return false;

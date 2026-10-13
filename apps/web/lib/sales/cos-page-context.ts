@@ -7,7 +7,6 @@ import {
 import {
   hasFeatureAccess,
   hasPermission,
-  isAppAdmin,
   type AccessLevel,
   type UserPermission,
 } from "@/lib/role-permissions";
@@ -40,7 +39,6 @@ export function canViewCos(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
   return permissions.some(
     (p) =>
       p.module_key === COS_MODULE_KEY &&
@@ -54,7 +52,6 @@ export function canEditCos(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
   return permissions.some(
     (p) =>
       p.module_key === COS_MODULE_KEY &&
@@ -68,7 +65,6 @@ export function canEditCosSettings(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
   return permissions.some(
     (p) =>
       p.module_key === COS_MODULE_KEY &&

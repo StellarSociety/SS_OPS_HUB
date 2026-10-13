@@ -1,13 +1,13 @@
 "use server";
 
 import { getActionAuthContext } from "@/lib/auth/action-context";
+import { canUseConnect } from "@/lib/connect/access";
 import { getChatMembership } from "@/lib/connect/chat-store";
 import {
   isChatReactionKey,
   type ChatReactionKey,
   type ChatReactionRow,
 } from "@/lib/connect/chat-reactions";
-import { canAccessConnect } from "@/lib/connect/permissions";
 import { createServiceClient } from "@/lib/supabase/service";
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -18,7 +18,7 @@ async function requireMember(conversationId: string): Promise<Member | { error: 
   const auth = await getActionAuthContext();
   if ("error" in auth) return { error: auth.error ?? "Not signed in." };
   if (auth.venue.is_global) return { error: "Open Chats from a venue." };
-  if (!canAccessConnect(auth.permissions, auth.venue.id)) {
+  if (!(await canUseConnect(auth))) {
     return { error: "You don't have access to Connecteam." };
   }
   const service = createServiceClient();

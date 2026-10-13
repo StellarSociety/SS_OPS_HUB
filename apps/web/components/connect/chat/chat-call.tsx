@@ -1,5 +1,6 @@
 "use client";
 
+import { useConnectCanWrite } from "@/components/connect/connect-write-context";
 import {
   createContext,
   useCallback,
@@ -407,7 +408,8 @@ export function ChatCallButtons({
   iconClassName?: string;
 }) {
   const calls = useChatCall();
-  if (!calls || kind !== "direct" || disabled) return null;
+  const canWrite = useConnectCanWrite();
+  if (!calls || kind !== "direct" || disabled || !canWrite) return null;
   const { call, busy, start } = calls;
   const blocked = Boolean(call) || Boolean(busy);
   const buttonClass = cn(

@@ -1,10 +1,7 @@
 import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileEmployeeLeaveScreen } from "@/components/mobile/mobile-employee-leave-screen";
 import { loadMobileEmployeeLeavePage } from "@/lib/mobile/employee-leave";
-import {
-  employeeHubIsOpen,
-  loadEmployeeHubLevel,
-} from "@/lib/mobile/employee-hub-access";
+import { canEditOwnLeave } from "@/lib/mobile/employee-hub-permissions";
 import { getMobileAppContext } from "@/lib/mobile/page-context";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
 import { loadMobileWelcomeProfile } from "@/lib/mobile/welcome-profile";
@@ -15,16 +12,17 @@ type PageProps = {
 
 export default async function MobileEmployeeLeavePage({ params }: PageProps) {
   const { venueSlug } = await params;
-  const { venue, permissions, user, supabase } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, user, phone } =
+    await getMobileAppContext(venueSlug);
 
-  if (!canAccessMobileApp(permissions, venue.id)) {
+  // Personal Employee Hub, and this page of it, must be switched on.
+  if (
+    !canAccessMobileApp(permissions, venue.id) ||
+    !phone.hubPages.includes("leave")
+  ) {
     return <MobileAccessDenied />;
   }
 
-  const hubLevel = await loadEmployeeHubLevel(supabase, user.id, venue.id);
-  if (!employeeHubIsOpen(hubLevel)) {
-    return <MobileAccessDenied />;
-  }
 
   const [initial, profile] = await Promise.all([
     loadMobileEmployeeLeavePage({
@@ -39,6 +37,7 @@ export default async function MobileEmployeeLeavePage({ params }: PageProps) {
       <MobileEmployeeLeaveScreen
         venue={venue}
         initial={initial}
+        canApply={canEditOwnLeave(permissions, venue.id)}
         employeeName={profile.fullName}
       />
     </div>

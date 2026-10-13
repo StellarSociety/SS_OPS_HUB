@@ -72,10 +72,13 @@ describe("account roles vs app grants", () => {
     expect(canAccessModule(venueAdmin, "sales", "orilla")).toBe(false);
   });
 
-  it("lets Global Admin bypass per-app toggles", () => {
+  it("keeps Global Admin hub powers but not apps whose toggle is off", () => {
     expect(isAppAdmin(globalAdmin)).toBe(true);
-    expect(canAccessMobileApp(globalAdmin, "orilla")).toBe(true);
     expect(canAccessGlobal(globalAdmin)).toBe(true);
+    expect(canManageHubSettings(globalAdmin)).toBe(true);
+    // App toggles apply to admins too.
+    expect(canAccessMobileApp(globalAdmin, "orilla")).toBe(false);
+    expect(canAccessModule(globalAdmin, "sales", "orilla")).toBe(false);
   });
 
   it("does not let a standard user into Settings or Mobile App", () => {

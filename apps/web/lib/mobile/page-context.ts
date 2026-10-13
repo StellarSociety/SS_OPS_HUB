@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 import { MOBILE_APP_BASE } from "@/lib/mobile/app-path";
+import { loadPhoneAccess } from "@/lib/mobile/phone-access";
+import { createServiceClient } from "@/lib/supabase/service";
 import type { Venue } from "@/lib/types/database";
 
 /** Context for the webapp Mobile module (device preview inside AppShell). */
@@ -34,15 +36,17 @@ export async function getMobileAppContext(venueSlug: string) {
 
   if (!venue) redirect(`${MOBILE_APP_BASE}/select-venue`);
 
-  const { data: permissions } = await supabase
-    .from("user_permissions")
-    .select("*")
-    .eq("user_id", user.id);
+  // Phone access comes from the Mobile App Access switches, not web grants.
+  const service = createServiceClient();
+  const phone = await loadPhoneAccess(user.id, venue.id as string, service);
 
   return {
     supabase,
+    /** Server client for app data once phone access is checked (no web grants needed). */
+    service,
     venue: venue as Venue,
-    permissions: permissions ?? [],
+    permissions: phone.permissions,
+    phone,
     user,
   };
 }

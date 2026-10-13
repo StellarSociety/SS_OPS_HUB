@@ -18,6 +18,8 @@ type AccessLevelSwitchProps = {
   onChange: (level: AccessMatrixLevel) => void;
   disabled?: boolean;
   name: string;
+  /** Levels this app offers (default all four). Without Editor, Viewer reads "On". */
+  levels?: AccessMatrixLevel[];
 };
 
 export function AccessLevelSwitch({
@@ -25,7 +27,12 @@ export function AccessLevelSwitch({
   onChange,
   disabled,
   name,
+  levels,
 }: AccessLevelSwitchProps) {
+  const options = levels
+    ? ACCESS_MATRIX_LEVELS.filter((option) => levels.includes(option.value))
+    : ACCESS_MATRIX_LEVELS;
+  const viewerIsOn = Boolean(levels) && !levels!.includes("editor");
   return (
     <div
       role="radiogroup"
@@ -35,16 +42,17 @@ export function AccessLevelSwitch({
         disabled && "opacity-40",
       )}
     >
-      {ACCESS_MATRIX_LEVELS.map((option) => {
+      {options.map((option) => {
         const selected = option.value === value;
+        const onLabel = viewerIsOn && option.value === "viewer";
         return (
           <button
             key={option.value}
             type="button"
             role="radio"
             aria-checked={selected}
-            aria-label={option.label}
-            title={option.label}
+            aria-label={onLabel ? "On" : option.label}
+            title={onLabel ? "On" : option.label}
             disabled={disabled}
             onClick={() => {
               if (!disabled && option.value !== value) onChange(option.value);
@@ -56,7 +64,7 @@ export function AccessLevelSwitch({
                 : "bg-transparent text-black/45 hover:bg-black/[0.06] hover:text-[#3D421F]",
             )}
           >
-            {option.short}
+            {onLabel ? "On" : option.short}
           </button>
         );
       })}

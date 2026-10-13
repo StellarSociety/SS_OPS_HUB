@@ -1,5 +1,6 @@
 "use client";
 
+import { useConnectCanWrite } from "@/components/connect/connect-write-context";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import {
@@ -95,6 +96,7 @@ export function MobileDirectoryScreen({
   onOpenChat,
 }: MobileDirectoryScreenProps) {
   const router = useRouter();
+  const canWrite = useConnectCanWrite();
   // Staff id → Hub login, for staff enrolled in the app (who can be messaged).
   const [chat, setChat] = useState<{ key: string; meId: string; byStaff: Record<string, string> } | null>(null);
   const [openingStaffId, setOpeningStaffId] = useState<string | null>(null);
@@ -213,6 +215,7 @@ export function MobileDirectoryScreen({
             isMe: (member) => Boolean(chatUsers && chatUsers.byStaff[member.id] === chatUsers.meId),
             openingId: openingStaffId,
             onMessage: (member) => void messageStaff(member),
+            canWrite,
           }}
         />
       )}
@@ -286,7 +289,7 @@ function StaffPane({
                 detail={dash(member.departmentName)}
                 onClick={() => onOpen(member.id)}
                 action={
-                  message.isMe(member) ? undefined : (
+                  message.isMe(member) || !message.canWrite ? undefined : (
                     <MessageStaffButton
                       name={member.fullName}
                       enrolled={message.enrolled(member)}
@@ -305,6 +308,8 @@ function StaffPane({
 }
 
 type StaffMessageControls = {
+  /** Connecteam Editor on the phone: may start chats. */
+  canWrite: boolean;
   enrolled: (member: DirectoryStaffMember) => boolean | null;
   isMe: (member: DirectoryStaffMember) => boolean;
   openingId: string | null;

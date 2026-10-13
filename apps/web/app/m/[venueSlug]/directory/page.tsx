@@ -17,7 +17,7 @@ type PageProps = {
 
 export default async function MobileDirectoryStaffPage({ params }: PageProps) {
   const { venueSlug } = await params;
-  const { venue, permissions, supabase } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, service } = await getMobileAppContext(venueSlug);
 
   if (!canAccessMobileApp(permissions, venue.id)) {
     return <MobileAccessDenied />;
@@ -34,7 +34,7 @@ export default async function MobileDirectoryStaffPage({ params }: PageProps) {
     return <MobileAccessDenied />;
   }
 
-  const staff = await loadDirectoryStaff(supabase, venue);
+  const staff = await loadDirectoryStaff(service, venue);
 
   return (
     <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">

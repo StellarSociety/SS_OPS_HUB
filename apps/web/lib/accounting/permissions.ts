@@ -1,7 +1,6 @@
 import {
   hasFeatureAccess,
   hasPermission,
-  isAppAdmin,
   type AccessLevel,
   type UserPermission,
 } from "@/lib/role-permissions";
@@ -21,7 +20,6 @@ export function hasAccountingPermission(
   minLevel: AccessLevel = "view",
   venueId?: string | null,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
@@ -37,7 +35,6 @@ export function hasAccountingFeatureAccess(
   featureKey: string,
   venueId?: string | null,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
@@ -86,7 +83,6 @@ export function canEditAp(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
   return (
     hasAccountingPermission(permissions, ACCOUNTING_FEATURES.ap, "edit", venueId) ||
     hasAccountingPermission(permissions, ACCOUNTING_FEATURES.ap, "admin", venueId) ||
@@ -125,7 +121,6 @@ export function canAccessGl(
   permissions: UserPermission[],
   venueId: string,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
   return GL_READ_FEATURES.some((feature) =>
     hasAccountingFeatureAccess(permissions, feature, venueId),
   );
@@ -135,7 +130,6 @@ export function getApAccessLevel(
   permissions: UserPermission[],
   venueId: string,
 ): AccessLevel | null {
-  if (isAppAdmin(permissions)) return "admin";
   const levels: AccessLevel[] = ["admin", "edit", "view", "submit"];
   for (const level of levels) {
     if (level === "submit") {

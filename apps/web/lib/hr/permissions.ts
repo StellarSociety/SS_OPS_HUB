@@ -2,7 +2,6 @@ import {
   hasFeatureAccess,
   hasPermission,
   hasSubmitGrant,
-  isAppAdmin,
   type AccessLevel,
   type UserPermission,
 } from "@/lib/role-permissions";
@@ -22,7 +21,6 @@ export function hasHrPermission(
   minLevel: AccessLevel = "view",
   venueId?: string | null,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
@@ -38,7 +36,6 @@ export function hasHrFeatureAccess(
   featureKey: string,
   venueId?: string | null,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>
@@ -54,7 +51,6 @@ export function hasHrSubmitGrant(
   featureKey: string,
   venueId?: string | null,
 ): boolean {
-  if (isAppAdmin(permissions)) return true;
 
   return permissions.some(
     (p) =>

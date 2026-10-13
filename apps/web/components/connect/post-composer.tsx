@@ -1,5 +1,6 @@
 "use client";
 
+import { useConnectCanWrite } from "@/components/connect/connect-write-context";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileText, ImagePlus, Paperclip, PartyPopper, X } from "lucide-react";
@@ -34,7 +35,13 @@ const attachClass =
   "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-black/65 hover:bg-black/5";
 const attachCompactClass = "h-8 gap-1.5 rounded-full px-2.5 py-0 text-[13px]";
 
-export function PostComposer({
+/** Hidden for Connecteam read-only (phone Viewer). */
+export function PostComposer(props: Parameters<typeof PostComposerInner>[0]) {
+  const canWrite = useConnectCanWrite();
+  return canWrite ? <PostComposerInner {...props} /> : null;
+}
+
+function PostComposerInner({
   me,
   groups,
   defaultGroupId,

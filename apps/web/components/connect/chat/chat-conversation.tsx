@@ -1,5 +1,6 @@
 "use client";
 
+import { CONNECT_READ_ONLY_NOTE, useConnectCanWrite } from "@/components/connect/connect-write-context";
 import {
   Fragment,
   forwardRef,
@@ -120,6 +121,7 @@ export function ChatConversation({
   /** Previewing someone else's chat: no sending, no read marking. */
   readOnly?: boolean;
 }) {
+  const canWrite = useConnectCanWrite();
   const router = useRouter();
   const panes = useChatPanes();
   const meId = me?.userId ?? "";
@@ -602,6 +604,10 @@ export function ChatConversation({
         {readOnly ? (
           <p className="border-t border-black/5 bg-amber-50 px-4 py-3 text-center text-xs text-amber-900">
             Preview of {me?.name ?? "this employee"}&apos;s chat — read only.
+          </p>
+        ) : !canWrite ? (
+          <p className="border-t border-black/5 bg-black/[0.03] px-4 py-3 text-center text-xs text-black/55 dark:border-white/10 dark:bg-white/[0.06] dark:text-white/55">
+            {CONNECT_READ_ONLY_NOTE}
           </p>
         ) : detail.canPost ? (
           <Composer

@@ -2291,7 +2291,7 @@ function HierarchyBranch({
                                 {assignedIds.has(person.id)
                                   ? person.positionName ||
                                     person.departmentName ||
-                                    person.empNo
+                                    (person.orgChartOnly ? "External" : person.empNo)
                                   : "Not on chart"}
                               </span>
                             </button>
@@ -2593,7 +2593,9 @@ function StaffCardPay({
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
-      {member?.empNo ? (
+      {member?.orgChartOnly ? (
+        <span className="shrink-0 text-[10px] leading-none text-black/40">External</span>
+      ) : member?.empNo ? (
         <StaffDirectoryLink
           staffId={member.id}
           empNo={member.empNo}

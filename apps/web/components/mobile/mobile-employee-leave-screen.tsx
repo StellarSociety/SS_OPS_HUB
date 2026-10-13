@@ -40,6 +40,8 @@ type MobileEmployeeLeaveScreenProps = {
   previewStaffId?: string | null;
   employeeName?: string | null;
   onSelectTab?: (tab: MobileTabItem) => void;
+  /** Editor on Employee Hub › Leave: apply, edit and cancel. Viewer: view only. */
+  canApply?: boolean;
 };
 
 function firstNameOf(name: string | null | undefined): string | null {
@@ -134,6 +136,7 @@ export function MobileEmployeeLeaveScreen({
   previewStaffId = null,
   employeeName = null,
   onSelectTab,
+  canApply = false,
 }: MobileEmployeeLeaveScreenProps) {
   const [page, setPage] = useState(initial);
   const [formOpen, setFormOpen] = useState(false);
@@ -149,10 +152,9 @@ export function MobileEmployeeLeaveScreen({
         source: openItem.source,
       })
     : true;
-  const canDelete = openItem
-    ? employeeCanDeleteLeaveRequest(openItem.status)
-    : false;
-  const readOnly = Boolean(openItem) && !canEditOpen;
+  const canDelete =
+    canApply && openItem ? employeeCanDeleteLeaveRequest(openItem.status) : false;
+  const readOnly = !canApply || (Boolean(openItem) && !canEditOpen);
 
   const selectedType = useMemo(
     () => page.leaveTypes.find((t) => t.id === form.leaveTypeId) ?? page.leaveTypes[0],
@@ -528,15 +530,21 @@ export function MobileEmployeeLeaveScreen({
               <MobileLeaveBalancesPanel balances={page.balances} />
             ) : null}
 
-            <button
-              type="button"
-              onClick={openApply}
-              disabled={pending || page.leaveTypes.length === 0}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--venue-primary,#818a40)] text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" />
-              Apply for leave
-            </button>
+            {canApply ? (
+              <button
+                type="button"
+                onClick={openApply}
+                disabled={pending || page.leaveTypes.length === 0}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--venue-primary,#818a40)] text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Apply for leave
+              </button>
+            ) : (
+              <p className="rounded-xl border border-black/10 bg-black/[0.03] px-4 py-3 text-center text-xs leading-snug text-black/55 dark:border-white/12 dark:bg-white/[0.06] dark:text-white/55">
+                View only — to apply for leave, contact your supervisor or Hub admin.
+              </p>
+            )}
 
             <section>
               <div className="flex items-baseline justify-between gap-3">
@@ -554,9 +562,11 @@ export function MobileEmployeeLeaveScreen({
                   <p className="text-sm text-black/55 dark:text-white/55">
                     No leave applied yet.
                   </p>
-                  <p className="mt-1 text-xs text-black/40 dark:text-white/40">
-                    Apply for leave and HR will review it on Leave Requests.
-                  </p>
+                  {canApply ? (
+                    <p className="mt-1 text-xs text-black/40 dark:text-white/40">
+                      Apply for leave and HR will review it on Leave Requests.
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <ul className="mt-3 space-y-2">

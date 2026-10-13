@@ -22,10 +22,10 @@ import {
   upsertMobileAppInstall,
 } from "@/lib/mobile/installs-store";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import { listPhoneAppUserIds } from "@/lib/mobile/phone-access";
 import { PWA_APP_VERSION, PWA_REINSTALL_URL } from "@/lib/pwa/constants";
 import { sendPushToUser } from "@/lib/push/send";
 import { listPushSubscriptionsForUsers } from "@/lib/push/store";
-import type { UserPermission } from "@/lib/role-permissions";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -86,14 +86,12 @@ export async function listMobileUsersAccess(): Promise<MobileUsersAccessRow[]> {
   if (!canAccessMobileApp(permissions, venue.id)) return [];
 
   const service = createServiceClient();
-  const users = await listUsers(service);
-  const withAccess = users.filter((user) => {
-    const perms = user.permissions.map((p) => ({
-      ...p,
-      user_id: user.id,
-    })) as UserPermission[];
-    return canAccessMobileApp(perms, venue.id);
-  });
+  const [users, phoneUserIds] = await Promise.all([
+    listUsers(service),
+    listPhoneAppUserIds(service, venue.id),
+  ]);
+  // Phone users = the "Can use the mobile app" switch.
+  const withAccess = users.filter((user) => phoneUserIds.has(user.id));
 
   const userIds = withAccess.map((u) => u.id);
   const [installs, pushRows, auditRows] = await Promise.all([

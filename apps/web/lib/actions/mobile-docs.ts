@@ -5,6 +5,7 @@ import type { PayslipSnapshot } from "@/lib/actions/hr-payroll";
 import { canViewPayslips } from "@/lib/hr/permissions";
 import { loadPayslipLetterheadForVenue } from "@/lib/hr/payslip-letterhead";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import { loadPhoneAccess } from "@/lib/mobile/phone-access";
 import { requireMobileAppVenueAccess } from "@/lib/mobile/require-app-access";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
@@ -25,7 +26,10 @@ export async function getMobilePayslipSnapshotAction(input: {
   if ("error" in auth) return { ok: false, error: auth.error };
 
   const { user, venue, permissions } = auth;
-  if (!canAccessMobileApp(permissions, venue.id)) {
+  if (
+    !canAccessMobileApp(permissions, venue.id) &&
+    !(await loadPhoneAccess(user.id, venue.id)).canUseApp
+  ) {
     return { ok: false, error: "No permission." };
   }
 

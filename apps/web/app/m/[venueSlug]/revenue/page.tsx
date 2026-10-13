@@ -11,7 +11,7 @@ type PageProps = {
 
 export default async function MobileRevenuePage({ params }: PageProps) {
   const { venueSlug } = await params;
-  const { venue, permissions, supabase } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, service } = await getMobileAppContext(venueSlug);
 
   if (
     !canAccessMobileApp(permissions, venue.id) ||
@@ -20,7 +20,7 @@ export default async function MobileRevenuePage({ params }: PageProps) {
     return <MobileAccessDenied />;
   }
 
-  const overview = await loadSalesOverviewData(supabase, venue.id);
+  const overview = await loadSalesOverviewData(service, venue.id);
 
   return (
     <div className="h-full min-h-0 overflow-hidden mobile-app-canvas">

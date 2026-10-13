@@ -37,3 +37,4 @@ npm-debug.log*
 .env*.local
 .env.vercel.import
 Arattai.app/
+.dev-logs/

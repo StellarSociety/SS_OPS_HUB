@@ -1,5 +1,6 @@
 "use client";
 
+import { useConnectCanWrite } from "@/components/connect/connect-write-context";
 import {
   createContext,
   Fragment,
@@ -779,6 +780,7 @@ function CommentsSection({
   me: ConnectPerson | null;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
+  const canWrite = useConnectCanWrite();
   const [expanded, setExpanded] = useState(false);
   const [replyTo, setReplyTo] = useState<ConnectComment | null>(null);
 
@@ -842,7 +844,7 @@ function CommentsSection({
         </div>
       ))}
 
-      {post.canComment ? (
+      {post.canComment && canWrite ? (
         <CommentInput
           postId={post.id}
           me={me}

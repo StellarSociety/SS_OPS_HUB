@@ -17,7 +17,7 @@ export default async function MobileSentimentActionsPage({
   params,
 }: PageProps) {
   const { venueSlug } = await params;
-  const { venue, permissions, supabase, user } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, service, user } = await getMobileAppContext(venueSlug);
 
   if (
     !canAccessMobileApp(permissions, venue.id) ||
@@ -27,7 +27,7 @@ export default async function MobileSentimentActionsPage({
   }
 
   const [workspace, staffRows] = await Promise.all([
-    loadSentimentWorkspace(supabase, venue.id),
+    loadSentimentWorkspace(service, venue.id),
     loadStaffMentionRows(venue),
   ]);
   const flags = sentimentEditFlags(permissions, venue.id);

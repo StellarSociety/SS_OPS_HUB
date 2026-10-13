@@ -4,6 +4,8 @@ import { useCallback, useMemo, useState, useTransition, type CSSProperties, type
 import { useRouter } from "next/navigation";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { AppPathPanel } from "@/components/mobile/app-path-panel";
+import { ConnectWriteProvider } from "@/components/connect/connect-write-context";
+import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileEmployeeAttendanceScreen } from "@/components/mobile/mobile-employee-attendance-screen";
 import { MobileEmployeeDocsScreen } from "@/components/mobile/mobile-employee-docs-screen";
 import { MobileEmployeeLeaveScreen } from "@/components/mobile/mobile-employee-leave-screen";
@@ -41,7 +43,11 @@ import {
   type AppPathPage,
 } from "@/lib/mobile/app-path";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
-import { loadMobilePreviewEmployeeAction } from "@/lib/actions/mobile-preview-employee";
+import {
+  loadMobilePreviewEmployeeAction,
+  type MobilePreviewEmployeeBundle,
+} from "@/lib/actions/mobile-preview-employee";
+import type { AccessMatrixLevel } from "@/lib/access/matrix";
 import type { MobileAttendanceMonth } from "@/lib/mobile/employee-attendance";
 import type { MobileDocsPage } from "@/lib/mobile/employee-docs";
 import type { MobileLeavePage } from "@/lib/mobile/employee-leave";
@@ -89,10 +95,26 @@ type WelcomePreview = {
   userName: string | null;
   venue: Venue;
   modules: ModuleGridItem[];
+  employeeHubLevel: AccessMatrixLevel;
+  /** Employee Hub pages switched on (profile, attendance, leave, docs). */
+  hubPages: string[];
+  showHiring: boolean;
+  mobileAccess: boolean;
+  hasHubLogin: boolean;
   profile: MobileWelcomeProfile;
   notificationCount: number;
   unreadCount: number;
   notifications: NotificationRow[];
+  /** Venue picker for this person (null: no Hub login). */
+  selectVenue: SelectVenuePageData | null;
+  canEditHiring: boolean;
+  /** Employee Hub › Leave at Editor: can apply, edit and cancel. */
+  canApplyLeave: boolean;
+  /** Connecteam at Editor: can start chats, send, post, comment and call. */
+  canWriteConnect: boolean;
+  sentimentCanEdit: boolean;
+  sentimentCanEditActions: boolean;
+  userId: string | null;
 };
 
 function frameSize(device: DevicePreset) {
@@ -101,6 +123,54 @@ function frameSize(device: DevicePreset) {
     width: device.width + BEZEL * 2,
     height: device.height + BEZEL * 2 + extraBottom,
   };
+}
+
+const HUB_PAGE_BY_SCREEN: Record<string, string> = {
+  "employee-profile": "profile",
+  attendance: "attendance",
+  leave: "leave",
+  docs: "docs",
+};
+
+/** Phone app each simulator screen belongs to (module key). */
+function screenAppKey(pageId: string): string | null {
+  if (pageId === "revenue") return "sales";
+  if (pageId.startsWith("sentiment")) return "sentiment";
+  if (pageId.startsWith("directory")) return "directory";
+  if (pageId.startsWith("connect")) return "team_connect";
+  return null;
+}
+
+/**
+ * Why this screen is blocked for the previewed person, or null if it opens.
+ * Mirrors the real phone: the mobile app switch, then the Employee Hub page or
+ * the app's own switch.
+ */
+function simulatorBlock(
+  pageId: string,
+  welcome: WelcomePreview,
+): { message?: string } | null {
+  if (pageId === "login") return null;
+  if (!welcome.hasHubLogin) {
+    return {
+      message: "This employee has no Hub login yet, so they can't sign in to the app.",
+    };
+  }
+  // The venue picker lists only their phone venues (may be none).
+  if (pageId === "select-venue") return null;
+  if (!welcome.mobileAccess) return {};
+  const hubPage = HUB_PAGE_BY_SCREEN[pageId];
+  if (hubPage && !welcome.hubPages.includes(hubPage)) {
+    return { message: "You don’t have access to this page." };
+  }
+  if (pageId.startsWith("hiring") && !welcome.showHiring) {
+    return { message: "You don’t have access to Hiring Forms." };
+  }
+  const appKey = screenAppKey(pageId);
+  if (appKey && !welcome.modules.some((mod) => mod.key === appKey && mod.clickable)) {
+    return { message: "You don’t have access to this app." };
+  }
+  return null;
 }
 
 function sentimentTabFromPageId(pageId: string): MobileSentimentTab {
@@ -309,13 +379,8 @@ function PhoneStage({
   const [refreshing, startRefresh] = useTransition();
   const [staffBusy, startStaffPreview] = useTransition();
   const [previewStaffId, setPreviewStaffId] = useState("");
-  const [previewOverride, setPreviewOverride] = useState<{
-    profile: MobileWelcomeProfile;
-    attendance: MobileAttendanceMonth;
-    leave: MobileLeavePage;
-    docs: MobileDocsPage;
-    userName: string | null;
-  } | null>(null);
+  const [previewOverride, setPreviewOverride] =
+    useState<MobilePreviewEmployeeBundle | null>(null);
   // Connecteam as the previewed employee (null = yourself), and the chat open in-frame.
   const [connectPreview, setConnectPreview] = useState<PreviewConnectData | null>(null);
   const [connectNote, setConnectNote] = useState<string | null>(null);
@@ -330,8 +395,12 @@ function PhoneStage({
         ...welcome,
         userName: previewOverride.userName,
         profile: previewOverride.profile,
+        // The previewed employee's own apps and access, not yours.
+        ...previewOverride.welcome,
       }
     : welcome;
+  // Same rules as the real phone: every screen follows the Mobile App Access switches.
+  const blocked = simulatorBlock(page.id, previewWelcome);
   const previewAttendance = previewOverride?.attendance ?? attendance;
   const previewLeave = previewOverride?.leave ?? leave;
   const previewDocs = previewOverride?.docs ?? docs;
@@ -437,9 +506,11 @@ function PhoneStage({
           <EdgeSwipeBack
             key={previewNonce}
             onBack={() => (openChatId ? setOpenChatId(null) : onBack())}
+            resetKey={`${pageId}:${openChatId ?? ""}`}
             // Force the phone's appearance, independent of this computer's.
             className={cn("h-full min-h-0", previewDark ? "scheme-dark bg-black" : "scheme-light")}
           >
+          <ConnectWriteProvider canWrite={previewWelcome.canWriteConnect}>
           <SimulatedKeyboardFrame>
             {page.id === "login" ? (
               <LoginScreen
@@ -450,12 +521,14 @@ function PhoneStage({
               />
             ) : page.id === "select-venue" ? (
               <SelectVenueScreen
-                {...selectVenue}
+                {...(previewWelcome.selectVenue ?? selectVenue)}
                 fill
                 preview
                 runtime="mobile"
                 onSelectVenue={handleVenueSelected}
               />
+            ) : blocked ? (
+              <MobileAccessDenied message={blocked.message} />
             ) : page.id === "welcome" ? (
               <MobileWelcomeScreen
                 venue={previewVenue}
@@ -470,9 +543,13 @@ function PhoneStage({
                 onOpenRevenue={() => setPageId("revenue")}
                 onOpenSentiment={() => setPageId("sentiment")}
                 onOpenDirectory={() => setPageId("directory")}
-                onOpenHiring={() => setPageId("hiring")}
+                onOpenHiring={
+                  previewWelcome.showHiring ? () => setPageId("hiring") : undefined
+                }
+                employeeHubLevel={previewWelcome.employeeHubLevel}
                 onOpenTerms={() => setPageId("terms")}
                 onLogout={() => setPageId("login")}
+                onSwitchVenue={() => setPageId("select-venue")}
               />
             ) : notificationFolderFromPageId(page.id) ? (
               <MobileNotificationsScreen
@@ -595,6 +672,7 @@ function PhoneStage({
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
+                canApply={previewWelcome.canApplyLeave}
               />
             ) : page.id === "docs" ? (
               <MobileEmployeeDocsScreen
@@ -620,7 +698,13 @@ function PhoneStage({
               <MobileSentimentScreen
                 tab={sentimentTabFromPageId(page.id)}
                 venue={previewVenue}
-                bundle={sentiment}
+                bundle={{
+                  ...sentiment,
+                  // Edit rights and "me" are the previewed person's.
+                  canEdit: previewWelcome.sentimentCanEdit,
+                  canEditActions: previewWelcome.sentimentCanEditActions,
+                  currentUserId: previewWelcome.userId ?? undefined,
+                }}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
                 }}
@@ -644,6 +728,7 @@ function PhoneStage({
                 tab={hiringTabFromPageId(page.id)}
                 venue={previewVenue}
                 initial={hiring}
+                canEdit={previewWelcome.canEditHiring}
                 appointments={hiringAppointments}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
@@ -658,6 +743,7 @@ function PhoneStage({
               />
             ) : null}
           </SimulatedKeyboardFrame>
+          </ConnectWriteProvider>
           </EdgeSwipeBack>
         }
       />

@@ -10,6 +10,7 @@ import {
 import {
   getModuleOverviewByCategory,
   getModulesByCategory,
+  hubModuleSortIndex,
   isModuleEnabledForVenue,
   type AppModuleState,
   type ModuleCategoryKey,
@@ -25,6 +26,8 @@ import {
 import { defaultModuleConfig, type ModuleAccessConfig } from "@/lib/access/roles";
 import { MOBILE_APP_MODULE_KEY } from "@/lib/mobile/types";
 import { MOBILE_EMPLOYEE_HUB_MODULE_KEY } from "@/lib/modules-catalog";
+import { loadPhoneAccess, PHONE_HUB_KEY } from "@/lib/mobile/phone-access";
+import type { createServiceClient } from "@/lib/supabase/service";
 import type { Venue } from "@/lib/types/database";
 
 type VenueModuleRow = {
@@ -65,7 +68,6 @@ export function buildModuleGridItems(
   venueModuleRows: VenueModuleRow[],
   permissions: UserPermission[],
   venueId: string,
-  admin: boolean,
   appStateMap: Map<string, AppModuleState>,
   isGlobal = false,
   hiddenModuleKeys: ReadonlySet<string> = new Set(),
@@ -74,11 +76,11 @@ export function buildModuleGridItems(
     .map((mod) => {
       const state = resolveModuleState(mod.status, appStateMap.get(mod.key));
       const venueEnabled = isModuleEnabledForVenue(venueModuleRows, mod.key);
+      // The app's own toggle decides — admins included.
       const hasAccess =
-        admin ||
-        (mod.key === CONNECT_MODULE_KEY
+        mod.key === CONNECT_MODULE_KEY
           ? canAccessConnect(permissions, venueId)
-          : canAccessModule(permissions, mod.key, venueId));
+          : canAccessModule(permissions, mod.key, venueId);
       const settingsHref = MODULE_SETTINGS_ROUTES[mod.key];
       const href = isGlobal ? settingsHref : mod.href;
       const openableIfPermitted =
@@ -167,18 +169,20 @@ async function loadAppBadgeCounts(
   return counts;
 }
 
-export async function loadModulesHubContext(options?: {
-  venue?: Venue;
-  signInHref?: string;
-  selectVenueHref?: string;
-}) {
-  const supabase = await getRenderClient();
-  const user = await getRenderUser();
-  if (!user) redirect(options?.signInHref ?? "/login");
+type HubClient =
+  | Awaited<ReturnType<typeof getRenderClient>>
+  | ReturnType<typeof createServiceClient>;
 
-  const venue = options?.venue ?? (await getRenderVenue());
-  if (!venue) redirect(options?.selectVenueHref ?? "/select-venue");
-
+/**
+ * Everything that decides which apps a given user sees at a venue: their
+ * permissions, per-app access rows (hidden / no access), and app states.
+ * Shared by the real hub and the mobile simulator's "preview as employee".
+ */
+export async function loadHubAccessForUser(
+  supabase: HubClient,
+  userId: string,
+  venue: Venue,
+) {
   const [
     { data: permissions },
     { data: venueModules },
@@ -186,14 +190,14 @@ export async function loadModulesHubContext(options?: {
     { data: profile },
     accessResult,
   ] = await Promise.all([
-    supabase.from("user_permissions").select("*").eq("user_id", user.id),
+    supabase.from("user_permissions").select("*").eq("user_id", userId),
     supabase.from("venue_modules").select("*").eq("venue_id", venue.id),
     fetchAppModuleStateMap(supabase),
-    supabase.from("profiles").select("full_name").eq("id", user.id).single(),
+    supabase.from("profiles").select("full_name").eq("id", userId).single(),
     supabase
       .from("user_module_access")
       .select("module_key, venue_id, enabled, hidden, role, suspended")
-      .eq("user_id", user.id),
+      .eq("user_id", userId),
   ]);
 
   const accessRows: {
@@ -208,7 +212,7 @@ export async function loadModulesHubContext(options?: {
         await supabase
           .from("user_module_access")
           .select("module_key, venue_id, enabled, role, suspended")
-          .eq("user_id", user.id)
+          .eq("user_id", userId)
       ).data ?? [])
     : (accessResult.data ?? []);
 
@@ -229,9 +233,98 @@ export async function loadModulesHubContext(options?: {
   ]);
 
   const perms = (permissions ?? []) as UserPermission[];
-  const admin = isAppAdmin(perms);
-  const badgeCounts = await loadAppBadgeCounts(supabase, user.id, venue.id);
-  const venueModuleRows = venueModules ?? [];
+  return {
+    permissions: perms,
+    admin: isAppAdmin(perms),
+    venueModuleRows: (venueModules ?? []) as VenueModuleRow[],
+    appStateMap,
+    userName: (profile?.full_name as string | null)?.trim() || null,
+    hiddenModuleKeys,
+    employeeHubLevel,
+    badgeCounts: await loadAppBadgeCounts(supabase, userId, venue.id),
+  };
+}
+
+/**
+ * The mobile welcome screen's app list for a user, as their phone shows it.
+ * Access comes from the Mobile App Access switches, not web grants.
+ */
+export async function loadMobileWelcomeModulesForUser(
+  supabase: HubClient,
+  userId: string,
+  venue: Venue,
+) {
+  const [access, phone] = await Promise.all([
+    loadHubAccessForUser(supabase, userId, venue),
+    loadPhoneAccess(userId, venue.id),
+  ]);
+  const hiddenOnPhone = new Set(
+    Object.entries(phone.levels)
+      .filter(([, level]) => level === "hidden")
+      .map(([key]) => key),
+  );
+  const modules = getModuleOverviewByCategory()
+    .flatMap(({ modules }) =>
+      buildModuleGridItems(
+        modules,
+        access.venueModuleRows,
+        phone.permissions,
+        venue.id,
+        access.appStateMap,
+      ),
+    )
+    .filter((mod) => mod.key !== MOBILE_APP_MODULE_KEY)
+    .filter((mod) => !hiddenOnPhone.has(mod.key))
+    // Apps not switched on for them (live or coming soon) go in "Hidden".
+    .map((item) => {
+      const level = phone.levels[item.key];
+      const granted = level === "viewer" || level === "editor";
+      return granted
+        ? item
+        : { ...item, clickable: false, blockedReason: "access" as const };
+    })
+    .map((item) =>
+      item.clickable && access.badgeCounts.get(item.key)
+        ? { ...item, badgeCount: access.badgeCounts.get(item.key) }
+        : item,
+    )
+    .sort((a, b) => hubModuleSortIndex(a.key) - hubModuleSortIndex(b.key));
+  const employeeHubLevel: AccessMatrixLevel = phone.canUseApp
+    ? (phone.levels[PHONE_HUB_KEY] ?? "none")
+    : "none";
+  return {
+    modules,
+    userName: access.userName,
+    employeeHubLevel,
+    /** Phone-only permissions (for Hiring Forms and other phone checks). */
+    permissions: phone.permissions,
+    canUseApp: phone.canUseApp,
+    hubPages: phone.hubPages,
+  };
+}
+
+export async function loadModulesHubContext(options?: {
+  venue?: Venue;
+  signInHref?: string;
+  selectVenueHref?: string;
+}) {
+  const supabase = await getRenderClient();
+  const user = await getRenderUser();
+  if (!user) redirect(options?.signInHref ?? "/login");
+
+  const venue = options?.venue ?? (await getRenderVenue());
+  if (!venue) redirect(options?.selectVenueHref ?? "/select-venue");
+
+  const {
+    permissions: perms,
+    admin,
+    venueModuleRows,
+    appStateMap,
+    userName,
+    hiddenModuleKeys,
+    employeeHubLevel,
+    badgeCounts,
+  } = await loadHubAccessForUser(supabase, user.id, venue as Venue);
   const isGlobal = Boolean((venue as Venue).is_global);
 
   const toGridItems = (modules: ModuleOverviewItem[], asSettings = false) =>
@@ -240,7 +333,6 @@ export async function loadModulesHubContext(options?: {
       venueModuleRows,
       perms,
       venue.id,
-      admin,
       appStateMap,
       asSettings,
     ).map((item) =>
@@ -252,7 +344,7 @@ export async function loadModulesHubContext(options?: {
   return {
     venue: venue as Venue,
     isGlobal,
-    userName: (profile?.full_name as string | null)?.trim() || null,
+    userName,
     hiddenModuleKeys: [...hiddenModuleKeys],
     employeeHubLevel,
     sections: getModuleOverviewByCategory().map(({ category, modules }) => ({

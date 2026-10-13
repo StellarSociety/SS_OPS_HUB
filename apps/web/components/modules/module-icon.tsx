@@ -17,16 +17,16 @@ import {
   Stamp,
   TrendingUp,
   Users,
+  UserSearch,
   Wrench,
 } from "lucide-react";
 import { VaultSafe } from "@/components/modules/vault-safe-icon";
 import { SafeLogHaccp } from "@/components/modules/safelog-haccp-icon";
 import { GuestsIntel } from "@/components/modules/guests-intel-icon";
-import { HiringIcon } from "@/components/modules/hiring-icon";
 import type { ModuleIconKey } from "@/lib/module-icons";
 import { cn } from "@/lib/utils";
 
-export { VaultSafe, SafeLogHaccp, GuestsIntel, HiringIcon };
+export { VaultSafe, SafeLogHaccp, GuestsIntel };
 
 /** One chat bubble with three dots — reads at hub size; overlapping squares do not. */
 const TeamMessages = createLucideIcon("messages-square", [
@@ -140,7 +140,8 @@ const MODULE_ICONS: Record<ModuleIconKey, LucideIcon> = {
   stamp: Stamp,
   smartphone: HubIphone,
   settings: Settings,
-  hiring: HiringIcon,
+  // Recruiting: a person with a magnifier (looking for candidates).
+  hiring: UserSearch,
 };
 
 type ModuleIconProps = {

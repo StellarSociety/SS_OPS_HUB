@@ -36,6 +36,10 @@ type ModuleTileProps = {
   density?: "default" | "compact";
   /** Unread notification count — red bubble on the icon's top-right corner. */
   badgeCount?: number;
+  /** No access for this person: lock + faded icon, whatever the app's status. */
+  locked?: boolean;
+  /** Diagonal amber stamp across the icon (e.g. "Coming Soon" for apps not built yet). */
+  topTag?: string;
 };
 
 export function ModuleTile({
@@ -53,6 +57,8 @@ export function ModuleTile({
   density = "default",
   navigates = false,
   badgeCount = 0,
+  locked = false,
+  topTag,
 }: ModuleTileProps) {
   const compact = density === "compact";
   const { beginNav } = useMobileNavBusy();
@@ -61,7 +67,8 @@ export function ModuleTile({
   const isLive = status === "live" && clickable && Boolean(href);
   const isComingSoon = status === "coming_soon";
   const isLocked = status === "visible_locked";
-  const isAccessBlocked = status === "live" && blockedReason === "access";
+  const isAccessBlocked =
+    locked || (status === "live" && blockedReason === "access");
   const isSelectable = Boolean(onSelect);
   const scrollSafePress = compact && (isLive || isSelectable);
 
@@ -133,6 +140,14 @@ export function ModuleTile({
             className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-black/10 bg-white/90 text-black/55 shadow-sm"
           >
             <Lock className="h-3 w-3" />
+          </span>
+        ) : null}
+        {topTag ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 -rotate-[22deg] whitespace-nowrap rounded-[3px] border border-amber-600 bg-amber-50/90 px-1 py-px text-[8px] font-bold uppercase leading-none tracking-[0.05em] text-amber-700 shadow-sm"
+          >
+            {topTag}
           </span>
         ) : null}
         {isComingSoon && comingSoonStyle === "stamp" ? (
