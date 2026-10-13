@@ -1,3 +1,4 @@
+import { CallProvider } from "@/components/connect/chat/chat-call";
 import { HubTermsGate } from "@/components/hub-terms/hub-terms-gate";
 import { userHasAcceptedHubTerms } from "@/lib/hub-terms";
 import { getMobileAppContext } from "@/lib/mobile/page-context";
@@ -18,9 +19,9 @@ export default async function MobileVenueLayout({
   });
 
   return (
-    <>
+    <CallProvider variant="mobile">
       {children}
       <HubTermsGate accepted={accepted} venue={venue} client="mobile" />
-    </>
+    </CallProvider>
   );
 }

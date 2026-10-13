@@ -7,6 +7,7 @@ import {
   FileText,
   Loader2,
   MessageCircle,
+  Phone,
   MessagesSquare,
   Newspaper,
   Paperclip,
@@ -29,6 +30,7 @@ import {
 } from "react";
 import { AttachmentTrigger } from "@/components/connect/chat/chat-attachment";
 import { ChatBackdrop } from "@/components/connect/chat/chat-backdrop";
+import { ChatCallButtons, useChatCall } from "@/components/connect/chat/chat-call";
 import { ChatWidgetFeed } from "@/components/connect/chat/chat-widget-feed";
 import { ChatContextMenu, type ChatMenuState } from "@/components/connect/chat/chat-context-menu";
 import { DropOverlay, useFileDrop } from "@/components/connect/chat/use-file-drop";
@@ -158,6 +160,9 @@ export function ChatWidget() {
 
   const [data, setData] = useState<ChatWidgetData | null>(null);
   const [open, setOpen] = useState(false);
+  /** Bumped on each new message from someone else, to replay the launcher hop. */
+  const [jumps, setJumps] = useState(0);
+  const ringing = useChatCall()?.incoming ?? false;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -281,7 +286,10 @@ export function ChatWidget() {
             ((state.open && state.activeId === row.conversation_id) ||
               state.chatsPageConversation === row.conversation_id);
 
-          if (fromOther && !readingHere && !state.muted) playAlert("chat");
+          if (fromOther && !readingHere) {
+            if (!state.muted) playAlert("chat");
+            setJumps((n) => n + 1);
+          }
 
           if (state.open && state.activeId === row.conversation_id) {
             setMessages((prev) =>
@@ -790,6 +798,15 @@ export function ChatWidget() {
               ) : (
                 <p className="flex-1 font-serif text-lg text-[#2B2F16]">Chats</p>
               )}
+              {active && !feedMode && !composing ? (
+                <ChatCallButtons
+                  conversationId={active.id}
+                  kind={active.kind}
+                  peer={{ name: active.title, photoUrl: active.photoUrl }}
+                  className="hover:text-[#2B2F16]"
+                  iconClassName="h-4 w-4"
+                />
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -1135,14 +1152,25 @@ export function ChatWidget() {
 
       {!onChatsPage || open ? (
         <button
+          // A new key restarts the hop animation for every message.
+          key={`launcher-${jumps}`}
           type="button"
           onClick={toggleOpen}
           aria-expanded={open}
           aria-label={totalUnread > 0 ? `Chats, ${totalUnread} unread` : "Chats"}
           title="Chats"
-          className="fixed bottom-5 right-5 z-[150] inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-lg transition hover:scale-105 hover:shadow-xl"
+          className={cn(
+            "fixed bottom-5 right-5 z-[150] inline-flex h-14 w-14 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)] text-white shadow-lg transition hover:scale-105 hover:shadow-xl",
+            ringing ? "ss-call-shake" : !open && jumps > 0 && "ss-chat-jump",
+          )}
         >
-          {open ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
+          {ringing ? (
+            <Phone className="h-6 w-6" />
+          ) : open ? (
+            <X className="h-6 w-6" />
+          ) : (
+            <MessageCircle className="h-6 w-6" />
+          )}
           {!open ? <Badge count={totalUnread} className="absolute -right-0.5 -top-0.5" /> : null}
         </button>
       ) : null}

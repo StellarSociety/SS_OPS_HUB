@@ -438,37 +438,39 @@ export function ChatConversation({
               </span>
             </span>
           </button>
-          <ChatCallControls detail={detail} me={me} readOnly={readOnly} />
-          <button
-            type="button"
-            onClick={() => (searchOpen ? closeSearch() : void openSearch())}
-            className={cn("rounded-full p-2 hover:bg-black/5", searchOpen ? "text-[var(--venue-primary,#818a40)]" : "text-black/50")}
-            aria-label="Search in chat"
-            aria-pressed={searchOpen}
-            title="Search in chat"
-          >
-            <Search className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setInfoOpen((v) => !v)}
-            className={cn("rounded-full p-2 hover:bg-black/5", infoOpen ? "text-[var(--venue-primary,#818a40)]" : "text-black/50")}
-            aria-label="Chat info"
-            aria-pressed={infoOpen}
-          >
-            <Info className="h-5 w-5" />
-          </button>
-          {panes ? (
+          <div className="-mr-1 flex shrink-0 items-center">
+            <ChatCallControls detail={detail} me={me} readOnly={readOnly} />
             <button
               type="button"
-              onClick={() => panes.closePane(detail.id)}
-              className="rounded-full p-2 text-black/50 hover:bg-black/5 hover:text-black/75"
-              aria-label="Close chat window"
-              title="Close"
+              onClick={() => (searchOpen ? closeSearch() : void openSearch())}
+              className={cn("rounded-full p-2 hover:bg-black/5", searchOpen ? "text-[var(--venue-primary,#818a40)]" : "text-black/50")}
+              aria-label="Search in chat"
+              aria-pressed={searchOpen}
+              title="Search in chat"
             >
-              <X className="h-5 w-5" />
+              <Search className="h-5 w-5" />
             </button>
-          ) : null}
+            <button
+              type="button"
+              onClick={() => setInfoOpen((v) => !v)}
+              className={cn("rounded-full p-2 hover:bg-black/5", infoOpen ? "text-[var(--venue-primary,#818a40)]" : "text-black/50")}
+              aria-label="Chat info"
+              aria-pressed={infoOpen}
+            >
+              <Info className="h-5 w-5" />
+            </button>
+            {panes ? (
+              <button
+                type="button"
+                onClick={() => panes.closePane(detail.id)}
+                className="rounded-full p-2 text-black/50 hover:bg-black/5 hover:text-black/75"
+                aria-label="Close chat window"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            ) : null}
+          </div>
         </header>
 
         {searchOpen ? (

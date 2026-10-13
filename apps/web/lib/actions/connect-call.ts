@@ -13,6 +13,8 @@ import {
   type ChatCallStatus,
 } from "@/lib/connect/chat-call-types";
 import { loadConnectPeople } from "@/lib/connect/store";
+import type { VenueSoundDefaults } from "@/lib/connect/sounds";
+import { loadVenueSoundDefaults } from "@/lib/connect/venue-sound-defaults";
 import { CONNECT_MODULE_KEY } from "@/lib/connect/types";
 import { dispatchPendingPushes } from "@/lib/push/send";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -215,6 +217,77 @@ export async function fetchOpenChatCall(
   return { ok: true, call: mapChatCallRow(row) };
 }
 
+export type ChatCallPeer = { name: string; photoUrl: string | null };
+
+/** The other person on a 1:1 call, as seen by the viewer. */
+async function peerFor(actor: CallActor, row: ChatCallRow): Promise<ChatCallPeer> {
+  const { data: members } = await actor.service
+    .from("chat_members")
+    .select("user_id")
+    .eq("conversation_id", row.conversation_id)
+    .neq("user_id", actor.userId)
+    .limit(1);
+  const otherId = (members?.[0] as { user_id: string } | undefined)?.user_id;
+  if (!otherId) return { name: "Ops Hub user", photoUrl: null };
+  const person = (await loadConnectPeople(actor.service, [otherId])).get(otherId);
+  return { name: person?.name ?? "Ops Hub user", photoUrl: person?.photoUrl ?? null };
+}
+
+/**
+ * The viewer's open call anywhere in the venue, for the app-wide call
+ * listener. Also returns who the viewer is, so the client can subscribe.
+ */
+export async function fetchMyCallState(): Promise<
+  Result<{
+    meId: string;
+    venueId: string;
+    soundDefaults: VenueSoundDefaults | null;
+    call: ChatCall | null;
+    peer: ChatCallPeer | null;
+  }>
+> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const base = {
+    meId: actor.userId,
+    venueId: actor.venueId,
+    soundDefaults: await loadVenueSoundDefaults(actor.service, actor.venueId),
+  };
+  const { data: mine } = await actor.service
+    .from("chat_call_participants")
+    .select("call_id")
+    .eq("user_id", actor.userId)
+    .in("status", ["invited", "joined"])
+    .order("created_at", { ascending: false })
+    .limit(5);
+  const callIds = ((mine ?? []) as { call_id: string }[]).map((r) => r.call_id);
+  if (callIds.length === 0) return { ok: true, ...base, call: null, peer: null };
+  const { data } = await actor.service
+    .from("chat_calls")
+    .select(CALL_SELECT)
+    .in("id", callIds)
+    .eq("venue_id", actor.venueId)
+    .in("status", ["ringing", "active"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const row = data as ChatCallRow | null;
+  if (!row) return { ok: true, ...base, call: null, peer: null };
+  if (row.status === "ringing" && new Date(row.expires_at).getTime() <= Date.now()) {
+    await transitionCall(actor, row, "missed");
+    return { ok: true, ...base, call: null, peer: null };
+  }
+  return { ok: true, ...base, call: mapChatCallRow(row), peer: await peerFor(actor, row) };
+}
+
+export async function fetchChatCallPeer(callId: string): Promise<Result<{ peer: ChatCallPeer }>> {
+  const actor = await requireActor();
+  if ("error" in actor) return fail(actor.error);
+  const row = await callForActor(actor, callId);
+  if (!row) return fail("Call not found.");
+  return { ok: true, peer: await peerFor(actor, row) };
+}
+
 export async function startChatCall(
   conversationId: string,
   mode: ChatCallMode,
@@ -222,7 +295,11 @@ export async function startChatCall(
   const actor = await requireActor();
   if ("error" in actor) return fail(actor.error);
   if (!liveKitConfigured()) {
-    return fail("Calling isn't configured yet. Add the LiveKit URL, API key and secret in Vercel.");
+    return fail(
+      process.env.NODE_ENV === "development"
+        ? "Calling isn't set up on this computer. Add LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET to apps/web/.env.local, then restart the dev server."
+        : "Calling isn't configured yet. Add the LiveKit URL, API key and secret in Vercel.",
+    );
   }
   if (mode !== "audio" && mode !== "video") return fail("Choose a valid call type.");
 

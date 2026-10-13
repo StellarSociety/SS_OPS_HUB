@@ -1,4 +1,5 @@
-import { ArrowLeft, Bell, Users } from "lucide-react";
+import { ArrowLeft, Bell, Phone, Users } from "lucide-react";
+import { ConnectCallSettings } from "@/components/connect/call-settings";
 import { ConnectGroupsAdmin } from "@/components/connect/connect-groups-admin";
 import { ConnectNotificationSettings } from "@/components/connect/notification-settings";
 import { ModulePageTitle } from "@/components/layout/module-page-title";
@@ -9,7 +10,7 @@ import { listConnectGroups } from "@/lib/connect/store";
 import { loadVenueSoundDefaults } from "@/lib/connect/venue-sound-defaults";
 import { segmentedSubNavLinkClass, segmentedSubNavShellClass } from "@/lib/sub-nav-ui";
 
-type Tab = "groups" | "notifications";
+type Tab = "groups" | "notifications" | "calls";
 
 export default async function ConnectSettingsPage({
   searchParams,
@@ -21,7 +22,12 @@ export default async function ConnectSettingsPage({
   const params = await searchParams;
 
   // Group setup is for admins; everyone can set their own notifications.
-  const tab: Tab = !seesAllGroups || params.tab === "notifications" ? "notifications" : "groups";
+  const tab: Tab =
+    params.tab === "calls"
+      ? "calls"
+      : !seesAllGroups || params.tab === "notifications"
+        ? "notifications"
+        : "groups";
 
   const [groups, prefs, soundDefaults] = await Promise.all([
     tab === "groups"
@@ -39,6 +45,7 @@ export default async function ConnectSettingsPage({
   const tabs: { key: Tab; label: string; icon: typeof Users }[] = [
     ...(seesAllGroups ? [{ key: "groups" as const, label: "Groups", icon: Users }] : []),
     { key: "notifications", label: "Notifications", icon: Bell },
+    { key: "calls", label: "Calls", icon: Phone },
   ];
 
   return (
@@ -55,7 +62,9 @@ export default async function ConnectSettingsPage({
         <p className="mt-1 text-sm text-black/60">
           {tab === "groups"
             ? `Groups for ${venue.name}. Open a group to set each employee's rights.`
-            : "How and when Connecteam alerts you about chats and the feed."}
+            : tab === "calls"
+              ? "Voice and video calls on this device: camera, mirror and devices. The call ringtone is with the other sounds under Notifications."
+              : "How and when Connecteam alerts you about chats and the feed."}
         </p>
         <hr className="mt-4 border-black/10" />
       </div>
@@ -78,6 +87,8 @@ export default async function ConnectSettingsPage({
 
       {tab === "groups" ? (
         <ConnectGroupsAdmin groups={groups} canEdit={isConnectAdmin} />
+      ) : tab === "calls" ? (
+        <ConnectCallSettings />
       ) : prefs ? (
         <ConnectNotificationSettings
           initialPrefs={prefs}

@@ -25,6 +25,7 @@ import {
   subscribeSoundSettings,
   unlockAudio,
   writeSoundSettings,
+  type SoundGroupKey,
   type SoundKey,
   type SoundSettings,
   type VenueSoundDefaults,
@@ -97,22 +98,32 @@ function soundSnapshot(): SoundSettings {
   return cachedSettings;
 }
 
+const ALERT_GROUPS: SoundGroupKey[] = ["short", "long"];
+const RING_GROUPS: SoundGroupKey[] = ["ring", "long", "short"];
+
 function SoundPicker({
   label,
+  hint,
   value,
   volume,
   disabled,
+  groups = ALERT_GROUPS,
   onChange,
 }: {
   label: string;
+  hint?: string;
   value: SoundKey;
   volume: number;
   disabled: boolean;
+  groups?: SoundGroupKey[];
   onChange: (next: SoundKey) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3 py-3">
-      <span className="min-w-0 flex-1 text-sm font-medium text-[#2B2F16]">{label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-[#2B2F16]">{label}</span>
+        {hint ? <span className="block text-xs text-black/50">{hint}</span> : null}
+      </span>
       <select
         value={value}
         disabled={disabled}
@@ -125,7 +136,7 @@ function SoundPicker({
         className="h-9 rounded-md border border-black/10 bg-white px-2 text-sm text-[#3D421F] disabled:opacity-50"
         aria-label={label}
       >
-        {SOUND_GROUPS.map((g) => (
+        {groups.map((key) => SOUND_GROUPS.find((g) => g.key === key)!).map((g) => (
           <optgroup key={g.key} label={g.label}>
             {SOUND_PRESETS.filter((p) => p.group === g.key).map((p) => (
               <option key={p.key} value={p.key}>
@@ -167,6 +178,7 @@ function VenueDefaultsCard({
     volume: initial?.volume ?? DEFAULT_SOUND_SETTINGS.volume,
     chatSound: initial?.chatSound ?? DEFAULT_SOUND_SETTINGS.chatSound,
     feedSound: initial?.feedSound ?? DEFAULT_SOUND_SETTINGS.feedSound,
+    callSound: initial?.callSound ?? DEFAULT_SOUND_SETTINGS.callSound,
   });
   const [override, setOverride] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -215,6 +227,14 @@ function VenueDefaultsCard({
           volume={draft.volume}
           disabled={false}
           onChange={(feedSound) => setDraft((d) => ({ ...d, feedSound }))}
+        />
+        <SoundPicker
+          label="Incoming calls"
+          value={draft.callSound}
+          volume={draft.volume}
+          disabled={false}
+          groups={RING_GROUPS}
+          onChange={(callSound) => setDraft((d) => ({ ...d, callSound }))}
         />
         <div className="flex flex-wrap items-center gap-3 py-3">
           <span className="min-w-0 flex-1 text-sm font-medium text-[#2B2F16]">Volume</span>
@@ -389,6 +409,15 @@ export function ConnectNotificationSettings({
             volume={sound.volume}
             disabled={!sound.enabled}
             onChange={(feedSound) => updateSound({ feedSound })}
+          />
+          <SoundPicker
+            label="Incoming calls"
+            hint="Rings while someone calls you — even with sound alerts off."
+            value={sound.callSound}
+            volume={sound.volume}
+            disabled={false}
+            groups={RING_GROUPS}
+            onChange={(callSound) => updateSound({ callSound })}
           />
           <div className="flex flex-wrap items-center gap-3 py-3">
             <span className="min-w-0 flex-1 text-sm font-medium text-[#2B2F16]">Volume</span>

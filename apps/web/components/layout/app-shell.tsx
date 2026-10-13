@@ -1,3 +1,4 @@
+import { CallProvider } from "@/components/connect/chat/chat-call";
 import { ChatWidget } from "@/components/connect/chat/chat-widget";
 import { AccessLogger } from "@/components/layout/access-logger";
 import { DeviceNotificationsManager } from "@/components/pwa/device-notifications";
@@ -52,6 +53,8 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const venueBadge = getVenueBadgeUrl(venue);
+  const withCalls = (content: React.ReactNode) =>
+    chatWidget ? <CallProvider>{content}</CallProvider> : content;
   const faviconUrl = venue.is_global
     ? (groupFaviconUrl ?? venueBadge)
     : (venueBadge || groupFaviconUrl || null);
@@ -64,6 +67,7 @@ export function AppShell({
           <AccessLogger />
           <OnlinePresence />
           <DeviceNotificationsManager />
+          {withCalls(
           <div
             className="mobile-shell-inset h-dvh overflow-hidden bg-[var(--venue-secondary,#F0F3DD)]/30 pb-[env(safe-area-inset-bottom,0px)]"
             style={venueThemeStyle(venue)}
@@ -81,7 +85,8 @@ export function AppShell({
               {children}
             </AppShellLayout>
             {chatWidget ? <ChatWidget /> : null}
-          </div>
+          </div>,
+          )}
         </VenueProvider>
       </PageAccessProvider>
     </VenueScopeProvider>

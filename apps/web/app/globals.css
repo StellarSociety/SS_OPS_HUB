@@ -1953,3 +1953,32 @@ html.mobile-app-no-zoom body {
     border-color: rgb(255 255 255 / 0.25);
   }
 }
+
+/* Connecteam: chat launcher hops when a message arrives. */
+@keyframes ss-chat-jump {
+  0%, 100% { transform: translateY(0) scale(1); }
+  20% { transform: translateY(-14px) scale(1.04, 0.96); }
+  40% { transform: translateY(0) scale(1.06, 0.92); }
+  58% { transform: translateY(-6px) scale(1); }
+  76% { transform: translateY(0) scale(1.02, 0.98); }
+}
+.ss-chat-jump {
+  animation: ss-chat-jump 700ms cubic-bezier(0.3, 0.7, 0.4, 1) 2;
+}
+
+/* Calls: a ringing-phone shake in bursts while a call is incoming. */
+@keyframes ss-call-shake {
+  0%, 44%, 100% { transform: rotate(0); }
+  4%, 12%, 20%, 28%, 36% { transform: rotate(-9deg); }
+  8%, 16%, 24%, 32%, 40% { transform: rotate(9deg); }
+}
+.ss-call-shake {
+  animation: ss-call-shake 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-chat-jump,
+  .ss-call-shake {
+    animation: none;
+  }
+}

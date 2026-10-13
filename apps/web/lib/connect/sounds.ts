@@ -24,13 +24,25 @@ export const SOUND_PRESETS = [
   { key: "fanfare", label: "Fanfare", group: "long" },
   { key: "pad", label: "Soft swell", group: "long" },
   { key: "gong", label: "Gong", group: "long" },
+  // Call ringtones (~2 s, repeated while a call rings)
+  { key: "ring-classic", label: "Classic bell", group: "ring" },
+  { key: "ring-digital", label: "Digital", group: "ring" },
+  { key: "ring-chimes", label: "Chimes", group: "ring" },
+  { key: "ring-marimba", label: "Marimba ring", group: "ring" },
+  { key: "ring-dingdong", label: "Ding-dong", group: "ring" },
+  { key: "ring-trill", label: "Trill", group: "ring" },
+  { key: "ring-pulse", label: "Soft pulse", group: "ring" },
+  { key: "ring-lounge", label: "Lounge", group: "ring" },
   { key: "none", label: "No sound", group: "none" },
 ] as const;
 
 export const SOUND_GROUPS = [
   { key: "short", label: "Short" },
   { key: "long", label: "Longer" },
+  { key: "ring", label: "Ringtones" },
 ] as const;
+
+export type SoundGroupKey = (typeof SOUND_GROUPS)[number]["key"];
 
 export type SoundKey = (typeof SOUND_PRESETS)[number]["key"];
 
@@ -40,6 +52,8 @@ export type SoundSettings = {
   volume: number;
   chatSound: SoundKey;
   feedSound: SoundKey;
+  /** Rings while someone is calling (plays even when alerts are off). */
+  callSound: SoundKey;
   /** Also play while this tab is in the background or the screen is idle. */
   playWhenHidden: boolean;
 };
@@ -49,6 +63,7 @@ export const DEFAULT_SOUND_SETTINGS: SoundSettings = {
   volume: 0.7,
   chatSound: "chime",
   feedSound: "pop",
+  callSound: "ring-classic",
   playWhenHidden: true,
 };
 
@@ -66,6 +81,7 @@ export type VenueSoundDefaults = {
   volume: number;
   chatSound: SoundKey;
   feedSound: SoundKey;
+  callSound: SoundKey;
   /** When true, replaces personal choices saved before `updatedAt`. */
   override: boolean;
   updatedAt: number;
@@ -92,6 +108,7 @@ export function normalizeVenueSoundDefaults(raw: unknown): VenueSoundDefaults | 
         : DEFAULT_SOUND_SETTINGS.volume,
     chatSound: isSoundKey(v.chatSound) ? v.chatSound : DEFAULT_SOUND_SETTINGS.chatSound,
     feedSound: isSoundKey(v.feedSound) ? v.feedSound : DEFAULT_SOUND_SETTINGS.feedSound,
+    callSound: isSoundKey(v.callSound) ? v.callSound : DEFAULT_SOUND_SETTINGS.callSound,
     override: v.override === true,
     updatedAt: typeof v.updatedAt === "number" ? v.updatedAt : 0,
   };
@@ -105,6 +122,7 @@ function baseSettings(): SoundSettings {
     volume: venueDefaults.volume,
     chatSound: venueDefaults.chatSound,
     feedSound: venueDefaults.feedSound,
+    callSound: venueDefaults.callSound,
   };
 }
 
@@ -143,6 +161,7 @@ export function readSoundSettings(): SoundSettings {
           : base.volume,
       chatSound: isSoundKey(parsed.chatSound) ? parsed.chatSound : base.chatSound,
       feedSound: isSoundKey(parsed.feedSound) ? parsed.feedSound : base.feedSound,
+      callSound: isSoundKey(parsed.callSound) ? parsed.callSound : base.callSound,
       playWhenHidden: parsed.playWhenHidden !== false,
     };
   } catch {
@@ -301,7 +320,71 @@ const PATTERNS: Record<Exclude<SoundKey, "none">, Note[]> = {
     { freq: 415.3, at: 0, length: 1.6, gain: 0.3 },
     { freq: 587.33, at: 0, length: 1.2, gain: 0.2 },
   ],
+  // Ringtones
+  "ring-classic": [...bellTrill(0), ...bellTrill(1.1)],
+  "ring-digital": [0, 0.14, 0.28, 0.42, 0.9, 1.04, 1.18, 1.32].map((at) => ({
+    freq: 1480,
+    at,
+    length: 0.09,
+    type: "square" as const,
+    gain: 0.3,
+  })),
+  "ring-chimes": [
+    { freq: 1046.5, at: 0, length: 0.7, gain: 0.8 },
+    { freq: 783.99, at: 0.3, length: 0.7, gain: 0.8 },
+    { freq: 880, at: 0.6, length: 0.7, gain: 0.8 },
+    { freq: 587.33, at: 0.9, length: 1.1, gain: 0.85 },
+    { freq: 1174.66, at: 0.9, length: 0.6, gain: 0.15 },
+  ],
+  "ring-marimba": [
+    { freq: 659.25, at: 0, length: 0.2 },
+    { freq: 987.77, at: 0.13, length: 0.2 },
+    { freq: 880, at: 0.26, length: 0.2 },
+    { freq: 1318.51, at: 0.39, length: 0.25 },
+    { freq: 1174.66, at: 0.65, length: 0.2 },
+    { freq: 987.77, at: 0.78, length: 0.2 },
+    { freq: 1318.51, at: 0.91, length: 0.2 },
+    { freq: 1479.98, at: 1.04, length: 0.4 },
+  ].map((n) => ({ ...n, type: "triangle" as const })),
+  "ring-dingdong": [
+    { freq: 1318.51, at: 0, length: 0.6, gain: 0.9 },
+    { freq: 1046.5, at: 0.45, length: 0.9, gain: 0.9 },
+    { freq: 1318.51, at: 1.2, length: 0.6, gain: 0.9 },
+    { freq: 1046.5, at: 1.65, length: 0.9, gain: 0.9 },
+  ],
+  "ring-trill": [0, 0.5, 1.0].flatMap((start) =>
+    [783.99, 987.77, 1174.66, 1567.98].map((freq, i) => ({
+      freq,
+      at: start + i * 0.07,
+      length: 0.16,
+      gain: 0.7,
+    })),
+  ),
+  "ring-pulse": [
+    { freq: 659.25, at: 0, length: 0.8, attack: 0.25, gain: 0.8 },
+    { freq: 987.77, at: 0, length: 0.8, attack: 0.25, gain: 0.35 },
+    { freq: 659.25, at: 1.0, length: 0.8, attack: 0.25, gain: 0.8 },
+    { freq: 987.77, at: 1.0, length: 0.8, attack: 0.25, gain: 0.35 },
+  ],
+  "ring-lounge": [
+    { freq: 523.25, at: 0, length: 0.9, attack: 0.04, gain: 0.6 },
+    { freq: 659.25, at: 0, length: 0.9, attack: 0.04, gain: 0.5 },
+    { freq: 783.99, at: 0.25, length: 0.9, attack: 0.04, gain: 0.5 },
+    { freq: 987.77, at: 0.5, length: 1.2, attack: 0.04, gain: 0.45 },
+    { freq: 880, at: 1.1, length: 1.0, attack: 0.04, gain: 0.45 },
+  ],
 };
+
+/** An old telephone bell: two hammers alternating fast for about a second. */
+function bellTrill(start: number): Note[] {
+  return Array.from({ length: 18 }, (_, i) => ({
+    freq: i % 2 === 0 ? 1318.51 : 1567.98,
+    at: start + i * 0.05,
+    length: 0.07,
+    type: "triangle" as const,
+    gain: 0.55,
+  }));
+}
 
 export function playSound(key: SoundKey, volume = DEFAULT_SOUND_SETTINGS.volume) {
   if (key === "none") return;
@@ -325,6 +408,12 @@ export function playSound(key: SoundKey, volume = DEFAULT_SOUND_SETTINGS.volume)
     osc.start(t);
     osc.stop(t + note.length + 0.05);
   }
+}
+
+/** One ring of the incoming-call tone. Calls ring even when message sounds are off. */
+export function playRingtone() {
+  const settings = readSoundSettings();
+  playSound(settings.callSound, settings.volume);
 }
 
 /** Plays the alert for `kind` if this device's settings allow it right now. */

@@ -29,7 +29,11 @@ export async function POST(request: Request) {
   const apiKey = process.env.LIVEKIT_API_KEY?.trim();
   const apiSecret = process.env.LIVEKIT_API_SECRET?.trim();
   if (!livekitUrl || !apiKey || !apiSecret) {
-    return Response.json({ error: "Calling isn't configured on this deployment." }, { status: 503 });
+    const where = process.env.NODE_ENV === "development" ? "apps/web/.env.local" : "Vercel";
+    return Response.json(
+      { error: `Calling isn't configured. Add the LiveKit keys in ${where}.` },
+      { status: 503 },
+    );
   }
 
   const service = createServiceClient();
