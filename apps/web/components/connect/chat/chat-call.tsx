@@ -35,7 +35,7 @@ import {
 } from "@/lib/connect/chat-call-types";
 import type { ChatDetail } from "@/lib/connect/chat-types";
 import type { ConnectPerson } from "@/lib/connect/types";
-import { playRingtone, setVenueSoundDefaults, unlockAudio } from "@/lib/connect/sounds";
+import { setVenueSoundDefaults, startRinging, stopRinging, unlockAudio } from "@/lib/connect/sounds";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -184,12 +184,11 @@ export function CallProvider({
     return () => window.clearTimeout(timer);
   }, [call, consumeCall, incoming]);
 
-  // Ringtone, repeated until answered.
+  // Ringtone: one ring, a pause, repeat — until answered, declined or gone.
   useEffect(() => {
     if (!incoming) return;
-    playRingtone();
-    const timer = window.setInterval(playRingtone, 3000);
-    return () => window.clearInterval(timer);
+    startRinging();
+    return stopRinging;
   }, [incoming]);
 
   // Browsers only play audio after a click or key press somewhere on the page.

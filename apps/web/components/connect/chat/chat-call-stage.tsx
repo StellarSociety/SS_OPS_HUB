@@ -361,6 +361,8 @@ export function CallStage({
       call={call}
       room={room}
       compact={floating}
+      // Front/back flipping is a phone thing; on a computer, pick the camera in settings.
+      allowFlip={variant === "mobile"}
       ending={ending}
       onHangUp={onHangUp}
       onSettings={() => setSettingsOpen(true)}
@@ -392,6 +394,7 @@ function CallControls({
   call,
   room,
   compact,
+  allowFlip,
   ending,
   onHangUp,
   onSettings,
@@ -399,6 +402,7 @@ function CallControls({
   call: ChatCall;
   room: CallRoom;
   compact: boolean;
+  allowFlip: boolean;
   ending: boolean;
   onHangUp: () => void;
   onSettings: () => void;
@@ -426,7 +430,7 @@ function CallControls({
           {room.isCameraEnabled ? <Video className={icon} /> : <VideoOff className={icon} />}
         </CallControl>
       ) : null}
-      {call.mode === "video" && room.canFlip && room.isCameraEnabled ? (
+      {allowFlip && call.mode === "video" && room.canFlip && room.isCameraEnabled ? (
         <CallControl compact={compact} label="Flip" busy={room.deviceBusy === "camera"} onClick={() => void room.flipCamera()}>
           <SwitchCamera className={icon} />
         </CallControl>

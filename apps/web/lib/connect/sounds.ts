@@ -224,7 +224,7 @@ type Note = {
   attack?: number;
 };
 
-const PATTERNS: Record<Exclude<SoundKey, "none">, Note[]> = {
+export const PATTERNS: Record<Exclude<SoundKey, "none">, Note[]> = {
   chime: [
     { freq: 880, at: 0, length: 0.28 },
     { freq: 1318.5, at: 0.12, length: 0.28 },
@@ -320,8 +320,8 @@ const PATTERNS: Record<Exclude<SoundKey, "none">, Note[]> = {
     { freq: 415.3, at: 0, length: 1.6, gain: 0.3 },
     { freq: 587.33, at: 0, length: 1.2, gain: 0.2 },
   ],
-  // Ringtones
-  "ring-classic": [...bellTrill(0), ...bellTrill(1.1)],
+  // Ringtones: one note at a time, so each ring is a single clean line.
+  "ring-classic": [...bellTrill(0), ...bellTrill(1.0)],
   "ring-digital": [0, 0.14, 0.28, 0.42, 0.9, 1.04, 1.18, 1.32].map((at) => ({
     freq: 1480,
     at,
@@ -329,64 +329,99 @@ const PATTERNS: Record<Exclude<SoundKey, "none">, Note[]> = {
     type: "square" as const,
     gain: 0.3,
   })),
-  "ring-chimes": [
-    { freq: 1046.5, at: 0, length: 0.7, gain: 0.8 },
-    { freq: 783.99, at: 0.3, length: 0.7, gain: 0.8 },
-    { freq: 880, at: 0.6, length: 0.7, gain: 0.8 },
-    { freq: 587.33, at: 0.9, length: 1.1, gain: 0.85 },
-    { freq: 1174.66, at: 0.9, length: 0.6, gain: 0.15 },
-  ],
-  "ring-marimba": [
-    { freq: 659.25, at: 0, length: 0.2 },
-    { freq: 987.77, at: 0.13, length: 0.2 },
-    { freq: 880, at: 0.26, length: 0.2 },
-    { freq: 1318.51, at: 0.39, length: 0.25 },
-    { freq: 1174.66, at: 0.65, length: 0.2 },
-    { freq: 987.77, at: 0.78, length: 0.2 },
-    { freq: 1318.51, at: 0.91, length: 0.2 },
-    { freq: 1479.98, at: 1.04, length: 0.4 },
-  ].map((n) => ({ ...n, type: "triangle" as const })),
+  "ring-chimes": melody([
+    [1046.5, 0.28],
+    [783.99, 0.28],
+    [880, 0.28],
+    [587.33, 0.9],
+  ], 0.3, { gain: 0.85 }),
+  "ring-marimba": melody(
+    [
+      [659.25, 0.12],
+      [987.77, 0.12],
+      [880, 0.12],
+      [1318.51, 0.24],
+      [1174.66, 0.12],
+      [987.77, 0.12],
+      [1318.51, 0.12],
+      [1479.98, 0.4],
+    ],
+    0.13,
+    { type: "triangle" },
+  ),
   "ring-dingdong": [
-    { freq: 1318.51, at: 0, length: 0.6, gain: 0.9 },
-    { freq: 1046.5, at: 0.45, length: 0.9, gain: 0.9 },
-    { freq: 1318.51, at: 1.2, length: 0.6, gain: 0.9 },
-    { freq: 1046.5, at: 1.65, length: 0.9, gain: 0.9 },
+    { freq: 1318.51, at: 0, length: 0.42, gain: 0.9 },
+    { freq: 1046.5, at: 0.45, length: 0.75, gain: 0.9 },
   ],
   "ring-trill": [0, 0.5, 1.0].flatMap((start) =>
     [783.99, 987.77, 1174.66, 1567.98].map((freq, i) => ({
       freq,
       at: start + i * 0.07,
-      length: 0.16,
+      length: 0.065,
       gain: 0.7,
     })),
   ),
   "ring-pulse": [
     { freq: 659.25, at: 0, length: 0.8, attack: 0.25, gain: 0.8 },
-    { freq: 987.77, at: 0, length: 0.8, attack: 0.25, gain: 0.35 },
     { freq: 659.25, at: 1.0, length: 0.8, attack: 0.25, gain: 0.8 },
-    { freq: 987.77, at: 1.0, length: 0.8, attack: 0.25, gain: 0.35 },
   ],
-  "ring-lounge": [
-    { freq: 523.25, at: 0, length: 0.9, attack: 0.04, gain: 0.6 },
-    { freq: 659.25, at: 0, length: 0.9, attack: 0.04, gain: 0.5 },
-    { freq: 783.99, at: 0.25, length: 0.9, attack: 0.04, gain: 0.5 },
-    { freq: 987.77, at: 0.5, length: 1.2, attack: 0.04, gain: 0.45 },
-    { freq: 880, at: 1.1, length: 1.0, attack: 0.04, gain: 0.45 },
-  ],
+  "ring-lounge": melody([
+    [523.25, 0.28],
+    [659.25, 0.28],
+    [783.99, 0.28],
+    [987.77, 0.7],
+  ], 0.3, { gain: 0.55, attack: 0.03 }),
 };
+
+/** Notes one after another, `step` seconds apart, never overlapping. */
+function melody(
+  notes: [freq: number, length: number][],
+  step: number,
+  extra: Partial<Note> = {},
+): Note[] {
+  return notes.map(([freq, length], i) => ({
+    ...extra,
+    freq,
+    at: i * step,
+    length: i < notes.length - 1 ? Math.min(length, step - 0.01) : length,
+  }));
+}
 
 /** An old telephone bell: two hammers alternating fast for about a second. */
 function bellTrill(start: number): Note[] {
   return Array.from({ length: 18 }, (_, i) => ({
     freq: i % 2 === 0 ? 1318.51 : 1567.98,
     at: start + i * 0.05,
-    length: 0.07,
+    length: 0.045,
     type: "triangle" as const,
     gain: 0.55,
   }));
 }
 
+/** Oscillators still sounding, so a new sound can cut the last one off. */
+const activeOscillators = new Set<OscillatorNode>();
+
+/** Stops whatever is playing right now. */
+export function stopSounds() {
+  for (const osc of activeOscillators) {
+    try {
+      osc.stop();
+    } catch {
+      // already stopped
+    }
+  }
+  activeOscillators.clear();
+}
+
+/** Seconds a sound lasts. */
+export function soundLength(key: SoundKey): number {
+  if (key === "none") return 0;
+  return Math.max(...PATTERNS[key].map((n) => n.at + n.length));
+}
+
 export function playSound(key: SoundKey, volume = DEFAULT_SOUND_SETTINGS.volume) {
+  // One sound at a time: never layer a new sound over one still playing.
+  stopSounds();
   if (key === "none") return;
   const ctx = audioCtx;
   if (!ctx || ctx.state !== "running") return;
@@ -405,15 +440,35 @@ export function playSound(key: SoundKey, volume = DEFAULT_SOUND_SETTINGS.volume)
     gain.gain.exponentialRampToValueAtTime(level, t + (note.attack ?? 0.012));
     gain.gain.exponentialRampToValueAtTime(0.0001, t + note.length);
     osc.connect(gain).connect(ctx.destination);
+    activeOscillators.add(osc);
+    osc.onended = () => activeOscillators.delete(osc);
     osc.start(t);
     osc.stop(t + note.length + 0.05);
   }
 }
 
-/** One ring of the incoming-call tone. Calls ring even when message sounds are off. */
-export function playRingtone() {
-  const settings = readSoundSettings();
-  playSound(settings.callSound, settings.volume);
+const RING_PAUSE_MS = 1000;
+let ringTimer: number | null = null;
+
+/**
+ * Rings for an incoming call: the ringtone once, a one-second pause, repeat,
+ * until `stopRinging()`. Calls ring even when message sounds are off. Only one
+ * ring loop runs per page, however many times this is called.
+ */
+export function startRinging() {
+  if (ringTimer !== null) return;
+  const ring = () => {
+    const { callSound, volume } = readSoundSettings();
+    playSound(callSound, volume);
+    ringTimer = window.setTimeout(ring, soundLength(callSound) * 1000 + RING_PAUSE_MS);
+  };
+  ring();
+}
+
+export function stopRinging() {
+  if (ringTimer !== null) window.clearTimeout(ringTimer);
+  ringTimer = null;
+  stopSounds();
 }
 
 /** Plays the alert for `kind` if this device's settings allow it right now. */

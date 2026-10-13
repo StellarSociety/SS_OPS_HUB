@@ -99,7 +99,7 @@ function soundSnapshot(): SoundSettings {
 }
 
 const ALERT_GROUPS: SoundGroupKey[] = ["short", "long"];
-const RING_GROUPS: SoundGroupKey[] = ["ring", "long", "short"];
+const RING_GROUPS: SoundGroupKey[] = ["ring"];
 
 function SoundPicker({
   label,

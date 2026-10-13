@@ -62,11 +62,11 @@ export function CallSettingsSheet({
               onChange={(hideSelf) => updateCallPreferences({ hideSelf })}
             />
             <FitRow value={preferences.videoFit} onChange={(videoFit) => updateCallPreferences({ videoFit })} />
-            <LiveDeviceRow kind="videoinput" label="Camera" field="videoInputId" />
           </Section>
         ) : null}
 
-        <Section title="Audio">
+        <Section title="Devices">
+          {mode === "video" ? <LiveDeviceRow kind="videoinput" label="Camera" field="videoInputId" /> : null}
           <LiveDeviceRow kind="audioinput" label="Microphone" field="audioInputId" />
           {canPickSpeaker() ? <LiveDeviceRow kind="audiooutput" label="Speaker" field="audioOutputId" /> : null}
         </Section>
@@ -163,10 +163,11 @@ function LiveDeviceRow({
 }) {
   const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({
     kind,
-    requestPermissions: false,
+    // Already granted for the call, so this only fills in the device names.
+    requestPermissions: true,
     onError: () => toast.error(`Could not switch the ${label.toLowerCase()}.`),
   });
-  if (devices.length === 0) return null;
+  const options = devices.filter((device) => device.deviceId);
 
   async function pick(deviceId: string) {
     try {
@@ -180,17 +181,22 @@ function LiveDeviceRow({
   return (
     <label className="flex items-center justify-between gap-4 py-3">
       <span className="shrink-0 text-sm">{label}</span>
-      <select
-        value={activeDeviceId}
-        onChange={(event) => void pick(event.target.value)}
-        className="min-w-0 max-w-[60%] truncate rounded-xl bg-white/10 px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-white/30"
-      >
-        {devices.map((device, index) => (
-          <option key={device.deviceId || index} value={device.deviceId} className="text-black">
-            {device.label || `${label} ${index + 1}`}
-          </option>
-        ))}
-      </select>
+      {options.length === 0 ? (
+        <span className="text-sm text-white/45">None found</span>
+      ) : (
+        <select
+          value={activeDeviceId}
+          onChange={(event) => void pick(event.target.value)}
+          className="min-w-0 max-w-[60%] truncate rounded-xl bg-white/10 px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-white/30"
+          aria-label={label}
+        >
+          {options.map((device, index) => (
+            <option key={device.deviceId} value={device.deviceId} className="text-black">
+              {device.label || `${label} ${index + 1}`}
+            </option>
+          ))}
+        </select>
+      )}
     </label>
   );
 }
