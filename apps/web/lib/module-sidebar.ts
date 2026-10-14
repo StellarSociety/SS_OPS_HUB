@@ -47,6 +47,7 @@ import {
   Users,
   Wallet,
   BookOpen,
+  Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -534,6 +535,11 @@ export const moduleSidebarRegistry: ModuleSidebarDef[] = [
         label: "App Insights",
         href: "/mobile/app-insights",
         icon: FileBarChart,
+      },
+      {
+        label: "Shortcuts",
+        href: "/mobile/shortcuts",
+        icon: Zap,
       },
       {
         label: "Users Access",

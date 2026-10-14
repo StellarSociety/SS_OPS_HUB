@@ -67,6 +67,39 @@ export async function archiveAllNotificationsForVenue(params: {
   return { ok: true };
 }
 
+/** Bulk update of exactly the given notifications (what the phone list shows). */
+async function updateMyNotifications(
+  notificationIds: string[],
+  patch: { read_at?: string; archived_at?: string },
+) {
+  const ids = notificationIds.filter(Boolean).slice(0, 500);
+  if (ids.length === 0) return { ok: true };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { error } = await supabase
+    .from("notifications")
+    .update(patch)
+    .eq("user_id", user.id)
+    .in("id", ids);
+  if (error) return { error: error.message };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function markNotificationsAsRead(notificationIds: string[]) {
+  return updateMyNotifications(notificationIds, { read_at: new Date().toISOString() });
+}
+
+export async function archiveNotificationsByIds(notificationIds: string[]) {
+  return updateMyNotifications(notificationIds, {
+    archived_at: new Date().toISOString(),
+  });
+}
+
 export async function unarchiveNotificationById(notificationId: string) {
   const supabase = await createClient();
   const {

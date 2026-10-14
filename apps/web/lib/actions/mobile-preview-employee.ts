@@ -15,7 +15,11 @@ import {
 } from "@/lib/mobile/employee-leave";
 import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import type { AccessMatrixLevel } from "@/lib/access/matrix";
-import { canAccessHiring, canEditHiring } from "@/lib/hr/permissions";
+import {
+  HIRING_SHORTCUT_KEY,
+  isShortcutOpen,
+  type WelcomeShortcut,
+} from "@/lib/mobile/shortcuts";
 import { sentimentEditFlags } from "@/lib/sentiment/workspace";
 import {
   buildSelectVenuePageData,
@@ -58,6 +62,7 @@ export type MobilePreviewWelcomeAccess = {
   employeeHubLevel: AccessMatrixLevel;
   hubPages: string[];
   showHiring: boolean;
+  shortcuts: WelcomeShortcut[];
   /** This employee's own inbox — never the signed-in admin's. */
   notifications: NotificationRow[];
   notificationCount: number;
@@ -80,6 +85,7 @@ const NO_LOGIN_WELCOME: MobilePreviewWelcomeAccess = {
   employeeHubLevel: "hidden",
   hubPages: [],
   showHiring: false,
+  shortcuts: [],
   notifications: [],
   notificationCount: 0,
   unreadCount: 0,
@@ -107,7 +113,7 @@ async function loadPreviewWelcomeAccess(
   if (!venue) return NO_LOGIN_WELCOME;
   const scope = { venueId, isGlobalVenue: Boolean((venue as Venue).is_global) };
   const [
-    { modules, employeeHubLevel, permissions, canUseApp, hubPages },
+    { modules, shortcuts, shortcutLevels, employeeHubLevel, permissions, canUseApp, hubPages },
     notifications,
     notificationCount,
     unreadCount,
@@ -133,9 +139,10 @@ async function loadPreviewWelcomeAccess(
     modules,
     employeeHubLevel,
     hubPages,
-    showHiring: canAccessHiring(permissions, venueId),
+    showHiring: isShortcutOpen(shortcutLevels[HIRING_SHORTCUT_KEY]),
+    shortcuts,
     selectVenue,
-    canEditHiring: canEditHiring(permissions, venueId),
+    canEditHiring: shortcutLevels[HIRING_SHORTCUT_KEY] === "editor",
     canApplyLeave: canEditOwnLeave(permissions, venueId),
     canWriteConnect: canWriteConnectOnPhone(permissions, venueId),
     sentimentCanEdit: sentimentFlags.canEdit,

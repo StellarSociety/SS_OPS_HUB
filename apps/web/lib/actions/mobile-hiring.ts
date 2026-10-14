@@ -1,9 +1,9 @@
 "use server";
 
-import { canAccessHiring } from "@/lib/hr/permissions";
 import { loadMobileHiringPage } from "@/lib/mobile/hiring-replies";
 import { requireMobileAppVenueAccess } from "@/lib/mobile/require-app-access";
 import { loadPhoneAccess } from "@/lib/mobile/phone-access";
+import { HIRING_SHORTCUT_KEY, isShortcutOpen } from "@/lib/mobile/shortcuts";
 
 export async function loadMobileHiringPageAction(input: {
   venueId: string;
@@ -12,9 +12,9 @@ export async function loadMobileHiringPageAction(input: {
   const access = await requireMobileAppVenueAccess(input.venueId);
   if (!access) return null;
 
-  // Phone access (Mobile App Access switches), not web grants.
+  // The Hiring Forms shortcut switch (Mobile App → Shortcuts), not web grants.
   const phone = await loadPhoneAccess(access.userId, access.venueId);
-  if (!canAccessHiring(phone.permissions, access.venueId)) {
+  if (!isShortcutOpen(phone.shortcuts[HIRING_SHORTCUT_KEY])) {
     return null;
   }
 

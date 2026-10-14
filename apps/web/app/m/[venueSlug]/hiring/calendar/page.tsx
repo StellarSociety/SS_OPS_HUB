@@ -1,8 +1,8 @@
 import { MobileAccessDenied } from "@/components/mobile/mobile-access-denied";
 import { MobileHiringScreen } from "@/components/mobile/mobile-hiring-screen";
-import { canAccessHiring } from "@/lib/hr/permissions";
 import { getMobileAppContext } from "@/lib/mobile/page-context";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
+import { HIRING_SHORTCUT_KEY, isShortcutOpen } from "@/lib/mobile/shortcuts";
 import {
   EMPTY_MOBILE_HIRING_PAGE,
   loadMobileHiringAppointments,
@@ -14,12 +14,12 @@ type PageProps = {
 
 export default async function MobileHiringCalendarPage({ params }: PageProps) {
   const { venueSlug } = await params;
-  const { venue, permissions } = await getMobileAppContext(venueSlug);
+  const { venue, permissions, phone } = await getMobileAppContext(venueSlug);
 
   if (!canAccessMobileApp(permissions, venue.id)) {
     return <MobileAccessDenied />;
   }
-  if (!canAccessHiring(permissions, venue.id)) {
+  if (!isShortcutOpen(phone.shortcuts[HIRING_SHORTCUT_KEY])) {
     return <MobileAccessDenied />;
   }
 

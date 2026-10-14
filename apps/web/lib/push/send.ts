@@ -93,6 +93,7 @@ function payloadForNotification(
     module_key: notification.module_key,
     entity: notification.entity,
     entity_id: notification.entity_id,
+    dedupe_key: notification.dedupe_key,
     venueSlug: venue?.slug ?? null,
     isGlobalVenue: venue?.is_global ?? false,
     platform: subscription.platform,

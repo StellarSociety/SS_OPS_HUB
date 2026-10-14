@@ -13,6 +13,7 @@ import {
   PHONE_HUB_KEY,
 } from "@/lib/mobile/phone-access";
 import { phoneLevelsFor } from "@/lib/access/phone-levels";
+import { isPhoneShortcutKey, PHONE_SHORTCUTS } from "@/lib/mobile/shortcuts";
 import { createServiceClient } from "@/lib/supabase/service";
 
 const LEVELS: AccessMatrixLevel[] = ["hidden", "none", "viewer", "editor"];
@@ -28,13 +29,40 @@ function phoneAppKeys(): Set<string> {
     PHONE_APP_SWITCH_KEY,
     PHONE_HUB_KEY,
     ...getAccessMatrixAppColumns().map((app) => app.key),
+    ...PHONE_SHORTCUTS.map((shortcut) => shortcut.key),
   ]);
 }
 
 function revalidatePhoneAccess(userId: string) {
   revalidatePath("/mobile/users-access");
   revalidatePath("/mobile/access");
+  revalidatePath("/mobile/shortcuts");
   revalidatePath(`/settings/users/${userId}`);
+}
+
+/** Show or hide a shortcut on every phone at a venue. */
+export async function setShortcutVisibility(input: {
+  venueId: string;
+  shortcutKey: string;
+  visible: boolean;
+}): Promise<{ error?: string; success?: string }> {
+  const { user: actor } = await requireAppAdmin();
+  if (!isPhoneShortcutKey(input.shortcutKey)) return { error: "Unknown shortcut." };
+  const { error } = await createServiceClient()
+    .from("mobile_shortcut_settings")
+    .upsert(
+      {
+        venue_id: input.venueId,
+        shortcut_key: input.shortcutKey,
+        visible: input.visible,
+        updated_by: actor.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "venue_id,shortcut_key" },
+    );
+  if (error) return { error: error.message };
+  revalidatePath("/mobile/shortcuts");
+  return { success: input.visible ? "Shortcut shown." : "Shortcut hidden." };
 }
 
 /** One person's phone switches at a venue (Settings → Users editor). */

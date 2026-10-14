@@ -8,11 +8,18 @@ import {
   ChevronRight,
   ChevronsUpDown,
   ChevronUp,
+  FileText,
   LayoutGrid,
   List,
+  Maximize2,
   Settings2,
 } from "lucide-react";
 import { HiringDialog } from "@/components/hr/hiring-dialog";
+import {
+  HiringFileViewer,
+  hiringFileKind,
+  type HiringViewerFile,
+} from "@/components/hr/hiring-file-viewer";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DateInput } from "@/components/ui/date-input";
@@ -121,14 +128,14 @@ export function HiringRepliesClient({
   const { scope, slug } = useVenueScope();
   const [pending, startTransition] = useTransition();
   const [viewOpen, setViewOpen] = useState(false);
-  // Table rows or candidate thumbnails (as on the phone). Kept in the URL
-  // (?view=thumbnails) so it survives switching forms and reloads.
+  // Candidate thumbnails (as on the phone) by default, or table rows. Kept in
+  // the URL (?view=table) so it survives switching forms and reloads.
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const layout: "table" | "thumbnails" =
-    searchParams.get("view") === "thumbnails" ? "thumbnails" : "table";
+    searchParams.get("view") === "table" ? "table" : "thumbnails";
   function setLayout(next: "table" | "thumbnails") {
-    router.replace(next === "thumbnails" ? `${pathname}?view=thumbnails` : pathname, { scroll: false });
+    router.replace(next === "table" ? `${pathname}?view=table` : pathname, { scroll: false });
   }
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [notifyByForm, setNotifyByForm] = useState<Record<string, string[]>>(
@@ -138,6 +145,9 @@ export function HiringRepliesClient({
       ),
   );
   const [detail, setDetail] = useState<HiringApplication | null>(null);
+  const [viewer, setViewer] = useState<{ files: HiringViewerFile[]; index: number } | null>(
+    null,
+  );
   const [interviewKind, setInterviewKind] = useState<"request" | "confirm" | null>(
     null,
   );
@@ -250,7 +260,7 @@ export function HiringRepliesClient({
                   `/hr/hiring/replies/${event.target.value}`,
                   scope,
                   slug,
-                ) + (layout === "thumbnails" ? "?view=thumbnails" : ""),
+                ) + (layout === "table" ? "?view=table" : ""),
               );
             }}
           >
@@ -664,50 +674,14 @@ export function HiringRepliesClient({
           setInterviewKind(null);
         }}
         busy={pending}
-        wide
+        size="xl"
       >
         {detail ? (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {fieldBlocks(blocks).map((block) => {
-                const files = detail.files.filter(
-                  (file) => file.block_id === block.id,
-                );
-                const display = hiringAnswerDisplay(detail, block);
-                return (
-                  <div key={block.id} className="space-y-1">
-                    <p className="text-xs uppercase tracking-wide text-black/40">
-                      {block.field_label}
-                    </p>
-                    {block.field_type === "picture" && files[0] ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={files[0].public_url}
-                        alt=""
-                        className="h-24 w-24 rounded-xl object-cover"
-                      />
-                    ) : files.length ? (
-                      <ul className="space-y-1">
-                        {files.map((file) => (
-                          <li key={file.id}>
-                            <a
-                              href={file.public_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-sm text-[var(--venue-primary,#818a40)] underline"
-                            >
-                              {file.file_name}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-[#3D421F]">{display || "—"}</p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+          <ApplicationDetailBody
+            detail={detail}
+            blocks={blocks}
+            onOpenFile={(files, index) => setViewer({ files, index })}
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Category</Label>
@@ -791,9 +765,18 @@ export function HiringRepliesClient({
                 </Button>
               </div>
             ) : null}
-          </>
+          </ApplicationDetailBody>
         ) : null}
       </HiringDialog>
+
+      {viewer ? (
+        <HiringFileViewer
+          files={viewer.files}
+          index={viewer.index}
+          onChange={(index) => setViewer((current) => (current ? { ...current, index } : null))}
+          onClose={() => setViewer(null)}
+        />
+      ) : null}
 
       <HiringDialog
         open={Boolean(interviewKind && detail)}
@@ -914,6 +897,233 @@ export function HiringRepliesClient({
         </div>
       </HiringDialog>
     </div>
+  );
+}
+
+function formatFileSize(bytes: number | null) {
+  if (!bytes) return "";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const LONG_ANSWER_CHARS = 140;
+
+function ApplicationDetailBody({
+  detail,
+  blocks,
+  onOpenFile,
+  children,
+}: {
+  detail: HiringApplication;
+  blocks: HiringFormBlock[];
+  onOpenFile: (files: HiringViewerFile[], index: number) => void;
+  children: React.ReactNode;
+}) {
+  const fields = fieldBlocks(blocks);
+  const labelFor = new Map(fields.map((block) => [block.id, block.field_label ?? ""]));
+  const order = new Map(fields.map((block, i) => [block.id, i]));
+  const files = [...detail.files].sort(
+    (a, b) =>
+      (order.get(a.block_id ?? "") ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(b.block_id ?? "") ?? Number.MAX_SAFE_INTEGER),
+  );
+  const viewerFiles: HiringViewerFile[] = files.map((file) => ({
+    id: file.id,
+    url: file.public_url,
+    name: file.file_name,
+    contentType: file.content_type,
+  }));
+  const pictureBlockIds = new Set(
+    fields.filter((block) => block.field_type === "picture").map((block) => block.id),
+  );
+  const heroIndex = files.findIndex(
+    (file) =>
+      pictureBlockIds.has(file.block_id ?? "") &&
+      hiringFileKind({ contentType: file.content_type, name: file.file_name }) === "image",
+  );
+  const heroUrl = heroIndex >= 0 ? files[heroIndex]!.public_url : hiringPictureUrl(detail, blocks);
+  const documents = files
+    .map((file, index) => ({ file, index }))
+    .filter(({ index }) => index !== heroIndex);
+
+  const answerFor = (matches: (block: HiringFormBlock) => boolean) => {
+    for (const block of fields.filter(matches)) {
+      const text = hiringAnswerDisplay(detail, block).trim();
+      if (text && text !== "—") return text;
+    }
+    return "";
+  };
+  const position = answerFor((block) => /position/i.test(block.field_label ?? ""));
+  const nationality = nationalityDisplay(
+    answerFor(
+      (block) => block.field_type === "nationality" || /nationality/i.test(block.field_label ?? ""),
+    ),
+  );
+  const fileBlockIds = new Set(detail.files.map((file) => file.block_id));
+  const answers = fields
+    .filter((block) => !pictureBlockIds.has(block.id) && !fileBlockIds.has(block.id))
+    .map((block) => {
+      const text = hiringAnswerDisplay(detail, block).trim();
+      return {
+        block,
+        text,
+        long:
+          text.length > LONG_ANSWER_CHARS ||
+          (block.field_type === "long_text" && (text.includes("\n") || text.length > 60)),
+      };
+    });
+  const shortAnswers = answers.filter((answer) => !answer.long);
+  const longAnswers = answers.filter((answer) => answer.long);
+  const name = detail.applicant_name || "Candidate";
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-5 rounded-2xl border border-black/5 bg-[var(--venue-secondary,#F0F3DD)]/40 p-4 sm:grid-cols-[180px_minmax(0,1fr)] sm:p-5">
+        {heroUrl ? (
+          <button
+            type="button"
+            onClick={() =>
+              heroIndex >= 0
+                ? onOpenFile(viewerFiles, heroIndex)
+                : onOpenFile(
+                    [{ id: "photo", url: heroUrl, name: `${name} photo`, contentType: "image/*" }],
+                    0,
+                  )
+            }
+            className="group relative mx-auto block aspect-square w-40 cursor-zoom-in overflow-hidden rounded-2xl border border-black/10 bg-white shadow-sm sm:mx-0 sm:w-full"
+            aria-label={`View photo of ${name} full screen`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={heroUrl}
+              alt=""
+              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+            />
+            <span className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition group-hover:opacity-100">
+              <Maximize2 className="h-3.5 w-3.5" />
+            </span>
+          </button>
+        ) : (
+          <div className="mx-auto flex aspect-square w-40 items-center justify-center rounded-2xl bg-[var(--venue-primary,#818a40)]/15 text-4xl font-medium text-[#3D421F] sm:mx-0 sm:w-full">
+            {hiringShortName(name).charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {position ? <FactChip label="Position" value={position} /> : null}
+            {nationality ? (
+              <FactChip
+                label="Nationality"
+                value={[nationality.flag, nationality.label].filter(Boolean).join(" ")}
+              />
+            ) : null}
+            <FactChip label="Submitted" value={formatSubmittedAt(detail.submitted_at)} />
+          </div>
+          <div className="space-y-4">{children}</div>
+        </div>
+      </div>
+
+      {shortAnswers.length ? (
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-black/45">
+            Application
+          </h3>
+          <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            {shortAnswers.map(({ block, text }) => (
+              <div key={block.id} className="min-w-0 border-b border-black/5 pb-3">
+                <dt className="text-[11px] uppercase tracking-wide text-black/40">
+                  {block.field_label}
+                </dt>
+                <dd className="mt-1 break-words text-sm text-[#3D421F]">{text || "—"}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+
+      {longAnswers.length ? (
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-black/45">
+            In their words
+          </h3>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {longAnswers.map(({ block, text }) => (
+              <div
+                key={block.id}
+                className="rounded-xl border border-black/5 bg-black/[0.02] p-4"
+              >
+                <p className="text-[11px] uppercase tracking-wide text-black/40">
+                  {block.field_label}
+                </p>
+                <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-[#3D421F]">
+                  {text || "—"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {documents.length ? (
+        <section className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-black/45">
+            Documents
+          </h3>
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {documents.map(({ file, index }) => {
+              const kind = hiringFileKind({ contentType: file.content_type, name: file.file_name });
+              const caption = labelFor.get(file.block_id ?? "") || "Attachment";
+              return (
+                <li key={file.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenFile(viewerFiles, index)}
+                    className="group flex w-full items-center gap-3 rounded-xl border border-black/10 bg-white p-2.5 text-left transition hover:border-[var(--venue-primary,#818a40)]/40 hover:shadow-sm"
+                    aria-label={`View ${file.file_name} full screen`}
+                  >
+                    {kind === "image" ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={file.public_url}
+                        alt=""
+                        className="h-12 w-12 shrink-0 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-[var(--venue-primary,#818a40)]/12 text-[var(--venue-primary,#818a40)]">
+                        <FileText className="h-5 w-5" />
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] uppercase tracking-wide text-black/40">
+                        {caption}
+                      </span>
+                      <span className="block truncate text-sm font-medium text-[#3D421F]">
+                        {file.file_name}
+                      </span>
+                      <span className="block text-xs text-black/45">
+                        {[kind === "pdf" ? "PDF" : kind === "image" ? "Image" : "File", formatFileSize(file.byte_size)]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </span>
+                    <Maximize2 className="h-4 w-4 shrink-0 text-black/30 transition group-hover:text-[var(--venue-primary,#818a40)]" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function FactChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 py-1 text-xs">
+      <span className="text-black/45">{label}</span>
+      <span className="font-medium text-[#3D421F]">{value}</span>
+    </span>
   );
 }
 

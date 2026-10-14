@@ -24,6 +24,7 @@ import {
   type PhoneAccessRow,
 } from "@/lib/mobile/phone-access";
 import { getMobilePageContext } from "@/lib/mobile/page-context";
+import { PHONE_SHORTCUTS } from "@/lib/mobile/shortcuts";
 import { canManageHubSettings } from "@/lib/role-permissions";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { UserListRow } from "@/lib/access/types";
@@ -79,6 +80,7 @@ function emptyLevels(apps: { key: string }[]): Record<string, AccessMatrixLevel>
     [MOBILE_EMPLOYEE_HUB_MODULE_KEY]: "none",
   };
   for (const app of apps) levels[app.key] = "none";
+  for (const shortcut of PHONE_SHORTCUTS) levels[shortcut.key] = "none";
   return levels;
 }
 

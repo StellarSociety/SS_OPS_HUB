@@ -295,8 +295,15 @@ export function mobileDirectoryHref(venueSlug: string): string {
   return `${MOBILE_APP_BASE}/${venueSlug}/directory`;
 }
 
-export function mobileHiringHref(venueSlug: string): string {
-  return `${MOBILE_APP_BASE}/${venueSlug}/hiring`;
+export function mobileHiringHref(
+  venueSlug: string,
+  open?: { formId: string; applicationId?: string | null } | null,
+): string {
+  const base = `${MOBILE_APP_BASE}/${venueSlug}/hiring`;
+  if (!open) return base;
+  const query = new URLSearchParams({ form: open.formId });
+  if (open.applicationId) query.set("application", open.applicationId);
+  return `${base}?${query.toString()}`;
 }
 
 export function mobileHiringCalendarHref(venueSlug: string): string {

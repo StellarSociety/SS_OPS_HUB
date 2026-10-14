@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { getRenderClient, getRenderUser, getRenderVenue } from "@/lib/auth/render-user";
 import { MOBILE_APP_BASE } from "@/lib/mobile/app-path";
@@ -22,8 +23,11 @@ export async function getMobilePageContext() {
   return { supabase, venue, permissions: permissions ?? [], user };
 }
 
-/** Context for the phone app at `/m/<venueSlug>/...`. */
-export async function getMobileAppContext(venueSlug: string) {
+/**
+ * Context for the phone app at `/m/<venueSlug>/...`. Cached per request, so
+ * the venue layout and the page share one load instead of two.
+ */
+export const getMobileAppContext = cache(async (venueSlug: string) => {
   const supabase = await getRenderClient();
   const user = await getRenderUser();
   if (!user) redirect(`${MOBILE_APP_BASE}/login`);
@@ -49,4 +53,4 @@ export async function getMobileAppContext(venueSlug: string) {
     phone,
     user,
   };
-}
+});

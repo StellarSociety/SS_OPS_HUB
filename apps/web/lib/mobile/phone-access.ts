@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { AccessMatrixLevel } from "@/lib/access/matrix";
+import { isPhoneShortcutKey, PHONE_SHORTCUTS } from "@/lib/mobile/shortcuts";
 import { MOBILE_APP_MODULE_KEY } from "@/lib/mobile/types";
 import {
   getSubPagesForModule,
@@ -15,6 +16,7 @@ import { createServiceClient } from "@/lib/supabase/service";
  * Stored in `mobile_app_access`, one row per person / venue / phone app:
  * - `mobile_app`          the "Can use the mobile app" switch ("viewer" = on)
  * - `mobile_employee_hub` Personal Employee Hub, with the pages it opens
+ * - `shortcut_*`          a phone shortcut (see lib/mobile/shortcuts.ts)
  * - any other key         a welcome-screen app (sales, sentiment, directory, …)
  *
  * The phone never reads web grants for this. Instead the switches are turned
@@ -40,6 +42,11 @@ export type PhoneAccess = {
   hubPages: string[];
   /** Phone-only permissions built from the switches. */
   permissions: UserPermission[];
+  /**
+   * Level per phone shortcut. "hidden" when the venue hides the shortcut,
+   * "none" when the mobile app is off for them.
+   */
+  shortcuts: Record<string, AccessMatrixLevel>;
 };
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
@@ -84,6 +91,7 @@ export function phonePermissionsFromRows(
 
   for (const row of rows) {
     if (row.app_key === PHONE_APP_SWITCH_KEY || !isGranted(row.level)) continue;
+    if (isPhoneShortcutKey(row.app_key)) continue;
     const editor = row.level === "editor";
     if (row.app_key === PHONE_HUB_KEY) {
       for (const page of row.pages ?? employeeHubPageKeys()) {
@@ -131,12 +139,25 @@ export async function loadPhoneAccess(
   venueId: string,
   service: ServiceClient = createServiceClient(),
 ): Promise<PhoneAccess> {
-  const rows = await loadPhoneAccessRows(service, userId, venueId);
+  const [rows, visibility] = await Promise.all([
+    loadPhoneAccessRows(service, userId, venueId),
+    loadShortcutVisibility(service, venueId),
+  ]);
   const levels: Record<string, AccessMatrixLevel> = {};
   for (const row of rows) levels[row.app_key] = row.level;
   const hubRow = rows.find((row) => row.app_key === PHONE_HUB_KEY);
   const canUseApp = isGranted(levels[PHONE_APP_SWITCH_KEY]);
+  const shortcuts: Record<string, AccessMatrixLevel> = {};
+  for (const shortcut of PHONE_SHORTCUTS) {
+    shortcuts[shortcut.key] =
+      visibility[shortcut.key] === false
+        ? "hidden"
+        : canUseApp
+          ? (levels[shortcut.key] ?? "none")
+          : "none";
+  }
   return {
+    shortcuts,
     canUseApp,
     levels,
     hubPages: canUseApp && isGranted(hubRow?.level)
@@ -144,6 +165,28 @@ export async function loadPhoneAccess(
       : [],
     permissions: phonePermissionsFromRows(userId, venueId, rows),
   };
+}
+
+/** Whether each shortcut is shown at a venue. Missing = shown. */
+export async function loadShortcutVisibility(
+  service: ServiceClient,
+  venueId: string,
+): Promise<Record<string, boolean>> {
+  const visibility: Record<string, boolean> = {};
+  for (const shortcut of PHONE_SHORTCUTS) visibility[shortcut.key] = true;
+  const { data, error } = await service
+    .from("mobile_shortcut_settings")
+    .select("shortcut_key, visible")
+    .eq("venue_id", venueId);
+  if (error) {
+    console.error("[phone-access] shortcuts:", error.message);
+    return visibility;
+  }
+  for (const row of data ?? []) {
+    const key = String(row.shortcut_key);
+    if (key in visibility) visibility[key] = Boolean(row.visible);
+  }
+  return visibility;
 }
 
 /** Venues where this person may use the phone app. */

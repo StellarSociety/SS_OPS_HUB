@@ -141,7 +141,6 @@ export async function middleware(request: NextRequest) {
     request.headers.get("next-router-prefetch") === "1" ||
     (request.headers.get("sec-purpose") ?? "").includes("prefetch") ||
     (request.headers.get("purpose") ?? "") === "prefetch";
-
   if (userId && !isPublicRoute(pathname) && !isPrefetch) {
     try {
       const { data: profile } = await supabase

@@ -27,6 +27,7 @@ import { defaultModuleConfig, type ModuleAccessConfig } from "@/lib/access/roles
 import { MOBILE_APP_MODULE_KEY } from "@/lib/mobile/types";
 import { MOBILE_EMPLOYEE_HUB_MODULE_KEY } from "@/lib/modules-catalog";
 import { loadPhoneAccess, PHONE_HUB_KEY } from "@/lib/mobile/phone-access";
+import { PHONE_SHORTCUTS, type WelcomeShortcut } from "@/lib/mobile/shortcuts";
 import type { createServiceClient } from "@/lib/supabase/service";
 import type { Venue } from "@/lib/types/database";
 
@@ -292,8 +293,15 @@ export async function loadMobileWelcomeModulesForUser(
   const employeeHubLevel: AccessMatrixLevel = phone.canUseApp
     ? (phone.levels[PHONE_HUB_KEY] ?? "none")
     : "none";
+  const shortcuts: WelcomeShortcut[] = PHONE_SHORTCUTS.map((shortcut) => ({
+    ...shortcut,
+    level: phone.shortcuts[shortcut.key] ?? "none",
+  })).filter((shortcut) => shortcut.level !== "hidden");
   return {
     modules,
+    shortcuts,
+    /** Level per shortcut key, venue visibility applied. */
+    shortcutLevels: phone.shortcuts,
     userName: access.userName,
     employeeHubLevel,
     /** Phone-only permissions (for Hiring Forms and other phone checks). */

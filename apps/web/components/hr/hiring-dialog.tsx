@@ -13,6 +13,7 @@ export function HiringDialog({
   children,
   footer,
   wide,
+  size,
 }: {
   open: boolean;
   title: string;
@@ -22,7 +23,15 @@ export function HiringDialog({
   children: React.ReactNode;
   footer?: React.ReactNode;
   wide?: boolean;
+  size?: "default" | "wide" | "xl";
 }) {
+  const resolvedSize = size ?? (wide ? "wide" : "default");
+  const maxWidth =
+    resolvedSize === "xl"
+      ? "sm:max-w-6xl"
+      : resolvedSize === "wide"
+        ? "sm:max-w-3xl"
+        : "sm:max-w-lg";
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
@@ -40,8 +49,8 @@ export function HiringDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="hiring-dialog-title"
-        className={`relative max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-black/10 bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[90vh] sm:rounded-2xl ${
-          wide ? "sm:max-w-3xl" : "sm:max-w-lg"
+        className={`relative max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-black/10 bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[90vh] sm:rounded-2xl ${maxWidth} ${
+          resolvedSize === "xl" ? "sm:p-6" : ""
         }`}
       >
         <button

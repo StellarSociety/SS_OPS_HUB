@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition, type CSSProperties } from "react";
-import { ArrowLeft, ChevronDown, Images, List, Mail } from "lucide-react";
+import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { ArrowLeft, ChevronDown, Images, List, Mail, X } from "lucide-react";
 import { loadMobileHiringPageAction } from "@/lib/actions/mobile-hiring";
 import {
   sendHiringInterviewEmail,
@@ -40,6 +41,9 @@ type MobileHiringScreenProps = {
   canEdit?: boolean;
   appointments?: MobileHiringAppointment[];
   onSelectTab?: (tab: MobileTabItem) => void;
+  /** Open this form's submission straight away (e.g. from a notification). */
+  openFormId?: string | null;
+  openApplicationId?: string | null;
 };
 
 function formatSubmittedAt(iso: string) {
@@ -59,17 +63,38 @@ export function MobileHiringScreen({
   canEdit = false,
   appointments = [],
   onSelectTab,
+  openFormId,
+  openApplicationId,
 }: MobileHiringScreenProps) {
   const [page, setPage] = useState(initial);
   const [pending, startTransition] = useTransition();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const openFormLoaded = !openFormId || openFormId === initial.selectedFormId;
+  const [selectedId, setSelectedId] = useState<string | null>(
+    openFormLoaded ? (openApplicationId ?? null) : null,
+  );
   const [showThumbnails, setShowThumbnails] = useState(true);
   const selected =
     page.candidates.find((candidate) => candidate.id === selectedId) ?? null;
 
-  useEffect(() => {
+  const [shownTab, setShownTab] = useState(tab);
+  if (shownTab !== tab) {
+    setShownTab(tab);
     setSelectedId(null);
-  }, [tab]);
+  }
+
+  // The requested form isn't the one preloaded (simulator): fetch it, then open the submission.
+  useEffect(() => {
+    if (!openFormId || openFormId === initial.selectedFormId) return;
+    startTransition(async () => {
+      const next = await loadMobileHiringPageAction({
+        venueId: venue.id,
+        formId: openFormId,
+      });
+      if (!next) return;
+      setPage(next);
+      if (openApplicationId) setSelectedId(openApplicationId);
+    });
+  }, [openFormId, openApplicationId, initial.selectedFormId, venue.id]);
 
   useEffect(() => {
     if (!selected) return;
@@ -505,19 +530,36 @@ function CandidateDetail({
         </div>
       </div>
 
-      <div className="mt-5 space-y-2 rounded-2xl border border-black/10 bg-white/75 p-3 dark:border-white/12 dark:bg-white/10">
-        <DetailRow label="Submitted" value={formatSubmittedAt(candidate.submittedAt)} />
-        <DetailRow label="Status" value={candidate.statusLabel} />
-        {canEdit ? (
-          <label className="block rounded-xl px-1 py-1.5">
-            <span className="text-[11px] uppercase tracking-wide text-black/40 dark:text-white/40">
-              Category
-            </span>
+      <div className="mt-4 rounded-2xl border border-[var(--venue-primary,#818a40)]/25 bg-[var(--venue-secondary,#F0F3DD)] px-3 py-2.5 dark:border-white/12 dark:bg-white/[0.06]">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wide text-black/45 dark:text-white/45">
+              Submitted
+            </p>
+            <p className="mt-0.5 truncate text-sm font-medium text-[#3D421F] dark:text-[CanvasText]">
+              {formatSubmittedAt(candidate.submittedAt)}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wide text-black/45 dark:text-white/45">
+              Status
+            </p>
+            <p className="mt-0.5 truncate text-sm font-medium text-[#3D421F] dark:text-[CanvasText]">
+              {candidate.statusLabel}
+            </p>
+          </div>
+        </div>
+        <div className="mt-2.5 flex items-center gap-3 border-t border-[var(--venue-primary,#818a40)]/15 pt-2.5 dark:border-white/10">
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-black/45 dark:text-white/45">
+            Category
+          </span>
+          {canEdit ? (
             <select
+              aria-label="Category"
               value={candidate.category ?? ""}
               disabled={pending}
               onChange={(event) => updateCategory(event.target.value)}
-              className="mt-1 h-11 w-full rounded-xl border border-black/10 bg-white px-3 text-base text-[#3D421F] outline-none dark:border-white/12 dark:bg-black/20 dark:text-[CanvasText]"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-black/10 bg-white px-2.5 text-sm text-[#3D421F] outline-none dark:border-white/12 dark:bg-black/20 dark:text-[CanvasText]"
             >
               <option value="">Not set</option>
               {HIRING_CATEGORIES.map((category) => (
@@ -526,10 +568,12 @@ function CandidateDetail({
                 </option>
               ))}
             </select>
-          </label>
-        ) : (
-          <DetailRow label="Category" value={candidate.categoryLabel || "—"} />
-        )}
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-right text-sm font-medium text-[#3D421F] dark:text-[CanvasText]">
+              {candidate.categoryLabel || "—"}
+            </span>
+          )}
+        </div>
       </div>
 
       {canEdit ? (
@@ -782,6 +826,14 @@ function DetailRow({
   );
 }
 
+function photoPortalHost(from: Element): HTMLElement {
+  return (
+    from.closest<HTMLElement>("[data-mobile-shell]") ??
+    from.closest<HTMLElement>(".mobile-app-canvas") ??
+    document.body
+  );
+}
+
 function CandidateAvatar({
   candidate,
   size,
@@ -789,7 +841,42 @@ function CandidateAvatar({
   candidate: MobileHiringCandidate;
   size: "md" | "lg";
 }) {
+  const [photoHost, setPhotoHost] = useState<HTMLElement | null>(null);
   const box = size === "lg" ? "h-24 w-24 text-2xl" : "h-12 w-12 text-sm";
+  const name = shortCandidateName(candidate.name);
+
+  if (candidate.photoUrl && size === "lg") {
+    return (
+      <>
+        <MobilePressTarget
+          aria-label={`View photo of ${name}`}
+          onClick={(event) => {
+            const host = photoPortalHost(event.currentTarget);
+            // Mount after this click finishes so the new layer cannot catch it and close.
+            window.setTimeout(() => setPhotoHost(host), 0);
+          }}
+          className="h-24 w-24 shrink-0 cursor-zoom-in overflow-hidden rounded-full p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--venue-primary,#818a40)]/60"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={candidate.photoUrl}
+            alt=""
+            draggable={false}
+            className="h-full w-full object-cover"
+          />
+        </MobilePressTarget>
+        {photoHost ? (
+          <CandidatePhotoFullscreen
+            src={candidate.photoUrl}
+            name={name}
+            host={photoHost}
+            onClose={() => setPhotoHost(null)}
+          />
+        ) : null}
+      </>
+    );
+  }
+
   if (candidate.photoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -806,7 +893,128 @@ function CandidateAvatar({
     <span
       className={`flex shrink-0 items-center justify-center rounded-full bg-[var(--venue-primary,#818a40)]/15 font-medium text-[#3D421F] dark:text-[CanvasText] ${box}`}
     >
-      {shortCandidateName(candidate.name).charAt(0).toUpperCase()}
+      {name.charAt(0).toUpperCase()}
     </span>
+  );
+}
+
+function CandidatePhotoFullscreen({
+  src,
+  name,
+  host,
+  onClose,
+}: {
+  src: string;
+  name: string;
+  host: HTMLElement;
+  onClose: () => void;
+}) {
+  const nested = host !== document.body;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    rootRef.current?.focus({ preventScroll: true });
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    }
+    window.addEventListener("keydown", onKey, true);
+    const readyTimer = window.setTimeout(() => setReady(true), 80);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.clearTimeout(readyTimer);
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    const layer = rootRef.current;
+    if (!layer) return;
+    let tracking = false;
+    let startX = 0;
+    let startY = 0;
+    let pointerId: number | null = null;
+
+    function onDown(event: PointerEvent) {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      if (event.clientX - rect.left > 28) return;
+      tracking = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      pointerId = event.pointerId;
+    }
+
+    function onMove(event: PointerEvent) {
+      if (!tracking || event.pointerId !== pointerId) return;
+      const dx = event.clientX - startX;
+      const dy = event.clientY - startY;
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) {
+        tracking = false;
+        return;
+      }
+      if (dx >= 56 && dx > Math.abs(dy)) {
+        tracking = false;
+        onClose();
+      }
+    }
+
+    function onUp(event: PointerEvent) {
+      if (event.pointerId !== pointerId) return;
+      tracking = false;
+      pointerId = null;
+    }
+
+    layer.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      layer.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      ref={rootRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Photo of ${name}`}
+      tabIndex={-1}
+      className={`${
+        nested ? "absolute" : "fixed"
+      } inset-0 z-[8] flex cursor-zoom-out touch-none items-center justify-center bg-black outline-none ${
+        ready ? "" : "pointer-events-none"
+      }`}
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        draggable={false}
+        className="h-full w-full object-contain"
+      />
+      <button
+        type="button"
+        aria-label="Close photo"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        className="absolute right-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white"
+        style={{
+          top: "calc(var(--mobile-safe-top, env(safe-area-inset-top, 0px)) + 12px)",
+        }}
+      >
+        <X className="h-5 w-5" strokeWidth={2} />
+      </button>
+    </div>,
+    host,
   );
 }

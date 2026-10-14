@@ -22,6 +22,7 @@ import { MobileTermsScreen } from "@/components/mobile/mobile-terms-screen";
 import { MobileWelcomeScreen } from "@/components/mobile/mobile-welcome-screen";
 import { MobileDirectoryScreen } from "@/components/mobile/mobile-directory-screen";
 import { MobileHiringScreen } from "@/components/mobile/mobile-hiring-screen";
+import type { HiringNotificationTarget } from "@/lib/notifications/href";
 import { MobileConnectScreen } from "@/components/mobile/mobile-connect-screen";
 import { MobileConnectFeed } from "@/components/mobile/mobile-connect-feed";
 import { EdgeSwipeBack } from "@/components/mobile/edge-swipe-back";
@@ -77,6 +78,7 @@ import {
 import { DevicePreviewChrome } from "@/components/simulators/device-preview-chrome";
 import { DevicePreviewDensity, COMPACT_PREVIEW_DENSITY } from "@/components/simulators/device-preview-density";
 import { DevicePreviewStage } from "@/components/simulators/device-preview-stage";
+import type { WelcomeShortcut } from "@/lib/mobile/shortcuts";
 import {
   DEFAULT_DEVICE_ID,
   DEVICE_BRANDS,
@@ -99,6 +101,7 @@ type WelcomePreview = {
   /** Employee Hub pages switched on (profile, attendance, leave, docs). */
   hubPages: string[];
   showHiring: boolean;
+  shortcuts: WelcomeShortcut[];
   mobileAccess: boolean;
   hasHubLogin: boolean;
   profile: MobileWelcomeProfile;
@@ -385,6 +388,7 @@ function PhoneStage({
   const [connectPreview, setConnectPreview] = useState<PreviewConnectData | null>(null);
   const [connectNote, setConnectNote] = useState<string | null>(null);
   const [openChatId, setOpenChatId] = useState<string | null>(null);
+  const [hiringOpen, setHiringOpen] = useState<HiringNotificationTarget | null>(null);
   // Phone appearance in the preview (iOS Light / Dark).
   const [previewDark, setPreviewDark] = useState(false);
   const conn: PreviewConnectData = connectPreview ?? { ...connect, impersonating: false };
@@ -543,8 +547,14 @@ function PhoneStage({
                 onOpenRevenue={() => setPageId("revenue")}
                 onOpenSentiment={() => setPageId("sentiment")}
                 onOpenDirectory={() => setPageId("directory")}
+                shortcuts={previewWelcome.shortcuts}
                 onOpenHiring={
-                  previewWelcome.showHiring ? () => setPageId("hiring") : undefined
+                  previewWelcome.showHiring
+                    ? () => {
+                        setHiringOpen(null);
+                        setPageId("hiring");
+                      }
+                    : undefined
                 }
                 employeeHubLevel={previewWelcome.employeeHubLevel}
                 onOpenTerms={() => setPageId("terms")}
@@ -564,6 +574,10 @@ function PhoneStage({
                 )}
                 onSelectTab={(tab) => {
                   if (tab.pageId) setPageId(tab.pageId);
+                }}
+                onOpenHiring={(target) => {
+                  setHiringOpen(target);
+                  setPageId("hiring");
                 }}
               />
             ) : page.id === "connect" && openChatId ? (
@@ -725,6 +739,9 @@ function PhoneStage({
               />
             ) : page.id.startsWith("hiring") ? (
               <MobileHiringScreen
+                key={hiringOpen?.applicationId ?? hiringOpen?.formId ?? "hiring"}
+                openFormId={hiringOpen?.formId}
+                openApplicationId={hiringOpen?.applicationId}
                 tab={hiringTabFromPageId(page.id)}
                 venue={previewVenue}
                 initial={hiring}

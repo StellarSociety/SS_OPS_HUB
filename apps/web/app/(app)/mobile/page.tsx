@@ -2,7 +2,7 @@ import { AccessDeniedBounce } from "@/components/access-denied-bounce";
 import { DeviceSimulator } from "@/components/mobile/device-simulator";
 import { fetchGroupLogoState } from "@/lib/group/branding";
 import { getMobilePageContext } from "@/lib/mobile/page-context";
-import { canAccessHiring, canEditHiring } from "@/lib/hr/permissions";
+import { HIRING_SHORTCUT_KEY, isShortcutOpen } from "@/lib/mobile/shortcuts";
 import { canWriteConnectOnPhone } from "@/lib/connect/access";
 import { canEditOwnLeave } from "@/lib/mobile/employee-hub-permissions";
 import { canAccessMobileApp } from "@/lib/mobile/permissions";
@@ -120,7 +120,8 @@ export default async function MobilePage() {
         venue,
         modules,
         employeeHubLevel: hub.employeeHubLevel,
-        showHiring: canAccessHiring(hub.permissions, venue.id),
+        showHiring: isShortcutOpen(hub.shortcutLevels[HIRING_SHORTCUT_KEY]),
+        shortcuts: hub.shortcuts,
         mobileAccess: hub.canUseApp,
         hubPages: hub.hubPages,
         hasHubLogin: true,
@@ -129,7 +130,7 @@ export default async function MobilePage() {
         unreadCount: notices.unreadCount,
         notifications: notices.notifications,
         selectVenue,
-        canEditHiring: canEditHiring(hub.permissions, venue.id),
+        canEditHiring: hub.shortcutLevels[HIRING_SHORTCUT_KEY] === "editor",
         canApplyLeave: canEditOwnLeave(hub.permissions, venue.id),
         canWriteConnect: canWriteConnectOnPhone(hub.permissions, venue.id),
         sentimentCanEdit: sentimentFlags.canEdit,

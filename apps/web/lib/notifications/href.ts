@@ -1,5 +1,26 @@
+import { mobileHiringHref } from "@/lib/mobile/app-path";
 import type { PushPlatform } from "@/lib/push/types";
 import { toScopedHref, type VenueScope } from "@/lib/venue/scope-routing";
+
+export type HiringNotificationTarget = {
+  formId: string;
+  applicationId: string | null;
+};
+
+/** The form and submission a "new application" notification is about. */
+export function hiringNotificationTarget(n: {
+  module_key: string;
+  entity: string;
+  entity_id: string;
+  dedupe_key?: string | null;
+}): HiringNotificationTarget | null {
+  if (n.module_key !== "hr" || n.entity !== "hiring_form") return null;
+  // dedupe_key = "hiring-application:<venueId>:<applicationId>:<userId>"
+  const parts = n.dedupe_key?.split(":") ?? [];
+  const applicationId =
+    parts[0] === "hiring-application" && parts[2] ? parts[2] : null;
+  return { formId: n.entity_id, applicationId };
+}
 
 export function notificationCanonicalHref(n: {
   module_key: string;
@@ -48,6 +69,7 @@ export function notificationClickPath(input: {
   module_key: string;
   entity: string;
   entity_id: string;
+  dedupe_key?: string | null;
   venueSlug: string | null;
   isGlobalVenue: boolean;
   platform: PushPlatform;
@@ -56,6 +78,8 @@ export function notificationClickPath(input: {
     return "/install?reinstall=1";
   }
   if (input.platform !== "desktop") {
+    const hiring = hiringNotificationTarget(input);
+    if (input.venueSlug && hiring) return mobileHiringHref(input.venueSlug, hiring);
     if (input.venueSlug && input.module_key === "team_connect") {
       if (input.entity === "chat_conversation") {
         return `/m/${input.venueSlug}/connect/chats/${input.entity_id}`;

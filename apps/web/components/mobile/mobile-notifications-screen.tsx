@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, useTransition, type CSSProperties } from "react";
-import { ArchiveRestore, Bell, Check, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, Bell, Check, CheckCheck, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import {
   archiveNotificationById,
+  archiveNotificationsByIds,
   deleteNotificationById,
   markNotificationAsRead,
+  markNotificationsAsRead,
   unarchiveNotificationById,
 } from "@/lib/actions/notifications";
 import { formatDateOnly } from "@/lib/hr/derived";
@@ -16,7 +18,11 @@ import {
   mobileConnectConversationHref,
   mobileConnectFeedHref,
 } from "@/lib/mobile/app-path";
-import { notificationCanonicalHref } from "@/lib/notifications/href";
+import {
+  hiringNotificationTarget,
+  notificationCanonicalHref,
+  type HiringNotificationTarget,
+} from "@/lib/notifications/href";
 import type { NotificationFolder } from "@/lib/notifications/folder";
 import type { NotificationRow } from "@/lib/notifications/types";
 import type { MobileTabItem } from "@/lib/mobile/tab-bars";
@@ -28,6 +34,8 @@ type MobileNotificationsScreenProps = {
   notifications: NotificationRow[];
   folder?: NotificationFolder;
   onSelectTab?: (tab: MobileTabItem) => void;
+  /** Handle hiring taps in place instead of following the link (simulator). */
+  onOpenHiring?: (target: HiringNotificationTarget) => void;
 };
 
 const COPY: Record<
@@ -51,6 +59,9 @@ const COPY: Record<
   },
 };
 
+const BULK_BUTTON =
+  "inline-flex h-8 items-center gap-1.5 rounded-full border border-black/10 bg-black/[0.03] px-3 text-xs font-medium text-[#3D421F] active:bg-black/10 disabled:opacity-50 dark:border-white/12 dark:bg-white/[0.08] dark:text-[CanvasText] dark:active:bg-white/15";
+
 function severityDot(severity: NotificationRow["severity"]) {
   if (severity === "critical") return "bg-red-500";
   if (severity === "warning") return "bg-amber-500";
@@ -62,12 +73,15 @@ export function MobileNotificationsScreen({
   notifications: initial,
   folder = "inbox",
   onSelectTab,
+  onOpenHiring,
 }: MobileNotificationsScreenProps) {
   const [items, setItems] = useState(initial);
   const [pending, startTransition] = useTransition();
   const copy = COPY[folder];
+  const unreadIds = items.filter((item) => !item.read_at).map((item) => item.id);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync with refreshed server data
     setItems(initial);
   }, [initial]);
 
@@ -90,6 +104,50 @@ export function MobileNotificationsScreen({
         </p>
         <hr className="mt-3 border-black/10 dark:border-white/12" />
 
+        {folder !== "archive" && items.length > 0 ? (
+          <div className="mt-3 flex items-center justify-end gap-2">
+            {unreadIds.length > 0 ? (
+              <button
+                type="button"
+                className={BULK_BUTTON}
+                disabled={pending}
+                onClick={() => {
+                  const ids = unreadIds;
+                  const readAt = new Date().toISOString();
+                  startTransition(async () => {
+                    const result = await markNotificationsAsRead(ids);
+                    if ("error" in result) return;
+                    setItems((current) =>
+                      current.map((item) =>
+                        ids.includes(item.id) ? { ...item, read_at: readAt } : item,
+                      ),
+                    );
+                  });
+                }}
+              >
+                <CheckCheck className="h-3.5 w-3.5" />
+                Mark all read
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={BULK_BUTTON}
+              disabled={pending}
+              onClick={() => {
+                const ids = items.map((item) => item.id);
+                startTransition(async () => {
+                  const result = await archiveNotificationsByIds(ids);
+                  if ("error" in result) return;
+                  setItems((current) => current.filter((item) => !ids.includes(item.id)));
+                });
+              }}
+            >
+              <Archive className="h-3.5 w-3.5" />
+              Archive all
+            </button>
+          </div>
+        ) : null}
+
         {items.length === 0 ? (
           <div className="mt-10 flex flex-col items-center gap-2 px-6 text-center">
             <Bell className="h-8 w-8 text-[#3D421F]/30 dark:text-white/30" />
@@ -101,9 +159,10 @@ export function MobileNotificationsScreen({
           <ul className="mt-4 space-y-2">
             {items.map((n) => {
               const unread = !n.read_at;
+              const hiring = hiringNotificationTarget(n);
               const tapHref =
-                n.module_key === "hr" && n.entity === "hiring_form"
-                  ? mobileHiringHref(venue.slug)
+                hiring
+                  ? mobileHiringHref(venue.slug, hiring)
                   : n.module_key === "team_connect" && n.entity === "chat_conversation"
                     ? mobileConnectConversationHref(venue.slug, n.entity_id)
                     : n.module_key === "team_connect" && n.entity === "connect_post"
@@ -132,7 +191,11 @@ export function MobileNotificationsScreen({
                       <Link
                         href={tapHref}
                         className="block"
-                        onClick={() => {
+                        onClick={(event) => {
+                          if (hiring && onOpenHiring) {
+                            event.preventDefault();
+                            onOpenHiring(hiring);
+                          }
                           if (!unread) return;
                           startTransition(async () => {
                             await markNotificationAsRead(n.id);

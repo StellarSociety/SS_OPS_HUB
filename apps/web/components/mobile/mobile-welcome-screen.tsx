@@ -28,6 +28,11 @@ import type { ModuleGridItem } from "@/components/modules/modules-overview";
 import { signOut } from "@/lib/actions/auth";
 import { MOBILE_APP_BASE } from "@/lib/mobile/app-path";
 import {
+  HIRING_SHORTCUT_KEY,
+  isShortcutOpen,
+  type WelcomeShortcut,
+} from "@/lib/mobile/shortcuts";
+import {
   moduleCategories,
   type ModuleCategoryKey,
 } from "@/lib/module-categories";
@@ -52,7 +57,7 @@ const PEOPLE_MODULE_ORDER = ["directory", "learning", "hr"] as const;
 type WelcomeSection = {
   category: (typeof moduleCategories)[number];
   modules: ModuleGridItem[];
-  showHiring: boolean;
+  shortcuts: WelcomeShortcut[];
 };
 
 /** Apps the user can't open go in the collapsed "Hidden" section. */
@@ -79,6 +84,8 @@ type MobileWelcomeScreenProps = {
   sentimentHref?: string;
   onOpenDirectory?: () => void;
   directoryHref?: string;
+  /** Shortcut tiles (Hiring Forms, …) as Mobile App → Shortcuts sets them. */
+  shortcuts?: WelcomeShortcut[];
   onOpenHiring?: () => void;
   hiringHref?: string;
   onOpenTerms?: () => void;
@@ -108,6 +115,7 @@ export function MobileWelcomeScreen({
   sentimentHref,
   onOpenDirectory,
   directoryHref,
+  shortcuts = [],
   onOpenHiring,
   hiringHref,
   onOpenTerms,
@@ -123,8 +131,7 @@ export function MobileWelcomeScreen({
     ? "All Venues Operational HUB"
     : `${venue.name} Operational HUB`;
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  // Hiring Forms sits at the end of the People row (it is not a module tile).
-  const showHiring = Boolean(onOpenHiring || hiringHref);
+  // Shortcuts sit at the end of the People row (they are not module tiles).
   const { mySections, hiddenSections, hiddenCount } = useMemo(() => {
     const categoryByKey = new Map(
       moduleCategories.map((category) => [category.key, category]),
@@ -139,7 +146,10 @@ export function MobileWelcomeScreen({
     const hiddenModules = visibleModules.filter(isNoAccessModule);
     const myModules = visibleModules.filter((mod) => !isNoAccessModule(mod));
 
-    function groupByCategory(list: ModuleGridItem[], withHiring: boolean) {
+    const openShortcuts = shortcuts.filter((shortcut) => isShortcutOpen(shortcut.level));
+    const lockedShortcuts = shortcuts.filter((shortcut) => !isShortcutOpen(shortcut.level));
+
+    function groupByCategory(list: ModuleGridItem[], peopleShortcuts: WelcomeShortcut[]) {
       return categories
         .map((category) => {
           const sectionModules = list.filter(
@@ -162,20 +172,25 @@ export function MobileWelcomeScreen({
           return {
             category,
             modules: sectionModules,
-            showHiring: withHiring && category.key === "people",
+            shortcuts: category.key === "people" ? peopleShortcuts : [],
           };
         })
         .filter(
-          (section) => section.modules.length > 0 || section.showHiring,
+          (section) => section.modules.length > 0 || section.shortcuts.length > 0,
         );
     }
 
     return {
-      mySections: groupByCategory(myModules, showHiring),
-      hiddenSections: groupByCategory(hiddenModules, false),
-      hiddenCount: hiddenModules.length,
+      mySections: groupByCategory(myModules, openShortcuts),
+      hiddenSections: groupByCategory(hiddenModules, lockedShortcuts),
+      hiddenCount: hiddenModules.length + lockedShortcuts.length,
     };
-  }, [modules, showHiring]);
+  }, [modules, shortcuts]);
+
+  function shortcutOpener(key: string) {
+    if (key === HIRING_SHORTCUT_KEY) return { href: hiringHref, onOpen: onOpenHiring };
+    return { href: undefined, onOpen: undefined };
+  }
   const [hiddenOpen, setHiddenOpen] = useState(false);
 
   function toggleApp(key: string) {
@@ -260,21 +275,28 @@ export function MobileWelcomeScreen({
         {sections.map((section) => (
           <Fragment key={section.category.key}>
             {section.modules.map((mod) => renderModuleTile(mod))}
-            {section.showHiring ? (
-              <ModuleTile
-                label="Hiring Forms"
-                iconKey="hiring"
-                status="live"
-                href={onOpenHiring ? undefined : hiringHref}
-                clickable
-                onSelect={onOpenHiring}
-                comingSoonStyle="none"
-                selectNoun="Hiring Forms"
-                iconWell
-                density="compact"
-                navigates
-              />
-            ) : null}
+            {section.shortcuts.map((shortcut) => {
+              const open = isShortcutOpen(shortcut.level);
+              const opener = shortcutOpener(shortcut.key);
+              return (
+                <ModuleTile
+                  key={shortcut.key}
+                  label={shortcut.label}
+                  iconKey={shortcut.iconKey}
+                  status="live"
+                  href={open && !opener.onOpen ? opener.href : undefined}
+                  clickable={open}
+                  blockedReason={open ? undefined : "access"}
+                  onSelect={open ? opener.onOpen : undefined}
+                  comingSoonStyle="none"
+                  selectNoun={shortcut.label}
+                  iconWell
+                  density="compact"
+                  navigates={open}
+                  locked={!open}
+                />
+              );
+            })}
           </Fragment>
         ))}
       </div>

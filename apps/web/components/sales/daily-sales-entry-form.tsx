@@ -957,13 +957,11 @@ function TenderVerificationColumn({
   amounts,
   waiterSums,
   gratuityCc,
-  venueRevenueGross,
 }: {
   tenders: VenueTender[];
   amounts: Record<string, number>;
   waiterSums: Record<string, number>;
   gratuityCc: number;
-  venueRevenueGross: number;
 }) {
   const verificationTenders = useMemo(
     () => tenders.filter((tender) => !isVoucherIssueTender(tender.name)),
@@ -1006,10 +1004,11 @@ function TenderVerificationColumn({
   const exGratuityBalanced =
     Math.abs(exGratuityDifference) <= ROUNDING_TOLERANCE;
 
-  const salesVsRevenueDiff =
-    Math.round((waitersExGratuity - venueRevenueGross) * 100) / 100;
-  const salesVsRevenueBalanced =
-    Math.abs(salesVsRevenueDiff) <= ROUNDING_TOLERANCE;
+  // Waiter Sales Total (ex CC gratuity) vs waiter Payment Total (inc CC gratuity).
+  const salesVsPaymentDiff =
+    Math.round((waitersExGratuity - waitersTotalGross) * 100) / 100;
+  const salesVsPaymentBalanced =
+    Math.abs(salesVsPaymentDiff) <= ROUNDING_TOLERANCE;
 
   if (verificationTenders.length === 0) return null;
 
@@ -1125,20 +1124,20 @@ function TenderVerificationColumn({
         <div
           className={cn(
             "mt-4 flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-[11px]",
-            salesVsRevenueBalanced
+            salesVsPaymentBalanced
               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
               : "border-amber-200 bg-amber-50 text-amber-800",
           )}
         >
           <span className="flex-1 text-center font-medium leading-tight">
-            Sales Total VS
+            Sales Total Exc. CC Gratuity VS
             <br />
-            Total Revenue Exc. CC Gratuity
+            Payment Total
           </span>
           <span className="tabular-nums font-semibold uppercase">
-            {salesVsRevenueBalanced
+            {salesVsPaymentBalanced
               ? "Matched"
-              : formatDifference(salesVsRevenueDiff)}
+              : formatDifference(salesVsPaymentDiff)}
           </span>
         </div>
       </div>
@@ -1730,7 +1729,6 @@ export function DailySalesEntryForm({
           amounts={form.tender_totals}
           waiterSums={waiterSumsForDate}
           gratuityCc={gratuityCcForDate}
-          venueRevenueGross={totals.totalVenueGs}
         />
         <TaxCollectionColumn
           taxSettings={taxSettings}

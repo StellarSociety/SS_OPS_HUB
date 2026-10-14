@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { EdgeSwipeBack } from "@/components/mobile/edge-swipe-back";
 import { PullToRefresh } from "@/components/mobile/pull-to-refresh";
@@ -14,9 +20,20 @@ import {
 } from "@/components/mobile/mobile-nav-busy";
 import { cn } from "@/lib/utils";
 
+const noSubscribe = () => () => {};
+
+/** iPhone / iPad (iPadOS reports a Mac with touch). */
+function isIOSDevice() {
+  const ua = navigator.userAgent;
+  return /iP(hone|ad|od)/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
+}
+
 export function MobileAppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  // iOS runs its own edge swipe back, showing the real previous page. Ours on
+  // top would slide this page over an empty grey backdrop and go back twice.
+  const nativeSwipeBack = useSyncExternalStore(noSubscribe, isIOSDevice, () => false);
   const [refreshing, startRefresh] = useTransition();
   const [chromeHost, setChromeHost] = useState<HTMLDivElement | null>(null);
   const selectVenue = pathname.includes("/select-venue");
@@ -62,7 +79,7 @@ export function MobileAppShell({ children }: { children: ReactNode }) {
             <EdgeSwipeBack
               onBack={goBack}
               resetKey={pathname}
-              disabled={login || selectVenue}
+              disabled={login || selectVenue || nativeSwipeBack}
               className="mobile-shell-inset h-full min-h-0"
             >
               <PullToRefresh
