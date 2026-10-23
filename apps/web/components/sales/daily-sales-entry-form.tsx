@@ -9,7 +9,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   saveVenueDailySalesEntry,
   saveVenueDailyTenderTotals,
@@ -957,11 +957,14 @@ function TenderVerificationColumn({
   amounts,
   waiterSums,
   gratuityCc,
+  waiterSalesTotal,
 }: {
   tenders: VenueTender[];
   amounts: Record<string, number>;
   waiterSums: Record<string, number>;
   gratuityCc: number;
+  /** Sum of waiter Sales Total (ex CC gratuity) for the day. */
+  waiterSalesTotal: number;
 }) {
   const verificationTenders = useMemo(
     () => tenders.filter((tender) => !isVoucherIssueTender(tender.name)),
@@ -990,23 +993,22 @@ function TenderVerificationColumn({
     [amounts, tenders],
   );
 
-  // Sales Total = Payment Total − CC Gratuity.
-  const waitersExGratuity = useMemo(
-    () => Math.round((waitersTotalGross - gratuityCc) * 100) / 100,
-    [waitersTotalGross, gratuityCc],
-  );
+  // Daily Sales Total proxy = Payment Total − CC Gratuity (tenders only).
+  // Waiter Sales Total uses the entered Sales Total field (not Payment − tip).
   const enteredExGratuity = useMemo(
     () => Math.round((enteredTotalGross - gratuityCc) * 100) / 100,
     [enteredTotalGross, gratuityCc],
   );
+  const waitersExGratuity = waiterSalesTotal;
   const exGratuityDifference =
     Math.round((enteredExGratuity - waitersExGratuity) * 100) / 100;
   const exGratuityBalanced =
     Math.abs(exGratuityDifference) <= ROUNDING_TOLERANCE;
 
-  // Waiter Sales Total (ex CC gratuity) vs waiter Payment Total (inc CC gratuity).
-  const salesVsPaymentDiff =
-    Math.round((waitersExGratuity - waitersTotalGross) * 100) / 100;
+  // Same rule as waiter Entry balance: Payment Total = Sales Total + CC Gratuity.
+  const salesVsPaymentDiff = Math.round(
+    (waitersExGratuity + gratuityCc - waitersTotalGross) * 100,
+  ) / 100;
   const salesVsPaymentBalanced =
     Math.abs(salesVsPaymentDiff) <= ROUNDING_TOLERANCE;
 
@@ -1130,7 +1132,7 @@ function TenderVerificationColumn({
           )}
         >
           <span className="flex-1 text-center font-medium leading-tight">
-            Sales Total Exc. CC Gratuity VS
+            Sales Total + CC Gratuity VS
             <br />
             Payment Total
           </span>
@@ -1403,21 +1405,40 @@ export function DailySalesEntryForm({
     return map;
   }, [waiterRecords]);
 
-  const { selectedDate, setSelectedDate } = usePersistedSalesEntryDate(today);
+  const { selectedDate, setSelectedDate, hydrated } =
+    usePersistedSalesEntryDate(today);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const dateParam = searchParams.get("date");
+  const [appliedDateParam, setAppliedDateParam] = useState<string | null>(null);
 
-  useEffect(() => {
-    const dateParam = searchParams.get("date");
+  // Wait for the stored date to hydrate so it cannot overwrite the ?date= link.
+  if (hydrated && dateParam !== appliedDateParam) {
+    setAppliedDateParam(dateParam);
     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       setSelectedDate(dateParam);
       setIsFormOpen(false);
     }
-  }, [searchParams]);
+  }
 
-  const [form, setForm] = useState<FormState>(() =>
+  const savedForm = useMemo<FormState>(() => {
+    const existing = recordsByDate.get(selectedDate);
+    const tenderTotalsForDate = {
+      ...emptyTenderTotals(tenderIds),
+      ...(tenderTotalsByDate.get(selectedDate) ?? {}),
+    };
+    return existing
+      ? recordToForm(existing, tenderTotalsForDate)
+      : {
+          ...emptyForm(selectedDate, tenderIds),
+          tender_totals: tenderTotalsForDate,
+        };
+  }, [recordsByDate, tenderTotalsByDate, tenderIds, selectedDate]);
+  const [draftForm, setForm] = useState<FormState>(() =>
     emptyForm(today, tenderIds),
   );
+  const form = isFormOpen ? draftForm : savedForm;
   const [lunchInputMode, setLunchInputMode] = useState<SalesInputMode>("net");
   const [dinnerInputMode, setDinnerInputMode] = useState<SalesInputMode>("net");
   const [tenderInputMode, setTenderInputMode] = useState<SalesInputMode>("gross");
@@ -1447,95 +1468,73 @@ export function DailySalesEntryForm({
     onSaveRef: saveFormRef,
   });
 
-  saveFormRef.current = async () => {
-    const formData = new FormData();
-    if (form.id) formData.set("id", form.id);
-    formData.set("sale_date", selectedDate);
-    (
-      [
-        "lunch_food_gs",
-        "lunch_beverages_gs",
-        "lunch_wine_gs",
-        "lunch_shisha_gs",
-        "lunch_tobacco_gs",
-        "lunch_others_gs",
-        "lunch_service_fees_gs",
-        "lunch_covers",
-        "lunch_complimentary_covers",
-        "lunch_bookings",
-        "lunch_walkin_tables",
-        "lunch_walkin_covers",
-        "dinner_food_gs",
-        "dinner_beverages_gs",
-        "dinner_wine_gs",
-        "dinner_shisha_gs",
-        "dinner_tobacco_gs",
-        "dinner_others_gs",
-        "dinner_service_fees_gs",
-        "dinner_covers",
-        "dinner_complimentary_covers",
-        "dinner_bookings",
-        "dinner_walkin_tables",
-        "dinner_walkin_covers",
-        "all_day_discount_gs",
-        "vat_collected_gs",
-        "municipality_fee_collected_gs",
-        "service_charge_collected_gs",
-      ] as VenueDailySalesInputField[]
-    ).forEach((field) => formData.set(field, String(form[field])));
+  useEffect(() => {
+    saveFormRef.current = async () => {
+      const formData = new FormData();
+      if (form.id) formData.set("id", form.id);
+      formData.set("sale_date", selectedDate);
+      (
+        [
+          "lunch_food_gs",
+          "lunch_beverages_gs",
+          "lunch_wine_gs",
+          "lunch_shisha_gs",
+          "lunch_tobacco_gs",
+          "lunch_others_gs",
+          "lunch_service_fees_gs",
+          "lunch_covers",
+          "lunch_complimentary_covers",
+          "lunch_bookings",
+          "lunch_walkin_tables",
+          "lunch_walkin_covers",
+          "dinner_food_gs",
+          "dinner_beverages_gs",
+          "dinner_wine_gs",
+          "dinner_shisha_gs",
+          "dinner_tobacco_gs",
+          "dinner_others_gs",
+          "dinner_service_fees_gs",
+          "dinner_covers",
+          "dinner_complimentary_covers",
+          "dinner_bookings",
+          "dinner_walkin_tables",
+          "dinner_walkin_covers",
+          "all_day_discount_gs",
+          "vat_collected_gs",
+          "municipality_fee_collected_gs",
+          "service_charge_collected_gs",
+        ] as VenueDailySalesInputField[]
+      ).forEach((field) => formData.set(field, String(form[field])));
 
-    const result = await saveVenueDailySalesEntry(formData);
-    if (result.error) {
-      toast.error(result.error);
-      return false;
-    }
-
-    if (tenderIds.length > 0) {
-      const tenderData = new FormData();
-      tenderData.set("sale_date", selectedDate);
-      for (const [tenderId, amount] of Object.entries(form.tender_totals)) {
-        tenderData.set(`tender_${tenderId}`, String(amount));
-      }
-      const tenderResult = await saveVenueDailyTenderTotals(tenderData);
-      if (tenderResult.error) {
-        toast.error(tenderResult.error);
+      const result = await saveVenueDailySalesEntry(formData);
+      if (result.error) {
+        toast.error(result.error);
         return false;
       }
-    }
 
-    const updated = result.record
-      ? recordToForm(result.record, form.tender_totals)
-      : form;
-    setForm(updated);
-    syncBaseline(updated);
-    toast.saved(result.success ?? "Saved to cloud.");
-    return true;
-  };
+      if (tenderIds.length > 0) {
+        const tenderData = new FormData();
+        tenderData.set("sale_date", selectedDate);
+        for (const [tenderId, amount] of Object.entries(form.tender_totals)) {
+          tenderData.set(`tender_${tenderId}`, String(amount));
+        }
+        const tenderResult = await saveVenueDailyTenderTotals(tenderData);
+        if (tenderResult.error) {
+          toast.error(tenderResult.error);
+          return false;
+        }
+      }
 
-  function formForDate(date: string): FormState {
-    const existing = recordsByDate.get(date);
-    const tenderTotalsForDate = {
-      ...emptyTenderTotals(tenderIds),
-      ...(tenderTotalsByDate.get(date) ?? {}),
+      const updated = result.record
+        ? recordToForm(result.record, form.tender_totals)
+        : form;
+      setForm(updated);
+      syncBaseline(updated);
+      toast.saved(result.success ?? "Saved to cloud.");
+      router.refresh();
+      return true;
     };
-    return existing
-      ? recordToForm(existing, tenderTotalsForDate)
-      : { ...emptyForm(date, tenderIds), tender_totals: tenderTotalsForDate };
-  }
-
-  useEffect(() => {
-    if (isFormOpen) return;
-    const next = formForDate(selectedDate);
-    setForm(next);
-    syncBaseline(next);
-  }, [
-    selectedDate,
-    recordsByDate,
-    tenderTotalsByDate,
-    tenderIds,
-    isFormOpen,
-    syncBaseline,
-  ]);
+  });
 
   function handleDateChange(date: string) {
     guardAction(() => {
@@ -1549,9 +1548,8 @@ export function DailySalesEntryForm({
       toast.alert(FUTURE_SALES_ENTRY_ERROR);
       return;
     }
-    const initial = formForDate(selectedDate);
-    setForm(initial);
-    syncBaseline(initial);
+    setForm(savedForm);
+    syncBaseline(savedForm);
     setIsFormOpen(true);
   }
 
@@ -1596,6 +1594,14 @@ export function DailySalesEntryForm({
     for (const record of waiterRecords) {
       if (record.sale_date !== selectedDate) continue;
       sum += Number(record.gratuity_cc_gs);
+    }
+    return Math.round(sum * 100) / 100;
+  }, [waiterRecords, selectedDate]);
+  const waiterSalesTotalForDate = useMemo(() => {
+    let sum = 0;
+    for (const record of waiterRecords) {
+      if (record.sale_date !== selectedDate) continue;
+      sum += Number(record.total_sales_gs);
     }
     return Math.round(sum * 100) / 100;
   }, [waiterRecords, selectedDate]);
@@ -1729,6 +1735,7 @@ export function DailySalesEntryForm({
           amounts={form.tender_totals}
           waiterSums={waiterSumsForDate}
           gratuityCc={gratuityCcForDate}
+          waiterSalesTotal={waiterSalesTotalForDate}
         />
         <TaxCollectionColumn
           taxSettings={taxSettings}

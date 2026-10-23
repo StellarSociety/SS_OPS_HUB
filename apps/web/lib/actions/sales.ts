@@ -111,9 +111,12 @@ const SALES_DISCOUNTS_PATHS = [
   "/sales/settings/data-management/discounts",
 ];
 
-function revalidateSalesDiscounts() {
+function revalidateSalesDiscounts(venueSlug?: string | null) {
+  const prefixes = venueSlug ? ["", `/venue/${venueSlug}`] : [""];
   for (const path of SALES_DISCOUNTS_PATHS) {
-    revalidatePath(path);
+    for (const prefix of prefixes) {
+      revalidatePath(`${prefix}${path}`);
+    }
   }
 }
 
@@ -124,9 +127,12 @@ const SALES_CASH_JOURNAL_PATHS = [
   "/sales/cash/expenses",
 ];
 
-function revalidateSalesCashJournal() {
+function revalidateSalesCashJournal(venueSlug?: string | null) {
+  const prefixes = venueSlug ? ["", `/venue/${venueSlug}`] : [""];
   for (const path of SALES_CASH_JOURNAL_PATHS) {
-    revalidatePath(path);
+    for (const prefix of prefixes) {
+      revalidatePath(`${prefix}${path}`);
+    }
   }
 }
 
@@ -144,17 +150,23 @@ const SALES_DAILY_PATHS = [
   "/sales/settings/data-management/daily-sales",
 ];
 
-function revalidateSalesDaily() {
+function revalidateSalesDaily(venueSlug?: string | null) {
+  const prefixes = venueSlug ? ["", `/venue/${venueSlug}`] : [""];
   for (const path of SALES_DAILY_PATHS) {
-    revalidatePath(path);
+    for (const prefix of prefixes) {
+      revalidatePath(`${prefix}${path}`);
+    }
   }
 }
 
 const SALES_DAILY_VS_WAITERS_PATHS = ["/sales/daily-vs-waiters"];
 
-function revalidateSalesDailyVsWaiters() {
+function revalidateSalesDailyVsWaiters(venueSlug?: string | null) {
+  const prefixes = venueSlug ? ["", `/venue/${venueSlug}`] : [""];
   for (const path of SALES_DAILY_VS_WAITERS_PATHS) {
-    revalidatePath(path);
+    for (const prefix of prefixes) {
+      revalidatePath(`${prefix}${path}`);
+    }
   }
 }
 
@@ -163,17 +175,23 @@ const SALES_DAILY_SNAP_PATHS = [
   "/sales/forecast",
 ];
 
-function revalidateSalesDailySnap() {
+function revalidateSalesDailySnap(venueSlug?: string | null) {
+  const prefixes = venueSlug ? ["", `/venue/${venueSlug}`] : [""];
   for (const path of SALES_DAILY_SNAP_PATHS) {
-    revalidatePath(path);
+    for (const prefix of prefixes) {
+      revalidatePath(`${prefix}${path}`);
+    }
   }
 }
 
 const SALES_VOUCHERS_PATHS = ["/sales/vouchers", "/guests-intel/redeem"];
 
-function revalidateSalesVouchers() {
+function revalidateSalesVouchers(venueSlug?: string | null) {
+  const prefixes = venueSlug ? ["", `/venue/${venueSlug}`] : [""];
   for (const path of SALES_VOUCHERS_PATHS) {
-    revalidatePath(path);
+    for (const prefix of prefixes) {
+      revalidatePath(`${prefix}${path}`);
+    }
   }
 }
 
@@ -285,7 +303,7 @@ export async function saveVenueDailySalesEntry(formData: FormData) {
       after: { sale_date: saleDate },
     });
 
-    revalidateSalesDaily();
+    revalidateSalesDaily(venue.slug);
     return { success: "Daily sales saved.", record };
   } catch (error) {
     const message =
@@ -335,7 +353,7 @@ export async function saveVenueDailyTenderTotals(formData: FormData) {
       after: { sale_date: saleDate },
     });
 
-    revalidateSalesDaily();
+    revalidateSalesDaily(venue.slug);
     return { success: "Daily tender totals saved.", rows };
   } catch {
     return { error: "Could not save daily tender totals." };
@@ -359,7 +377,7 @@ export async function removeVenueDailySalesEntry(id: string) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesDaily();
+    revalidateSalesDaily(venue.slug);
     return { success: "Daily sales entry removed." };
   } catch {
     return { error: "Could not delete daily sales entry." };
@@ -397,7 +415,7 @@ export async function saveVenueSalesTaxSettings(input: TaxSettingsInput) {
       after: payload,
     });
 
-    revalidateSalesDaily();
+    revalidateSalesDaily(venue.slug);
     return { success: "Sales tax settings saved.", settings };
   } catch {
     return { error: "Could not save sales tax settings." };
@@ -488,8 +506,8 @@ export async function saveVenueCashJournalEntry(formData: FormData) {
           after: { sale_date: saleDate },
         });
       }
-      revalidateSalesCashJournal();
-      revalidateSalesDailySnap();
+      revalidateSalesCashJournal(venue.slug);
+      revalidateSalesDailySnap(venue.slug);
       return {
         success: canSyncDailySnap
           ? "Till values synced to Daily Snap."
@@ -519,8 +537,8 @@ export async function saveVenueCashJournalEntry(formData: FormData) {
       after: { sale_date: saleDate },
     });
 
-    revalidateSalesCashJournal();
-    revalidateSalesDailySnap();
+    revalidateSalesCashJournal(venue.slug);
+    revalidateSalesDailySnap(venue.slug);
     return {
       success: canSyncDailySnap
         ? "Cash journal saved and till synced to Daily Snap."
@@ -558,7 +576,7 @@ export async function removeVenueCashJournalEntry(id: string) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesCashJournal();
+    revalidateSalesCashJournal(venue.slug);
     return { success: "Cash journal entry removed." };
   } catch {
     return { error: "Could not delete cash journal entry." };
@@ -639,7 +657,7 @@ export async function saveVenueCashExpenseLines(formData: FormData) {
       after: { sale_date: saleDate, line_count: records.length },
     });
 
-    revalidateSalesCashJournal();
+    revalidateSalesCashJournal(venue.slug);
     return {
       success:
         lines.length === 0
@@ -690,7 +708,7 @@ export async function saveVenueDailyDiscountsEntry(formData: FormData) {
       after: { sale_date: saleDate },
     });
 
-    revalidateSalesDiscounts();
+    revalidateSalesDiscounts(venue.slug);
     return { success: "Discounts saved.", record };
   } catch (error) {
     const message =
@@ -718,7 +736,7 @@ export async function removeVenueDailyDiscountsEntry(id: string) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesDiscounts();
+    revalidateSalesDiscounts(venue.slug);
     return { success: "Discount entry removed." };
   } catch {
     return { error: "Could not delete discount entry." };
@@ -991,8 +1009,7 @@ export async function setVenueTenderStatusAction(
     });
 
     revalidateSalesWaiters(venue.slug);
-    revalidatePath("/sales/daily/entry");
-    revalidatePath("/sales/waiter/entry");
+    revalidateSalesDaily(venue.slug);
     return {
       success:
         nextStatus === "active"
@@ -1041,7 +1058,7 @@ export async function setVenueTenderVoucherPaymentFormAction(
     });
 
     revalidateSalesWaiters(venue.slug);
-    revalidatePath("/sales/daily/entry");
+    revalidateSalesDaily(venue.slug);
     return { success: "Voucher payment form updated.", tender };
   } catch {
     return { error: "Could not update voucher payment form setting." };
@@ -1227,7 +1244,7 @@ export async function saveVenueDailyVsWaitersComment(formData: FormData) {
       after: { sale_date: saleDate },
     });
 
-    revalidateSalesDailyVsWaiters();
+    revalidateSalesDailyVsWaiters(venue.slug);
     return { success: "Comment saved.", record };
   } catch {
     return { error: "Could not save comment." };
@@ -1251,7 +1268,7 @@ export async function removeVenueDailyVsWaitersComment(id: string) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesDailyVsWaiters();
+    revalidateSalesDailyVsWaiters(venue.slug);
     return { success: "Comment removed." };
   } catch {
     return { error: "Could not delete comment." };
@@ -1293,7 +1310,7 @@ export async function saveVenueDailySnapNotes(formData: FormData) {
       venue_id: venue.id,
       after: { sale_date: saleDate },
     });
-    revalidateSalesDailySnap();
+    revalidateSalesDailySnap(venue.slug);
     return { success: "Daily Snap notes saved." };
   } catch {
     return { error: "Could not save Daily Snap notes." };
@@ -1340,7 +1357,7 @@ export async function saveVenueDailySnapDiscountLine(formData: FormData) {
       venue_id: venue.id,
       after: { sale_date: saleDate },
     });
-    revalidateSalesDailySnap();
+    revalidateSalesDailySnap(venue.slug);
     return { success: "Discount line saved.", id: record.id };
   } catch {
     return { error: "Could not save discount line." };
@@ -1367,7 +1384,7 @@ export async function removeVenueDailySnapDiscountLine(formData: FormData) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesDailySnap();
+    revalidateSalesDailySnap(venue.slug);
     return { success: "Discount line removed." };
   } catch {
     return { error: "Could not delete discount line." };
@@ -1409,7 +1426,7 @@ export async function saveVenueDailySnapEvent(formData: FormData) {
       venue_id: venue.id,
       after: { sale_date: saleDate, event_name: record.event_name },
     });
-    revalidateSalesDailySnap();
+    revalidateSalesDailySnap(venue.slug);
     return { success: "Event saved.", id: record.id };
   } catch {
     return { error: "Could not save event." };
@@ -1436,7 +1453,7 @@ export async function removeVenueDailySnapEvent(formData: FormData) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesDailySnap();
+    revalidateSalesDailySnap(venue.slug);
     return { success: "Event removed." };
   } catch {
     return { error: "Could not delete event." };
@@ -1480,7 +1497,7 @@ export async function saveVenueMonthlyForecast(formData: FormData) {
       venue_id: venue.id,
       after: { month_key: monthKey },
     });
-    revalidateSalesDailySnap();
+    revalidateSalesDailySnap(venue.slug);
     return { success: "Forecast saved." };
   } catch {
     return { error: "Could not save forecast." };
@@ -1507,7 +1524,7 @@ export async function removeVenueMonthlyForecast(formData: FormData) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesDailySnap();
+    revalidateSalesDailySnap(venue.slug);
     return { success: "Forecast removed." };
   } catch {
     return { error: "Could not delete forecast." };
@@ -1598,7 +1615,7 @@ export async function saveVenueVoucher(formData: FormData) {
       entity_id: record.id,
       venue_id: venue.id,
     });
-    revalidateSalesVouchers();
+    revalidateSalesVouchers(venue.slug);
     return { success: id ? "Voucher updated." : "Voucher created.", record };
   } catch (error) {
     const message =
@@ -1633,7 +1650,7 @@ export async function removeVenueVoucher(formData: FormData) {
       entity_id: id,
       venue_id: venue.id,
     });
-    revalidateSalesVouchers();
+    revalidateSalesVouchers(venue.slug);
     return { success: "Voucher deleted." };
   } catch (error) {
     console.error("[removeVenueVoucher]", error);
@@ -1693,7 +1710,7 @@ export async function markVenueVoucherRedeemed(formData: FormData) {
       venue_id: venue.id,
       after: { status: "redeemed", redeemed_date: redeemedDate },
     });
-    revalidateSalesVouchers();
+    revalidateSalesVouchers(venue.slug);
     return { success: "Voucher marked as redeemed.", record };
   } catch (error) {
     console.error("[markVenueVoucherRedeemed]", error);
@@ -1759,7 +1776,7 @@ export async function importWaiterVoucherSuggestions(formData: FormData) {
       venue_id: venue.id,
       after: { imported: records.length, source: "waiter_comment" },
     });
-    revalidateSalesVouchers();
+    revalidateSalesVouchers(venue.slug);
     return {
       success: `Imported ${records.length} voucher${records.length === 1 ? "" : "s"}.`,
       count: records.length,

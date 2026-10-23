@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useState, useTransition, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { AppPathPanel } from "@/components/mobile/app-path-panel";
@@ -266,7 +266,7 @@ export function DeviceSimulator({
   const [previewVenue, setPreviewVenue] = useState(welcome.venue);
   const device = getDevicePreset(deviceId);
   const brand = device.brand;
-  const brandDevices = useMemo(() => devicesForBrand(brand), [brand]);
+  const brandDevices = devicesForBrand(brand);
   const ratio = deviceRatioLabel(device.width, device.height);
   const page = getAppPathPage(pageId);
   const previewPath = appPathPublicHref(page, previewVenue);

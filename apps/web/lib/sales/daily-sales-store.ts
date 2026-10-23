@@ -125,7 +125,7 @@ export async function upsertVenueDailySales(
 
   const { data, error } = await supabase
     .from("venue_daily_sales")
-    .insert({ ...row, created_by: userId })
+    .upsert({ ...row, created_by: userId }, { onConflict: "venue_id,sale_date" })
     .select("*")
     .single();
 
