@@ -939,30 +939,51 @@ export async function persistSingleEmployeePayroll(opts: {
     .maybeSingle();
 
   if (runEmpErr) throw new Error(runEmpErr.message);
-  if (!runEmp?.id) {
-    // Employee not on this run yet — fall back to full rebuild.
-    return persistCalculatedPayrollRun({
-      service,
-      venueId,
-      runId,
-      period,
-      userId,
-    });
-  }
 
-  const runSnapshot = runEmp.snapshot as Record<string, unknown> | null;
-  if (runSnapshot?.manualPayrollEntry === true) {
+  const runSnapshot = runEmp?.snapshot as Record<string, unknown> | null;
+  if (runEmp?.id && runSnapshot?.manualPayrollEntry === true) {
     return persistManualPayrollEmployee({ service, venueId, runId, staffId, userId });
   }
 
-  const runEmployeeId = runEmp.id as string;
+  const staffRow = await getStaffById(supabase, staffId, venueId);
+  if (!runEmp?.id && staffRow.org_chart_only) {
+    // Same roster as a full rebuild (listStaffForVenue): never auto-add org-chart-only staff.
+    return { totals: await recomputeRunTotalsFromDb(service, runId) };
+  }
+  const staff = staffRowToInput(staffRow);
+
+  // Employee not on this run yet (e.g. a new joiner created after the run was
+  // generated) — add a placeholder row and calculate just them below. If they
+  // don't overlap the period, the "no longer overlaps" branch removes it again.
+  let runEmployeeId = runEmp?.id as string | undefined;
+  if (!runEmployeeId) {
+    const { data: inserted, error: insertErr } = await service
+      .from("hr_payroll_run_employees")
+      .upsert(
+        {
+          venue_id: venueId,
+          run_id: runId,
+          staff_id: staffId,
+          emp_no: staff.emp_no,
+          full_name: staff.full_name,
+        },
+        { onConflict: "run_id,staff_id" },
+      )
+      .select("id")
+      .single();
+    if (insertErr) throw new Error(insertErr.message);
+    runEmployeeId = inserted.id as string;
+  }
+
+  // New rows use calculated defaults; existing rows keep HR's include/exclude.
   const inclusionOverrides = new Map<string, PayrollInclusionOverride>();
-  inclusionOverrides.set(staffId, {
-    included: Boolean(runEmp.included),
-    excludeReason: (runEmp.exclude_reason as string | null) ?? null,
-  });
+  if (runEmp?.id) {
+    inclusionOverrides.set(staffId, {
+      included: Boolean(runEmp.included),
+      excludeReason: (runEmp.exclude_reason as string | null) ?? null,
+    });
+  }
   const ctx = await loadPayrollCalcContext(supabase, venueId);
-  const staff = staffRowToInput(await getStaffById(supabase, staffId, venueId));
 
   const [scheduleDays, attendanceDays, shiftTemplates, adjustmentsRes, benefitsRes] =
     await Promise.all([
@@ -1270,8 +1291,8 @@ export async function persistSingleEmployeePayroll(opts: {
  * stale “unpaid / not cleared” after attendance was approved.
  *
  * Best-effort: never throws to the caller. Skips locked / payment-processing
- * runs and staff who are not yet on the run (they appear on the next full
- * recalculate).
+ * runs. Staff not yet on the run (new joiners rostered after the run was
+ * generated) are added and calculated individually.
  */
 export async function syncOpenPayrollAfterStaffDayChanges(opts: {
   service: ReturnType<typeof createServiceClient>;
@@ -1320,15 +1341,6 @@ export async function syncOpenPayrollAfterStaffDayChanges(opts: {
     const period = resolvePayrollPeriod(payrollMonth, settings);
     for (const staffId of staffIds) {
       try {
-        const { data: existing, error: existingErr } = await opts.service
-          .from("hr_payroll_run_employees")
-          .select("id")
-          .eq("run_id", run.id)
-          .eq("staff_id", staffId)
-          .maybeSingle();
-        if (existingErr) throw new Error(existingErr.message);
-        if (!existing?.id) continue;
-
         await persistSingleEmployeePayroll({
           service: opts.service,
           venueId: opts.venueId,
