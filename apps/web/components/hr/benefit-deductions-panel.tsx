@@ -30,6 +30,8 @@ import {
   type BenefitDeductionTarget,
   type BenefitPayoutMap,
   type BenefitRunRosterMap,
+  type BenefitDeductionSchedule,
+  type PayrollDeductionProgress,
 } from "@/lib/hr/benefits";
 import {
   cancelBenefitDeduction,
@@ -85,6 +87,49 @@ function statusClass(status: string): string {
   }
 }
 
+/** List-row schedule for a payroll deduction, from its payroll charges. */
+function payrollDeductionSchedule(
+  entry: BenefitDeductionEntry,
+  progress: PayrollDeductionProgress | undefined,
+): BenefitDeductionSchedule {
+  const people = progress?.people ?? [];
+  const applied = progress?.applied ?? 0;
+  const remaining = entry.cancelledAt
+    ? 0
+    : (progress?.remaining ?? entry.totalAmount);
+  const perPerson =
+    people.length > 0
+      ? (people[0]!.share ?? 0) / Math.max(1, entry.monthCount)
+      : 0;
+  const status = entry.cancelledAt
+    ? "cancelled"
+    : remaining <= 0.005
+      ? "cleared"
+      : applied <= 0.005 && entry.startMonth > currentMonthKey()
+        ? "upcoming"
+        : "ongoing";
+  return {
+    entry,
+    staff: people.map((row) => ({
+      staffId: row.staffId,
+      empNo: row.empNo,
+      fullName: row.fullName,
+      share: row.share,
+      plannedMonthly: row.share / Math.max(1, entry.monthCount),
+      applied: row.applied,
+      remaining: row.remaining,
+      byMonth: {},
+    })),
+    plannedMonthlyTotal: entry.totalAmount / Math.max(1, entry.monthCount),
+    firstMonthPeopleCount: people.length,
+    firstMonthPerPerson: Math.round(perPerson * 100) / 100,
+    firstMonthRunExists: people.length > 0,
+    applied,
+    remaining,
+    status,
+  };
+}
+
 export function BenefitDeductionsPanel({
   canEdit,
   staff,
@@ -92,6 +137,7 @@ export function BenefitDeductionsPanel({
   payouts,
   rosters,
   entries,
+  payrollProgress = {},
 }: {
   venueId?: string;
   canEdit: boolean;
@@ -100,6 +146,8 @@ export function BenefitDeductionsPanel({
   payouts: BenefitPayoutMap;
   rosters: BenefitRunRosterMap;
   entries: BenefitDeductionEntry[];
+  /** Payroll deductions: per-person progress from their payroll charges. */
+  payrollProgress?: Record<string, PayrollDeductionProgress>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -158,6 +206,14 @@ export function BenefitDeductionsPanel({
     months,
   );
   const monthlyInstallment = monthlyParts[0] ?? 0;
+  const isPayroll = benefitKind === "payroll";
+  // Payroll: fixed equal share per person, deducted over the chosen months.
+  const payrollShare =
+    splitEvenly(
+      Number.isFinite(totalAmount) && totalAmount > 0 ? totalAmount : 0,
+      Math.max(1, targetStaff.length),
+    )[0] ?? 0;
+  const payrollMonthly = Math.round((payrollShare / months) * 100) / 100;
 
   const draftTarget: BenefitDeductionTarget | null =
     targetStaff.length === 0
@@ -265,14 +321,17 @@ export function BenefitDeductionsPanel({
     () =>
       entries.map((entry) => ({
         entry,
-        schedule: scheduleBenefitDeduction(
-          entry,
-          payouts,
-          rosters,
-          staffDirectory,
-        ),
+        schedule:
+          entry.benefitKind === "payroll"
+            ? payrollDeductionSchedule(entry, payrollProgress[entry.id])
+            : scheduleBenefitDeduction(
+                entry,
+                payouts,
+                rosters,
+                staffDirectory,
+              ),
       })),
-    [entries, payouts, rosters, staffDirectory],
+    [entries, payouts, payrollProgress, rosters, staffDirectory],
   );
 
   const filteredStaffOptions = useMemo(() => {
@@ -391,11 +450,11 @@ export function BenefitDeductionsPanel({
         <div className="rounded-xl border border-black/10 bg-white shadow-sm">
           <div className="flex items-start justify-between gap-3 p-5">
             <p className="min-w-0 text-sm text-black/55">
-              Split each month’s installment equally across the people who are
-              on that month’s gratuity or service charge run — a department’s
-              staff on the run, or selected people who appear on it. If a
-              month cannot cover the amount, the rest rolls forward until it
-              is cleared.
+              Gratuity / service charge: split each month’s installment equally
+              across the people on that month’s run — a department’s staff on
+              the run, or selected people who appear on it. If a month cannot
+              cover the amount, the rest rolls forward until it is cleared.
+              Payroll: split once, equally, and deducted from salary.
               {success && !formOpen ? (
                 <span className="mt-2 block text-sm text-emerald-800">
                   {success}
@@ -457,6 +516,7 @@ export function BenefitDeductionsPanel({
                 [
                   ["gratuity", "Gratuity"],
                   ["service_charge", "Service charge"],
+                  ["payroll", "Payroll (salary)"],
                 ] as const
               ).map(([value, label]) => (
                 <label
@@ -489,8 +549,18 @@ export function BenefitDeductionsPanel({
             <div className="flex flex-wrap gap-2">
               {(
                 [
-                  ["department", "A department (split on each month’s run)"],
-                  ["people", "One or more people (split on each month’s run)"],
+                  [
+                    "department",
+                    isPayroll
+                      ? "A department (fixed share each)"
+                      : "A department (split on each month’s run)",
+                  ],
+                  [
+                    "people",
+                    isPayroll
+                      ? "One or more people (fixed share each)"
+                      : "One or more people (split on each month’s run)",
+                  ],
                 ] as const
               ).map(([value, label]) => (
                 <label
@@ -537,7 +607,11 @@ export function BenefitDeductionsPanel({
                 <p className="text-sm text-black/55">
                   {departmentMembers.length === 0
                     ? "No on-board staff in this department."
-                    : !startMonthMatch.runExists
+                    : isPayroll
+                      ? `Split equally across the ${departmentMembers.length} on-board ${
+                          departmentMembers.length === 1 ? "person" : "people"
+                        } below, deducted from their salary.`
+                      : !startMonthMatch.runExists
                       ? `Each month is split across ${
                           departments.find((d) => d.id === departmentId)?.name ??
                           "this department"
@@ -718,6 +792,7 @@ export function BenefitDeductionsPanel({
             />
           </div>
 
+          {isPayroll ? null : (
           <fieldset className="space-y-2">
             <legend className="text-[11px] font-medium uppercase tracking-wide text-black/45">
               Later months
@@ -754,6 +829,7 @@ export function BenefitDeductionsPanel({
               ))}
             </div>
           </fieldset>
+          )}
 
           <div className="rounded-lg border border-black/10 bg-[var(--venue-secondary,#F0F3DD)]/40 px-4 py-3 text-sm text-[#3D421F]">
             <p className="font-medium">After the split</p>
@@ -761,6 +837,28 @@ export function BenefitDeductionsPanel({
               <p className="mt-1 text-black/55">
                 Enter a total and choose who it applies to to see the split.
               </p>
+            ) : isPayroll ? (
+              <ul className="mt-2 space-y-1 text-black/70">
+                <li>
+                  {targetStaff.length}{" "}
+                  {targetStaff.length === 1 ? "person" : "people"} ·{" "}
+                  {formatMoney(payrollShare)} each
+                </li>
+                <li>
+                  {formatMoney(payrollMonthly)} / person / month for {months}{" "}
+                  month{months === 1 ? "" : "s"} (
+                  {formatBenefitMonthLabel(`${startMonth}-01`)}
+                  {months > 1
+                    ? ` → ${formatBenefitMonthLabel(`${lastPlannedMonth}-01`)}`
+                    : ""}
+                  )
+                </li>
+                <li className="text-black/55">
+                  Each share is queued for payroll. Add it on each month’s
+                  payroll run via Import Deductions → Deductions; any balance
+                  not taken rolls to the next payroll.
+                </li>
+              </ul>
             ) : !startMonthMatch.runExists ? (
               <p className="mt-1 text-black/55">
                 No {BENEFIT_DEDUCTION_KIND_LABELS[benefitKind]} run for{" "}
@@ -815,7 +913,7 @@ export function BenefitDeductionsPanel({
                 </li>
               </ul>
             )}
-            {splitByMonth.length > 0 ? (
+            {!isPayroll && splitByMonth.length > 0 ? (
               <div className="mt-3 max-h-80 space-y-3 overflow-auto">
                 {splitByMonth.map((block) => (
                   <div
@@ -991,9 +1089,15 @@ export function BenefitDeductionsPanel({
                             {entry.name}
                           </button>
                           <span className="mt-0.5 block text-xs font-normal text-black/45">
-                            {schedule.firstMonthRunExists
-                              ? `${schedule.firstMonthPeopleCount ?? 0} on start-month run`
-                              : "No start-month run yet"}
+                            {entry.benefitKind === "payroll"
+                              ? `${schedule.firstMonthPeopleCount ?? 0} ${
+                                  schedule.firstMonthPeopleCount === 1
+                                    ? "person"
+                                    : "people"
+                                } · fixed share`
+                              : schedule.firstMonthRunExists
+                                ? `${schedule.firstMonthPeopleCount ?? 0} on start-month run`
+                                : "No start-month run yet"}
                           </span>
                         </td>
                     <td className="px-3 py-2.5 text-black/70">
@@ -1120,6 +1224,54 @@ export function BenefitDeductionsPanel({
                       {expanded ? (
                         <tr className="bg-black/[0.02]">
                           <td colSpan={colSpan} className="px-3 py-3">
+                            {entry.benefitKind === "payroll" ? (
+                              schedule.staff.length === 0 ? (
+                                <p className="text-xs text-black/45">
+                                  No payroll charges found for this deduction.
+                                </p>
+                              ) : (
+                                <table className="w-full text-left text-xs">
+                                  <thead className="text-black/45">
+                                    <tr>
+                                      <th className="py-1 font-medium">Staff</th>
+                                      <th className="py-1 text-right font-medium">
+                                        Share
+                                      </th>
+                                      <th className="py-1 text-right font-medium">
+                                        Deducted on payroll
+                                      </th>
+                                      <th className="py-1 text-right font-medium">
+                                        Remaining
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {schedule.staff.map((person) => (
+                                      <tr key={person.staffId}>
+                                        <td className="py-1 text-[#3D421F]">
+                                          {person.fullName}
+                                          {person.empNo ? (
+                                            <span className="text-black/40">
+                                              {" "}
+                                              · {person.empNo}
+                                            </span>
+                                          ) : null}
+                                        </td>
+                                        <td className="py-1 text-right tabular-nums">
+                                          {formatMoney(person.share)}
+                                        </td>
+                                        <td className="py-1 text-right tabular-nums">
+                                          {formatMoney(person.applied)}
+                                        </td>
+                                        <td className="py-1 text-right tabular-nums font-medium text-[#3D421F]">
+                                          {formatMoney(person.remaining)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )
+                            ) : (
                             <div className="space-y-3">
                               {employeeDeductionBalancesByMonth({
                                 startMonth: entry.startMonth,
@@ -1196,6 +1348,7 @@ export function BenefitDeductionsPanel({
                                 </div>
                               ))}
                             </div>
+                            )}
                           </td>
                         </tr>
                       ) : null}

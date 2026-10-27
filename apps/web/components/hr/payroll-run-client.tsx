@@ -4147,6 +4147,49 @@ function benefitTypeLabel(type: string): string {
   }
 }
 
+type ImportBenefitsSortKey = "selected" | "empNo" | "fullName" | "benefit" | "amount";
+
+/** Header button with sort arrows, same style as the Employees table. */
+function ImportSortHeader({
+  label,
+  column,
+  sortKey,
+  sortDir,
+  onSort,
+  align = "start",
+}: {
+  label: string;
+  column: ImportBenefitsSortKey;
+  sortKey: ImportBenefitsSortKey | null;
+  sortDir: "asc" | "desc";
+  onSort: (column: ImportBenefitsSortKey) => void;
+  align?: "start" | "end";
+}) {
+  const active = sortKey === column;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(column)}
+      className={cn(
+        "inline-flex w-full items-center gap-1 whitespace-nowrap uppercase tracking-wide transition-colors hover:text-[#3D421F]",
+        align === "end" && "justify-end",
+      )}
+      aria-label={`Sort by ${label.trim() || "selected"}`}
+    >
+      {label.trim() ? <span>{label}</span> : null}
+      {active ? (
+        sortDir === "asc" ? (
+          <ChevronUp className="h-3.5 w-3.5 shrink-0 text-[var(--venue-primary,#818a40)]" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--venue-primary,#818a40)]" />
+        )
+      ) : (
+        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-black/25" />
+      )}
+    </button>
+  );
+}
+
 function ImportBenefitsDialog({
   open,
   runId,
@@ -4285,6 +4328,52 @@ function ImportBenefitsDialog({
         (r.detail?.toLowerCase().includes(q) ?? false),
     );
   }, [rows, staffQuery]);
+
+  const [sortKey, setSortKey] = useState<ImportBenefitsSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(column: ImportBenefitsSortKey) {
+    if (sortKey === column) {
+      setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(column);
+    // Amount and selected start with the largest / ticked first.
+    setSortDir(column === "amount" || column === "selected" ? "desc" : "asc");
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return filteredRows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    const valueOf = (row: PayrollBenefitImportRow): string | number => {
+      switch (sortKey) {
+        case "selected":
+          return selectedIds.has(row.allocationId) ? 1 : 0;
+        case "empNo":
+          return row.empNo;
+        case "fullName":
+          return row.fullName;
+        case "benefit":
+          return benefitTypeLabel(row.benefitType);
+        case "amount":
+          return row.amount;
+      }
+    };
+    return [...filteredRows].sort((a, b) => {
+      const av = valueOf(a);
+      const bv = valueOf(b);
+      const cmp =
+        typeof av === "number" && typeof bv === "number"
+          ? av - bv
+          : String(av).localeCompare(String(bv), undefined, {
+              numeric: true,
+              sensitivity: "base",
+            });
+      return cmp !== 0
+        ? cmp * dir
+        : a.empNo.localeCompare(b.empNo, undefined, { numeric: true });
+    });
+  }, [filteredRows, selectedIds, sortDir, sortKey]);
 
   const appliedCount = useMemo(
     () => rows.filter((r) => r.alreadyApplied).length,
@@ -4471,11 +4560,39 @@ function ImportBenefitsDialog({
               <table className="min-w-full text-left text-sm">
                 <thead className="sticky top-0 bg-black/[0.03] text-xs uppercase tracking-wide text-black/50">
                   <tr>
-                    <th className="px-3 py-2 font-medium"> </th>
-                    <th className="px-3 py-2 font-medium">Emp no</th>
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Benefit</th>
-                    <th className="px-3 py-2 text-right font-medium">Amount</th>
+                    {(
+                      [
+                        [" ", "selected", "start"],
+                        ["Emp no", "empNo", "start"],
+                        ["Name", "fullName", "start"],
+                        ["Benefit", "benefit", "start"],
+                        ["Amount", "amount", "end"],
+                      ] as const
+                    ).map(([label, column, align]) => (
+                      <th
+                        key={column}
+                        className={cn(
+                          "px-3 py-2 font-medium",
+                          align === "end" && "text-right",
+                        )}
+                        aria-sort={
+                          sortKey === column
+                            ? sortDir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                      >
+                        <ImportSortHeader
+                          label={label}
+                          column={column}
+                          sortKey={sortKey}
+                          sortDir={sortDir}
+                          onSort={toggleSort}
+                          align={align}
+                        />
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5">
@@ -4492,7 +4609,7 @@ function ImportBenefitsDialog({
                       </td>
                     </tr>
                   ) : (
-                    filteredRows.map((row) => (
+                    sortedRows.map((row) => (
                       <tr key={row.allocationId} className="hover:bg-black/[0.02]">
                         <td className="px-3 py-2">
                           <input

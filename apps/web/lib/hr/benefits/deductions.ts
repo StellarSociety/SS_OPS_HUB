@@ -10,14 +10,46 @@
 import type { BenefitKind } from "./types";
 import { floorPayoutToAed5 } from "./rounding";
 
-export const BENEFIT_DEDUCTION_KINDS = ["gratuity", "service_charge"] as const;
+export const BENEFIT_DEDUCTION_KINDS = [
+  "gratuity",
+  "service_charge",
+  "payroll",
+] as const;
 export type BenefitDeductionKind = (typeof BENEFIT_DEDUCTION_KINDS)[number];
 
 export const BENEFIT_DEDUCTION_KIND_LABELS: Record<BenefitDeductionKind, string> =
   {
     gratuity: "Gratuity",
     service_charge: "Service Charge",
+    payroll: "Payroll",
   };
+
+/**
+ * Payroll deductions are split once, when saved: each person gets a fixed
+ * share, queued as a pending payroll charge (Payroll → Import Deductions).
+ */
+export function isPayrollDeductionKind(kind: string): kind is "payroll" {
+  return kind === "payroll";
+}
+
+/** Pending payroll charge `source` for deductions created here. */
+export const PAYROLL_BENEFIT_DEDUCTION_SOURCE = "benefit_deduction";
+
+/** Per-person progress of a payroll deduction, from its payroll charges. */
+export type PayrollDeductionPersonProgress = {
+  staffId: string;
+  empNo: string | null;
+  fullName: string;
+  share: number;
+  applied: number;
+  remaining: number;
+};
+
+export type PayrollDeductionProgress = {
+  people: PayrollDeductionPersonProgress[];
+  applied: number;
+  remaining: number;
+};
 
 export type BenefitDeductionStaffRef = {
   id: string;
@@ -545,7 +577,9 @@ export function mapBenefitDeductionRow(row: {
   cancelled_at: string | null;
 }): BenefitDeductionEntry | null {
   const kind = row.benefit_kind;
-  if (kind !== "gratuity" && kind !== "service_charge") return null;
+  if (kind !== "gratuity" && kind !== "service_charge" && kind !== "payroll") {
+    return null;
+  }
   const staff = Array.isArray(row.staff_snapshot)
     ? row.staff_snapshot.filter(isStaffRef)
     : [];

@@ -4,6 +4,9 @@ import {
   loadBenefitPayoutMap,
 } from "@/lib/hr/benefits/deduction-payouts";
 import type { BenefitDeductionStaffOption } from "@/lib/hr/benefits";
+import { deductionStaffOf } from "@/lib/hr/benefits/deductions";
+import { loadPayrollDeductionProgress } from "@/lib/hr/benefits/payroll-deduction-charges";
+import { createServiceClient } from "@/lib/supabase/service";
 import { canEditBenefits } from "@/lib/hr/permissions";
 import { getHrPageContext } from "@/lib/hr/page-context";
 import { listDepartments, listStaffForVenue } from "@/lib/hr/store";
@@ -20,6 +23,14 @@ export default async function HrBenefitsDeductionsPage() {
       listBenefitDeductions(supabase, venue.id),
     ],
   );
+
+  const payrollProgress = await loadPayrollDeductionProgress({
+    service: createServiceClient(),
+    venueId: venue.id,
+    deductions: deductionList.rows
+      .filter((entry) => entry.benefitKind === "payroll")
+      .map((entry) => ({ id: entry.id, staff: deductionStaffOf(entry) })),
+  });
 
   const staff: BenefitDeductionStaffOption[] = staffRows.map((row) => ({
     id: row.id,
@@ -42,11 +53,13 @@ export default async function HrBenefitsDeductionsPage() {
       <div>
         <h2 className="font-serif text-lg text-[#3D421F]">Deductions</h2>
         <p className="text-sm text-black/55">
-          Recover a named amount from gratuity or service charge. Each month’s
-          installment is split equally across the people on that month’s benefit
-          run (a department, or selected people who appear on it). If the run
-          cannot cover the installment, leftover rolls to later months until it
-          is cleared.
+          Recover a named amount from gratuity, service charge or payroll.
+          Gratuity and service charge: each month’s installment is split
+          equally across the people on that month’s benefit run (a department,
+          or selected people who appear on it); if the run cannot cover it,
+          leftover rolls to later months. Payroll: the total is split equally
+          when saved and each person’s share is deducted from their salary
+          over the chosen months (Payroll → Import Deductions).
         </p>
       </div>
 
@@ -70,6 +83,7 @@ export default async function HrBenefitsDeductionsPage() {
         payouts={payoutData.payouts}
         rosters={payoutData.rosters}
         entries={deductionList.rows}
+        payrollProgress={payrollProgress}
       />
     </div>
   );

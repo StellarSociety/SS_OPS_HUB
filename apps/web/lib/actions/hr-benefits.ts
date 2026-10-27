@@ -13,6 +13,7 @@ import {
   resolveGratuityPeriod,
   resolveServiceChargePeriod,
   benefitMonthToDate,
+  formatBenefitMonthLabel,
   isBenefitRunLocked,
   readStaffOverridesFromSnapshot,
   withStaffOverridesOnSnapshot,
@@ -30,6 +31,11 @@ import {
   canAdminLookups,
   canEditBenefits,
 } from "@/lib/hr/permissions";
+import {
+  deletePayrollDeductionCharges,
+  replacePayrollDeductionCharges,
+  setPayrollDeductionChargesCancelled,
+} from "@/lib/hr/benefits/payroll-deduction-charges";
 import { mergeLeavePolicy } from "@/lib/hr/leave";
 import {
   mergePayrollSettings,
@@ -1680,9 +1686,10 @@ async function buildBenefitDeductionFields(
 
   if (
     input.benefitKind !== "gratuity" &&
-    input.benefitKind !== "service_charge"
+    input.benefitKind !== "service_charge" &&
+    input.benefitKind !== "payroll"
   ) {
-    return { ok: false, error: "Choose gratuity or service charge." };
+    return { ok: false, error: "Choose gratuity, service charge or payroll." };
   }
 
   const monthCount = Math.max(1, Math.min(60, Math.round(input.monthCount) || 1));
@@ -1792,6 +1799,13 @@ async function buildBenefitDeductionFields(
 
 function deductionWriteError(e: unknown): BenefitActionResult {
   const message = e instanceof Error ? e.message : "Could not save deduction";
+  if (/benefit_kind_check/i.test(message)) {
+    return {
+      ok: false,
+      error:
+        "Payroll deductions need a database migration. Apply supabase/migrations/20261027230000_hr_benefit_deductions_payroll_kind.sql.",
+    };
+  }
   if (/hr_benefit_deductions|schema cache|does not exist/i.test(message)) {
     return {
       ok: false,
@@ -1800,6 +1814,27 @@ function deductionWriteError(e: unknown): BenefitActionResult {
     };
   }
   return { ok: false, error: message };
+}
+
+/** Queue (or re-queue) the per-person payroll charges for a payroll deduction. */
+async function syncPayrollCharges(
+  service: ReturnType<typeof createServiceClient>,
+  venueId: string,
+  deductionId: string,
+  fields: DeductionWriteFields,
+  userId: string,
+): Promise<void> {
+  await replacePayrollDeductionCharges({
+    service,
+    venueId,
+    deductionId,
+    name: fields.name,
+    totalAmount: fields.total_amount,
+    monthCount: fields.month_count,
+    startMonthLabel: formatBenefitMonthLabel(fields.start_month),
+    staff: fields.staff_snapshot,
+    userId,
+  });
 }
 
 export async function createBenefitDeduction(
@@ -1820,6 +1855,19 @@ export async function createBenefitDeduction(
       .select("id")
       .single();
     if (error) throw new Error(error.message);
+
+    if (fields.benefit_kind === "payroll") {
+      try {
+        await syncPayrollCharges(service, venue.id, String(inserted.id), fields, user.id);
+      } catch (chargeError) {
+        await service
+          .from("hr_benefit_deductions")
+          .delete()
+          .eq("id", String(inserted.id))
+          .eq("venue_id", venue.id);
+        throw chargeError;
+      }
+    }
 
     await writeAuditLog({
       actor_id: user.id,
@@ -1850,6 +1898,25 @@ export async function updateBenefitDeduction(
     if (!prepared.ok) return prepared;
     const { user, venue, fields, audit } = prepared;
     const service = createServiceClient();
+    const { data: previous, error: previousError } = await service
+      .from("hr_benefit_deductions")
+      .select("benefit_kind")
+      .eq("id", deductionId)
+      .eq("venue_id", venue.id)
+      .maybeSingle();
+    if (previousError) throw new Error(previousError.message);
+    if (!previous) return { ok: false, error: "Deduction not found." };
+    // Payroll charges first: refuse before touching the deduction if part of
+    // it is already on a payroll run.
+    if (fields.benefit_kind === "payroll") {
+      await syncPayrollCharges(service, venue.id, deductionId, fields, user.id);
+    } else if (previous.benefit_kind === "payroll") {
+      await deletePayrollDeductionCharges({
+        service,
+        venueId: venue.id,
+        deductionId,
+      });
+    }
     const { data: updated, error } = await service
       .from("hr_benefit_deductions")
       .update(fields)
@@ -1915,6 +1982,12 @@ async function setBenefitDeductionCancelled(
       .eq("id", deductionId)
       .eq("venue_id", venue.id);
     if (error) throw new Error(error.message);
+    await setPayrollDeductionChargesCancelled({
+      service,
+      venueId: venue.id,
+      deductionId,
+      cancelled,
+    });
 
     await writeAuditLog({
       actor_id: user.id,
@@ -1953,6 +2026,11 @@ export async function deleteBenefitDeduction(
 
   try {
     const service = createServiceClient();
+    await deletePayrollDeductionCharges({
+      service,
+      venueId: venue.id,
+      deductionId,
+    });
     const { error } = await service
       .from("hr_benefit_deductions")
       .delete()

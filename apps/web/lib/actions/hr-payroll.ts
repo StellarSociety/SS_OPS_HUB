@@ -57,6 +57,7 @@ import {
 import { ensureVenueVisaRunPendingDeductions, migrateLegacyVisaRunDeductionIdentity } from "@/lib/hr/payroll/visa-run-pending-deductions";
 import { mapAllocationsToPayrollAmounts } from "@/lib/hr/benefits/deduction-payouts";
 import { payrollBenefitPayoutAmount } from "@/lib/hr/benefits/rounding";
+import { PAYROLL_BENEFIT_DEDUCTION_SOURCE } from "@/lib/hr/benefits/deductions";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getVenueLogoUrl } from "@/lib/venue/branding";
 
@@ -3310,6 +3311,8 @@ export type PayrollDeductionImportRow = {
   alreadyApplied: boolean;
   sourceAvailable: boolean;
   category: string;
+  /** Suggested amount for this run (e.g. a monthly installment); null = remaining. */
+  suggestedAmount: number | null;
 };
 
 function availableDeductionSourceIds(): Set<string> {
@@ -3368,11 +3371,12 @@ export async function listDeductionsForPayrollImport(input: {
 
   const { data: run } = await supabase
     .from("hr_payroll_runs")
-    .select("id")
+    .select("id, payroll_month")
     .eq("id", input.runId)
     .eq("venue_id", venue.id)
     .maybeSingle();
   if (!run) return { ok: false, error: "Payroll run not found." };
+  const runMonth = String(run.payroll_month ?? "").slice(0, 7);
 
   if (
     input.source !== "all" &&
@@ -3406,6 +3410,7 @@ export async function listDeductionsForPayrollImport(input: {
         remaining_amount?: number | string | null;
         reason?: string;
         source?: string;
+        source_id?: string | null;
         status?: string;
         applied_run_id?: string | null;
         created_at?: string;
@@ -3416,7 +3421,7 @@ export async function listDeductionsForPayrollImport(input: {
     const primary = await service
       .from("hr_pending_payroll_deductions")
       .select(
-        "id, staff_id, category, code, label, amount, original_amount, remaining_amount, reason, source, status, applied_run_id, created_at",
+        "id, staff_id, category, code, label, amount, original_amount, remaining_amount, reason, source, source_id, status, applied_run_id, created_at",
       )
       .eq("venue_id", venue.id)
       .neq("status", "cancelled")
@@ -3491,9 +3496,49 @@ export async function listDeductionsForPayrollImport(input: {
     return remaining > 0;
   });
 
-  const filtered = scoped.filter((row) =>
-    matchesDeductionSourceFilter(String(row.source ?? ""), input.source),
-  );
+  // Benefits → Deductions (payroll): start month + monthly installment.
+  const benefitDeductionIds = [
+    ...new Set(
+      scoped
+        .filter((row) => row.source === PAYROLL_BENEFIT_DEDUCTION_SOURCE)
+        .map((row) => String(row.source_id ?? ""))
+        .filter(Boolean),
+    ),
+  ];
+  const benefitDeductionPlan = new Map<
+    string,
+    { startMonth: string; monthCount: number }
+  >();
+  if (benefitDeductionIds.length > 0) {
+    const { data: plans } = await service
+      .from("hr_benefit_deductions")
+      .select("id, start_month, month_count")
+      .eq("venue_id", venue.id)
+      .in("id", benefitDeductionIds);
+    for (const plan of plans ?? []) {
+      benefitDeductionPlan.set(String(plan.id), {
+        startMonth: String(plan.start_month ?? "").slice(0, 7),
+        monthCount: Math.max(1, Number(plan.month_count) || 1),
+      });
+    }
+  }
+
+  const filtered = scoped.filter((row) => {
+    if (!matchesDeductionSourceFilter(String(row.source ?? ""), input.source)) {
+      return false;
+    }
+    // Not offered before the deduction's start month (unless already on this run).
+    const plan = benefitDeductionPlan.get(String(row.source_id ?? ""));
+    if (
+      plan &&
+      runMonth &&
+      runMonth < plan.startMonth &&
+      !appliedOnRun.has(String(row.id))
+    ) {
+      return false;
+    }
+    return true;
+  });
 
   const staffIds = [...new Set(filtered.map((r) => r.staff_id as string))];
   const staffById = new Map<
@@ -3541,6 +3586,15 @@ export async function listDeductionsForPayrollImport(input: {
         original,
         appliedOnThisRun: appliedThis,
       });
+      const plan = benefitDeductionPlan.get(String(row.source_id ?? ""));
+      let suggestedAmount: number | null = null;
+      if (plan && plan.monthCount > 1) {
+        const installment =
+          Math.round((original / plan.monthCount) * 100) / 100;
+        // Take the whole balance when only a rounding leftover would remain.
+        suggestedAmount =
+          remaining - installment < 0.05 ? remaining : installment;
+      }
       return {
         deductionId: String(row.id),
         staffId: String(row.staff_id),
@@ -3562,6 +3616,7 @@ export async function listDeductionsForPayrollImport(input: {
         alreadyApplied: appliedThis > 0,
         sourceAvailable: available.has(source),
         category: String(row.category ?? "deduction"),
+        suggestedAmount,
       };
     })
     .filter((row) => {

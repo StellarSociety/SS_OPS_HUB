@@ -123,7 +123,7 @@ export function ImportDeductionsDialog({
         const defaultAmount =
           row.appliedOnThisRun > 0
             ? row.appliedOnThisRun
-            : row.remainingAmount;
+            : (row.suggestedAmount ?? row.remainingAmount);
         nextAmounts[row.deductionId] = String(defaultAmount);
         if (row.alreadyApplied || row.remainingAmount > 0) {
           // Pre-select rows already on this run; leave others unchecked so HR
@@ -299,7 +299,7 @@ export function ImportDeductionsDialog({
 
   const emptyMessage =
     sourceMeta && !sourceMeta.available
-      ? `${sourceMeta.label} deductions are not wired up yet. Uniform, Assets, and Visa runs are available today.`
+      ? `${sourceMeta.label} deductions are not wired up yet. Uniform, Assets, Visa runs and Deductions are available today.`
       : source === "visa_runs"
         ? "No outstanding visa payroll deductions. Tick Employee pays on a visa penalty to queue it here. Employee already paid (payback) appears under Import Benefits."
         : "No outstanding deductions for this filter. Charges stay listed until fully recovered.";

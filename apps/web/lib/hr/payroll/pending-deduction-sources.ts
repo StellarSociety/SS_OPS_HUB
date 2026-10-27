@@ -30,6 +30,12 @@ export const PAYROLL_DEDUCTION_IMPORT_SOURCES = [
     description: "Visa penalties charged to employees",
     available: true,
   },
+  {
+    id: "benefit_deduction",
+    label: "Deductions",
+    description: "Payroll deductions set up in HR → Benefits → Deductions",
+    available: true,
+  },
 ] as const;
 
 export type PayrollDeductionImportSourceId =
