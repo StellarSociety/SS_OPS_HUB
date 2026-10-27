@@ -2,7 +2,9 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   buildPayrollExportFilename,
+  sumExportRows,
   type PayrollExportRow,
+  type PayrollJustificationLine,
 } from "@/lib/hr/payroll/wps";
 
 const BRAND_DARK: [number, number, number] = [61, 66, 31];
@@ -12,6 +14,7 @@ const FOOTER_TEXT: [number, number, number] = [110, 110, 110];
 
 const PDF_HEADERS = [
   "Emp ID",
+  "Joined",
   "Name",
   "Dept",
   "IBAN / method",
@@ -19,8 +22,13 @@ const PDF_HEADERS = [
   "Paid lv",
   "Unpaid",
   "Fixed",
+  "Basic",
+  "Accom",
+  "Transp",
+  "Run salary",
   "SC",
   "Grat.",
+  "Flight",
   "Other var",
   "Ded %",
   "Deductions",
@@ -61,6 +69,7 @@ function formatExportTimestamp(date: Date): string {
 function rowCells(row: PayrollExportRow): string[] {
   return [
     row.employeeId,
+    row.joiningDate || "—",
     row.employeeName,
     row.department,
     row.iban,
@@ -68,8 +77,13 @@ function rowCells(row: PayrollExportRow): string[] {
     qty(row.paidLeaveDays),
     qty(row.unpaidLeaveDays),
     money(row.fixedSalary),
+    money(row.basicSalary),
+    money(row.accomAllowance),
+    money(row.transpAllowance),
+    money(row.monthRunSalary),
     money(row.variableServiceCharge),
     money(row.variableGratuity),
+    money(row.variableFlightTicket),
     money(row.variableOthers),
     qty(row.deductionsPercent),
     money(row.deductionsValue),
@@ -78,35 +92,10 @@ function rowCells(row: PayrollExportRow): string[] {
 }
 
 function totalCells(rows: PayrollExportRow[]): string[] {
-  const totals = rows.reduce(
-    (acc, row) => {
-      acc.daysPaid += row.daysPaid;
-      acc.paidLeaveDays += row.paidLeaveDays;
-      acc.unpaidLeaveDays += row.unpaidLeaveDays;
-      acc.fixedSalary += row.fixedSalary;
-      acc.variableServiceCharge += row.variableServiceCharge;
-      acc.variableGratuity += row.variableGratuity;
-      acc.variableOthers += row.variableOthers;
-      acc.deductionsPercent += row.deductionsPercent;
-      acc.deductionsValue += row.deductionsValue;
-      acc.netSalary += row.netSalary;
-      return acc;
-    },
-    {
-      daysPaid: 0,
-      paidLeaveDays: 0,
-      unpaidLeaveDays: 0,
-      fixedSalary: 0,
-      variableServiceCharge: 0,
-      variableGratuity: 0,
-      variableOthers: 0,
-      deductionsPercent: 0,
-      deductionsValue: 0,
-      netSalary: 0,
-    },
-  );
+  const totals = sumExportRows(rows);
   return [
     "Total",
+    "",
     "",
     "",
     `${rows.length} employee${rows.length === 1 ? "" : "s"}`,
@@ -114,8 +103,13 @@ function totalCells(rows: PayrollExportRow[]): string[] {
     qty(totals.paidLeaveDays),
     qty(totals.unpaidLeaveDays),
     money(totals.fixedSalary),
+    money(totals.basicSalary),
+    money(totals.accomAllowance),
+    money(totals.transpAllowance),
+    money(totals.monthRunSalary),
     money(totals.variableServiceCharge),
     money(totals.variableGratuity),
+    money(totals.variableFlightTicket),
     money(totals.variableOthers),
     qty(totals.deductionsPercent),
     money(totals.deductionsValue),
@@ -129,6 +123,8 @@ export function buildPayrollExportPdfBase64(opts: {
   venueName: string;
   monthKey: string;
   rows: PayrollExportRow[];
+  /** Items behind Variable_Others and Deductions_Value, listed after the table. */
+  justifications?: PayrollJustificationLine[];
   exportedAt?: Date;
   userDisplayName?: string;
 }): { filename: string; base64: string; mimeType: string } {
@@ -185,24 +181,125 @@ export function buildPayrollExportPdfBase64(opts: {
       fontStyle: "bold",
       fontSize: 6.5,
     },
+    // Fills the 281 mm between margins (A4 landscape) exactly.
     columnStyles: {
-      0: { cellWidth: 16 },
-      1: { cellWidth: 38 },
+      0: { cellWidth: 13 },
+      1: { cellWidth: 12 },
       2: { cellWidth: 24 },
-      3: { cellWidth: 38 },
-      4: { halign: "right", cellWidth: 14 },
-      5: { halign: "right", cellWidth: 14 },
-      6: { halign: "right", cellWidth: 14 },
-      7: { halign: "right", cellWidth: 18 },
-      8: { halign: "right", cellWidth: 16 },
-      9: { halign: "right", cellWidth: 16 },
-      10: { halign: "right", cellWidth: 18 },
-      11: { halign: "right", cellWidth: 14 },
-      12: { halign: "right", cellWidth: 20 },
-      13: { halign: "right", cellWidth: 20 },
+      3: { cellWidth: 18 },
+      4: { cellWidth: 34 },
+      5: { halign: "right", cellWidth: 9 },
+      6: { halign: "right", cellWidth: 9 },
+      7: { halign: "right", cellWidth: 9 },
+      8: { halign: "right", cellWidth: 14 },
+      9: { halign: "right", cellWidth: 13 },
+      10: { halign: "right", cellWidth: 12 },
+      11: { halign: "right", cellWidth: 12 },
+      12: { halign: "right", cellWidth: 14 },
+      13: { halign: "right", cellWidth: 13 },
+      14: { halign: "right", cellWidth: 12 },
+      15: { halign: "right", cellWidth: 12 },
+      16: { halign: "right", cellWidth: 13 },
+      17: { halign: "right", cellWidth: 9 },
+      18: { halign: "right", cellWidth: 14 },
+      19: { halign: "right", cellWidth: 15 },
     },
     margin: { left: marginLeft, right: marginRight, bottom: 12 },
   });
+
+  const justifications = opts.justifications ?? [];
+  if (justifications.length > 0) {
+    const finalY =
+      (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable
+        ?.finalY ?? y;
+    let startY = finalY + 8;
+    if (startY > doc.internal.pageSize.getHeight() - 30) {
+      doc.addPage();
+      startY = 14;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...BRAND_DARK);
+    doc.text(
+      "Additional Explanations - Variable_Others and Deductions_Value",
+      marginLeft,
+      startY,
+    );
+    const sumOf = (column: PayrollJustificationLine["column"]) =>
+      justifications
+        .filter((line) => line.column === column)
+        .reduce((sum, line) => sum + line.amount, 0);
+    autoTable(doc, {
+      startY: startY + 3,
+      head: [
+        [
+          "Emp ID",
+          "Name",
+          "Column",
+          "Code",
+          "Description",
+          "Details",
+          "Other var",
+          "Deductions",
+        ].map(pdfSafeText),
+      ],
+      body: justifications.map((line) =>
+        [
+          line.employeeId,
+          line.employeeName,
+          line.column === "Deductions_Value" ? "Deductions" : "Others",
+          line.code,
+          line.description,
+          line.details || "—",
+          line.column === "Variable_Others" ? money(line.amount) : "",
+          line.column === "Deductions_Value" ? money(line.amount) : "",
+        ].map(pdfSafeText),
+      ),
+      foot: [
+        [
+          "Total explained",
+          "",
+          "",
+          "",
+          "",
+          "",
+          money(sumOf("Variable_Others")),
+          money(sumOf("Deductions_Value")),
+        ].map(pdfSafeText),
+      ],
+      theme: "grid",
+      styles: {
+        fontSize: 6.8,
+        cellPadding: 1.2,
+        textColor: BRAND_DARK,
+        lineColor: [200, 200, 190],
+        lineWidth: 0.1,
+        valign: "middle",
+      },
+      headStyles: {
+        fillColor: HEADER_BG,
+        textColor: BRAND_DARK,
+        fontStyle: "bold",
+      },
+      footStyles: {
+        fillColor: TOTALS_BG,
+        textColor: BRAND_DARK,
+        fontStyle: "bold",
+      },
+      // 281 mm between margins.
+      columnStyles: {
+        0: { cellWidth: 16 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 55 },
+        5: { cellWidth: 76 },
+        6: { halign: "right", cellWidth: 22 },
+        7: { halign: "right", cellWidth: 22 },
+      },
+      margin: { left: marginLeft, right: marginRight, bottom: 12 },
+    });
+  }
 
   const pageCount = doc.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {

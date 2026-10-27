@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Download,
   Loader2,
   Mail,
   XCircle,
@@ -1238,11 +1239,14 @@ export function PayrollWorkflowStepper({
                     downloadCsv("Payroll export", () => generateWpsFile(runId))
                   }
                 >
+                  <Download className="size-3.5" />
                   Export Payroll
                 </Button>
                 <Button
                   type="button"
                   size="sm"
+                  variant="secondary"
+                  className="border border-[var(--venue-primary,#818a40)]/30"
                   disabled={pending || !canEdit}
                   onClick={sendPayrollEmail}
                 >

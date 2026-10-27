@@ -1,5 +1,6 @@
 import { isDailyRateDiscountAdjustment, round2 } from "./daily-rate";
 import { summarizePayrollLeave } from "./leave-summary";
+import { formatDateDmy } from "@/lib/accounting/money";
 import type { CalculatedEmployeePayroll, PayrollDayFraction } from "./types";
 import { deflateRawSync } from "node:zlib";
 
@@ -28,6 +29,8 @@ export function contractedFixedSalary(
 
 export type PayrollExportRow = {
   employeeId: string;
+  /** DD-MM-YY, or "" when not on file. */
+  joiningDate: string;
   employeeName: string;
   department: string;
   iban: string;
@@ -35,13 +38,137 @@ export type PayrollExportRow = {
   paidLeaveDays: number;
   unpaidLeaveDays: number;
   fixedSalary: number;
+  /** Contractual parts paid within Fixed_Salary (sum = fixedSalary). */
+  basicSalary: number;
+  accomAllowance: number;
+  transpAllowance: number;
+  /** Fixed pay earned this run after attendance (prorated days, unpaid days). */
+  monthRunSalary: number;
   variableServiceCharge: number;
   variableGratuity: number;
+  variableFlightTicket: number;
   variableOthers: number;
   deductionsPercent: number;
   deductionsValue: number;
   netSalary: number;
 };
+
+/** One item behind an employee's Variable_Others or Deductions_Value. */
+export type PayrollJustificationLine = {
+  employeeId: string;
+  employeeName: string;
+  column: "Variable_Others" | "Deductions_Value";
+  code: string;
+  description: string;
+  details: string;
+  amount: number;
+};
+
+/** Variable codes that have their own export column (not in Variable_Others). */
+const OWN_COLUMN_VARIABLE_CODES = new Set([
+  "TIPS",
+  "SERVICE_CHARGE",
+  "FLIGHT_TICKET",
+]);
+
+function justificationDetails(meta: unknown): string {
+  const adjustment = (meta as { adjustment?: unknown } | undefined)?.adjustment as
+    | {
+        reason?: string;
+        daysApplied?: number | null;
+        percentOfDailyRate?: number | null;
+        enteredBy?: string | null;
+        enteredOn?: string | null;
+      }
+    | undefined;
+  if (!adjustment) return "";
+  const parts: string[] = [];
+  if (adjustment.reason?.trim()) parts.push(`Reason: ${adjustment.reason.trim()}`);
+  if (adjustment.daysApplied != null && adjustment.daysApplied > 0) {
+    parts.push(
+      `${adjustment.daysApplied} day${adjustment.daysApplied === 1 ? "" : "s"}`,
+    );
+  }
+  if (adjustment.percentOfDailyRate != null && adjustment.percentOfDailyRate > 0) {
+    parts.push(`${adjustment.percentOfDailyRate}% of daily rate`);
+  }
+  if (adjustment.enteredBy || adjustment.enteredOn) {
+    parts.push(
+      [
+        "Entered",
+        adjustment.enteredBy ? `by ${adjustment.enteredBy}` : "",
+        adjustment.enteredOn ? `on ${formatDateDmy(adjustment.enteredOn)}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Lines that make up Variable_Others and Deductions_Value for one employee.
+ * Any gap with the run totals (no line detail on file) is listed too, so the
+ * lines always add up to the figures in the table.
+ */
+function justificationLinesFor(
+  e: CalculatedEmployeePayroll,
+  employeeId: string,
+  variableOthers: number,
+): PayrollJustificationLine[] {
+  const out: PayrollJustificationLine[] = [];
+  const add = (
+    column: PayrollJustificationLine["column"],
+    lines: CalculatedEmployeePayroll["lines"],
+    expected: number,
+  ) => {
+    let sum = 0;
+    for (const line of lines) {
+      const amount = round2(Number(line.amount) || 0);
+      if (amount === 0) continue;
+      sum = round2(sum + amount);
+      out.push({
+        employeeId,
+        employeeName: e.fullName,
+        column,
+        code: line.code,
+        description: line.label || line.code,
+        details: justificationDetails(line.meta),
+        amount,
+      });
+    }
+    const gap = round2(expected - sum);
+    if (Math.abs(gap) > 0.005) {
+      out.push({
+        employeeId,
+        employeeName: e.fullName,
+        column,
+        code: "—",
+        description:
+          column === "Deductions_Value"
+            ? "Deductions without line detail"
+            : "Other variable pay without line detail",
+        details: "Difference between the run total and its itemised lines",
+        amount: gap,
+      });
+    }
+  };
+  add(
+    "Variable_Others",
+    e.lines.filter(
+      (line) =>
+        line.category === "variable" &&
+        !OWN_COLUMN_VARIABLE_CODES.has(line.code.toUpperCase()),
+    ),
+    variableOthers,
+  );
+  add(
+    "Deductions_Value",
+    e.lines.filter((line) => line.category === "deduction"),
+    round2(e.totalDeductions),
+  );
+  return out;
+}
 
 export type PayrollExportAdjustment = {
   staffId: string;
@@ -56,6 +183,7 @@ export type WpsFileRow = PayrollExportRow;
 
 const EXPORT_HEADERS = [
   "Employee_ID",
+  "Joining_Date",
   "Employee_Name",
   "Department",
   "IBAN",
@@ -63,8 +191,13 @@ const EXPORT_HEADERS = [
   "Paid_Leave_Days",
   "Unpaid_Leave_Days",
   "Fixed_Salary",
+  "Basic_Salary",
+  "Accom_Allowance",
+  "Transp_Allowance",
+  "Month_Run_Salary",
   "Variable_Service_Charge",
   "Variable_Gratuity",
+  "Variable_Flight_Ticket",
   "Variable_Others",
   "Deductions_%",
   "Deductions_Value",
@@ -77,17 +210,62 @@ const EXPORT_HEADERS = [
  * Fixed_Salary = staff "Salary to pay" (contractual), not period prorated
  * fixed earnings.
  *
- * Variable_Service_Charge and Variable_Gratuity are placeholders (0) until
- * those feeds are linked; all current variable earnings go to Variable_Others.
+ * Variable pay is split by payroll line code: TIPS → Variable_Gratuity,
+ * SERVICE_CHARGE → Variable_Service_Charge, FLIGHT_TICKET →
+ * Variable_Flight_Ticket, everything else variable → Variable_Others. Together
+ * they always add up to the employee's variable earnings.
  */
+/**
+ * Basic / accommodation / transport within Fixed_Salary. Staff in company
+ * accommodation are paid basic only, so their allowances show as 0 and the
+ * three parts always add up to Fixed_Salary.
+ */
+export function fixedSalaryParts(
+  e: Pick<
+    CalculatedEmployeePayroll,
+    | "basicSalary"
+    | "accomAllowance"
+    | "transpAllowance"
+    | "salaryToPay"
+    | "fixedEarnings"
+    | "companyAccommodation"
+  >,
+): { basicSalary: number; accomAllowance: number; transpAllowance: number } {
+  const fixed = contractedFixedSalary(e);
+  const basic = round2(Number(e.basicSalary) || 0);
+  const accom = e.companyAccommodation
+    ? 0
+    : round2(Number(e.accomAllowance) || 0);
+  const transp = e.companyAccommodation
+    ? 0
+    : round2(Number(e.transpAllowance) || 0);
+  if (basic + accom + transp <= 0) {
+    // No breakdown on file — show the whole fixed salary as basic.
+    return { basicSalary: fixed, accomAllowance: 0, transpAllowance: 0 };
+  }
+  // Keep the parts reconciled with Fixed_Salary; any gap lands on basic.
+  return {
+    basicSalary: round2(fixed - accom - transp),
+    accomAllowance: accom,
+    transpAllowance: transp,
+  };
+}
+
 export function buildPayrollExportRows(opts: {
   employees: CalculatedEmployeePayroll[];
   adjustments?: PayrollExportAdjustment[];
   /** Shown in the IBAN column when the employee has no bank account. */
   noBankPaymentMethod?: "cash" | "cheque" | "other";
-}): { rows: PayrollExportRow[]; errors: string[] } {
+  /** Staff joining dates (ISO), keyed by staff id. */
+  joiningDateByStaff?: Record<string, string | null>;
+}): {
+  rows: PayrollExportRow[];
+  justifications: PayrollJustificationLine[];
+  errors: string[];
+} {
   const errors: string[] = [];
   const rows: PayrollExportRow[] = [];
+  const justifications: PayrollJustificationLine[] = [];
   const noBankLabel = formatNoBankPaymentLabel(
     opts.noBankPaymentMethod ?? "cash",
   );
@@ -99,7 +277,18 @@ export function buildPayrollExportRows(opts: {
     adjustmentsByStaff.set(adj.staffId, list);
   }
 
-  for (const e of opts.employees) {
+  // Default order: by department (no department last), then employee ID.
+  const employees = [...opts.employees].sort((a, b) => {
+    const da = a.departmentName?.trim() || "";
+    const db = b.departmentName?.trim() || "";
+    if (!da !== !db) return da ? -1 : 1;
+    return (
+      da.localeCompare(db, undefined, { sensitivity: "base" }) ||
+      (a.empNo ?? "").localeCompare(b.empNo ?? "", undefined, { numeric: true })
+    );
+  });
+
+  for (const e of employees) {
     if (!e.included) continue;
 
     const employeeId = e.empNo?.trim() || "";
@@ -121,10 +310,25 @@ export function buildPayrollExportRows(opts: {
     const unpaidLeaveDays =
       e.dayFractions.length > 0 ? leave.unpaidDays : e.unpaidDays;
 
-    // Service charge / gratuity feeds not linked yet — keep columns at 0.
-    const variableServiceCharge = 0;
-    const variableGratuity = 0;
-    const variableOthers = e.variableEarnings;
+    const variableByCode = (code: string) =>
+      round2(
+        e.lines
+          .filter(
+            (line) =>
+              line.category === "variable" &&
+              line.code.toUpperCase() === code,
+          )
+          .reduce((sum, line) => sum + (Number(line.amount) || 0), 0),
+      );
+    const variableServiceCharge = variableByCode("SERVICE_CHARGE");
+    const variableGratuity = variableByCode("TIPS");
+    const variableFlightTicket = variableByCode("FLIGHT_TICKET");
+    const variableOthers = round2(
+      e.variableEarnings -
+        variableServiceCharge -
+        variableGratuity -
+        variableFlightTicket,
+    );
 
     const staffAdjs = adjustmentsByStaff.get(e.staffId) ?? [];
     const deductionsPercent = Math.min(
@@ -141,8 +345,14 @@ export function buildPayrollExportRows(opts: {
         .reduce((sum, a) => sum + (a.percentOfDailyRate ?? 0), 0),
     );
 
+    justifications.push(
+      ...justificationLinesFor(e, employeeId, variableOthers),
+    );
+
+    const joiningIso = opts.joiningDateByStaff?.[e.staffId] ?? null;
     rows.push({
       employeeId,
+      joiningDate: joiningIso ? formatDateDmy(joiningIso) : "",
       employeeName: e.fullName,
       department: e.departmentName?.trim() || "No department",
       iban,
@@ -150,8 +360,11 @@ export function buildPayrollExportRows(opts: {
       paidLeaveDays,
       unpaidLeaveDays,
       fixedSalary: contractedFixedSalary(e),
+      ...fixedSalaryParts(e),
+      monthRunSalary: round2(Number(e.fixedEarnings) || 0),
       variableServiceCharge,
       variableGratuity,
+      variableFlightTicket,
       variableOthers,
       deductionsPercent,
       deductionsValue: e.totalDeductions,
@@ -159,7 +372,7 @@ export function buildPayrollExportRows(opts: {
     });
   }
 
-  return { rows, errors };
+  return { rows, justifications, errors };
 }
 
 function formatNoBankPaymentLabel(
@@ -176,18 +389,21 @@ export async function buildPayrollExport(opts: {
   employees: CalculatedEmployeePayroll[];
   adjustments?: PayrollExportAdjustment[];
   noBankPaymentMethod?: "cash" | "cheque" | "other";
+  joiningDateByStaff?: Record<string, string | null>;
 }): Promise<{
   buffer: Buffer;
   rows: PayrollExportRow[];
+  justifications: PayrollJustificationLine[];
   errors: string[];
 }> {
-  const { rows, errors } = buildPayrollExportRows(opts);
+  const { rows, justifications, errors } = buildPayrollExportRows(opts);
   const buffer = buildPayrollXlsxBuffer({
     companyName: opts.companyName.trim() || "Company",
     payrollMonthLabel: opts.payrollMonthLabel.trim() || "Month",
     rows,
+    justifications,
   });
-  return { buffer, rows, errors };
+  return { buffer, rows, justifications, errors };
 }
 
 /** @deprecated Prefer buildPayrollExport. */
@@ -230,30 +446,38 @@ function sanitizeFilenamePart(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-function sumExportRows(rows: PayrollExportRow[]) {
-  const totals = {
-    daysPaid: 0,
-    paidLeaveDays: 0,
-    unpaidLeaveDays: 0,
-    fixedSalary: 0,
-    variableServiceCharge: 0,
-    variableGratuity: 0,
-    variableOthers: 0,
-    deductionsPercent: 0,
-    deductionsValue: 0,
-    netSalary: 0,
-  };
+/** Numeric export columns, in order after Employee_ID / Joining_Date / Name / Department / IBAN. */
+export const EXPORT_NUMERIC_FIELDS = [
+  "daysPaid",
+  "paidLeaveDays",
+  "unpaidLeaveDays",
+  "fixedSalary",
+  "basicSalary",
+  "accomAllowance",
+  "transpAllowance",
+  "monthRunSalary",
+  "variableServiceCharge",
+  "variableGratuity",
+  "variableFlightTicket",
+  "variableOthers",
+  "deductionsPercent",
+  "deductionsValue",
+  "netSalary",
+] as const satisfies ReadonlyArray<keyof PayrollExportRow>;
+
+type ExportNumericField = (typeof EXPORT_NUMERIC_FIELDS)[number];
+
+/** Employee_ID, Joining_Date, Employee_Name, Department, IBAN. */
+const EXPORT_TEXT_COLUMN_COUNT = 5;
+
+export function sumExportRows(
+  rows: PayrollExportRow[],
+): Record<ExportNumericField, number> {
+  const totals = Object.fromEntries(
+    EXPORT_NUMERIC_FIELDS.map((field) => [field, 0]),
+  ) as Record<ExportNumericField, number>;
   for (const r of rows) {
-    totals.daysPaid += r.daysPaid;
-    totals.paidLeaveDays += r.paidLeaveDays;
-    totals.unpaidLeaveDays += r.unpaidLeaveDays;
-    totals.fixedSalary += r.fixedSalary;
-    totals.variableServiceCharge += r.variableServiceCharge;
-    totals.variableGratuity += r.variableGratuity;
-    totals.variableOthers += r.variableOthers;
-    totals.deductionsPercent += r.deductionsPercent;
-    totals.deductionsValue += r.deductionsValue;
-    totals.netSalary += r.netSalary;
+    for (const field of EXPORT_NUMERIC_FIELDS) totals[field] += r[field];
   }
   return totals;
 }
@@ -299,6 +523,7 @@ function buildPayrollXlsxBuffer(opts: {
   companyName: string;
   payrollMonthLabel: string;
   rows: PayrollExportRow[];
+  justifications?: PayrollJustificationLine[];
 }): Buffer {
   const shared: string[] = [];
   const si = (value: string) => {
@@ -313,6 +538,7 @@ function buildPayrollXlsxBuffer(opts: {
 
   const rowStrings = opts.rows.map((r) => ({
     id: si(r.employeeId),
+    joining: si(r.joiningDate),
     name: si(r.employeeName),
     department: si(r.department),
     iban: si(r.iban),
@@ -349,19 +575,13 @@ function buildPayrollXlsxBuffer(opts: {
     const str = rowStrings[rowIndex]!;
     const cells = [
       sCell(cellRef(0, excelRow), str.id, 4),
-      sCell(cellRef(1, excelRow), str.name, 4),
-      sCell(cellRef(2, excelRow), str.department, 4),
-      sCell(cellRef(3, excelRow), str.iban, 4),
-      nCell(cellRef(4, excelRow), r.daysPaid, 5),
-      nCell(cellRef(5, excelRow), r.paidLeaveDays, 5),
-      nCell(cellRef(6, excelRow), r.unpaidLeaveDays, 5),
-      nCell(cellRef(7, excelRow), r.fixedSalary, 5),
-      nCell(cellRef(8, excelRow), r.variableServiceCharge, 5),
-      nCell(cellRef(9, excelRow), r.variableGratuity, 5),
-      nCell(cellRef(10, excelRow), r.variableOthers, 5),
-      nCell(cellRef(11, excelRow), r.deductionsPercent, 5),
-      nCell(cellRef(12, excelRow), r.deductionsValue, 5),
-      nCell(cellRef(13, excelRow), r.netSalary, 5),
+      sCell(cellRef(1, excelRow), str.joining, 4),
+      sCell(cellRef(2, excelRow), str.name, 4),
+      sCell(cellRef(3, excelRow), str.department, 4),
+      sCell(cellRef(4, excelRow), str.iban, 4),
+      ...EXPORT_NUMERIC_FIELDS.map((field, i) =>
+        nCell(cellRef(EXPORT_TEXT_COLUMN_COUNT + i, excelRow), r[field], 5),
+      ),
     ].join("");
     sheetRows.push(`<row r="${excelRow}">${cells}</row>`);
   });
@@ -372,28 +592,128 @@ function buildPayrollXlsxBuffer(opts: {
     `<c r="${cellRef(1, totalRow)}" s="6"/>`,
     `<c r="${cellRef(2, totalRow)}" s="6"/>`,
     `<c r="${cellRef(3, totalRow)}" s="6"/>`,
-    nCell(cellRef(4, totalRow), totals.daysPaid, 7),
-    nCell(cellRef(5, totalRow), totals.paidLeaveDays, 7),
-    nCell(cellRef(6, totalRow), totals.unpaidLeaveDays, 7),
-    nCell(cellRef(7, totalRow), totals.fixedSalary, 7),
-    nCell(cellRef(8, totalRow), totals.variableServiceCharge, 7),
-    nCell(cellRef(9, totalRow), totals.variableGratuity, 7),
-    nCell(cellRef(10, totalRow), totals.variableOthers, 7),
-    nCell(cellRef(11, totalRow), totals.deductionsPercent, 7),
-    nCell(cellRef(12, totalRow), totals.deductionsValue, 7),
-    nCell(cellRef(13, totalRow), totals.netSalary, 7),
+    `<c r="${cellRef(4, totalRow)}" s="6"/>`,
+    ...EXPORT_NUMERIC_FIELDS.map((field, i) =>
+      nCell(cellRef(EXPORT_TEXT_COLUMN_COUNT + i, totalRow), totals[field], 7),
+    ),
   ].join("");
   sheetRows.push(
     `<row r="${totalRow}" ht="20" customHeight="1">${totalCells}</row>`,
   );
 
-  const mergeCells = `<mergeCells count="2">
-    <mergeCell ref="A1:${lastCol}1"/>
-    <mergeCell ref="A2:${lastCol}2"/>
+  // Additional explanations — one line per item behind Variable_Others and
+  // Deductions_Value, with the amount under that same column so each
+  // employee's lines visibly add up to their figure above.
+  const justifications = opts.justifications ?? [];
+  const explanationMerges: string[] = [];
+  if (justifications.length > 0) {
+    const othersCol =
+      EXPORT_TEXT_COLUMN_COUNT + EXPORT_NUMERIC_FIELDS.indexOf("variableOthers");
+    const deductionsCol =
+      EXPORT_TEXT_COLUMN_COUNT + EXPORT_NUMERIC_FIELDS.indexOf("deductionsValue");
+    const titleRow = totalRow + 2;
+    sheetRows.push(
+      `<row r="${titleRow}" ht="22" customHeight="1"><c r="${cellRef(0, titleRow)}" s="2" t="s"><v>${si(
+        "Additional Explanations - Variable_Others and Deductions_Value",
+      )}</v></c></row>`,
+    );
+    const headRow = titleRow + 1;
+    const headCells: Array<[number, string]> = [
+      [0, "Employee_ID"],
+      [1, "Column"],
+      [2, "Employee_Name"],
+      [3, "Code"],
+      [4, "Description · details"],
+      [othersCol, "Variable_Others"],
+      [deductionsCol, "Deductions_Value"],
+    ];
+    // Description spans the empty columns up to Variable_Others; every
+    // cell in the row is bordered so each line keeps its own strokes.
+    const descFirst = 4;
+    const descLast = othersCol - 1;
+    const borderedRow = (
+      r: number,
+      filled: Map<number, string>,
+      emptyStyle: number,
+    ) => {
+      const cells: string[] = [];
+      for (let col = 0; col <= deductionsCol; col += 1) {
+        cells.push(filled.get(col) ?? `<c r="${cellRef(col, r)}" s="${emptyStyle}"/>`);
+      }
+      explanationMerges.push(
+        `${cellRef(descFirst, r)}:${cellRef(descLast, r)}`,
+      );
+      return cells.join("");
+    };
+    sheetRows.push(
+      `<row r="${headRow}" ht="20" customHeight="1">${borderedRow(
+        headRow,
+        new Map(
+          headCells.map(([col, label]) => [
+            col,
+            sCell(cellRef(col, headRow), si(label), 3),
+          ]),
+        ),
+        3,
+      )}</row>`,
+    );
+    justifications.forEach((line, index) => {
+      const r = headRow + 1 + index;
+      const text = line.details
+        ? `${line.description} · ${line.details}`
+        : line.description;
+      const amountCol =
+        line.column === "Deductions_Value" ? deductionsCol : othersCol;
+      sheetRows.push(
+        `<row r="${r}">${borderedRow(
+          r,
+          new Map([
+            [0, sCell(cellRef(0, r), si(line.employeeId), 4)],
+            [
+              1,
+              sCell(
+                cellRef(1, r),
+                si(line.column === "Deductions_Value" ? "Deductions" : "Others"),
+                4,
+              ),
+            ],
+            [2, sCell(cellRef(2, r), si(line.employeeName), 4)],
+            [3, sCell(cellRef(3, r), si(line.code), 4)],
+            [descFirst, sCell(cellRef(descFirst, r), si(text), 4)],
+            [amountCol, nCell(cellRef(amountCol, r), line.amount, 5)],
+          ]),
+          4,
+        )}</row>`,
+      );
+    });
+    const sumRow = headRow + 1 + justifications.length;
+    const sumOf = (column: PayrollJustificationLine["column"]) =>
+      justifications
+        .filter((line) => line.column === column)
+        .reduce((sum, line) => sum + line.amount, 0);
+    sheetRows.push(
+      `<row r="${sumRow}" ht="20" customHeight="1">${borderedRow(
+        sumRow,
+        new Map([
+          [0, sCell(cellRef(0, sumRow), si("Total explained"), 6)],
+          [othersCol, nCell(cellRef(othersCol, sumRow), sumOf("Variable_Others"), 7)],
+          [
+            deductionsCol,
+            nCell(cellRef(deductionsCol, sumRow), sumOf("Deductions_Value"), 7),
+          ],
+        ]),
+        6,
+      )}</row>`,
+    );
+  }
+
+  const merges = [`A1:${lastCol}1`, `A2:${lastCol}2`, ...explanationMerges];
+  const mergeCells = `<mergeCells count="${merges.length}">
+    ${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("\n    ")}
   </mergeCells>`;
 
   const cols = Array.from({ length: colCount }, (_, i) => {
-    const widths = [12, 28, 22, 26, 11, 14, 15, 12, 18, 16, 14, 12, 14, 12];
+    const widths = [12, 12, 28, 22, 26, 11, 14, 15, 12, 13, 15, 16, 17, 18, 16, 18, 14, 12, 14, 12];
     return `<col min="${i + 1}" max="${i + 1}" width="${widths[i] ?? 12}" customWidth="1"/>`;
   }).join("");
 
