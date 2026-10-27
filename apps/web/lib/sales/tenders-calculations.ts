@@ -133,6 +133,19 @@ export function sumSalesMatchingTenderAmounts(
   });
 }
 
+/**
+ * Waiter tenders total for reconciliation — Payment Total plus redeemed
+ * vouchers (a redeem settles part of the bill). Voucher Issue stays out.
+ */
+export function sumWaiterTendersForBalance(
+  amounts: Record<string, number>,
+  tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>,
+): number {
+  return sumTenderAmounts(amounts, {
+    excludeTenderIds: voucherIssueTenderIds(tenders),
+  });
+}
+
 export function sumVoucherIssueAmount(
   amounts: Record<string, number>,
   tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">>,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import {
   CheckCircle2,
@@ -67,6 +67,12 @@ type VouchersPanelProps = {
   tenderTotals: VoucherTenderTotals;
   canEdit: boolean;
   defaultWorkspace?: WorkspaceTab;
+  /** Open this voucher's edit form on load (from `?edit=<id>`). */
+  editVoucherId?: string | null;
+  /** Display names keyed by user id, for "Issued by". */
+  userNameById?: Record<string, string>;
+  /** Waiters with a Voucher Redeem amount, keyed by sale date. */
+  redeemWaitersByDate?: Record<string, Array<{ name: string; amountGs: number }>>;
 };
 
 type FormState = {
@@ -161,6 +167,9 @@ export function VouchersPanel({
   tenderTotals,
   canEdit,
   defaultWorkspace = "issue",
+  editVoucherId = null,
+  userNameById = {},
+  redeemWaitersByDate = {},
 }: VouchersPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -420,6 +429,17 @@ export function VouchersPanel({
   function openEdit(voucher: VenueVoucher, host: FormHost = "page") {
     openForm(voucherToForm(voucher), `Edit ${voucher.voucher_number}`, host);
   }
+
+  const openedEditIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!canEdit || !editVoucherId) return;
+    if (openedEditIdRef.current === editVoucherId) return;
+    const voucher = vouchers.find((v) => v.id === editVoucherId);
+    if (!voucher) return;
+    openedEditIdRef.current = editVoucherId;
+    openEdit(voucher);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, editVoucherId, vouchers]);
 
   function openRedeem(
     voucher: VenueVoucher,
@@ -691,6 +711,7 @@ export function VouchersPanel({
             canEdit={canEdit}
             isPending={isPending}
             onOpenDay={openIssueDayModal}
+            userNameById={userNameById}
           />
         ) : null}
 
@@ -702,6 +723,7 @@ export function VouchersPanel({
             canEdit={canEdit}
             isPending={isPending}
             onOpenDay={openRedeemDayModal}
+            redeemWaitersByDate={redeemWaitersByDate}
           />
         ) : null}
       </Card>
@@ -980,6 +1002,7 @@ function IssueWorkspace({
   canEdit,
   isPending,
   onOpenDay,
+  userNameById,
 }: {
   days: VoucherDayAllocation[];
   issueTotalGs: number;
@@ -987,8 +1010,24 @@ function IssueWorkspace({
   canEdit: boolean;
   isPending: boolean;
   onOpenDay: (saleDate: string) => void;
+  userNameById: Record<string, string>;
 }) {
   const [listFilter, setListFilter] = useState<"all" | "needs_detail">("all");
+
+  function issuedByLabel(day: VoucherDayAllocation): string {
+    const names = [
+      ...new Set(
+        day.vouchers
+          .map((voucher) =>
+            voucher.created_by
+              ? (userNameById[voucher.created_by] ?? "Unknown user")
+              : null,
+          )
+          .filter((name): name is string => Boolean(name)),
+      ),
+    ];
+    return names.length > 0 ? names.join(", ") : "—";
+  }
 
   const visibleDays = useMemo(() => {
     if (listFilter === "needs_detail") {
@@ -1049,13 +1088,14 @@ function IssueWorkspace({
               <th className="px-3 py-2 font-medium text-right">Voucher Issue</th>
               <th className="px-3 py-2 font-medium text-right">Allocated</th>
               <th className="px-3 py-2 font-medium text-right">Remaining</th>
+              <th className="px-3 py-2 font-medium">Issued by</th>
               <th className="px-3 py-2 font-medium">Status</th>
             </tr>
           </thead>
           <tbody>
             {visibleDays.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-black/45">
+                <td colSpan={6} className="px-3 py-8 text-center text-black/45">
                   {listFilter === "needs_detail"
                     ? "All Voucher Issue days are matched to the ledger."
                     : "No Voucher Issue tender amounts yet. Enter them on Daily / Waiter sales first."}
@@ -1093,6 +1133,9 @@ function IssueWorkspace({
                     >
                       {formatMoney(day.remaining_gs)}
                     </td>
+                    <td className="px-3 py-2.5 text-black/70">
+                      {issuedByLabel(day)}
+                    </td>
                     <td className="px-3 py-2.5">
                       <span
                         className={cn(
@@ -1123,6 +1166,7 @@ function IssueWorkspace({
                 <td className="px-3 py-2.5 text-right tabular-nums font-medium text-amber-900">
                   {formatMoney(columnTotals.remainingSum)}
                 </td>
+                <td className="px-3 py-2.5" />
                 <td className="px-3 py-2.5" />
               </tr>
             </tfoot>
@@ -1868,6 +1912,7 @@ function RedeemWorkspace({
   redeemTotalGs,
   selectedDate,
   onOpenDay,
+  redeemWaitersByDate,
 }: {
   days: VoucherDayAllocation[];
   redeemTotalGs: number;
@@ -1875,7 +1920,17 @@ function RedeemWorkspace({
   canEdit: boolean;
   isPending: boolean;
   onOpenDay: (saleDate: string) => void;
+  redeemWaitersByDate: Record<string, Array<{ name: string; amountGs: number }>>;
 }) {
+  function redeemedByLabel(saleDate: string): string {
+    const waiters = redeemWaitersByDate[saleDate] ?? [];
+    if (waiters.length === 0) return "—";
+    if (waiters.length === 1) return waiters[0]!.name;
+    return waiters
+      .map((waiter) => `${waiter.name} (${formatMoney(waiter.amountGs)})`)
+      .join(", ");
+  }
+
   const [listFilter, setListFilter] = useState<"all" | "needs_detail">("all");
 
   const visibleDays = useMemo(() => {
@@ -1940,12 +1995,13 @@ function RedeemWorkspace({
               <th className="px-3 py-2 font-medium text-right">Allocated</th>
               <th className="px-3 py-2 font-medium text-right">Remaining</th>
               <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2 font-medium">Redeemed by</th>
             </tr>
           </thead>
           <tbody>
             {visibleDays.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-black/45">
+                <td colSpan={6} className="px-3 py-8 text-center text-black/45">
                   {listFilter === "needs_detail"
                     ? "All Voucher Redeem days are matched to the ledger."
                     : "No Voucher Redeem tender amounts yet. Enter them on Daily / Waiter sales first."}
@@ -1995,6 +2051,9 @@ function RedeemWorkspace({
                         {day.balanced ? "Matched" : "Needs detail"}
                       </span>
                     </td>
+                    <td className="px-3 py-2.5 text-black/70">
+                      {redeemedByLabel(day.sale_date)}
+                    </td>
                   </tr>
                 );
               })
@@ -2013,6 +2072,7 @@ function RedeemWorkspace({
                 <td className="px-3 py-2.5 text-right tabular-nums font-medium text-amber-900">
                   {formatMoney(columnTotals.remainingSum)}
                 </td>
+                <td className="px-3 py-2.5" />
                 <td className="px-3 py-2.5" />
               </tr>
             </tfoot>
@@ -2538,7 +2598,7 @@ function VouchersCatalogModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="vouchers-catalog-title"
-        className="flex max-h-[min(90vh,880px)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
+        className="flex max-h-[min(90vh,880px)] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-black/10 px-5 py-4">
           <div className="min-w-0">
@@ -2580,6 +2640,9 @@ function VouchersCatalogModal({
                     <th className="px-3 py-2 font-medium">Status</th>
                     <th className="px-3 py-2 font-medium text-right">Value</th>
                     <th className="px-3 py-2 font-medium">Payment</th>
+                    <th className="px-3 py-2 font-medium">Issued</th>
+                    <th className="px-3 py-2 font-medium">Added on HUB</th>
+                    <th className="px-3 py-2 font-medium">Redeemed</th>
                     <th className="px-3 py-2 font-medium text-right">
                       Actions
                     </th>
@@ -2609,6 +2672,21 @@ function VouchersCatalogModal({
                       </td>
                       <td className="px-3 py-2.5">
                         {paymentLabel(voucher.payment_form_tender_id)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">
+                        {voucher.status !== "draft" && voucher.issued_date
+                          ? formatDisplayDate(voucher.issued_date)
+                          : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 tabular-nums text-black/60">
+                        {voucher.created_at
+                          ? formatDisplayDate(voucher.created_at.slice(0, 10))
+                          : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">
+                        {voucher.redeemed_date
+                          ? formatDisplayDate(voucher.redeemed_date)
+                          : "—"}
                       </td>
                       <td className="px-3 py-2.5">
                         {canEdit ? (

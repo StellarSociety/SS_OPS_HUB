@@ -28,6 +28,7 @@ import {
   isVoucherIssueTender,
   isVoucherRelatedTender,
   sumSalesMatchingTenderAmounts,
+  sumWaiterTendersForBalance,
   sumTenderAmounts,
   sumVoucherIssueAmount,
 } from "@/lib/sales/tenders-calculations";
@@ -383,12 +384,21 @@ export function WaiterSalesEntryForm({
     [form.tender_amounts, tenders],
   );
 
-  const tendersTotalForBalance = tendersTotalGross;
+  const tendersTotalForBalance = useMemo(
+    () => sumWaiterTendersForBalance(form.tender_amounts, tenders),
+    [form.tender_amounts, tenders],
+  );
 
   const tendersTotalNet = useMemo(
     () =>
       Math.round(grossToNet(tendersTotalGross, totalTaxPct) * 100) / 100,
     [tendersTotalGross, totalTaxPct],
+  );
+
+  const tendersWithRedeemNet = useMemo(
+    () =>
+      Math.round(grossToNet(tendersTotalForBalance, totalTaxPct) * 100) / 100,
+    [tendersTotalForBalance, totalTaxPct],
   );
 
   const reconciliation = useMemo(
@@ -862,6 +872,27 @@ export function WaiterSalesEntryForm({
                       </p>
                       <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
                         {formatMoney(tendersTotalNet)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-3 border-t border-black/10 pt-2.5 text-xs font-medium uppercase tracking-wide text-black/50">
+                    Incl. Voucher Redeem
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                        Gross
+                      </p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
+                        {formatMoney(tendersTotalForBalance)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-black/45">
+                        Net
+                      </p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums text-[#3D421F]">
+                        {formatMoney(tendersWithRedeemNet)}
                       </p>
                     </div>
                   </div>

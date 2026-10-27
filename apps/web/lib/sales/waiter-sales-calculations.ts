@@ -5,8 +5,8 @@ import {
 } from "./daily-sales-calculations";
 import { FIGURES_ALERTS_TOLERANCE } from "./figures-alerts-calculations";
 import {
-  sumSalesMatchingTenderAmounts,
   sumTenderAmounts,
+  sumWaiterTendersForBalance,
 } from "./tenders-calculations";
 import type { VenueTender } from "./tenders-types";
 import type {
@@ -96,7 +96,7 @@ export function computeWaiterSalesTableRow(
   tenders: ReadonlyArray<Pick<VenueTender, "id" | "name">> = [],
 ): WaiterSalesTableComputed {
   const tendersTotalGs = sumTenderAmounts(entry.tender_amounts);
-  const tendersTotalForBalanceGs = sumSalesMatchingTenderAmounts(
+  const tendersTotalForBalanceGs = sumWaiterTendersForBalance(
     entry.tender_amounts,
     tenders,
   );

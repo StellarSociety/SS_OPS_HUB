@@ -20,11 +20,21 @@ import {
 import { listVenueTenders } from "@/lib/sales/tenders-store";
 import { listVenueWaiterDailySales } from "@/lib/sales/waiter-sales-store";
 import type { VenueWaiterDailySalesEntry } from "@/lib/sales/waiter-sales-types";
-import { buildVoucherTenderTotalsMerged } from "@/lib/sales/vouchers-calculations";
+import {
+  buildVoucherTenderTotalsMerged,
+  voucherRedeemTenderIds,
+} from "@/lib/sales/vouchers-calculations";
+import { listVenueWaiters } from "@/lib/sales/waiters-store";
 import { listVenueVouchers } from "@/lib/sales/vouchers-store";
+import { loadVoucherCreatorNames } from "@/lib/sales/voucher-user-names";
 
-export default async function SalesVouchersPage() {
+export default async function SalesVouchersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ edit?: string }>;
+}) {
   const { venue, permissions, supabase } = await getSalesPageContext();
+  const { edit: editVoucherId } = await searchParams;
 
   if (!canAccessVouchers(permissions, venue.id)) {
     return <AccessDeniedBounce />;
@@ -45,6 +55,32 @@ export default async function SalesVouchersPage() {
           ? listVenueWaiterDailySales(supabase, venue.id)
           : Promise.resolve([] as VenueWaiterDailySalesEntry[]),
       ]);
+
+    const userNameById = await loadVoucherCreatorNames(vouchers);
+
+    // Waiters with a Voucher Redeem amount on their entry, per sale date.
+    const waiterNameById = new Map(
+      (canReadWaiters ? await listVenueWaiters(supabase, venue.id) : []).map(
+        (waiter) => [waiter.id, waiter.name],
+      ),
+    );
+    const redeemIds = voucherRedeemTenderIds(tenders);
+    const redeemWaitersByDate: Record<
+      string,
+      Array<{ name: string; amountGs: number }>
+    > = {};
+    for (const entry of waiterEntries) {
+      let amountGs = 0;
+      for (const [tenderId, raw] of Object.entries(entry.tender_amounts ?? {})) {
+        if (redeemIds.has(tenderId)) amountGs += Number(raw) || 0;
+      }
+      if (amountGs <= 0) continue;
+      const list = (redeemWaitersByDate[entry.sale_date] ??= []);
+      list.push({
+        name: waiterNameById.get(entry.waiter_id) ?? "Unknown waiter",
+        amountGs: Math.round(amountGs * 100) / 100,
+      });
+    }
 
     const voucherTenderTotals = buildVoucherTenderTotalsMerged(
       tenders,
@@ -69,6 +105,9 @@ export default async function SalesVouchersPage() {
           tenders={tenders}
           tenderTotals={voucherTenderTotals}
           canEdit={canEditVouchers(permissions, venue.id)}
+          editVoucherId={editVoucherId ?? null}
+          userNameById={userNameById}
+          redeemWaitersByDate={redeemWaitersByDate}
         />
       </div>
     );

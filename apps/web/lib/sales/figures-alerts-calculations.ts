@@ -15,6 +15,7 @@ import type { VenueDailyTenderTotal } from "@/lib/sales/daily-tender-totals-stor
 import {
   isVoucherIssueTender,
   sumSalesMatchingTenderAmounts,
+  sumWaiterTendersForBalance,
 } from "@/lib/sales/tenders-calculations";
 import type { VenueTender } from "@/lib/sales/tenders-types";
 import { computeWaiterSalesReconciliation } from "@/lib/sales/waiter-sales-calculations";
@@ -323,7 +324,7 @@ function buildWaiterBalanceCheck(
   let tendersDiffTotal = 0;
 
   for (const record of waiterRecords) {
-    const tendersTotalForBalance = sumSalesMatchingTenderAmounts(
+    const tendersTotalForBalance = sumWaiterTendersForBalance(
       record.tender_amounts ?? {},
       tenders,
     );

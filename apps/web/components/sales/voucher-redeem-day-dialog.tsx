@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, Unlink, X } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, ChevronDown, Pencil, Unlink, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   markVenueVoucherRedeemed,
@@ -15,6 +16,7 @@ import {
   formatLocalDate,
   voucherRedeemAmount,
 } from "@/lib/sales/vouchers-calculations";
+import type { VenueTender } from "@/lib/sales/tenders-types";
 import type { VenueVoucher } from "@/lib/sales/vouchers-types";
 import { VOUCHER_STATUS_LABELS } from "@/lib/sales/vouchers-types";
 import { toast } from "@/components/ui/toast";
@@ -55,12 +57,79 @@ function statusBadgeClass(status: VenueVoucher["status"]): string {
   }
 }
 
+const SOURCE_LABELS: Record<VenueVoucher["source"], string> = {
+  manual: "Manual",
+  waiter_comment: "Waiter comment",
+  import: "Import",
+};
+
+function VoucherDetails({
+  voucher,
+  tenderName,
+  addedByName,
+}: {
+  voucher: VenueVoucher;
+  tenderName: string | null;
+  addedByName: string | null;
+}) {
+  const addedOn = voucher.created_at
+    ? formatDisplayDate(voucher.created_at.slice(0, 10))
+    : null;
+  const rows: Array<[string, string]> = [
+    ["Voucher number", voucher.voucher_number],
+    ["Voucher name", voucher.voucher_name || "—"],
+    ["Value", formatMoney(voucher.face_value_gs)],
+    ["Status", VOUCHER_STATUS_LABELS[voucher.status]],
+    [
+      "Added on HUB by",
+      [addedByName, addedOn].filter(Boolean).join(" | ") || "—",
+    ],
+    [
+      "Issued",
+      voucher.issued_date ? formatDisplayDate(voucher.issued_date) : "—",
+    ],
+    ["Paid with", tenderName ?? "—"],
+    [
+      "Redeemed",
+      voucher.redeemed_date ? formatDisplayDate(voucher.redeemed_date) : "—",
+    ],
+    [
+      "Expires",
+      voucher.expires_date ? formatDisplayDate(voucher.expires_date) : "—",
+    ],
+    ["Purchaser", voucher.purchaser_name || "—"],
+    ["Recipient", voucher.recipient_name || "—"],
+    ["Source", SOURCE_LABELS[voucher.source] ?? voucher.source],
+  ];
+  return (
+    <div className="w-full rounded-md bg-black/[0.02] px-3 py-2.5">
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3">
+            <dt className="text-black/50">{label}</dt>
+            <dd className="text-right font-medium text-[#3D421F]">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-2 border-t border-black/5 pt-2 text-xs">
+        <p className="text-black/50">Notes</p>
+        <p className="mt-0.5 whitespace-pre-wrap text-[#3D421F]">
+          {voucher.notes?.trim() || "—"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 type VoucherRedeemDayDialogProps = {
   open: boolean;
   onClose: () => void;
   saleDate: string;
   redeemAmountGs: number;
   vouchers: VenueVoucher[];
+  tenders?: ReadonlyArray<Pick<VenueTender, "id" | "name">>;
+  /** Who added each voucher to the HUB, keyed by user id. */
+  userNameById?: Record<string, string>;
   canEdit: boolean;
 };
 
@@ -70,15 +139,23 @@ export function VoucherRedeemDayDialog({
   saleDate,
   redeemAmountGs,
   vouchers,
+  tenders = [],
+  userNameById = {},
   canEdit,
 }: VoucherRedeemDayDialogProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [selectedVoucherId, setSelectedVoucherId] = useState("");
+  const [expandedVoucherId, setExpandedVoucherId] = useState<string | null>(
+    null,
+  );
+  const tenderNameById = useMemo(
+    () => new Map(tenders.map((t) => [t.id, t.name])),
+    [tenders],
+  );
 
   const day = useMemo(
-    () =>
-      buildRedeemDayAllocationForDate(saleDate, redeemAmountGs, vouchers),
+    () => buildRedeemDayAllocationForDate(saleDate, redeemAmountGs, vouchers),
     [saleDate, redeemAmountGs, vouchers],
   );
 
@@ -98,7 +175,10 @@ export function VoucherRedeemDayDialog({
   const canLinkMore = day.remaining_gs > 0.005;
 
   useEffect(() => {
-    if (!open) setSelectedVoucherId("");
+    if (!open) {
+      setSelectedVoucherId("");
+      setExpandedVoucherId(null);
+    }
   }, [open]);
 
   useEffect(() => {
@@ -296,50 +376,112 @@ export function VoucherRedeemDayDialog({
                   Linked to this redeem day
                 </p>
                 <ul className="mt-2 divide-y divide-black/5 rounded-md border border-black/10">
-                  {day.vouchers.map((voucher) => (
-                    <li
-                      key={voucher.id}
-                      className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium text-[#3D421F]">
-                            {voucher.voucher_number}
-                          </span>
-                          <span
+                  {day.vouchers.map((voucher) => {
+                    const expanded = expandedVoucherId === voucher.id;
+                    return (
+                      <li
+                        key={voucher.id}
+                        className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"
+                      >
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() =>
+                            setExpandedVoucherId(expanded ? null : voucher.id)
+                          }
+                          className="flex min-w-0 flex-1 items-start gap-2 rounded-md text-left hover:opacity-80"
+                          title={
+                            expanded ? "Hide details" : "Show voucher details"
+                          }
+                        >
+                          <ChevronDown
                             className={cn(
-                              "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
-                              statusBadgeClass(voucher.status),
+                              "mt-0.5 h-4 w-4 shrink-0 text-black/40 transition-transform",
+                              expanded && "rotate-180",
                             )}
-                          >
-                            {VOUCHER_STATUS_LABELS[voucher.status]}
+                            aria-hidden
+                          />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-[#3D421F]">
+                                {voucher.voucher_number}
+                              </span>
+                              <span
+                                className={cn(
+                                  "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
+                                  statusBadgeClass(voucher.status),
+                                )}
+                              >
+                                {VOUCHER_STATUS_LABELS[voucher.status]}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-xs text-black/50">
+                              {voucher.voucher_name || "Unnamed"}
+                              {voucher.issued_date
+                                ? ` · Issued ${formatDisplayDate(voucher.issued_date)}`
+                                : ""}
+                              {` · Paid with ${
+                                (voucher.payment_form_tender_id
+                                  ? tenderNameById.get(
+                                      voucher.payment_form_tender_id,
+                                    )
+                                  : null) ?? "—"
+                              }`}
+                              {voucher.redeemed_date
+                                ? ` · Redeemed ${formatDisplayDate(voucher.redeemed_date)}`
+                                : ""}
+                            </p>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <span className="tabular-nums font-medium text-[#3D421F]">
+                            {formatMoney(voucher.face_value_gs)}
                           </span>
+                          {canEdit ? (
+                            <Link
+                              href={`/sales/vouchers?edit=${voucher.id}`}
+                              target="_blank"
+                              rel="noopener"
+                              title="Edit voucher (opens Vouchers in a new tab)"
+                              aria-label={`Edit voucher ${voucher.voucher_number}`}
+                              className="rounded-md p-1.5 text-[#3D421F] hover:bg-black/[0.04]"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Link>
+                          ) : null}
+                          {canEdit ? (
+                            <button
+                              type="button"
+                              title="Unlink from this day"
+                              disabled={isPending}
+                              onClick={() => handleUnlink(voucher)}
+                              className="rounded-md p-1.5 text-[#3D421F] hover:bg-black/[0.04] disabled:opacity-50"
+                            >
+                              <Unlink className="h-4 w-4" />
+                            </button>
+                          ) : null}
                         </div>
-                        <p className="mt-0.5 truncate text-xs text-black/50">
-                          {voucher.voucher_name || "Unnamed"}
-                          {voucher.redeemed_date
-                            ? ` · Redeemed ${formatDisplayDate(voucher.redeemed_date)}`
-                            : ""}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="tabular-nums font-medium text-[#3D421F]">
-                          {formatMoney(voucher.face_value_gs)}
-                        </span>
-                        {canEdit ? (
-                          <button
-                            type="button"
-                            title="Unlink from this day"
-                            disabled={isPending}
-                            onClick={() => handleUnlink(voucher)}
-                            className="rounded-md p-1.5 text-[#3D421F] hover:bg-black/[0.04] disabled:opacity-50"
-                          >
-                            <Unlink className="h-4 w-4" />
-                          </button>
+                        {expanded ? (
+                          <VoucherDetails
+                            voucher={voucher}
+                            tenderName={
+                              voucher.payment_form_tender_id
+                                ? (tenderNameById.get(
+                                    voucher.payment_form_tender_id,
+                                  ) ?? null)
+                                : null
+                            }
+                            addedByName={
+                              voucher.created_by
+                                ? (userNameById[voucher.created_by] ??
+                                  "Unknown user")
+                                : null
+                            }
+                          />
                         ) : null}
-                      </div>
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}

@@ -32,6 +32,7 @@ import {
   isVoucherRedeemTender,
   isVoucherRelatedTender,
   sumSalesMatchingTenderAmounts,
+  sumWaiterTendersForBalance,
   sumTenderAmounts,
   sumVoucherIssueAmount,
 } from "@/lib/sales/tenders-calculations";
@@ -84,6 +85,8 @@ type DailySalesEntryFormProps = {
   waiterRecords: VenueWaiterDailySalesEntry[];
   tenderTotals: VenueDailyTenderTotal[];
   vouchers: VenueVoucher[];
+  /** Who added each voucher to the HUB, keyed by user id. */
+  voucherCreatorNames?: Record<string, string>;
   totalTaxPct: number;
   taxSettings: VenueSalesTaxSettings;
   canEdit: boolean;
@@ -599,7 +602,7 @@ function TenderVerificationRow({
       className="grid flex-1 items-center gap-x-2 border-b border-black/5 py-1 text-[11px] last:border-0"
       style={{ gridTemplateColumns: "minmax(0,1fr) auto auto auto" }}
     >
-      <span className="truncate text-black/70">{label}</span>
+      <span className="break-words leading-tight text-black/70">{label}</span>
       <span className="w-16 text-right tabular-nums text-black/60">
         {formatMoney(waitersTotal)}
       </span>
@@ -628,6 +631,7 @@ function DailyTenderTotalsColumn({
   onChange,
   saleDate,
   vouchers,
+  voucherCreatorNames,
   canEditVouchers,
 }: {
   tenders: VenueTender[];
@@ -639,6 +643,7 @@ function DailyTenderTotalsColumn({
   onChange: (tenderId: string, value: string) => void;
   saleDate: string;
   vouchers: VenueVoucher[];
+  voucherCreatorNames: Record<string, string>;
   canEditVouchers: boolean;
 }) {
   const [issueDialogOpen, setIssueDialogOpen] = useState(false);
@@ -945,6 +950,8 @@ function DailyTenderTotalsColumn({
         saleDate={saleDate}
         redeemAmountGs={voucherRedeemAmountGs}
         vouchers={vouchers}
+        tenders={tenders}
+        userNameById={voucherCreatorNames}
         canEdit={canEditVouchers}
       />
     </>
@@ -992,11 +999,22 @@ function TenderVerificationColumn({
     [amounts, tenders],
   );
 
-  // Daily Sales Total proxy = Payment Total − CC Gratuity (tenders only).
+  // Payment Total + Voucher Redeem — a redeem settles part of the bill, so
+  // it counts toward Sales Total in the two checks below.
+  const enteredWithRedeem = useMemo(
+    () => sumWaiterTendersForBalance(amounts, tenders),
+    [amounts, tenders],
+  );
+  const waitersWithRedeem = useMemo(
+    () => sumWaiterTendersForBalance(waiterSums, tenders),
+    [waiterSums, tenders],
+  );
+
+  // Daily Sales Total proxy = Payment Total + Voucher Redeem − CC Gratuity.
   // Waiter Sales Total uses the entered Sales Total field (not Payment − tip).
   const enteredExGratuity = useMemo(
-    () => Math.round((enteredTotalGross - gratuityCc) * 100) / 100,
-    [enteredTotalGross, gratuityCc],
+    () => Math.round((enteredWithRedeem - gratuityCc) * 100) / 100,
+    [enteredWithRedeem, gratuityCc],
   );
   const waitersExGratuity = waiterSalesTotal;
   const exGratuityDifference =
@@ -1004,9 +1022,10 @@ function TenderVerificationColumn({
   const exGratuityBalanced =
     Math.abs(exGratuityDifference) <= ROUNDING_TOLERANCE;
 
-  // Same rule as waiter Entry balance: Payment Total = Sales Total + CC Gratuity.
+  // Same rule as waiter Entry balance: Payment Total + Voucher Redeem =
+  // Sales Total + CC Gratuity.
   const salesVsPaymentDiff = Math.round(
-    (waitersExGratuity + gratuityCc - waitersTotalGross) * 100,
+    (waitersExGratuity + gratuityCc - waitersWithRedeem) * 100,
   ) / 100;
   const salesVsPaymentBalanced =
     Math.abs(salesVsPaymentDiff) <= ROUNDING_TOLERANCE;
@@ -1078,7 +1097,7 @@ function TenderVerificationColumn({
           className="mt-1 grid items-center gap-x-2 px-2 py-1 text-[11px]"
           style={{ gridTemplateColumns: "minmax(0,1fr) auto auto auto" }}
         >
-          <span className="truncate text-black/60">CC Gratuity</span>
+          <span className="break-words leading-tight text-black/60">CC Gratuity</span>
           <span className="w-16 text-right tabular-nums text-black/60">
             {formatMoney(gratuityCc)}
           </span>
@@ -1090,7 +1109,7 @@ function TenderVerificationColumn({
             className="mt-1 grid items-center gap-x-2 px-2 py-1 text-[11px]"
             style={{ gridTemplateColumns: "minmax(0,1fr) auto auto auto" }}
           >
-            <span className="truncate text-black/60">Voucher Issue</span>
+            <span className="break-words leading-tight text-black/60">Voucher Issue</span>
             <span className="w-16 text-right tabular-nums text-black/60">
               {formatMoney(voucherIssueWaiters)}
             </span>
@@ -1104,7 +1123,7 @@ function TenderVerificationColumn({
           className="mt-1 grid items-center gap-x-2 border-t-2 border-black/25 px-2 pt-1.5 text-[11px] font-semibold"
           style={{ gridTemplateColumns: "minmax(0,1fr) auto auto auto" }}
         >
-          <span className="truncate text-black/70">Sales Total</span>
+          <span className="break-words leading-tight text-black/70">Sales Total</span>
           <span className="w-16 text-right tabular-nums text-black/70">
             {formatMoney(waitersExGratuity)}
           </span>
@@ -1133,7 +1152,7 @@ function TenderVerificationColumn({
           <span className="flex-1 text-center font-medium leading-tight">
             Sales Total + CC Gratuity VS
             <br />
-            Payment Total
+            Payment Total + Voucher Redeem
           </span>
           <span className="tabular-nums font-semibold uppercase">
             {salesVsPaymentBalanced
@@ -1358,6 +1377,7 @@ export function DailySalesEntryForm({
   waiterRecords,
   tenderTotals,
   vouchers,
+  voucherCreatorNames = {},
   totalTaxPct,
   taxSettings,
   canEdit,
@@ -1742,6 +1762,7 @@ export function DailySalesEntryForm({
           onChange={updateTenderTotal}
           saleDate={selectedDate}
           vouchers={vouchers}
+          voucherCreatorNames={voucherCreatorNames}
           canEditVouchers={canEditVouchers}
         />
         <div
