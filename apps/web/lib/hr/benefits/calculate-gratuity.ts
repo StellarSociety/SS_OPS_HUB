@@ -1,4 +1,5 @@
 import type {
+  BarFlowKey,
   BenefitContributor,
   BenefitRunTotals,
   DisciplinaryWarningLevel,
@@ -106,6 +107,11 @@ export type GratuityCalcResult = {
      * to collections. Filled after allocation when deduction entries apply.
      */
     benefitDeductions: number;
+    /**
+     * Bar tips left out of distribution this run (unticked on the run page)
+     * and booked to collections instead.
+     */
+    barExcluded: number;
     net: number;
     byDepartment: Record<string, number>;
   };
@@ -264,6 +270,11 @@ export function calculateGratuityRun(input: {
    * cash / CC tip-out and no runner / HK cut.
    */
   tipOutExemptStaffIds?: string[];
+  /**
+   * This run only: bar flows left out of distribution and booked to
+   * collections instead.
+   */
+  excludedBarFlows?: BarFlowKey[];
 }): GratuityCalcResult {
   const { settings, staff, waiterSales, scheduleDays } = input;
   const equalizeDepartmentPointValue = Boolean(
@@ -536,7 +547,29 @@ export function calculateGratuityRun(input: {
     });
   }
 
-  const tipPoolGross = round2(waiterCashTipOut + waiterCcTipOut + barCcToPool);
+  // Bar flows unticked on the run page are not distributed — booked to collections.
+  const excludedBarFlows = new Set(input.excludedBarFlows ?? []);
+  const barCcToPoolIncluded = excludedBarFlows.has("bar_cc_pool")
+    ? 0
+    : barCcToPool;
+  const barCashToShare = excludedBarFlows.has("bar_cash")
+    ? 0
+    : barCashCollected;
+  const barCcFundToShare = excludedBarFlows.has("bar_cc_bar_staff")
+    ? 0
+    : barCcBarStaffFund;
+  const barExcluded = round2(
+    barCcToPool -
+      barCcToPoolIncluded +
+      barCashCollected -
+      barCashToShare +
+      barCcBarStaffFund -
+      barCcFundToShare,
+  );
+
+  const tipPoolGross = round2(
+    waiterCashTipOut + waiterCcTipOut + barCcToPoolIncluded,
+  );
   const poolDeductions = resolvePoolDeductions({
     poolGross: tipPoolGross,
     osePercent: settings.poolOseDeductPercent,
@@ -783,10 +816,10 @@ export function calculateGratuityRun(input: {
   });
   let barCashToBarStaff = 0;
 
-  if (barCashCollected > 0 || barCcBarStaffFund > 0) {
+  if (barCashToShare > 0 || barCcFundToShare > 0) {
     if (barStaff.length === 0) {
       warnings.push(
-        `Bar tips of ${round2(barCashCollected + barCcBarStaffFund).toFixed(2)} AED could not be distributed — no bar staff with worked days for this period.`,
+        `Bar tips of ${round2(barCashToShare + barCcFundToShare).toFixed(2)} AED could not be distributed — no bar staff with worked days for this period.`,
       );
     } else {
       const barRows: WeightRow[] = barStaff.map((s) => {
@@ -809,45 +842,55 @@ export function calculateGratuityRun(input: {
       });
       const barWeight = barRows.reduce((sum, r) => sum + r.weight, 0);
 
-      if (barCashCollected > 0) {
-        if (settings.barCashEqualSplit) {
-          const each = round2(barCashCollected / barStaff.length);
-          for (const s of barStaff) {
-            addPoolPay(s.id, each);
-            const prev = waiterMetaByStaff.get(s.id) ?? {};
-            waiterMetaByStaff.set(s.id, { ...prev, barCashShare: each });
+      if (barCashToShare > 0) {
+        // Equal split is per head, scaled by (1 − disciplinary %): a 100%
+        // deduction gets nothing and their share goes to the other bar staff.
+        const headWeight = barRows.reduce((sum, r) => sum + r.discMult, 0);
+        if (settings.barCashEqualSplit && headWeight > 0) {
+          for (const r of barRows) {
+            const share =
+              r.discMult > 0
+                ? round2((barCashToShare * r.discMult) / headWeight)
+                : 0;
+            addPoolPay(r.staff.id, share);
+            const prev = waiterMetaByStaff.get(r.staff.id) ?? {};
+            waiterMetaByStaff.set(r.staff.id, { ...prev, barCashShare: share });
+            barCashToBarStaff = round2(barCashToBarStaff + share);
           }
-          barCashToBarStaff = round2(each * barStaff.length);
+        } else if (settings.barCashEqualSplit) {
+          warnings.push(
+            `Bar cash tips of ${barCashToShare.toFixed(2)} AED could not be distributed — all bar staff have a full disciplinary deduction.`,
+          );
         } else if (barWeight > 0) {
-          distributeAmountToRows(barCashCollected, barRows);
+          distributeAmountToRows(barCashToShare, barRows);
           for (const r of barRows) {
             const prev = waiterMetaByStaff.get(r.staff.id) ?? {};
             waiterMetaByStaff.set(r.staff.id, {
               ...prev,
-              barCashShare: round2((barCashCollected * r.weight) / barWeight),
+              barCashShare: round2((barCashToShare * r.weight) / barWeight),
             });
           }
-          barCashToBarStaff = round2(barCashCollected);
+          barCashToBarStaff = round2(barCashToShare);
         } else {
           warnings.push(
-            `Bar cash tips of ${barCashCollected.toFixed(2)} AED could not be distributed — all bar staff weights are zero.`,
+            `Bar cash tips of ${barCashToShare.toFixed(2)} AED could not be distributed — all bar staff weights are zero.`,
           );
         }
       }
 
-      if (barCcBarStaffFund > 0) {
+      if (barCcFundToShare > 0) {
         if (barWeight <= 0) {
           warnings.push(
-            `Bar CC staff share of ${barCcBarStaffFund.toFixed(2)} AED could not be distributed — all bar staff weights are zero.`,
+            `Bar CC staff share of ${barCcFundToShare.toFixed(2)} AED could not be distributed — all bar staff weights are zero.`,
           );
         } else {
-          distributeAmountToRows(barCcBarStaffFund, barRows);
+          distributeAmountToRows(barCcFundToShare, barRows);
           for (const r of barRows) {
             const prev = waiterMetaByStaff.get(r.staff.id) ?? {};
             waiterMetaByStaff.set(r.staff.id, {
               ...prev,
               barCcFundShare: round2(
-                (barCcBarStaffFund * r.weight) / barWeight,
+                (barCcFundToShare * r.weight) / barWeight,
               ),
             });
           }
@@ -1107,6 +1150,7 @@ export function calculateGratuityRun(input: {
       withheldRetain,
       withheldRetainToPool: withheldRetainAddedToPool,
       benefitDeductions: 0,
+      barExcluded,
       net: poolNet,
       byDepartment,
     },

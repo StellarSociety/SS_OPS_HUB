@@ -11,6 +11,7 @@ import {
   loadWaiterGratuityCollectionDaysByStaff,
   mergeGratuitySettings,
   missedGratuityPoolRecipientWarning,
+  parseExcludedBarFlows,
   readStaffOverridesFromSnapshot,
   BENEFITS_WORKED_DAYS_RULE,
   type BenefitContributor,
@@ -296,6 +297,7 @@ export default async function HrBenefitsGratuityRunPage({ params }: Props) {
       allocationWorkedDaysByStaff={allocationWorkedDaysByStaff}
       waiveWithheldRetain={snapshot.waiveWithheldRetain === true}
       withheldRetainToPool={snapshot.withheldRetainToPool === true}
+      excludedBarFlows={parseExcludedBarFlows(snapshot.excludedBarFlows)}
     />
   );
 }

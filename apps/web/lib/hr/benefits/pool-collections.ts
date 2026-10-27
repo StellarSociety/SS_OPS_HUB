@@ -20,6 +20,7 @@ export type BenefitPoolCollectionsRow = {
   rounding_amount: number;
   withheld_retain_amount: number;
   benefit_deduction_amount: number;
+  bar_excluded_amount: number;
   notes: string | null;
   updated_at: string;
 };
@@ -30,6 +31,7 @@ export type BenefitPoolCollectionsAmounts = {
   roundingAmount?: number;
   withheldRetainAmount?: number;
   benefitDeductionAmount?: number;
+  barExcludedAmount?: number;
 };
 
 /** Gratuity run general pool gross — used to suggest collection amounts. */
@@ -44,6 +46,8 @@ export type GratuityRunPoolHint = {
   withheldRetain: number | null;
   /** Benefit deductions taken from staff payouts; null when the run predates this field. */
   benefitDeductions: number | null;
+  /** Bar tips left out of distribution on the run; null when the run predates this field. */
+  barExcluded: number | null;
 };
 
 function round2(n: number): number {
@@ -128,6 +132,16 @@ function parseGratuityBenefitDeductions(totals: unknown): number | null {
     | undefined;
   if (pool?.benefitDeductions == null) return null;
   const value = Number(pool.benefitDeductions);
+  return Number.isFinite(value) ? Math.max(0, value) : null;
+}
+
+function parseGratuityBarExcluded(totals: unknown): number | null {
+  if (!totals || typeof totals !== "object") return null;
+  const pool = (totals as Record<string, unknown>).pool as
+    | Record<string, unknown>
+    | undefined;
+  if (pool?.barExcluded == null) return null;
+  const value = Number(pool.barExcluded);
   return Number.isFinite(value) ? Math.max(0, value) : null;
 }
 
@@ -406,6 +420,9 @@ export function suggestedPoolCollectionsFromGratuityRun(
     ...(hint.benefitDeductions == null
       ? {}
       : { benefitDeductionAmount: hint.benefitDeductions }),
+    ...(hint.barExcluded == null
+      ? {}
+      : { barExcludedAmount: hint.barExcluded }),
   };
 }
 
@@ -449,6 +466,7 @@ export async function listGratuityRunPoolHintsByMonth(
       roundingCollected: parseGratuityRoundingCollected(row.totals),
       withheldRetain: parseGratuityWithheldRetain(row.totals),
       benefitDeductions: parseGratuityBenefitDeductions(row.totals),
+      barExcluded: parseGratuityBarExcluded(row.totals),
     };
   }
 
@@ -482,10 +500,41 @@ export async function listGratuityRunPoolHintsByMonth(
   return out;
 }
 
+const POOL_COLLECTIONS_COLUMNS =
+  "id, benefit_month, ose_amount, staff_activities_amount, rounding_amount, withheld_retain_amount, benefit_deduction_amount, bar_excluded_amount, notes, updated_at";
+
 export async function listBenefitPoolCollections(
   service: SupabaseClient,
   venueId: string,
 ): Promise<BenefitPoolCollectionsRow[]> {
+  const { data, error } = await service
+    .from("hr_benefit_pool_collections")
+    .select(POOL_COLLECTIONS_COLUMNS)
+    .eq("venue_id", venueId)
+    .order("benefit_month", { ascending: false });
+  if (error) {
+    // Pre-migration: fall back to the older column sets.
+    const legacy = await listBenefitPoolCollectionsLegacy(service, venueId);
+    return legacy.map((row) => ({ ...row, bar_excluded_amount: 0 }));
+  }
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    benefit_month: String(row.benefit_month).slice(0, 10),
+    ose_amount: asAmount(row.ose_amount),
+    staff_activities_amount: asAmount(row.staff_activities_amount),
+    rounding_amount: asAmount(row.rounding_amount),
+    withheld_retain_amount: asAmount(row.withheld_retain_amount),
+    benefit_deduction_amount: asAmount(row.benefit_deduction_amount),
+    bar_excluded_amount: asAmount(row.bar_excluded_amount),
+    notes: (row.notes as string | null) ?? null,
+    updated_at: String(row.updated_at),
+  }));
+}
+
+async function listBenefitPoolCollectionsLegacy(
+  service: SupabaseClient,
+  venueId: string,
+): Promise<Omit<BenefitPoolCollectionsRow, "bar_excluded_amount">[]> {
   const { data, error } = await service
     .from("hr_benefit_pool_collections")
     .select(
@@ -598,6 +647,29 @@ export async function loadBenefitPoolCollectionsForMonth(
   venueId: string,
   benefitMonth: string,
 ): Promise<BenefitPoolCollectionsAmounts | null> {
+  const amounts = await loadBenefitPoolCollectionsForMonthLegacy(
+    service,
+    venueId,
+    benefitMonth,
+  );
+  if (!amounts) return null;
+  const { data, error } = await service
+    .from("hr_benefit_pool_collections")
+    .select("bar_excluded_amount")
+    .eq("venue_id", venueId)
+    .eq("benefit_month", benefitMonthToDate(benefitMonth))
+    .maybeSingle();
+  return {
+    ...amounts,
+    barExcludedAmount: error ? 0 : asAmount(data?.bar_excluded_amount),
+  };
+}
+
+async function loadBenefitPoolCollectionsForMonthLegacy(
+  service: SupabaseClient,
+  venueId: string,
+  benefitMonth: string,
+): Promise<BenefitPoolCollectionsAmounts | null> {
   const monthDate = benefitMonthToDate(benefitMonth);
 
   const { data, error } = await service
@@ -690,8 +762,30 @@ export async function loadBenefitPoolCollectionsForMonth(
   };
 }
 
-/** Keep rounding, withheld retain, and benefit deductions on an existing collections row in sync with the run. */
+/** Keep rounding, withheld retain, benefit deductions, and excluded bar tips on an existing collections row in sync with the run. */
 export async function syncDerivedPoolCollectionsFromGratuityRun(args: {
+  service: SupabaseClient;
+  venueId: string;
+  benefitMonth: string;
+  roundingAmount: number;
+  withheldRetainAmount: number;
+  benefitDeductionAmount: number;
+  barExcludedAmount: number;
+  userId: string;
+}): Promise<void> {
+  await syncDerivedPoolCollectionsLegacy(args);
+  const { error } = await args.service
+    .from("hr_benefit_pool_collections")
+    .update({ bar_excluded_amount: round2(Math.max(0, args.barExcludedAmount)) })
+    .eq("venue_id", args.venueId)
+    .eq("benefit_month", benefitMonthToDate(args.benefitMonth));
+  // Pre-migration: the column may not exist yet.
+  if (error && !/bar_excluded_amount|hr_benefit_pool_collections|schema cache/i.test(error.message)) {
+    throw new Error(error.message);
+  }
+}
+
+async function syncDerivedPoolCollectionsLegacy(args: {
   service: SupabaseClient;
   venueId: string;
   benefitMonth: string;

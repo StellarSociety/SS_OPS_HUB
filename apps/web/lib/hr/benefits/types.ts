@@ -473,3 +473,12 @@ export type BenefitPeriod = {
   periodEnd: string;
   distributionDate: string;
 };
+
+/** Bar tip flows that can be left out of a gratuity run's distribution. */
+export const BAR_FLOW_KEYS = ["bar_cash", "bar_cc_pool", "bar_cc_bar_staff"] as const;
+export type BarFlowKey = (typeof BAR_FLOW_KEYS)[number];
+
+export function parseExcludedBarFlows(value: unknown): BarFlowKey[] {
+  if (!Array.isArray(value)) return [];
+  return BAR_FLOW_KEYS.filter((key) => value.includes(key));
+}

@@ -70,6 +70,7 @@ function initialAmountsForMonth(
   activities: string;
   rounding: string;
   withheldRetain: string;
+  barExcluded: string;
   deducted: string;
   notes: string;
 } {
@@ -91,6 +92,7 @@ function initialAmountsForMonth(
       activities: String(existing.staff_activities_amount),
       rounding: String(existing.rounding_amount ?? 0),
       withheldRetain: String(existing.withheld_retain_amount ?? 0),
+      barExcluded: String(existing.bar_excluded_amount ?? 0),
       deducted: deductedAmountFromSources(
         existing.benefit_deduction_amount,
         suggested?.benefitDeductionAmount,
@@ -109,6 +111,10 @@ function initialAmountsForMonth(
         suggested.withheldRetainAmount == null
           ? ""
           : String(suggested.withheldRetainAmount),
+      barExcluded:
+        suggested.barExcludedAmount == null
+          ? ""
+          : String(suggested.barExcludedAmount),
       deducted: deductedAmountFromSources(
         null,
         suggested.benefitDeductionAmount,
@@ -122,6 +128,7 @@ function initialAmountsForMonth(
     activities: "",
     rounding: "",
     withheldRetain: "",
+    barExcluded: "",
     deducted: "",
     notes: "",
   };
@@ -170,6 +177,9 @@ export function BenefitPoolCollectionsPanel({
   const [roundingAmount, setRoundingAmount] = useState(initialAmounts.rounding);
   const [withheldRetainAmount, setWithheldRetainAmount] = useState(
     initialAmounts.withheldRetain,
+  );
+  const [barExcludedAmount, setBarExcludedAmount] = useState(
+    initialAmounts.barExcluded,
   );
   const [deductedAmount, setDeductedAmount] = useState(initialAmounts.deducted);
   const [notes, setNotes] = useState(initialAmounts.notes);
@@ -222,6 +232,11 @@ export function BenefitPoolCollectionsPanel({
         ? ""
         : String(suggested.withheldRetainAmount),
     );
+    setBarExcludedAmount(
+      suggested.barExcludedAmount == null
+        ? ""
+        : String(suggested.barExcludedAmount),
+    );
     setDeductedAmount(
       suggested.benefitDeductionAmount == null
         ? ""
@@ -235,6 +250,7 @@ export function BenefitPoolCollectionsPanel({
     setActivitiesAmount(String(row.staff_activities_amount));
     setRoundingAmount(String(row.rounding_amount ?? 0));
     setWithheldRetainAmount(String(row.withheld_retain_amount ?? 0));
+    setBarExcludedAmount(String(row.bar_excluded_amount ?? 0));
     const hint = gratuityRunByMonth[monthKeyFromDate(row.benefit_month)];
     setDeductedAmount(
       deductedAmountFromSources(
@@ -275,6 +291,7 @@ export function BenefitPoolCollectionsPanel({
       setActivitiesAmount(String(existing.staff_activities_amount));
       setRoundingAmount(String(existing.rounding_amount ?? 0));
       setWithheldRetainAmount(String(existing.withheld_retain_amount ?? 0));
+      setBarExcludedAmount(String(existing.bar_excluded_amount ?? 0));
       setDeductedAmount(
         deductedAmountFromSources(
           existing.benefit_deduction_amount,
@@ -293,6 +310,7 @@ export function BenefitPoolCollectionsPanel({
     setActivitiesAmount("");
     setRoundingAmount("");
     setWithheldRetainAmount("");
+    setBarExcludedAmount("");
     setDeductedAmount("");
   }
 
@@ -538,6 +556,32 @@ export function BenefitPoolCollectionsPanel({
             </div>
             <div className="space-y-1.5">
               <label
+                htmlFor="bar_excluded_amount"
+                className="block text-xs font-medium text-black/55"
+              >
+                Bar tips · not distributed
+              </label>
+              <input
+                id="bar_excluded_amount"
+                name="bar_excluded_amount"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={barExcludedAmount}
+                onChange={(e) => setBarExcludedAmount(e.target.value)}
+                disabled={pending}
+                className={fieldClass}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-black/45">
+                {suggestedFromRun?.barExcludedAmount != null
+                  ? `From gratuity run: ${formatMoney(suggestedFromRun.barExcludedAmount)} — bar tip lines unticked on the run.`
+                  : "Bar tip lines left out of the gratuity distribution."}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label
                 htmlFor="benefit_deduction_amount"
                 className="block text-xs font-medium text-black/55"
               >
@@ -618,7 +662,8 @@ export function BenefitPoolCollectionsPanel({
           <p className="text-sm text-black/55">
             Amounts kept from the gratuity settlement: OS&amp;E, staff
             activities, rounding remainders, withheld retain that was not
-            paid, and amounts deducted from staff payouts.
+            paid, bar tips left out of distribution, and amounts deducted
+            from staff payouts.
           </p>
         </div>
 
@@ -640,6 +685,9 @@ export function BenefitPoolCollectionsPanel({
                   Withheld retain
                 </th>
                 <th className="px-3 py-2.5 font-medium text-right">
+                  Bar not distributed
+                </th>
+                <th className="px-3 py-2.5 font-medium text-right">
                   Deducted
                 </th>
                 <th className="px-3 py-2.5 font-medium text-right">Total</th>
@@ -651,7 +699,7 @@ export function BenefitPoolCollectionsPanel({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={canEdit ? 9 : 8}
+                    colSpan={canEdit ? 10 : 9}
                     className="px-3 py-12 text-center text-sm text-black/45"
                   >
                     No collections recorded yet. Enter amounts for a benefit
@@ -673,6 +721,7 @@ export function BenefitPoolCollectionsPanel({
                     row.staff_activities_amount +
                     (row.rounding_amount ?? 0) +
                     (row.withheld_retain_amount ?? 0) +
+                    (row.bar_excluded_amount ?? 0) +
                     (Number.isFinite(deducted) ? deducted : 0);
                   return (
                     <tr
@@ -693,6 +742,9 @@ export function BenefitPoolCollectionsPanel({
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {formatMoney(row.withheld_retain_amount ?? 0)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {formatMoney(row.bar_excluded_amount ?? 0)}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         {formatMoney(Number.isFinite(deducted) ? deducted : 0)}

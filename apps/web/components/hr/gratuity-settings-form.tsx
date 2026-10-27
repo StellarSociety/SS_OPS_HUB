@@ -497,7 +497,7 @@ export function GratuitySettingsForm({
               name="bar_cash_equal_split"
               defaultChecked={settings.barCashEqualSplit}
               label="Split bar cash tips equally among bar staff"
-              hint="SOP 6.1: equal split. When off, bar cash follows the points × worked days rule instead."
+              hint="SOP 6.1: equal split, reduced by each person's disciplinary %. When off, bar cash follows the points × worked days rule instead."
             />
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Bar CC → general pool %" hint="SOP: 50%.">

@@ -298,6 +298,12 @@ export function BenefitPoolCollectionsExportDialog({
               </dd>
             </div>
             <div className="flex justify-between gap-3">
+              <dt className="text-black/55">Bar not distributed</dt>
+              <dd className="font-medium tabular-nums text-[#3D421F]">
+                {formatAed(summary.barExcluded)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
               <dt className="text-black/55">Deducted</dt>
               <dd className="font-medium tabular-nums text-[#3D421F]">
                 {formatAed(summary.deducted)}

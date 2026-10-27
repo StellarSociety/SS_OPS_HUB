@@ -34,6 +34,7 @@ import {
   recalculateBenefitRun,
   saveBenefitRunDraft,
   updateBenefitRunAsphKpiThreshold,
+  updateBenefitRunBarFlowIncluded,
   updateBenefitRunDepartmentShares,
   updateBenefitRunTipOutExempt,
   updateBenefitRunWithheldRetainDisposition,
@@ -57,6 +58,7 @@ import {
   type BenefitPayoutMap,
   type BenefitRunRosterMap,
   type BenefitDeductionEntry,
+  type BarFlowKey,
   type BenefitRunStatus,
   type BenefitRunTotals,
   type DisciplinaryWarningLevel,
@@ -100,13 +102,24 @@ function TipBreakdownRow({
   indent = 0,
   tone = "row",
   negative = false,
+  include,
+  includeSlot = false,
 }: {
   label: string;
   value: number;
   indent?: 0 | 1 | 2;
   tone?: "group" | "row" | "total";
   negative?: boolean;
+  /** Tick on the right: include this amount in the distribution or not. */
+  include?: {
+    checked: boolean;
+    disabled?: boolean;
+    onChange: (checked: boolean) => void;
+  };
+  /** Reserve the tick column so values line up with ticked rows. */
+  includeSlot?: boolean;
 }) {
+  const excluded = include ? !include.checked : false;
   return (
     <div
       className={cn(
@@ -118,7 +131,7 @@ function TipBreakdownRow({
     >
       <dt
         className={cn(
-          "min-w-0 leading-snug",
+          "min-w-0 flex-1 leading-snug",
           indent === 1 && "pl-3",
           indent === 2 && "pl-5",
           tone === "group" && "font-medium text-[#3D421F]",
@@ -138,9 +151,32 @@ function TipBreakdownRow({
               : "font-medium text-black/65",
         )}
       >
-        {negative ? "−" : ""}
-        {formatMoney(value)}
+        <span className={cn(excluded && "text-black/35 line-through")}>
+          {negative ? "−" : ""}
+          {formatMoney(value)}
+        </span>
       </dd>
+      {include ? (
+        <input
+          type="checkbox"
+          checked={include.checked}
+          disabled={include.disabled}
+          onChange={(e) => include.onChange(e.target.checked)}
+          className="m-0 h-4 w-4 shrink-0 self-center rounded border-black/20 accent-[var(--venue-primary,#818a40)]"
+          aria-label={
+            include.checked
+              ? `Leave ${label} out of the distribution`
+              : `Include ${label} in the distribution`
+          }
+          title={
+            include.checked
+              ? "Included in the distribution — untick to book it to Collections"
+              : "Not distributed — booked to Collections"
+          }
+        />
+      ) : includeSlot ? (
+        <span aria-hidden className="w-4 shrink-0" />
+      ) : null}
     </div>
   );
 }
@@ -938,6 +974,7 @@ export function BenefitRunClient({
   allocationWorkedDaysByStaff = {},
   waiveWithheldRetain = false,
   withheldRetainToPool = false,
+  excludedBarFlows = [],
 }: {
   kind: BenefitKind;
   run: {
@@ -989,6 +1026,8 @@ export function BenefitRunClient({
   waiveWithheldRetain?: boolean;
   /** This run only: add withheld retain to the allocation share pool. */
   withheldRetainToPool?: boolean;
+  /** This run only: bar tip lines left out of distribution (booked to collections). */
+  excludedBarFlows?: BarFlowKey[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -1099,6 +1138,7 @@ export function BenefitRunClient({
       activitiesFromRetain?: number;
       withheldRetain?: number;
       withheldRetainToPool?: number;
+      barExcluded?: number;
       benefitDeductions?: number;
       net?: number;
       byDepartment?: Record<string, number>;
@@ -1176,6 +1216,32 @@ export function BenefitRunClient({
       setWarnings(result.warnings ?? []);
       router.refresh();
     });
+  }
+
+  function setBarFlowIncluded(flow: BarFlowKey, included: boolean) {
+    if (!canEditAllocations) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await updateBenefitRunBarFlowIncluded(
+        run.id,
+        flow,
+        included,
+      );
+      if (!result.ok) {
+        setError(result.error ?? "Could not update bar tips.");
+        return;
+      }
+      setWarnings(result.warnings ?? []);
+      router.refresh();
+    });
+  }
+
+  function barFlowInclude(flow: BarFlowKey) {
+    return {
+      checked: !excludedBarFlows.includes(flow),
+      disabled: !canEditAllocations || pending,
+      onChange: (checked: boolean) => setBarFlowIncluded(flow, checked),
+    };
   }
 
   function setTipOutExempt(staffId: string, exempt: boolean) {
@@ -1960,12 +2026,26 @@ export function BenefitRunClient({
     Number(totals.pool?.barCashToBarStaff) > 0
       ? Number(totals.pool?.barCashToBarStaff)
       : barCashCollected;
+  const barCashExcluded = excludedBarFlows.includes("bar_cash");
+  const barCcPoolExcluded = excludedBarFlows.includes("bar_cc_pool");
+  const barCcStaffExcluded = excludedBarFlows.includes("bar_cc_bar_staff");
+  const barExcluded =
+    Number(totals.pool?.barExcluded) > 0
+      ? Number(totals.pool?.barExcluded)
+      : round2(
+          (barCashExcluded ? barCashCollected : 0) +
+            (barCcPoolExcluded ? barCcToPool : 0) +
+            (barCcStaffExcluded ? barCcToBarStaff : 0),
+        );
   const generalPoolGross =
     Number(totals.pool?.gross) > 0
       ? Number(totals.pool?.gross)
       : round2(waiterCashTipOut + waiterCcTipOut + barCcToPool);
   const runnerHkFund = Number(totals.pool?.runnerHousekeeperFund) || 0;
-  const barStaffFund = round2(barCcToBarStaff + barCashToBarStaff);
+  const barStaffFund = round2(
+    (barCcStaffExcluded ? 0 : barCcToBarStaff) +
+      (barCashExcluded ? 0 : barCashToBarStaff),
+  );
   const oseTotal = Number(totals.pool?.ose) || 0;
   const activitiesTotal = Number(totals.pool?.activities) || 0;
   const oseFromPool =
@@ -2021,6 +2101,7 @@ export function BenefitRunClient({
       activitiesTotal +
       roundingCollected +
       withheldRetain +
+      barExcluded +
       deductedThisRun,
   );
 
@@ -3028,32 +3109,32 @@ export function BenefitRunClient({
       ) : null}
 
       {contributorAlsoAllocated.length > 0 ? (
-        <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-950">
-          <p className="flex items-center gap-2 font-medium">
-            <AlertTriangle className="size-4 shrink-0 text-rose-700" aria-hidden />
-            Alert
+        <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-950">
+          <p className="flex items-start gap-2 text-rose-900/85">
+            <AlertTriangle
+              className="mt-0.5 size-4 shrink-0 text-rose-700"
+              aria-hidden
+            />
+            <span>
+              <span className="font-medium text-rose-950">Alert · </span>
+              Listed under both Contributors and Allocations — tip collectors
+              should not also receive a pool share (paid twice).
+            </span>
           </p>
-          <p className="mt-1 text-rose-900/85">
-            These employees are listed under Contributors and Allocations.
-            Tip collectors should not also receive a pool share — they would be
-            paid twice.
-          </p>
-          <ul className="mt-3 space-y-2 text-rose-900/85">
+          <ul className="mt-1.5 flex flex-wrap gap-1.5 text-rose-900/85">
             {contributorAlsoAllocated.map((row) => (
               <li
                 key={row.staffId}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-rose-200 bg-white/60 px-3 py-2"
+                className="flex items-center gap-2 rounded-md border border-rose-200 bg-white/60 py-0.5 pl-2.5 pr-1 text-xs"
               >
                 <span>
                   {row.empNo !== "—" ? `${row.empNo} · ` : ""}
                   {row.name}
                 </span>
-                <label className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-rose-900/70">
-                    Pay from
-                  </span>
+                <label className="flex items-center gap-1.5">
+                  <span className="text-rose-900/60">Pay from</span>
                   <select
-                    className="h-8 rounded-md border border-rose-300 bg-white px-2 text-xs text-rose-950 outline-none focus:ring-2 focus:ring-rose-400/40"
+                    className="h-6 rounded border border-rose-300 bg-white px-1.5 text-xs text-rose-950 outline-none focus:ring-2 focus:ring-rose-400/40"
                     value={row.payoutSource}
                     disabled={!canEditAllocations || pending}
                     onChange={(event) =>
@@ -3140,61 +3221,80 @@ export function BenefitRunClient({
                 Collected
               </p>
               <TipBreakdownRow
+                includeSlot
                 label="All bar collections"
                 value={allBarCollections}
                 tone="group"
               />
               <TipBreakdownRow
+                includeSlot
                 label="Cash"
                 value={barCashCollected}
                 indent={1}
               />
               <TipBreakdownRow
+                includeSlot
                 label={
                   poolContributionRule?.barCashEqualSplit
                     ? "→ bar staff (equal split)"
                     : "→ bar staff"
                 }
-                value={barCashToBarStaff}
+                value={barCashExcluded ? barCashCollected : barCashToBarStaff}
                 indent={2}
+                include={barFlowInclude("bar_cash")}
               />
-              <TipBreakdownRow label="Card" value={barCcCollected} indent={1} />
               <TipBreakdownRow
+                includeSlot
+                label="Card"
+                value={barCcCollected}
+                indent={1}
+              />
+              <TipBreakdownRow
+                includeSlot
                 label={`→ general pool (${barCcPoolPercent}%)`}
                 value={barCcToPool}
                 indent={2}
+                include={barFlowInclude("bar_cc_pool")}
               />
               <TipBreakdownRow
+                includeSlot
                 label={`→ bar staff (${barCcBarStaffPercent}%)`}
                 value={barCcToBarStaff}
                 indent={2}
+                include={barFlowInclude("bar_cc_bar_staff")}
               />
               <TipBreakdownRow
+                includeSlot
                 label="Waiter cash tips"
                 value={waiterCashCollected}
                 tone="group"
               />
               <TipBreakdownRow
+                includeSlot
                 label={`→ after tip-out (${waiterCashRetainPct}%)`}
                 value={waiterCashRetain}
                 indent={1}
               />
               <TipBreakdownRow
+                includeSlot
                 label={`→ general pool (${waiterCashPoolPct}%)`}
                 value={waiterCashTipOut}
                 indent={1}
               />
               <TipBreakdownRow
+                includeSlot
                 label="Waiter CC tips"
                 value={waiterCcCollected}
                 tone="group"
               />
               <TipBreakdownRow
+                includeSlot
                 label="→ after tip-out"
                 value={waiterCcRetain}
                 indent={1}
               />
               <TipBreakdownRow
+                includeSlot
                 label={
                   waiterCcPoolPct == null
                     ? "→ general pool (ASPH tip-out)"
@@ -3208,12 +3308,14 @@ export function BenefitRunClient({
                 Divided to
               </p>
               <TipBreakdownRow
+                includeSlot
                 label="Allocations Share"
                 value={allocationsShare}
                 tone="group"
               />
               {withheldRetainToPoolAmount > 0 ? (
                 <TipBreakdownRow
+                includeSlot
                   label="withheld retain → pool"
                   value={withheldRetainToPoolAmount}
                   indent={1}
@@ -3221,6 +3323,7 @@ export function BenefitRunClient({
               ) : null}
               {disciplinaryFromContributors > 0 ? (
                 <TipBreakdownRow
+                includeSlot
                   label="disciplinary → pool"
                   value={disciplinaryFromContributors}
                   indent={1}
@@ -3228,6 +3331,7 @@ export function BenefitRunClient({
               ) : null}
               {deductedThisRun > 0 ? (
                 <TipBreakdownRow
+                includeSlot
                   label="Deducted"
                   value={deductedThisRun}
                   indent={1}
@@ -3235,22 +3339,26 @@ export function BenefitRunClient({
                 />
               ) : null}
               <TipBreakdownRow
+                includeSlot
                 label="Collections"
                 value={collectionsTotal}
                 tone="group"
               />
               <TipBreakdownRow
+                includeSlot
                 label="Waiters retain"
                 value={waitersRetainPaid}
                 tone="group"
               />
               <TipBreakdownRow
+                includeSlot
                 label="Rounding collection"
                 value={roundingCollected}
                 tone="group"
                 negative
               />
               <TipBreakdownRow
+                includeSlot
                 label="Total tips"
                 value={totalTips}
                 tone="total"
@@ -3307,6 +3415,13 @@ export function BenefitRunClient({
                 value={withheldRetain}
                 tone="group"
               />
+              {barExcluded > 0 ? (
+                <TipBreakdownRow
+                  label="Bar tips · not distributed"
+                  value={barExcluded}
+                  tone="group"
+                />
+              ) : null}
               {deductedThisRun > 0 ? (
                 <TipBreakdownRow
                   label="Deducted"

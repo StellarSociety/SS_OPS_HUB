@@ -22,6 +22,7 @@ function row(
     rounding_amount: partial.rounding_amount ?? 0,
     withheld_retain_amount: partial.withheld_retain_amount ?? 0,
     benefit_deduction_amount: partial.benefit_deduction_amount ?? 0,
+    bar_excluded_amount: partial.bar_excluded_amount ?? 0,
     notes: partial.notes ?? null,
     updated_at: partial.updated_at ?? "2026-08-01T00:00:00Z",
   };
@@ -38,6 +39,7 @@ function hint(
     roundingCollected: partial.roundingCollected ?? 0,
     withheldRetain: partial.withheldRetain ?? 0,
     benefitDeductions: partial.benefitDeductions ?? 0,
+    barExcluded: partial.barExcluded ?? 0,
   };
 }
 
@@ -135,6 +137,7 @@ describe("pool-collections-export", () => {
       activities: 11,
       rounding: 2,
       withheldRetain: 4,
+      barExcluded: 0,
       deducted: 7,
       total: 54,
     });

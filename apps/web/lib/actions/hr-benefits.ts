@@ -16,6 +16,9 @@ import {
   isBenefitRunLocked,
   readStaffOverridesFromSnapshot,
   withStaffOverridesOnSnapshot,
+  BAR_FLOW_KEYS,
+  parseExcludedBarFlows,
+  type BarFlowKey,
   type BenefitKind,
   type BenefitStaffOverride,
   type CreateBenefitDeductionInput,
@@ -1055,6 +1058,89 @@ export async function updateBenefitRunAsphKpiThreshold(
 
 export type WithheldRetainDisposition = "collections" | "waive" | "pool";
 
+/** This run only: include or leave out one bar tip flow from distribution. */
+export async function updateBenefitRunBarFlowIncluded(
+  runId: string,
+  flow: BarFlowKey,
+  included: boolean,
+): Promise<BenefitActionResult & { warnings?: string[] }> {
+  const auth = await getBenefitsAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { user, venue, permissions } = auth;
+
+  if (!canEditBenefits(permissions, venue.id)) {
+    return { ok: false, error: "No permission to edit this benefit run." };
+  }
+  if (!BAR_FLOW_KEYS.includes(flow)) {
+    return { ok: false, error: "Invalid bar tip line." };
+  }
+
+  try {
+    const service = createServiceClient();
+    const { data: run, error } = await service
+      .from("hr_benefit_runs")
+      .select("id, status, settings_snapshot, benefit_kind")
+      .eq("id", runId)
+      .eq("venue_id", venue.id)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!run) return { ok: false, error: "Benefit run not found." };
+    if (run.benefit_kind !== "gratuity") {
+      return { ok: false, error: "Bar tip lines apply to gratuity runs only." };
+    }
+    if (isBenefitRunLocked(String(run.status))) {
+      return {
+        ok: false,
+        error: `Cannot change bar tips on a run in status "${run.status}".`,
+      };
+    }
+
+    const baseSnapshot =
+      (run.settings_snapshot as Record<string, unknown> | null) ?? {};
+    const current = new Set(parseExcludedBarFlows(baseSnapshot.excludedBarFlows));
+    if (included) current.delete(flow);
+    else current.add(flow);
+    const excludedBarFlows = BAR_FLOW_KEYS.filter((key) => current.has(key));
+
+    await service
+      .from("hr_benefit_runs")
+      .update({
+        settings_snapshot: { ...baseSnapshot, excludedBarFlows },
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", runId)
+      .eq("venue_id", venue.id);
+
+    const { warnings } = await persistCalculatedBenefitRun({
+      service,
+      venueId: venue.id,
+      runId,
+      kind: "gratuity",
+      userId: user.id,
+    });
+
+    await writeAuditLog({
+      actor_id: user.id,
+      venue_id: venue.id,
+      action: "benefits.bar_flow_included_updated",
+      module_key: HR_MODULE_KEY,
+      entity: "hr_benefit_runs",
+      entity_id: runId,
+      after: { flow, included, excludedBarFlows },
+    });
+
+    revalidateBenefits("gratuity", runId);
+    return { ok: true, id: runId, warnings };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Could not update bar tips",
+    };
+  }
+}
+
 /** This run only: choose where withheld retain goes. */
 export async function updateBenefitRunWithheldRetainDisposition(
   runId: string,
@@ -1418,6 +1504,7 @@ export async function saveBenefitPoolCollections(
     0,
     num(formData, "benefit_deduction_amount", 0),
   );
+  const barExcludedAmount = Math.max(0, num(formData, "bar_excluded_amount", 0));
   const notesRaw = String(formData.get("notes") ?? "").trim();
   const notes = notesRaw || null;
 
@@ -1432,6 +1519,7 @@ export async function saveBenefitPoolCollections(
       rounding_amount: roundingAmount,
       withheld_retain_amount: withheldRetainAmount,
       benefit_deduction_amount: benefitDeductionAmount,
+      bar_excluded_amount: barExcludedAmount,
       notes,
       updated_by: user.id,
       updated_at: now,
@@ -1473,6 +1561,7 @@ export async function saveBenefitPoolCollections(
         roundingAmount,
         withheldRetainAmount,
         benefitDeductionAmount,
+        barExcludedAmount,
       },
     });
 
@@ -1481,11 +1570,11 @@ export async function saveBenefitPoolCollections(
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Could not save pool collections";
-    if (/hr_benefit_pool_collections|schema cache|does not exist|rounding_amount|withheld_retain_amount|benefit_deduction_amount/i.test(message)) {
+    if (/hr_benefit_pool_collections|schema cache|does not exist|rounding_amount|withheld_retain_amount|benefit_deduction_amount|bar_excluded_amount/i.test(message)) {
       return {
         ok: false,
         error:
-          "Pool collections table needs a migration. Apply supabase/migrations/20260728060000_hr_benefit_pool_collections.sql, 20260728070000_hr_benefit_pool_collections_rounding.sql, 20260826024800_hr_benefit_pool_collections_withheld_retain.sql, and 20260826043700_hr_benefit_pool_collections_benefit_deduction.sql then retry.",
+          "Pool collections table needs a migration. Apply supabase/migrations/20260728060000_hr_benefit_pool_collections.sql, 20260728070000_hr_benefit_pool_collections_rounding.sql, 20260826024800_hr_benefit_pool_collections_withheld_retain.sql, 20260826043700_hr_benefit_pool_collections_benefit_deduction.sql, and 20261027220000_hr_benefit_pool_collections_bar_excluded.sql then retry.",
       };
     }
     return { ok: false, error: message };

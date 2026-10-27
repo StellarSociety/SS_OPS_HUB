@@ -15,6 +15,7 @@ import {
   mergeGratuitySettings,
   mergeServiceChargeSettings,
   isBenefitRunLocked,
+  parseExcludedBarFlows,
   type BenefitKind,
   type HrGratuitySettings,
   type HrServiceChargeSettings,
@@ -878,6 +879,7 @@ export async function persistCalculatedBenefitRun(args: {
       asphKpiThreshold,
       waiveWithheldRetain: snapshot.waiveWithheldRetain === true,
       withheldRetainToPool: snapshot.withheldRetainToPool === true,
+      excludedBarFlows: parseExcludedBarFlows(snapshot.excludedBarFlows),
       tipOutExemptStaffIds: Array.isArray(snapshot.tipOutExemptStaffIds)
         ? (snapshot.tipOutExemptStaffIds as unknown[]).filter(
             (id): id is string => typeof id === "string",
@@ -929,6 +931,7 @@ export async function persistCalculatedBenefitRun(args: {
         (Number(result.pool.activities) || 0) +
         (Number(result.pool.roundingCollected) || 0) +
         (Number(result.pool.withheldRetain) || 0) +
+        (Number(result.pool.barExcluded) || 0) +
         benefitDeductions,
     );
     totals = {
@@ -948,6 +951,7 @@ export async function persistCalculatedBenefitRun(args: {
       roundingAmount: result.pool.roundingCollected,
       withheldRetainAmount: result.pool.withheldRetain,
       benefitDeductionAmount: benefitDeductions,
+      barExcludedAmount: result.pool.barExcluded,
       userId,
     });
   } else {

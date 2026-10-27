@@ -23,6 +23,7 @@ export type PoolCollectionsExportMonth = {
   activities: number;
   rounding: number;
   withheldRetain: number;
+  barExcluded: number;
   deducted: number;
   notes: string;
   recorded: boolean;
@@ -87,6 +88,7 @@ export function sumPoolCollectionsMonths(months: PoolCollectionsExportMonth[]): 
   activities: number;
   rounding: number;
   withheldRetain: number;
+  barExcluded: number;
   deducted: number;
   total: number;
 } {
@@ -96,16 +98,30 @@ export function sumPoolCollectionsMonths(months: PoolCollectionsExportMonth[]): 
       activities: round2(acc.activities + row.activities),
       rounding: round2(acc.rounding + row.rounding),
       withheldRetain: round2(acc.withheldRetain + row.withheldRetain),
+      barExcluded: round2(acc.barExcluded + (row.barExcluded ?? 0)),
       deducted: round2(acc.deducted + row.deducted),
       total: round2(acc.total + monthTotal(row)),
     }),
-    { ose: 0, activities: 0, rounding: 0, withheldRetain: 0, deducted: 0, total: 0 },
+    {
+      ose: 0,
+      activities: 0,
+      rounding: 0,
+      withheldRetain: 0,
+      barExcluded: 0,
+      deducted: 0,
+      total: 0,
+    },
   );
 }
 
 export function monthTotal(row: PoolCollectionsExportMonth): number {
   return round2(
-    row.ose + row.activities + row.rounding + row.withheldRetain + row.deducted,
+    row.ose +
+      row.activities +
+      row.rounding +
+      row.withheldRetain +
+      (row.barExcluded ?? 0) +
+      row.deducted,
   );
 }
 
@@ -148,6 +164,9 @@ export function buildPoolCollectionsExportMonths(
     const withheldRetain = existing
       ? asAmount(existing.withheld_retain_amount)
       : asAmount(suggested?.withheldRetainAmount);
+    const barExcluded = existing
+      ? asAmount(existing.bar_excluded_amount)
+      : asAmount(suggested?.barExcludedAmount);
     const deducted = deductedFromSources(
       existing?.benefit_deduction_amount,
       suggested?.benefitDeductionAmount ?? hint?.benefitDeductions,
@@ -160,6 +179,7 @@ export function buildPoolCollectionsExportMonths(
       activities,
       rounding,
       withheldRetain,
+      barExcluded,
       deducted,
       notes: existing?.notes?.trim() ?? "",
       recorded: Boolean(existing),
@@ -244,6 +264,7 @@ function tableHeaders(osePercent: number, activitiesPercent: number): string[] {
     `Staff activities (${activitiesPercent}%)`,
     "Rounding",
     "Withheld retain",
+    "Bar not distributed",
     "Deducted",
     "Total",
     "Notes",
@@ -257,6 +278,7 @@ function bodyRows(months: PoolCollectionsExportMonth[]): string[][] {
     moneyPlain(row.activities),
     moneyPlain(row.rounding),
     moneyPlain(row.withheldRetain),
+    moneyPlain(row.barExcluded ?? 0),
     moneyPlain(row.deducted),
     moneyPlain(monthTotal(row)),
     row.notes,
@@ -364,6 +386,7 @@ async function exportPoolCollectionsPdf(
         moneyPlain(totals.activities),
         moneyPlain(totals.rounding),
         moneyPlain(totals.withheldRetain),
+        moneyPlain(totals.barExcluded),
         moneyPlain(totals.deducted),
         moneyPlain(totals.total),
         "",
@@ -396,6 +419,7 @@ async function exportPoolCollectionsPdf(
       4: { halign: "right" },
       5: { halign: "right" },
       6: { halign: "right" },
+      7: { halign: "right" },
     },
   });
 
@@ -428,6 +452,7 @@ async function exportPoolCollectionsExcel(
     Number(row.activities.toFixed(2)),
     Number(row.rounding.toFixed(2)),
     Number(row.withheldRetain.toFixed(2)),
+    Number((row.barExcluded ?? 0).toFixed(2)),
     Number(row.deducted.toFixed(2)),
     Number(monthTotal(row).toFixed(2)),
     row.notes,
@@ -438,6 +463,7 @@ async function exportPoolCollectionsExcel(
     Number(totals.activities.toFixed(2)),
     Number(totals.rounding.toFixed(2)),
     Number(totals.withheldRetain.toFixed(2)),
+    Number(totals.barExcluded.toFixed(2)),
     Number(totals.deducted.toFixed(2)),
     Number(totals.total.toFixed(2)),
     "",
