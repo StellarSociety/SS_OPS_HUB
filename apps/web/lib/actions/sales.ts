@@ -25,7 +25,10 @@ import {
   upsertVenueDailySales,
   upsertVenueSalesTaxSettings,
 } from "@/lib/sales/daily-sales-store";
-import { upsertVenueDailyTenderTotals } from "@/lib/sales/daily-tender-totals-store";
+import {
+  listVenueDailyTenderTotals,
+  upsertVenueDailyTenderTotals,
+} from "@/lib/sales/daily-tender-totals-store";
 import type { TaxSettingsInput } from "@/lib/sales/daily-sales-types";
 import { salesEntryCreateDateError } from "@/lib/sales/sales-entry-dates";
 import {
@@ -79,6 +82,7 @@ import {
 import { canEditRedeem } from "@/lib/guests-intel/permissions";
 import { SALES_MODULE_KEY } from "@/lib/sales/types";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 const SALES_WAITERS_PATHS = [
   "/sales/settings/waiters",
@@ -357,6 +361,192 @@ export async function saveVenueDailyTenderTotals(formData: FormData) {
     return { success: "Daily tender totals saved.", rows };
   } catch {
     return { error: "Could not save daily tender totals." };
+  }
+}
+
+/** Fetches one day's totals through a server action so the entry form can
+ * refresh tender fields without relying on an already-rendered route payload. */
+export async function getVenueDailyTenderTotalsForDate(saleDate: string) {
+  const { venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditVenueDaily(permissions, venue.id)) {
+    return { error: "You do not have permission to view daily sales." };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  try {
+    // This read follows an authenticated permission check above. Service-role
+    // access avoids a stale RLS/session response hiding rows that were saved
+    // moments earlier by the same user.
+    const rows = await listVenueDailyTenderTotals(
+      createServiceClient(),
+      venue.id,
+      saleDate,
+    );
+    return { rows };
+  } catch (error) {
+    console.error("Could not load daily tender totals", error);
+    return { error: "Could not load saved tender totals." };
+  }
+}
+
+/**
+ * Saves a complete Daily Sales entry as one database transaction. Daily figures
+ * and tender totals are reconciled as a unit, so a failed tender write cannot
+ * leave an apparently saved day with its tenders removed.
+ */
+export async function saveVenueDailySalesAndTenderTotals(formData: FormData) {
+  const { supabase, user, venue, permissions } = await getSalesAuthContext();
+
+  if (!canEditVenueDaily(permissions, venue.id)) {
+    return { error: "You do not have permission to edit daily sales." };
+  }
+
+  const saleDate = String(formData.get("sale_date") ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { error: "A valid sale date is required." };
+  }
+
+  const id = String(formData.get("id") ?? "").trim() || undefined;
+  const createDateError = salesEntryCreateDateError(saleDate, !id);
+  if (createDateError) return { error: createDateError };
+
+  const lunchCovers = parseCount(formData.get("lunch_covers"));
+  const dinnerCovers = parseCount(formData.get("dinner_covers"));
+  const lunchComplimentaryCovers = parseCount(
+    formData.get("lunch_complimentary_covers"),
+  );
+  const dinnerComplimentaryCovers = parseCount(
+    formData.get("dinner_complimentary_covers"),
+  );
+  if (lunchComplimentaryCovers > lunchCovers || dinnerComplimentaryCovers > dinnerCovers) {
+    return { error: "Complimentary Covers can't be more than Total Covers." };
+  }
+
+  const daily = {
+    sale_date: saleDate,
+    lunch_food_gs: parseMoney(formData.get("lunch_food_gs")),
+    lunch_beverages_gs: parseMoney(formData.get("lunch_beverages_gs")),
+    lunch_wine_gs: parseMoney(formData.get("lunch_wine_gs")),
+    lunch_shisha_gs: parseMoney(formData.get("lunch_shisha_gs")),
+    lunch_tobacco_gs: parseMoney(formData.get("lunch_tobacco_gs")),
+    lunch_others_gs: parseMoney(formData.get("lunch_others_gs")),
+    lunch_service_fees_gs: parseMoney(formData.get("lunch_service_fees_gs")),
+    lunch_covers: lunchCovers,
+    lunch_complimentary_covers: lunchComplimentaryCovers,
+    lunch_bookings: parseCount(formData.get("lunch_bookings")),
+    lunch_walkin_tables: parseCount(formData.get("lunch_walkin_tables")),
+    lunch_walkin_covers: parseCount(formData.get("lunch_walkin_covers")),
+    dinner_food_gs: parseMoney(formData.get("dinner_food_gs")),
+    dinner_beverages_gs: parseMoney(formData.get("dinner_beverages_gs")),
+    dinner_wine_gs: parseMoney(formData.get("dinner_wine_gs")),
+    dinner_shisha_gs: parseMoney(formData.get("dinner_shisha_gs")),
+    dinner_tobacco_gs: parseMoney(formData.get("dinner_tobacco_gs")),
+    dinner_others_gs: parseMoney(formData.get("dinner_others_gs")),
+    dinner_service_fees_gs: parseMoney(formData.get("dinner_service_fees_gs")),
+    dinner_covers: dinnerCovers,
+    dinner_complimentary_covers: dinnerComplimentaryCovers,
+    dinner_bookings: parseCount(formData.get("dinner_bookings")),
+    dinner_walkin_tables: parseCount(formData.get("dinner_walkin_tables")),
+    dinner_walkin_covers: parseCount(formData.get("dinner_walkin_covers")),
+    all_day_discount_gs: parseMoney(formData.get("all_day_discount_gs")),
+    vat_collected_gs: parseMoney(formData.get("vat_collected_gs")),
+    municipality_fee_collected_gs: parseMoney(
+      formData.get("municipality_fee_collected_gs"),
+    ),
+    service_charge_collected_gs: parseMoney(
+      formData.get("service_charge_collected_gs"),
+    ),
+  };
+
+  const tenders: { tender_id: string; amount_gs: number }[] = [];
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("tender_")) continue;
+    const tenderId = key.slice("tender_".length);
+    if (tenderId) tenders.push({ tender_id: tenderId, amount_gs: parseMoney(value) });
+  }
+
+  try {
+    const { data: existingRecord, error: existingError } = await supabase
+      .from("venue_daily_sales")
+      .select("*")
+      .eq("venue_id", venue.id)
+      .eq("sale_date", saleDate)
+      .maybeSingle();
+    if (existingError) throw existingError;
+
+    // A stale or malformed form must not be able to overwrite an existing day.
+    if (existingRecord && !id) {
+      return {
+        error:
+          "This date already has saved sales. Refresh the entry, then edit the saved record.",
+      };
+    }
+    if (id && existingRecord && existingRecord.id !== id) {
+      return { error: "This daily sales record has changed. Refresh before saving." };
+    }
+
+    const { data: existingTenders, error: existingTendersError } = await supabase
+      .from("venue_daily_tender_totals")
+      .select("*")
+      .eq("venue_id", venue.id)
+      .eq("sale_date", saleDate);
+    if (existingTendersError) throw existingTendersError;
+
+    const { data, error } = await supabase.rpc(
+      "save_venue_daily_sales_with_tenders",
+      {
+        p_venue_id: venue.id,
+        p_user_id: user.id,
+        p_daily: daily,
+        p_tenders: tenders,
+      },
+    );
+    if (error) throw error;
+
+    const result = data as {
+      record?: Record<string, unknown>;
+      tender_totals?: { tender_id: string; amount_gs: number }[];
+    } | null;
+    if (!result?.record) throw new Error("The save did not return a daily sales record.");
+
+    try {
+      await writeAuditLog({
+        actor_id: user.id,
+        action: existingRecord ? "update" : "create",
+        module_key: SALES_MODULE_KEY,
+        entity: "venue_daily_sales",
+        entity_id: String(result.record.id),
+        venue_id: venue.id,
+        before: {
+          record: existingRecord,
+          tender_totals: existingTenders ?? [],
+        },
+        after: {
+          record: result.record,
+          tender_totals: result.tender_totals ?? [],
+        },
+      });
+    } catch (auditError) {
+      // The transactional save has already succeeded; do not tell the user the
+      // entry failed just because the secondary history record was unavailable.
+      console.error("Could not write daily sales audit history", auditError);
+    }
+
+    revalidateSalesDaily(venue.slug);
+    return {
+      success: "Daily sales and tender totals saved.",
+      record: result.record,
+      tenderTotals: result.tender_totals ?? [],
+    };
+  } catch (error) {
+    console.error("Could not save daily sales and tender totals", error);
+    return {
+      error:
+        "Nothing was saved. Check the figures and try again; your entry remains open.",
+    };
   }
 }
 

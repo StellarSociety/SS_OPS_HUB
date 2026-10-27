@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { BenefitReopenControl } from "@/components/hr/benefit-reopen-control";
 import {
   finalizeBenefitRun,
+  getBenefitContributorSalesDetails,
   getBenefitStaffWorkedDaysCalendar,
   recalculateBenefitRun,
   saveBenefitRunDraft,
@@ -38,6 +39,7 @@ import {
   updateBenefitRunWithheldRetainDisposition,
   type WithheldRetainDisposition,
   updateBenefitStaffOverride,
+  type BenefitContributorSalesDetailsResult,
 } from "@/lib/actions/hr-benefits";
 import {
   BENEFIT_RUN_STATUS_LABELS,
@@ -753,6 +755,13 @@ type WorkedDaysCalendarTarget = {
   collectionDates?: string[];
 };
 
+type ContributorSalesDetailsTarget = {
+  staffId: string;
+  empNo: string;
+  fullName: string;
+  saleDate: string;
+};
+
 function WorkedDaysLink({
   days,
   onOpen,
@@ -775,6 +784,130 @@ function WorkedDaysLink({
     >
       {label}
     </button>
+  );
+}
+
+function SalesDetail({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-black/5 py-2 text-sm last:border-0">
+      <span className="text-black/55">{label}</span>
+      <span className="text-right font-medium tabular-nums text-[#3D421F]">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ContributorSalesDetailsDialog({
+  target,
+  result,
+  loading,
+  error,
+  onClose,
+}: {
+  target: ContributorSalesDetailsTarget | null;
+  result: Extract<BenefitContributorSalesDetailsResult, { ok: true }> | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  if (!target) return null;
+
+  const data = result?.ok ? result : null;
+  return createPortal(
+    <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/45"
+        aria-label="Close contributor sales details"
+        onClick={onClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Sales details for ${target.fullName} on ${target.saleDate}`}
+        className="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-black/8 px-5 py-4">
+          <div>
+            <p className="font-serif text-lg text-[#3D421F]">Sales details</p>
+            <p className="mt-0.5 text-sm text-black/55">
+              {target.fullName} <span className="text-black/35">{target.empNo}</span>
+              <span className="mx-1.5 text-black/25">·</span>
+              {formatDateDmy(target.saleDate)}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="inline-flex size-8 items-center justify-center rounded-md text-black/45 transition hover:bg-black/5 hover:text-[#3D421F]"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[70dvh] space-y-4 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <p className="rounded-lg border border-dashed border-black/15 px-3 py-8 text-center text-sm text-black/45">
+              Loading sales details…
+            </p>
+          ) : error ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800">
+              {error}
+            </p>
+          ) : (
+            <>
+              <section className="rounded-lg border border-black/8 bg-black/[0.015] p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-black/45">
+                  Venue sales and covers
+                </h4>
+                {data?.dailySales ? (
+                  <div className="mt-2 grid gap-x-5 sm:grid-cols-2">
+                    <SalesDetail label="Lunch sales" value={formatMoney(data.dailySales.lunchSales)} />
+                    <SalesDetail label="Lunch covers" value={data.dailySales.lunchCovers} />
+                    <SalesDetail label="Dinner sales" value={formatMoney(data.dailySales.dinnerSales)} />
+                    <SalesDetail label="Dinner covers" value={data.dailySales.dinnerCovers} />
+                    <SalesDetail label="Total sales" value={formatMoney(data.dailySales.totalSales)} />
+                    <SalesDetail label="Total covers" value={data.dailySales.totalCovers} />
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-black/50">No daily venue sales entry was found for this date.</p>
+                )}
+              </section>
+
+              <section className="rounded-lg border border-[var(--venue-primary,#818a40)]/20 bg-[var(--venue-secondary,#F0F3DD)]/35 p-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-[#3D421F]/65">
+                  Contributor collection
+                </h4>
+                {data?.contributor ? (
+                  <div className="mt-2 grid gap-x-5 sm:grid-cols-2">
+                    <SalesDetail label="Employee sales" value={formatMoney(data.contributor.totalSales)} />
+                    <SalesDetail label="Employee covers" value={data.contributor.totalCovers} />
+                    <SalesDetail label="Complimentary covers" value={data.contributor.complimentaryCovers} />
+                    <SalesDetail label="ASPH" value={data.contributor.asph == null ? "—" : formatMoney(data.contributor.asph)} />
+                    <SalesDetail label="Cash tips" value={formatMoney(data.contributor.cashTips)} />
+                    <SalesDetail label="Card tips" value={formatMoney(data.contributor.cardTips)} />
+                    <div className="sm:col-span-2">
+                      <SalesDetail label="Total contributed to gratuity" value={formatMoney(data.contributor.totalContribution)} />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-black/50">No waiter sales entry was found for this contributor on this date.</p>
+                )}
+              </section>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end border-t border-black/8 px-5 py-3">
+          <Button type="button" size="sm" variant="secondary" className="border border-black/10" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -923,6 +1056,17 @@ export function BenefitRunClient({
     new Map<string, PayrollDayFraction[]>(),
   );
   const workedDaysCalendarRequestRef = useRef(0);
+  const [contributorSalesDetails, setContributorSalesDetails] =
+    useState<ContributorSalesDetailsTarget | null>(null);
+  const [contributorSalesDetailsResult, setContributorSalesDetailsResult] =
+    useState<Extract<BenefitContributorSalesDetailsResult, { ok: true }> | null>(
+      null,
+    );
+  const [contributorSalesDetailsLoading, setContributorSalesDetailsLoading] =
+    useState(false);
+  const [contributorSalesDetailsError, setContributorSalesDetailsError] =
+    useState<string | null>(null);
+  const contributorSalesDetailsRequestRef = useRef(0);
 
   useEffect(() => {
     setAsphThresholdDraft(
@@ -2203,6 +2347,34 @@ export function BenefitRunClient({
     } finally {
       if (workedDaysCalendarRequestRef.current === requestId) {
         setWorkedDaysCalendarLoading(false);
+      }
+    }
+  }
+
+  async function openContributorSalesDetails(target: ContributorSalesDetailsTarget) {
+    const requestId = ++contributorSalesDetailsRequestRef.current;
+    setContributorSalesDetails(target);
+    setContributorSalesDetailsResult(null);
+    setContributorSalesDetailsError(null);
+    setContributorSalesDetailsLoading(true);
+    try {
+      const result = await getBenefitContributorSalesDetails({
+        runId: run.id,
+        staffId: target.staffId,
+        saleDate: target.saleDate,
+      });
+      if (contributorSalesDetailsRequestRef.current !== requestId) return;
+      if (!result.ok) {
+        setContributorSalesDetailsError(result.error);
+        return;
+      }
+      setContributorSalesDetailsResult(result);
+    } catch {
+      if (contributorSalesDetailsRequestRef.current !== requestId) return;
+      setContributorSalesDetailsError("Could not load the contributor sales details.");
+    } finally {
+      if (contributorSalesDetailsRequestRef.current === requestId) {
+        setContributorSalesDetailsLoading(false);
       }
     }
   }
@@ -4545,6 +4717,32 @@ export function BenefitRunClient({
             ? "No gratuity collection days for this waiter in the benefit period."
             : "No roster data for this benefit period yet."
         }
+        onDayClick={
+          workedDaysCalendar?.mode === "collection" &&
+          workedDaysCalendar.staffId &&
+          !workedDaysCalendar.staffId.startsWith("name:")
+            ? (saleDate) =>
+                openContributorSalesDetails({
+                  staffId: workedDaysCalendar.staffId,
+                  empNo: workedDaysCalendar.empNo,
+                  fullName: workedDaysCalendar.fullName,
+                  saleDate,
+                })
+            : undefined
+        }
+        dayClickLabel="View sales and gratuity details"
+      />
+      <ContributorSalesDetailsDialog
+        target={contributorSalesDetails}
+        result={contributorSalesDetailsResult}
+        loading={contributorSalesDetailsLoading}
+        error={contributorSalesDetailsError}
+        onClose={() => {
+          contributorSalesDetailsRequestRef.current += 1;
+          setContributorSalesDetails(null);
+          setContributorSalesDetailsLoading(false);
+          setContributorSalesDetailsError(null);
+        }}
       />
     </div>
   );

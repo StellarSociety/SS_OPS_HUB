@@ -7,12 +7,11 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  saveVenueDailySalesEntry,
-  saveVenueDailyTenderTotals,
+  getVenueDailyTenderTotalsForDate,
+  saveVenueDailySalesAndTenderTotals,
 } from "@/lib/actions/sales";
 import {
   computeDailySales,
@@ -1384,6 +1383,8 @@ export function DailySalesEntryForm({
     }
     return map;
   }, [tenderTotals]);
+  const [tenderTotalsOverrideByDate, setTenderTotalsOverrideByDate] =
+    useState<Map<string, Record<string, number>>>(() => new Map());
 
   const waiterTenderSumsByDate = useMemo(() => {
     const map = new Map<string, Record<string, number>>();
@@ -1427,6 +1428,7 @@ export function DailySalesEntryForm({
     const tenderTotalsForDate = {
       ...emptyTenderTotals(tenderIds),
       ...(tenderTotalsByDate.get(selectedDate) ?? {}),
+      ...(tenderTotalsOverrideByDate.get(selectedDate) ?? {}),
     };
     return existing
       ? recordToForm(existing, tenderTotalsForDate)
@@ -1434,7 +1436,13 @@ export function DailySalesEntryForm({
           ...emptyForm(selectedDate, tenderIds),
           tender_totals: tenderTotalsForDate,
         };
-  }, [recordsByDate, tenderTotalsByDate, tenderIds, selectedDate]);
+  }, [
+    recordsByDate,
+    tenderTotalsByDate,
+    tenderTotalsOverrideByDate,
+    tenderIds,
+    selectedDate,
+  ]);
   const [draftForm, setForm] = useState<FormState>(() =>
     emptyForm(today, tenderIds),
   );
@@ -1444,7 +1452,31 @@ export function DailySalesEntryForm({
   const [tenderInputMode, setTenderInputMode] = useState<SalesInputMode>("gross");
   const [discountInputMode, setDiscountInputMode] =
     useState<SalesInputMode>("gross");
-  const [isPending, startTransition] = useTransition();
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (isFormOpen) return;
+    let cancelled = false;
+
+    void getVenueDailyTenderTotalsForDate(selectedDate).then((result) => {
+      if (cancelled || result.error) return;
+      const amounts = Object.fromEntries(
+        (result.rows ?? []).map((row) => [
+          String(row.tender_id),
+          Number(row.amount_gs),
+        ]),
+      );
+      setTenderTotalsOverrideByDate((previous) => {
+        const next = new Map(previous);
+        next.set(selectedDate, amounts);
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isFormOpen, selectedDate]);
 
   const isExisting = recordsByDate.has(selectedDate);
   const fieldsEditable = canEdit && isFormOpen;
@@ -1506,27 +1538,32 @@ export function DailySalesEntryForm({
         ] as VenueDailySalesInputField[]
       ).forEach((field) => formData.set(field, String(form[field])));
 
-      const result = await saveVenueDailySalesEntry(formData);
+      for (const [tenderId, amount] of Object.entries(form.tender_totals)) {
+        formData.set(`tender_${tenderId}`, String(amount));
+      }
+
+      const result = await saveVenueDailySalesAndTenderTotals(formData);
       if (result.error) {
         toast.error(result.error);
         return false;
       }
 
-      if (tenderIds.length > 0) {
-        const tenderData = new FormData();
-        tenderData.set("sale_date", selectedDate);
-        for (const [tenderId, amount] of Object.entries(form.tender_totals)) {
-          tenderData.set(`tender_${tenderId}`, String(amount));
-        }
-        const tenderResult = await saveVenueDailyTenderTotals(tenderData);
-        if (tenderResult.error) {
-          toast.error(tenderResult.error);
-          return false;
-        }
-      }
-
+      const savedTenderTotals = Object.fromEntries(
+        (result.tenderTotals ?? []).map((tender) => [
+          tender.tender_id,
+          Number(tender.amount_gs),
+        ]),
+      );
+      setTenderTotalsOverrideByDate((previous) => {
+        const next = new Map(previous);
+        next.set(selectedDate, savedTenderTotals);
+        return next;
+      });
       const updated = result.record
-        ? recordToForm(result.record, form.tender_totals)
+        ? recordToForm(result.record as VenueDailySalesRecord, {
+            ...emptyTenderTotals(tenderIds),
+            ...savedTenderTotals,
+          })
         : form;
       setForm(updated);
       syncBaseline(updated);
@@ -1606,10 +1643,14 @@ export function DailySalesEntryForm({
     return Math.round(sum * 100) / 100;
   }, [waiterRecords, selectedDate]);
 
-  function handleSave() {
-    startTransition(() => {
-      void saveFormRef.current();
-    });
+  async function handleSave() {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await saveFormRef.current();
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -1621,7 +1662,7 @@ export function DailySalesEntryForm({
         onDateChange={handleDateChange}
         isFormOpen={isFormOpen}
         isExisting={isExisting}
-        isPending={isPending}
+        isPending={isSaving}
         onOpenForm={openForm}
         onSave={handleSave}
         datesWithEntries={datesWithEntries}

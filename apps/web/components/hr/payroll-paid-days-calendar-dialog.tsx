@@ -236,6 +236,8 @@ export function PayrollPaidDaysCalendarDialog({
   daysKindLabel = "Paid days",
   emptyMessage = "No day-level roster data for this payroll period yet.",
   classifyMode = "payroll",
+  onDayClick,
+  dayClickLabel = "View sales details",
 }: {
   open: boolean;
   onClose: () => void;
@@ -258,6 +260,9 @@ export function PayrollPaidDaysCalendarDialog({
   emptyMessage?: string;
   /** Benefits mode: PH / PH-REPL are shown separately and do not count as worked. */
   classifyMode?: "payroll" | "benefits";
+  /** Optional drill-down for populated day cells (used for gratuity collection days). */
+  onDayClick?: (date: string) => void;
+  dayClickLabel?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -445,16 +450,9 @@ export function PayrollPaidDaysCalendarDialog({
                     const day = byDate.get(cell.key);
                     const visual = classifyDay(day, cell.inPeriod, classifyMode);
                     const style = DAY_STYLES[visual];
-                    return (
-                      <div
-                        key={cell.key}
-                        title={dayTooltip(day, visual, cell.key)}
-                        className={cn(
-                          "flex min-h-12 flex-col items-center justify-center rounded-md border px-0.5 py-1 text-xs tabular-nums",
-                          style.cell,
-                          cell.inPeriod && "ring-1 ring-inset ring-black/5",
-                        )}
-                      >
+                    const canOpenDay = Boolean(cell.inPeriod && day && onDayClick);
+                    const content = (
+                      <>
                         {cell.showMonthLabel ? (
                           <span className="text-[8px] font-medium uppercase leading-none opacity-80">
                             {MONTH_SHORT[cell.monthIndex]}
@@ -468,7 +466,37 @@ export function PayrollPaidDaysCalendarDialog({
                             {day.labelCode}
                           </span>
                         ) : null}
-                      </div>
+                      </>
+                    );
+                    return (
+                      canOpenDay ? (
+                        <button
+                          key={cell.key}
+                          type="button"
+                          title={`${dayTooltip(day, visual, cell.key)} · ${dayClickLabel}`}
+                          aria-label={`${dayClickLabel} for ${cell.key}`}
+                          onClick={() => onDayClick?.(cell.key)}
+                          className={cn(
+                            "flex min-h-12 flex-col items-center justify-center rounded-md border px-0.5 py-1 text-xs tabular-nums transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[var(--venue-primary,#818a40)] focus:ring-offset-1",
+                            style.cell,
+                            "ring-1 ring-inset ring-black/5",
+                          )}
+                        >
+                          {content}
+                        </button>
+                      ) : (
+                        <div
+                          key={cell.key}
+                          title={dayTooltip(day, visual, cell.key)}
+                          className={cn(
+                            "flex min-h-12 flex-col items-center justify-center rounded-md border px-0.5 py-1 text-xs tabular-nums",
+                            style.cell,
+                            cell.inPeriod && "ring-1 ring-inset ring-black/5",
+                          )}
+                        >
+                          {content}
+                        </div>
+                      )
                     );
                   })}
                 </div>

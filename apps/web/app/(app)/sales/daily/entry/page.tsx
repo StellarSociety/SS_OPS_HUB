@@ -13,16 +13,24 @@ import {
   canEditVouchers,
 } from "@/lib/sales/permissions";
 import { getSalesPageContext } from "@/lib/sales/page-context";
+import { createServiceClient } from "@/lib/supabase/service";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function SalesDailyEntryPage() {
   const { venue, permissions, supabase } = await getSalesPageContext();
+  // Daily Sales permissions are established by the parent layout. Tender rows
+  // are read through the trusted server client so newly saved totals are not
+  // hidden by an out-of-date RLS/session response during a page reload.
+  const tenderTotalsClient = createServiceClient();
   const [records, taxSettings, tenders, waiterRecords, tenderTotals, vouchers] =
     await Promise.all([
       listVenueDailySales(supabase, venue.id),
       getVenueSalesTaxSettings(supabase, venue.id),
       listActiveVenueTenders(supabase, venue.id),
       listVenueWaiterDailySales(supabase, venue.id),
-      listVenueDailyTenderTotals(supabase, venue.id),
+      listVenueDailyTenderTotals(tenderTotalsClient, venue.id),
       listVenueVouchers(supabase, venue.id),
     ]);
 

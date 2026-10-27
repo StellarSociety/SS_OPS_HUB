@@ -41,6 +41,30 @@ import {
 } from "@/lib/hr/types";
 import { createServiceClient } from "@/lib/supabase/service";
 
+export type BenefitContributorSalesDetailsResult =
+  | {
+      ok: true;
+      saleDate: string;
+      dailySales: {
+        lunchSales: number;
+        lunchCovers: number;
+        dinnerSales: number;
+        dinnerCovers: number;
+        totalSales: number;
+        totalCovers: number;
+      } | null;
+      contributor: {
+        totalSales: number;
+        totalCovers: number;
+        complimentaryCovers: number;
+        asph: number | null;
+        cashTips: number;
+        cardTips: number;
+        totalContribution: number;
+      } | null;
+    }
+  | { ok: false; error: string };
+
 export type BenefitActionResult =
   | { ok: true; id?: string }
   | { ok: false; error: string };
@@ -1971,6 +1995,163 @@ export async function getBenefitStaffWorkedDaysCalendar(input: {
         e instanceof Error
           ? e.message
           : "Could not load worked days for this employee.",
+    };
+  }
+}
+
+/**
+ * Daily source data behind a gratuity contributor's collection day. This keeps
+ * the calendar drill-down tied to the same benefit-run period and venue.
+ */
+export async function getBenefitContributorSalesDetails(input: {
+  runId: string;
+  staffId: string;
+  saleDate: string;
+}): Promise<BenefitContributorSalesDetailsResult> {
+  const runId = input.runId.trim();
+  const staffId = input.staffId.trim();
+  const saleDate = input.saleDate.trim().slice(0, 10);
+  if (!runId || !staffId || !/^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+    return { ok: false, error: "Run, contributor, and sale date are required." };
+  }
+
+  const auth = await getBenefitsAuth();
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const { venue, permissions } = auth;
+  if (!canAccessBenefits(permissions, venue.id)) {
+    return { ok: false, error: "No permission to view benefit runs." };
+  }
+
+  try {
+    const service = createServiceClient();
+    const { data: run, error: runError } = await service
+      .from("hr_benefit_runs")
+      .select("period_start, period_end")
+      .eq("id", runId)
+      .eq("venue_id", venue.id)
+      .maybeSingle();
+    if (runError) throw new Error(runError.message);
+    if (!run) return { ok: false, error: "Benefit run not found." };
+
+    const periodStart = String(run.period_start).slice(0, 10);
+    const periodEnd = String(run.period_end).slice(0, 10);
+    if (saleDate < periodStart || saleDate > periodEnd) {
+      return { ok: false, error: "This date is outside the benefit period." };
+    }
+
+    const [dailyRes, waiterRes] = await Promise.all([
+      service
+        .from("venue_daily_sales")
+        .select(
+          "lunch_food_gs, lunch_beverages_gs, lunch_wine_gs, lunch_shisha_gs, lunch_tobacco_gs, lunch_others_gs, lunch_service_fees_gs, lunch_covers, dinner_food_gs, dinner_beverages_gs, dinner_wine_gs, dinner_shisha_gs, dinner_tobacco_gs, dinner_others_gs, dinner_service_fees_gs, dinner_covers",
+        )
+        .eq("venue_id", venue.id)
+        .eq("sale_date", saleDate)
+        .maybeSingle(),
+      service
+        .from("venue_waiters")
+        .select("id")
+        .eq("venue_id", venue.id)
+        .eq("staff_id", staffId),
+    ]);
+    if (dailyRes.error) throw new Error(dailyRes.error.message);
+    if (waiterRes.error) throw new Error(waiterRes.error.message);
+
+    const waiterIds = (waiterRes.data ?? []).map((row) => String(row.id));
+    const waiterSalesRes = waiterIds.length
+      ? await service
+          .from("venue_waiter_daily_sales")
+          .select(
+            "total_sales_gs, total_covers, complimentary_covers, gratuity_cash_gs, gratuity_cc_gs",
+          )
+          .eq("venue_id", venue.id)
+          .eq("sale_date", saleDate)
+          .in("waiter_id", waiterIds)
+      : { data: [], error: null };
+    if (waiterSalesRes.error) throw new Error(waiterSalesRes.error.message);
+
+    const n = (value: unknown) => Number(value) || 0;
+    const daily = dailyRes.data;
+    const lunchSales = daily
+      ? [
+          daily.lunch_food_gs,
+          daily.lunch_beverages_gs,
+          daily.lunch_wine_gs,
+          daily.lunch_shisha_gs,
+          daily.lunch_tobacco_gs,
+          daily.lunch_others_gs,
+          daily.lunch_service_fees_gs,
+        ].reduce((sum, value) => sum + n(value), 0)
+      : 0;
+    const dinnerSales = daily
+      ? [
+          daily.dinner_food_gs,
+          daily.dinner_beverages_gs,
+          daily.dinner_wine_gs,
+          daily.dinner_shisha_gs,
+          daily.dinner_tobacco_gs,
+          daily.dinner_others_gs,
+          daily.dinner_service_fees_gs,
+        ].reduce((sum, value) => sum + n(value), 0)
+      : 0;
+
+    const contributorRows = waiterSalesRes.data ?? [];
+    const contributorTotals = contributorRows.reduce(
+      (total, row) => ({
+        totalSales: total.totalSales + n(row.total_sales_gs),
+        totalCovers: total.totalCovers + n(row.total_covers),
+        complimentaryCovers:
+          total.complimentaryCovers + n(row.complimentary_covers),
+        cashTips: total.cashTips + n(row.gratuity_cash_gs),
+        cardTips: total.cardTips + n(row.gratuity_cc_gs),
+      }),
+      {
+        totalSales: 0,
+        totalCovers: 0,
+        complimentaryCovers: 0,
+        cashTips: 0,
+        cardTips: 0,
+      },
+    );
+    const asphCovers = Math.max(
+      0,
+      contributorTotals.totalCovers - contributorTotals.complimentaryCovers,
+    );
+
+    return {
+      ok: true,
+      saleDate,
+      dailySales: daily
+        ? {
+            lunchSales,
+            lunchCovers: n(daily.lunch_covers),
+            dinnerSales,
+            dinnerCovers: n(daily.dinner_covers),
+            totalSales: lunchSales + dinnerSales,
+            totalCovers: n(daily.lunch_covers) + n(daily.dinner_covers),
+          }
+        : null,
+      contributor: contributorRows.length
+        ? {
+            ...contributorTotals,
+            asph:
+              asphCovers > 0
+                ? Math.round((contributorTotals.totalSales / asphCovers) * 100) /
+                  100
+                : null,
+            totalContribution:
+              contributorTotals.cashTips + contributorTotals.cardTips,
+          }
+        : null,
+    };
+  } catch (e) {
+    console.error("[benefits] contributor sales details:", e);
+    return {
+      ok: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Could not load the contributor sales details.",
     };
   }
 }

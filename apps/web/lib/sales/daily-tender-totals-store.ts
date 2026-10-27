@@ -19,15 +19,30 @@ export type VenueDailyTenderTotal = {
 export async function listVenueDailyTenderTotals(
   supabase: SupabaseClient,
   venueId: string,
+  saleDate?: string,
 ): Promise<VenueDailyTenderTotal[]> {
-  const { data, error } = await supabase
-    .from("venue_daily_tender_totals")
-    .select("*")
-    .eq("venue_id", venueId)
-    .order("sale_date", { ascending: true });
+  // PostgREST caps each response at 1,000 rows. Daily totals are retained as
+  // history, so a single first page eventually omits current dates entirely.
+  const pageSize = 1_000;
+  const rows: VenueDailyTenderTotal[] = [];
 
-  if (error) throw error;
-  return (data ?? []).map((row) => ({
+  for (let from = 0; ; from += pageSize) {
+    let query = supabase
+      .from("venue_daily_tender_totals")
+      .select("*")
+      .eq("venue_id", venueId)
+      .order("sale_date", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (saleDate) query = query.eq("sale_date", saleDate);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const page = (data ?? []) as VenueDailyTenderTotal[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return rows.map((row) => ({
     ...(row as VenueDailyTenderTotal),
     amount_gs: Number((row as VenueDailyTenderTotal).amount_gs),
   }));
